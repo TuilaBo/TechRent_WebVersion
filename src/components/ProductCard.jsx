@@ -1,14 +1,5 @@
 import React from "react";
-import { Card, Row, Col, Typography } from "antd";
-import {
-  HeartOutlined,
-  ShareAltOutlined,
-  ShoppingCartOutlined,
-} from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
-
-const { Title, Paragraph } = Typography;
-const { Meta } = Card;
 
 const products = [
   {
@@ -48,91 +39,117 @@ const products = [
 export default function ProductCard() {
   const navigate = useNavigate();
 
-  const goDetail = () => {
-    navigate(`/devices/:Id`);
+  const goDetail = (id) => {
+    navigate(`/devices/${id}`);
   };
 
   return (
-    <div style={{ padding: "24px", background: "#f0f2f5" }}>
-      <Title
-        level={2}
-        style={{ textAlign: "center", marginBottom: "32px", color: "#1890ff" }}
-      >
+    <div style={{ padding: "40px 20px", maxWidth: "1200px", margin: "0 auto" }}>
+      <h2 style={{ textAlign: "center", marginBottom: "40px", color: "#1a1a1a", fontSize: "28px", fontWeight: "700", letterSpacing: "1px" }}>
         Sản phẩm nổi bật
-      </Title>
+      </h2>
 
-      <Row gutter={[16, 16]}>
+      <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
         {products.map((item) => (
-          <Col xs={24} sm={12} md={8} lg={6} key={item.id}>
-            <Card
-              hoverable
-              onClick={() => goDetail(item.id)}
-              style={{
-                borderRadius: "12px",
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-                overflow: "hidden",
-                transition: "all 0.3s ease",
-                cursor: "pointer",
-              }}
-              cover={
-                <div style={{ overflow: "hidden", height: "200px" }}>
-                  {/* cũng cho img clickable / accessible */}
-                  <img
-                    alt={item.title}
-                    src={item.image}
-                    style={{
-                      height: "100%",
-                      width: "100%",
-                      objectFit: "cover",
-                      transition: "transform 0.4s ease",
-                    }}
-                    className="card-img"
-                  />
-                </div>
-              }
-              actions={[
-                <HeartOutlined key="like" style={{ color: "#eb2f96" }} />,
-                <ShoppingCartOutlined key="cart" style={{ color: "#1890ff" }} />,
-                <ShareAltOutlined key="share" style={{ color: "#52c41a" }} />,
-              ]}
-              bodyStyle={{ minHeight: "120px" }}
-              className="custom-card"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && goDetail(item.id)}
-            >
-              <Meta
-                avatar={
-                  <img
-                    src={item.avatar}
-                    alt="avatar"
-                    style={{ borderRadius: "50%" }}
-                  />
-                }
-                title={
-                  <span style={{ fontWeight: "bold", color: "#595959" }}>
-                    {item.title}
-                  </span>
-                }
-                description={
-                  <Paragraph ellipsis={{ rows: 2 }} style={{ color: "#8c8c8c" }}>
-                    {item.description}
-                  </Paragraph>
-                }
+          <div
+            key={item.id}
+            onClick={() => goDetail(item.id)}
+            onKeyDown={(e) => e.key === "Enter" && goDetail(item.id)}
+            role="button"
+            tabIndex={0}
+            style={{
+              background: "#ffffff",
+              borderRadius: "16px",
+              overflow: "hidden",
+              boxShadow: "0 8px 16px rgba(0, 0, 0, 0.08)",
+              transition: "all 0.3s ease",
+              cursor: "pointer",
+              position: "relative",
+            }}
+            className="custom-card"
+          >
+            <div style={{ height: "200px", overflow: "hidden", position: "relative" }}>
+              <img
+                alt={item.title}
+                src={item.image}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transition: "transform 0.5s ease",
+                }}
+                className="card-img"
               />
-            </Card>
-          </Col>
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: "100%",
+                  background: "linear-gradient(to top, rgba(0,0,0,0.3), transparent)",
+                  opacity: 0,
+                  transition: "opacity 0.3s ease",
+                }}
+                className="overlay"
+              />
+            </div>
+            <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <img
+                  src={item.avatar}
+                  alt="avatar"
+                  style={{ width: "40px", height: "40px", borderRadius: "50%", border: "1px solid #f0f0f0" }}
+                />
+                <h3 style={{ fontSize: "16px", fontWeight: "600", color: "#333", margin: 0 }}>
+                  {item.title}
+                </h3>
+              </div>
+              <p style={{ color: "#666", fontSize: "13px", lineHeight: "1.4", margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                {item.description}
+              </p>
+            </div>
+            <div
+              style={{
+                position: "absolute",
+                bottom: "16px",
+                right: "16px",
+                display: "flex",
+                gap: "12px",
+                opacity: 0,
+                transition: "opacity 0.3s ease",
+              }}
+              className="actions"
+            >
+              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#eb2f96", fontSize: "18px" }}>❤️</button>
+              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#1890ff", fontSize: "18px" }}>🛒</button>
+              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#52c41a", fontSize: "18px" }}>🔗</button>
+            </div>
+          </div>
         ))}
-      </Row>
+      </div>
 
-      {/* CSS hover effect */}
       <style jsx>{`
         .custom-card:hover {
-          transform: translateY(-6px);
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+          transform: translateY(-8px);
+          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
         }
         .custom-card:hover .card-img {
-          transform: scale(1.05);
+          transform: scale(1.08);
+        }
+        .custom-card:hover .overlay {
+          opacity: 1;
+        }
+        .custom-card:hover .actions {
+          opacity: 1;
+        }
+        .custom-card:focus {
+          outline: 2px solid #1890ff;
+        }
+        @media (min-width: 1200px) {
+          .product-grid {
+            grid-template-columns: repeat(4, 1fr);
+          }
         }
       `}</style>
     </div>

@@ -109,19 +109,10 @@ export default function CheckoutPage() {
       (sum, it) => sum + it.dailyPrice * it.days * it.qty,
       0
     );
-
-    // KHÔNG tính phí vận chuyển
-    const shipping = 0;
-
+    const shipping = 0; // Không tính phí ship ở bản này
     const discount = couponApplied?.amount || 0;
-
-    // Tiền cọc (mock = 30% tạm tính). Nếu bạn có cọc theo từng sản phẩm,
-    // hãy tính riêng per item rồi cộng lại.
-    const deposit = Math.round(subtotal * DEPOSIT_RATE);
-
-    // Tổng cộng: tạm tính + cọc - giảm
+    const deposit = Math.round(subtotal * DEPOSIT_RATE); // 30% tiền cọc
     const grand = Math.max(0, subtotal + deposit - discount);
-
     return { subtotal, shipping, discount, deposit, grand };
   }, [couponApplied]);
 
@@ -145,7 +136,7 @@ export default function CheckoutPage() {
       },
       shipping: {
         method: shippingMethod,
-        receiveAt: values.receiveAt?.toISOString(), // THỜI GIAN NHẬN HÀNG
+        receiveAt: values.receiveAt?.toISOString(), // thời gian nhận
         address:
           shippingMethod === "delivery"
             ? {
@@ -163,7 +154,6 @@ export default function CheckoutPage() {
 
     console.log("Checkout payload:", payload);
     message.success("Đã lưu thông tin. Chuyển tới bước ký hợp đồng…");
-    // Sang trang ký hợp đồng
     navigate("/contract", { state: payload });
   };
 
@@ -182,13 +172,14 @@ export default function CheckoutPage() {
           className="mb-2"
         />
 
+        {/* TIÊU ĐỀ ĐƯA RA NGOÀI 2 CỘT → 2 khối bắt đầu cùng cao độ */}
+        <Title level={2} style={{ margin: "0 0 16px 0" }}>
+          TechRent
+        </Title>
+
         <Row gutter={[24, 24]}>
           {/* LEFT: Form giao hàng */}
           <Col xs={24} lg={14}>
-            <Title level={2} style={{ marginBottom: 16 }}>
-              TechRent
-            </Title>
-
             <Card bordered className="rounded-xl" bodyStyle={{ padding: 20 }}>
               <Title level={4} style={{ marginTop: 0 }}>
                 Thông tin giao hàng
@@ -319,7 +310,7 @@ export default function CheckoutPage() {
                     </div>
                   )}
 
-                  {/* THỜI GIAN NHẬN HÀNG (áp dụng cho cả 2 phương thức) */}
+                  {/* THỜI GIAN NHẬN HÀNG */}
                   <Form.Item
                     label="Thời gian nhận hàng"
                     name="receiveAt"
@@ -338,96 +329,100 @@ export default function CheckoutPage() {
             </Card>
           </Col>
 
-          {/* RIGHT: Tóm tắt đơn hàng */}
+          {/* RIGHT: Tóm tắt đơn hàng (sticky) */}
           <Col xs={24} lg={10}>
-            <Card
-              bordered
-              className="rounded-xl"
-              style={{
-                position: "sticky",
-                top: "calc(var(--stacked-header,0px) + 16px)",
-              }}
-              bodyStyle={{ padding: 16 }}
-            >
-              <List
-                itemLayout="horizontal"
-                dataSource={CART}
-                renderItem={(item) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      avatar={
-                        <Badge count={item.qty} size="small">
-                          <Avatar
-                            shape="square"
-                            size={56}
-                            src={item.image}
-                            alt={item.name}
-                          />
-                        </Badge>
-                      }
-                      title={
-                        <div className="flex justify-between gap-2">
-                          <span style={{ fontWeight: 500 }}>{item.name}</span>
-                          <span>
-                            {formatVND(item.dailyPrice * item.days * item.qty)}
-                          </span>
-                        </div>
-                      }
-                      description={<Text type="secondary">{item.note}</Text>}
-                    />
-                  </List.Item>
-                )}
-              />
-
-              <Divider />
-
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Mã giảm giá"
-                  value={coupon}
-                  onChange={(e) => setCoupon(e.target.value)}
+            <div className="checkout-sticky">
+              <Card
+                bordered
+                className="rounded-xl"
+                bodyStyle={{ padding: 16, height: "100%", overflow: "auto" }}
+              >
+                <List
+                  itemLayout="horizontal"
+                  dataSource={CART}
+                  renderItem={(item) => (
+                    <List.Item>
+                      <List.Item.Meta
+                        avatar={
+                          <Badge count={item.qty} size="small">
+                            <Avatar shape="square" size={56} src={item.image} alt={item.name} />
+                          </Badge>
+                        }
+                        title={
+                          <div className="flex justify-between gap-2">
+                            <span style={{ fontWeight: 500 }}>{item.name}</span>
+                            <span>{formatVND(item.dailyPrice * item.days * item.qty)}</span>
+                          </div>
+                        }
+                        description={<Text type="secondary">{item.note}</Text>}
+                      />
+                    </List.Item>
+                  )}
                 />
-                <Button onClick={applyCoupon}>Sử dụng</Button>
-              </div>
 
-              <Divider />
+                <Divider />
 
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <Text>Tạm tính</Text>
-                  <Text strong>{formatVND(totals.subtotal)}</Text>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Mã giảm giá"
+                    value={coupon}
+                    onChange={(e) => setCoupon(e.target.value)}
+                  />
+                  <Button onClick={applyCoupon}>Sử dụng</Button>
                 </div>
 
-                
+                <Divider />
 
-                {totals.discount > 0 && (
+                <div className="space-y-2">
                   <div className="flex justify-between">
-                    <Text>Giảm giá ({couponApplied?.code})</Text>
-                    <Text strong>-{formatVND(totals.discount)}</Text>
+                    <Text>Tạm tính</Text>
+                    <Text strong>{formatVND(totals.subtotal)}</Text>
                   </div>
-                )}
 
-                {/* TIỀN CỌC */}
-                <div className="flex justify-between">
-                  <Text>Tiền cọc</Text>
-                  <Text strong>{formatVND(totals.deposit)}</Text>
+                  {totals.discount > 0 && (
+                    <div className="flex justify-between">
+                      <Text>Giảm giá ({couponApplied?.code})</Text>
+                      <Text strong>-{formatVND(totals.discount)}</Text>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <Text>Tiền cọc</Text>
+                    <Text strong>{formatVND(totals.deposit)}</Text>
+                  </div>
                 </div>
-              </div>
 
-              <Divider />
+                <Divider />
 
-              <div className="flex justify-between items-center">
-                <Title level={4} style={{ margin: 0 }}>
-                  Tổng cộng
-                </Title>
-                <Title level={3} style={{ margin: 0, color: "#ff4d4f" }}>
-                  {formatVND(totals.grand)}
-                </Title>
-              </div>
-            </Card>
+                <div className="flex justify-between items-center">
+                  <Title level={4} style={{ margin: 0 }}>
+                    Tổng cộng
+                  </Title>
+                  <Title level={3} style={{ margin: 0, color: "#ff4d4f" }}>
+                    {formatVND(totals.grand)}
+                  </Title>
+                </div>
+              </Card>
+            </div>
           </Col>
         </Row>
       </div>
+
+      {/* Sticky styles */}
+      <style>{`
+        .checkout-sticky {
+          position: sticky;
+          top: calc(var(--stacked-header, 0px) + 16px);
+          align-self: flex-start;
+          height: calc(100vh - var(--stacked-header, 0px) - 32px);
+        }
+        @media (max-width: 991px) {
+          .checkout-sticky {
+            position: static;
+            height: auto;
+          }
+        }
+      `}</style>
     </div>
   );
 }
