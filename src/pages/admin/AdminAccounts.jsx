@@ -42,7 +42,7 @@ export default function AdminAccounts() {
   const [staffForm] = Form.useForm();
 
   // Customers (chỉ xem / hành động nhẹ)
-  const [customers, setCustomers] = useState(INIT_CUSTOMERS);
+  const [customers] = useState(INIT_CUSTOMERS);
 
   /** ===== Staff handlers ===== */
   const openCreateStaff = () => {
