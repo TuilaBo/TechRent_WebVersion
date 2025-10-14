@@ -1,0 +1,12 @@
+
+<svg width="1800" height="520" viewBox="0 0 1800 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    @font-face { font-family: 'Inter'; src: local('Inter'), local('Arial'); }
+    .title { font: 900 240px 'Inter', Arial, sans-serif; letter-spacing: 4px; }
+    .tag   { font: 600 72px 'Inter', Arial, sans-serif; letter-spacing: 2px; }
+  </style>
+  <rect width="1800" height="520" fill="none"/>
+  <text x="50%" y="55%" text-anchor="middle" class="title" fill="#111111">TECHRENT</text>
+  <line x1="200" x2="1600" y1="315" y2="315" stroke="#111111" stroke-width="10" />
+  <text x="50%" y="450" text-anchor="middle" class="tag" fill="#111111">THUÊ CÔNG NGHỆ DỄ DÀNG</text>
+</svg>

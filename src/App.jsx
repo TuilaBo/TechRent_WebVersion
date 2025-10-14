@@ -31,6 +31,9 @@ import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
 import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
 import TechnicianReports from "./pages/technician/TechnicianReports.jsx";
 import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
+
+import SupportDesk from "./pages/CST/SupportDesk.jsx";
+import SupportShell from "./pages/CST/SupportShell.jsx";
 export default function App() {
   return (
     <Routes>
@@ -70,7 +73,17 @@ export default function App() {
         <Route path="reports" element={<TechnicianReports />} />
         <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
         </Route>
+
+        {/* ====== CUSTOMER SUPPORT (KHÔNG dùng LayoutRoot) ====== */}
+        <Route path="/support" element={<SupportShell />}>
+        <Route index element={<SupportDesk />} />
+        <Route path="desk" element={<SupportDesk />} />
+        <Route path="chats" element={<div>Live Chats (sắp có)</div>} />
+        <Route path="settings" element={<div>Settings (sắp có)</div>} />
+        </Route>
       {/* ====== 404 cho mọi route còn lại ====== */}
+
+        
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -1,7 +1,7 @@
 // src/pages/Home.jsx
 import Hero from "../components/Hero.jsx";
 import ProductCard from "../components/ProductCard.jsx";
-
+import ProductCardfavourite from "../components/ProductCardfavourite.jsx";
 export default function Home() {
   return (
     <div className="space-y-12">
@@ -15,7 +15,7 @@ export default function Home() {
 
       {/* Các khối còn lại */}
       <section className="space-y-6">
-        <ProductCard />
+        <ProductCardfavourite />
       </section>
       <section className="space-y-6">
         <ProductCard />

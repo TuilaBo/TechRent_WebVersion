@@ -1,10 +1,22 @@
 // src/components/AppHeader.jsx
 import React, { useEffect, useState } from "react";
 import {
-  Layout, Row, Col, Input, Space, Badge, Dropdown, Avatar, Menu, Button,
+  Layout,
+  Row,
+  Col,
+  Input,
+  Space,
+  Badge,
+  Dropdown,
+  Avatar,
+  Menu,
+  Button,
 } from "antd";
 import {
-  ShoppingCartOutlined, UserOutlined, SearchOutlined, MenuOutlined,
+  ShoppingCartOutlined,
+  UserOutlined,
+  SearchOutlined,
+  MenuOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 
@@ -28,8 +40,6 @@ export default function AppHeader() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-
-
   const userMenu = (
     <Menu
       items={[
@@ -42,13 +52,13 @@ export default function AppHeader() {
 
   return (
     <Header
-  style={{
-    position: "sticky",
-    top: 0,
-    zIndex: 1000,
-    width: "100%",
-    // 🔮 Neon purple–blue gradient + highlight cam nhẹ
-    backgroundImage: `
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 1000,
+        width: "100%",
+        // 🔮 Neon purple–blue gradient + highlight cam nhẹ
+        backgroundImage: `
       linear-gradient(135deg,
         #1A0B2E 0%,
         #2A1050 20%,
@@ -60,34 +70,38 @@ export default function AppHeader() {
         rgba(255,153,0,.32) 0%,
         rgba(255,153,0,0) 60%)
     `,
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    padding: "0 32px",
-    boxShadow: "0 10px 30px rgba(17, 12, 46, .35)",
-    borderBottom: "1px solid rgba(255,255,255,.08)",
-    transition: "background .25s ease, box-shadow .25s ease",
-  }}
->
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        padding: "0 32px",
+        boxShadow: "0 10px 30px rgba(17, 12, 46, .35)",
+        borderBottom: "1px solid rgba(255,255,255,.08)",
+        transition: "background .25s ease, box-shadow .25s ease",
+      }}
+    >
       <Row align="middle" justify="space-between">
         {/* Logo */}
-        <Col>
-          <Link
-            to="/"
-            style={{
-              fontSize: 24,
-              fontWeight: 700,
-              color: "#fff",
-              letterSpacing: 0.5,
-              fontFamily:
-                "'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-              transition: "opacity .25s ease",
-            }}
-            onMouseEnter={(e) => (e.target.style.opacity = 0.85)}
-            onMouseLeave={(e) => (e.target.style.opacity = 1)}
-          >
-            TechRent
-          </Link>
-        </Col>
+        {/* Logo */}
+<Col>
+  <Link
+    to="/"
+    aria-label="TechRent"
+    style={{ display: "inline-flex", alignItems: "center" }}
+  >
+    <img
+      src="/logo2.png" // hoặc .svg
+      alt="TechRent"
+      // Tăng kích thước logo: dùng clamp để responsive chút
+      style={{
+        height: "clamp(32px, 3.6vw, 44px)", // trước ~24–28px, giờ to hơn
+        width: "auto",
+        display: "block",
+        transform: "translateY(15px)"
+      }}
+      draggable="false"
+    />
+  </Link>
+</Col>
+
 
         {/* Menu desktop */}
         <Col flex="auto" className="hidden md:block">
@@ -144,26 +158,6 @@ export default function AppHeader() {
                 padding: "8px 14px",
               }}
             />
-            <Dropdown overlay={userMenu} trigger={["click"]}>
-              <Avatar
-                style={{
-                  backgroundColor: "transparent",
-                  border: "1px solid rgba(255,255,255,.22)",
-                  cursor: "pointer",
-                  transition: "transform .2s ease, opacity .2s ease",
-                }}
-                icon={<UserOutlined style={{ color: "#fff" }} />}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "scale(1.06)";
-                  e.currentTarget.style.opacity = 0.9;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "scale(1)";
-                  e.currentTarget.style.opacity = 1;
-                }}
-              />
-            </Dropdown>
-
             <Link to="/cart" style={{ display: "inline-block" }}>
               <Badge count={2} size="small" offset={[0, 6]} color="#bfbfbf">
                 <ShoppingCartOutlined
@@ -184,24 +178,25 @@ export default function AppHeader() {
                 />
               </Badge>
             </Link>
-
-            <Button
-              type="text"
-              icon={<MenuOutlined style={{ fontSize: 20 }} />}
-              className="md:hidden"
-              style={{
-                color: "#fff",
-                transition: "transform .2s ease, opacity .2s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "scale(1.06)";
-                e.currentTarget.style.opacity = 0.9;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.opacity = 1;
-              }}
-            />
+            <Dropdown overlay={userMenu} trigger={["click"]}>
+              <Avatar
+                style={{
+                  backgroundColor: "transparent",
+                  border: "1px solid rgba(255,255,255,.22)",
+                  cursor: "pointer",
+                  transition: "transform .2s ease, opacity .2s ease",
+                }}
+                icon={<UserOutlined style={{ color: "#fff" }} />}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "scale(1.06)";
+                  e.currentTarget.style.opacity = 0.9;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "scale(1)";
+                  e.currentTarget.style.opacity = 1;
+                }}
+              />
+            </Dropdown>
           </Space>
         </Col>
       </Row>

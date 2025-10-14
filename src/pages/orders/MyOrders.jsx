@@ -242,40 +242,40 @@ export default function MyOrders() {
       filters: Object.entries(PAYMENT_STATUS_MAP).map(([value, { label }]) => ({ text: label, value })),
       onFilter: (v, r) => r.paymentStatus === v,
     },
-    {
-      title: "",
-      key: "actions",
-      fixed: "right",
-      width: 200, // Narrowed
-      render: (_, r) => {
-        const canPay = r.paymentStatus === "unpaid" && r.orderStatus !== "cancelled";
-        const canCancel = ["pending", "confirmed"].includes(r.orderStatus);
-        return (
-          <Space size="small">
-            <Button shape="round" onClick={() => showDetail(r)} icon={<EyeOutlined />} type="text" style={{ color: '#1890ff' }}>
-              Xem
-            </Button>
-            <Button
-              shape="round"
-              type="primary"
-              disabled={!canPay}
-              icon={<CreditCardOutlined />}
-              onClick={() => message.info(`Thanh toán đơn ${r.id}`)}
-              style={{ background: 'linear-gradient(to right, #4da6ff, #1677ff)', border: 'none' }}
-            >
-              Thanh toán
-            </Button>
-            <Button
-              shape="round"
-              danger
-              disabled={!canCancel}
-              icon={<StopOutlined />}
-              onClick={() => message.warn(`Yêu cầu hủy đơn ${r.id}`)}
-            />
-          </Space>
-        );
-      },
-    },
+    // {
+    //   title: "",
+    //   key: "actions",
+    //   fixed: "right",
+    //   width: 200, // Narrowed
+    //   render: (_, r) => {
+    //     const canPay = r.paymentStatus === "unpaid" && r.orderStatus !== "cancelled";
+    //     const canCancel = ["pending", "confirmed"].includes(r.orderStatus);
+    //     return (
+    //       <Space size="small">
+    //         <Button shape="round" onClick={() => showDetail(r)} icon={<EyeOutlined />} type="text" style={{ color: '#1890ff' }}>
+    //           Xem
+    //         </Button>
+    //         <Button
+    //           shape="round"
+    //           type="primary"
+    //           disabled={!canPay}
+    //           icon={<CreditCardOutlined />}
+    //           onClick={() => message.info(`Thanh toán đơn ${r.id}`)}
+    //           style={{ background: 'linear-gradient(to right, #4da6ff, #1677ff)', border: 'none' }}
+    //         >
+    //           Thanh toán
+    //         </Button>
+    //         <Button
+    //           shape="round"
+    //           danger
+    //           disabled={!canCancel}
+    //           icon={<StopOutlined />}
+    //           onClick={() => message.warn(`Yêu cầu hủy đơn ${r.id}`)}
+    //         />
+    //       </Space>
+    //     );
+    //   },
+    // },
   ];
 
   return (
