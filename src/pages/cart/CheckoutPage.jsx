@@ -322,7 +322,7 @@ export default function CheckoutPage() {
 
                 <div className="mt-4">
                   <Button type="primary" size="large" htmlType="submit" block>
-                    Tiếp tục tới ký hợp đồng
+                   Tạo đơn thuê 
                   </Button>
                 </div>
               </Form>
