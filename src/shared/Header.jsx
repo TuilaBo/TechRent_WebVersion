@@ -1,5 +1,4 @@
-// src/components/AppHeader.jsx
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   Layout,
   Row,
@@ -8,7 +7,6 @@ import {
   Space,
   Badge,
   Dropdown,
-  Avatar,
   Menu,
   Button,
 } from "antd";
@@ -32,15 +30,6 @@ const navItems = [
 ];
 
 export default function AppHeader() {
-  const [atTop, setAtTop] = useState(true);
-
-  useEffect(() => {
-    const onScroll = () => setAtTop(window.scrollY < 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
   const userMenu = (
     <Menu
       items={[
@@ -58,71 +47,57 @@ export default function AppHeader() {
         top: 0,
         zIndex: 1000,
         width: "100%",
-        // 🔮 Neon purple–blue gradient + highlight cam nhẹ
-        backgroundImage: `
-      linear-gradient(135deg,
-        #1A0B2E 0%,
-        #2A1050 20%,
-        #4527A0 45%,
-        #3B82F6 80%,
-        #2563EB 100%
-      ),
-      radial-gradient(900px 280px at 82% -20%,
-        rgba(255,153,0,.32) 0%,
-        rgba(255,153,0,0) 60%)
-    `,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        padding: "0 32px",
-        boxShadow: "0 10px 30px rgba(17, 12, 46, .35)",
-        borderBottom: "1px solid rgba(255,255,255,.08)",
-        transition: "background .25s ease, box-shadow .25s ease",
+        background:
+          "linear-gradient(90deg, #0f0a2b 0%, #3d23a6 45%, #2f6bf2 100%)",
+        backdropFilter: "blur(10px)",
+        padding: "0 24px",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
       }}
     >
-      <Row align="middle" justify="space-between">
+      <Row align="middle" justify="space-between" style={{ height: 56 }}>
         {/* Logo */}
         <Col>
           <Link
             to="/"
-            aria-label="TechRent"
-            style={{ display: "inline-flex", alignItems: "center" }}
+            style={{
+              fontSize: 24,
+              fontWeight: 800,
+              color: "#fff",
+              letterSpacing: 1,
+              fontFamily:
+                "'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              textDecoration: "none",
+            }}
           >
-            <img
-              src="/logo2.png" // hoặc .svg
-              alt="TechRent"
-              // Tăng kích thước logo: dùng clamp để responsive chút
-              style={{
-                height: "clamp(32px, 3.6vw, 44px)", // trước ~24–28px, giờ to hơn
-                width: "auto",
-                display: "block",
-                transform: "translateY(15px)"
-              }}
-              draggable="false"
-            />
+            TECHRENT
           </Link>
         </Col>
 
         {/* Menu desktop */}
         <Col flex="auto" className="hidden md:block">
-          <Space size="large" style={{ marginLeft: 48 }}>
+          <Space size="large" style={{ marginLeft: 40 }}>
             {navItems.map((item) => (
               <Link
                 key={item.key}
                 to={item.link}
                 style={{
-                  color: "rgba(255,255,255,.82)",
+                  color: "rgba(255,255,255,0.85)",
                   fontWeight: 500,
                   fontSize: 15,
                   position: "relative",
-                  transition: "color .25s ease",
+                  textDecoration: "none",
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.color = "#fff";
-                  e.target.style.setProperty("--underline-width", "100%");
+                  e.currentTarget.style.color = "#fff";
+                  e.currentTarget.style.setProperty(
+                    "--underline-width",
+                    "100%"
+                  );
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.color = "rgba(255,255,255,.82)";
-                  e.target.style.setProperty("--underline-width", "0");
+                  e.currentTarget.style.color = "rgba(255,255,255,0.85)";
+                  e.currentTarget.style.setProperty("--underline-width", "0");
                 }}
               >
                 {item.label}
@@ -133,7 +108,7 @@ export default function AppHeader() {
                     left: 0,
                     width: "var(--underline-width, 0)",
                     height: 2,
-                    backgroundColor: "rgba(255,255,255,.65)",
+                    backgroundColor: "rgba(255,255,255,0.6)",
                     transition: "width .25s ease",
                   }}
                 />
@@ -142,81 +117,53 @@ export default function AppHeader() {
           </Space>
         </Col>
 
-        {/* Search + User + Cart */}
+        {/* Search + Icons */}
         <Col>
-          <Space size="middle" align="center">
+          <div className="header-icons">
             <Input
               placeholder="Tìm kiếm sản phẩm…"
+              allowClear
               prefix={<SearchOutlined style={{ color: "#8c8c8c" }} />}
               style={{
                 borderRadius: 999,
-                width: 260,
+                width: 280,
                 backgroundColor: "#fff",
-                border: "1px solid #1f1f1f",
+                border: "1px solid rgba(0,0,0,0.12)",
                 color: "#000",
                 padding: "8px 14px",
+                height: 36,
               }}
             />
-            <Link to="/cart" style={{ display: "inline-block" }}>
-              <Badge count={2} size="small" offset={[0, 6]} color="#bfbfbf">
-                <ShoppingCartOutlined
-                  style={{
-                    fontSize: 22,
-                    color: "#fff",
-                    cursor: "pointer",
-                    transition: "transform .2s ease, opacity .2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "scale(1.08)";
-                    e.currentTarget.style.opacity = 0.9;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "scale(1)";
-                    e.currentTarget.style.opacity = 1;
-                  }}
-                />
+
+            {/* Notification */}
+            <Link to="/notifications" className="header-icon" aria-label="Notifications">
+              <Badge count={3} size="small" offset={[4, 4]} color="#bfbfbf">
+                <BellOutlined style={{ fontSize: 20, color: "#fff" }} />
               </Badge>
             </Link>
-            <Link to="/notifications" style={{ display: "inline-block" }}>
-              <Badge count={3} size="small" offset={[0, 6]} color="#bfbfbf">
-                <BellOutlined
-                  style={{
-                    fontSize: 22,
-                    color: "#fff",
-                    cursor: "pointer",
-                    transition: "transform .2s ease, opacity .2s ease",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "scale(1.08)";
-                    e.currentTarget.style.opacity = 0.9;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "scale(1)";
-                    e.currentTarget.style.opacity = 1;
-                  }}
-                />
+
+            {/* Cart */}
+            <Link to="/cart" className="header-icon" aria-label="Cart">
+              <Badge count={2} size="small" offset={[4, 4]} color="#bfbfbf">
+                <ShoppingCartOutlined style={{ fontSize: 20, color: "#fff" }} />
               </Badge>
             </Link>
+
+            {/* Avatar / User */}
             <Dropdown overlay={userMenu} trigger={["click"]}>
-              <Avatar
-                style={{
-                  backgroundColor: "transparent",
-                  border: "1px solid rgba(255,255,255,.22)",
-                  cursor: "pointer",
-                  transition: "transform .2s ease, opacity .2s ease",
-                }}
-                icon={<UserOutlined style={{ color: "#fff" }} />}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = "scale(1.06)";
-                  e.currentTarget.style.opacity = 0.9;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "scale(1)";
-                  e.currentTarget.style.opacity = 1;
-                }}
-              />
+              <div className="header-icon" role="button" aria-label="Account menu">
+                <UserOutlined style={{ fontSize: 20, color: "#fff" }} />
+              </div>
             </Dropdown>
-          </Space>
+
+            {/* Menu mobile */}
+            <Button
+              type="text"
+              icon={<MenuOutlined style={{ fontSize: 20 }} />}
+              className="md:hidden"
+              style={{ color: "#fff" }}
+            />
+          </div>
         </Col>
       </Row>
     </Header>

@@ -20,6 +20,7 @@ export default function OperatorShell() {
     if (loc.pathname.startsWith("/operator/orders")) return "orders";
     if (loc.pathname.startsWith("/operator/tasks")) return "tasks";
     if (loc.pathname.startsWith("/operator/shifts")) return "shifts";
+    if (loc.pathname === "/operator/kyc") return "kyc";
     return "dashboard";
   })();
 
@@ -53,6 +54,7 @@ export default function OperatorShell() {
             { key: "orders", icon: <ProfileOutlined />, label: "Quản lý đơn", onClick: () => nav("/operator/orders") },
             { key: "tasks", icon: <ContainerOutlined />, label: "Nhiệm vụ", onClick: () => nav("/operator/tasks") },
             { key: "shifts", icon: <ScheduleOutlined />, label: "Ca làm", onClick: () => nav("/operator/shifts") },
+            { key: "kyc", icon: <ProfileOutlined />, label: "KYC", onClick: () => nav("/operator/kyc") },
           ]}
         />
       </Sider>

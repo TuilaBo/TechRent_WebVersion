@@ -118,3 +118,37 @@ html, body { overflow-x: hidden; }
 /* Nếu header/category có border/shadow → tắt để dính hẳn */
 .header-no-seam,
 .category-no-seam { border-bottom: 0 !important; box-shadow: none !important; }
+/* Khay icon phải của header */
+.header-icons{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+/* Icon capsule đồng kích thước -> hết lệch */
+.header-icons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255,255,255,.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .15s ease, background-color .15s ease, opacity .15s ease;
+  cursor: pointer;
+}
+
+.header-icon:hover {
+  background-color: rgba(255,255,255,.10);
+  transform: translateY(-1px);
+}
+
+.header-icons .ant-badge {
+  line-height: 1; /* tránh badge đẩy icon lệch */
+}

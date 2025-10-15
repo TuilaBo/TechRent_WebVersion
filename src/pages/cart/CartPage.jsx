@@ -12,17 +12,19 @@ import {
   Space,
   message,
   Empty,
-  Input,
+  DatePicker,
 } from "antd";
 import {
   DeleteOutlined,
   ArrowLeftOutlined,
   ShoppingCartOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
 
-const { Title, Text, Paragraph } = Typography;
-const { TextArea } = Input;
+const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
 
 function formatVND(n) {
   return n.toLocaleString("vi-VN", { style: "currency", currency: "VND" });
@@ -37,7 +39,6 @@ const INITIAL_ITEMS = [
       "https://images.unsplash.com/photo-1584156584582-461f6ec49a2b?q=80&w=1200&auto=format&fit=crop",
     dailyPrice: 2_500_000, // giá/1 ngày sau giảm
     compareAtPrice: 2_625_000, // giá gốc (gạch)
-    days: 1,
     qty: 1,
     note: "Kèm màn hình 32inch 4K / 1 ngày",
   },
@@ -50,15 +51,25 @@ export default function CartPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState(INITIAL_ITEMS);
 
+  // ---- RANGE THUÊ DÙNG CHUNG TOÀN GIỎ ----
+  const [rentalRange, setRentalRange] = useState(null); // [startDayjs, endDayjs]
+
+  const globalDays = useMemo(() => {
+    if (!rentalRange || rentalRange.length !== 2) return 1; // mặc định 1 ngày
+    const [s, e] = rentalRange;
+    const diff = e.startOf("day").diff(s.startOf("day"), "day");
+    return Math.max(1, diff || 1);
+  }, [rentalRange]);
+
   const totals = useMemo(() => {
     const subtotal = items.reduce(
-      (sum, it) => sum + it.dailyPrice * it.days * it.qty,
+      (sum, it) => sum + it.dailyPrice * globalDays * it.qty,
       0
     );
     const deposit = Math.round(subtotal * DEPOSIT_RATE);
-    const grandTotal = subtotal + deposit; // Tổng = tạm tính + cọc
+    const grandTotal = subtotal + deposit;
     return { subtotal, deposit, grandTotal };
-  }, [items]);
+  }, [items, globalDays]);
 
   const updateItem = (id, patch) => {
     setItems((prev) =>
@@ -73,6 +84,10 @@ export default function CartPage() {
   const checkout = () => {
     if (items.length === 0) {
       message.warning("Giỏ hàng đang trống.");
+      return;
+    }
+    if (!rentalRange || rentalRange.length !== 2) {
+      message.warning("Vui lòng chọn thời gian thuê chung cho giỏ hàng.");
       return;
     }
     message.success("Đi tới trang thanh toán…");
@@ -109,7 +124,7 @@ export default function CartPage() {
         />
 
         <Row gutter={[24, 24]}>
-          {/* LEFT: Danh sách sản phẩm + ghi chú + quy trình */}
+          {/* LEFT: Danh sách sản phẩm + quy trình */}
           <Col xs={24} lg={16}>
             <Card
               bordered
@@ -117,9 +132,21 @@ export default function CartPage() {
               bodyStyle={{ padding: 16 }}
               title={
                 <span>
-                  Bạn đang có{" "}
-                  <Text strong>{items.length} sản phẩm</Text> trong giỏ hàng
+                Giỏ hàng 
                 </span>
+              }
+              extra={
+                <Space>
+                  <CalendarOutlined />
+                  <span>Thời gian thuê (áp dụng cho toàn giỏ):</span>
+                  <RangePicker
+                    value={rentalRange}
+                    onChange={setRentalRange}
+                    format="DD/MM/YYYY"
+                    disabledDate={(cur) => cur && cur < dayjs().startOf("day")}
+                  />
+                  <Text type="secondary">Số ngày:&nbsp;<Text strong>{globalDays}</Text></Text>
+                </Space>
               }
             >
               {items.length === 0 ? (
@@ -129,15 +156,12 @@ export default function CartPage() {
                 />
               ) : (
                 items.map((it) => {
-                  const lineTotal = it.dailyPrice * it.days * it.qty;
+                  const lineTotal = it.dailyPrice * globalDays * it.qty;
                   return (
                     <Card
                       key={it.id}
                       bordered={false}
-                      style={{
-                        background: "#fafafa",
-                        marginBottom: 12,
-                      }}
+                      style={{ background: "#fafafa", marginBottom: 12 }}
                       bodyStyle={{ padding: 16 }}
                     >
                       <Row gutter={[16, 16]} align="middle">
@@ -157,10 +181,7 @@ export default function CartPage() {
                           <div className="flex justify-between items-start gap-3">
                             <div>
                               <Link to={`/device/${it.id}`}>
-                                <Title
-                                  level={5}
-                                  style={{ margin: 0, color: "#1677ff" }}
-                                >
+                                <Title level={5} style={{ margin: 0, color: "#1677ff" }}>
                                   {it.name}
                                 </Title>
                               </Link>
@@ -169,17 +190,18 @@ export default function CartPage() {
                               <div className="mt-2">
                                 <Text strong style={{ fontSize: 16 }}>
                                   {formatVND(it.dailyPrice)}
-                                </Text>{" "}
+                                </Text>
                                 {it.compareAtPrice && (
-                                  <Text
-                                    delete
-                                    type="secondary"
-                                    style={{ marginLeft: 8 }}
-                                  >
+                                  <Text delete type="secondary" style={{ marginLeft: 8 }}>
                                     {formatVND(it.compareAtPrice)}
                                   </Text>
                                 )}
                                 <Text type="secondary"> / ngày</Text>
+                              </div>
+                              <div className="mt-1">
+                                <Text type="secondary">
+                                  (Áp dụng <strong>{globalDays}</strong> ngày cho toàn giỏ)
+                                </Text>
                               </div>
                             </div>
 
@@ -187,10 +209,7 @@ export default function CartPage() {
                               <Text type="secondary" className="block">
                                 Thành tiền:
                               </Text>
-                              <Title
-                                level={4}
-                                style={{ margin: 0, color: "#ff4d4f" }}
-                              >
+                              <Title level={4} style={{ margin: 0, color: "#ff4d4f" }}>
                                 {formatVND(lineTotal)}
                               </Title>
                               <Button
@@ -206,23 +225,11 @@ export default function CartPage() {
 
                           <Row gutter={[12, 12]} align="middle">
                             <Col>
-                              <Text type="secondary">Số ngày:&nbsp;</Text>
-                              <InputNumber
-                                min={1}
-                                value={it.days}
-                                onChange={(v) =>
-                                  updateItem(it.id, { days: v || 1 })
-                                }
-                              />
-                            </Col>
-                            <Col>
                               <Text type="secondary">Số lượng:&nbsp;</Text>
                               <Space.Compact>
                                 <Button
                                   onClick={() =>
-                                    updateItem(it.id, {
-                                      qty: Math.max(1, it.qty - 1),
-                                    })
+                                    updateItem(it.id, { qty: Math.max(1, it.qty - 1) })
                                   }
                                 >
                                   –
@@ -230,16 +237,10 @@ export default function CartPage() {
                                 <InputNumber
                                   min={1}
                                   value={it.qty}
-                                  onChange={(v) =>
-                                    updateItem(it.id, { qty: v || 1 })
-                                  }
+                                  onChange={(v) => updateItem(it.id, { qty: v || 1 })}
                                   style={{ width: 70 }}
                                 />
-                                <Button
-                                  onClick={() =>
-                                    updateItem(it.id, { qty: it.qty + 1 })
-                                  }
-                                >
+                                <Button onClick={() => updateItem(it.id, { qty: it.qty + 1 })}>
                                   +
                                 </Button>
                               </Space.Compact>
@@ -252,22 +253,6 @@ export default function CartPage() {
                 })
               )}
             </Card>
-
-            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-              <Col xs={24} md={10}>
-                <Card
-                  title="Quy trình thuê"
-                  className="rounded-xl"
-                  bodyStyle={{ padding: 16 }}
-                >
-                  <ul className="space-y-2" style={{ margin: 0, padding: 0 }}>
-                    <li>→ Khách hàng chọn số ngày thuê để ra số tiền</li>
-                    <li>→ Khách hàng thanh toán tiền thuê và tiền cọc</li>
-                    <li>→ Hoàn cọc sau khi trả máy</li>
-                  </ul>
-                </Card>
-              </Col>
-            </Row>
           </Col>
 
           {/* RIGHT: Thông tin đơn hàng */}
@@ -281,12 +266,24 @@ export default function CartPage() {
                   Thông tin đơn hàng
                 </Title>
               }
-              style={{
-                position: "sticky",
-                top: "calc(var(--stacked-header,0px) + 16px)",
-              }}
+              style={{ position: "sticky", top: "calc(var(--stacked-header,0px) + 16px)" }}
             >
               <Divider style={{ marginTop: 8 }} />
+
+              {/* Hiển thị chọn ngày (optional, mirror) */}
+              <div className="space-y-2" style={{ marginBottom: 12 }}>
+                <Text type="secondary" className="block">Thời gian thuê</Text>
+                <RangePicker
+                  value={rentalRange}
+                  onChange={setRentalRange}
+                  format="DD/MM/YYYY"
+                  style={{ width: "100%" }}
+                  disabledDate={(cur) => cur && cur < dayjs().startOf("day")}
+                />
+                <Text type="secondary">Số ngày: <Text strong>{globalDays}</Text></Text>
+              </div>
+
+              <Divider />
 
               {/* Breakdown */}
               <div className="space-y-2">
@@ -309,9 +306,9 @@ export default function CartPage() {
                 </Title>
               </div>
 
-              <Paragraph type="secondary" style={{ marginTop: 12 }}>
+              <Text type="secondary" style={{ display: "block", marginTop: 12 }}>
                 Tiền cọc sẽ được hoàn lại sau khi trả thiết bị đúng điều kiện.
-              </Paragraph>
+              </Text>
 
               <Button
                 type="primary"
@@ -320,6 +317,7 @@ export default function CartPage() {
                 className="bg-red-600"
                 icon={<ShoppingCartOutlined />}
                 onClick={checkout}
+                style={{ marginTop: 12 }}
               >
                 THANH TOÁN
               </Button>

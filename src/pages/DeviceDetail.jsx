@@ -2,13 +2,11 @@
 import React, { useMemo, useState } from "react";
 import {
   Row, Col, Card, Typography, Breadcrumb, Tag, Space, Divider,
-  InputNumber, Button, Image, Tabs, Tooltip, Rate, DatePicker
+  InputNumber, Button, Image, Tabs, Rate
 } from "antd";
-import { ShoppingCartOutlined, HeartOutlined, ShareAltOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
+import { ShoppingCartOutlined, MinusOutlined, PlusOutlined } from "@ant-design/icons";
 
 const { Title, Text, Paragraph } = Typography;
-const { RangePicker } = DatePicker;
 
 // Mock data
 const product = {
@@ -21,13 +19,7 @@ const product = {
   rating: 4.8,
   reviews: 126,
   pricePerDay: 1000000, // VND/ngày
-  variants: [
-    { key: 'PS5 + TV 55" 4K', disabled: false, priceFactor: 1 },
-    { key: 'PS5 + TV 75" 4K', disabled: false, priceFactor: 1.4 },
-    { key: 'PS5 + TV 98" 4K', disabled: true, priceFactor: 2 },
-  ],
   images: [
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
     "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
     "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
     "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
@@ -49,46 +41,27 @@ Miễn phí tư vấn setup, hỗ trợ giao lắp tại nội thành. Thiết b
 };
 
 export default function DeviceDetail() {
-  const [variant, setVariant] = useState(product.variants[0].key);
-  const [dateRange, setDateRange] = useState([]); // [start, end]
   const [qty, setQty] = useState(1);
-
-  const currentVariant = useMemo(
-    () => product.variants.find((v) => v.key === variant),
-    [variant]
-  );
-
-  // tính số ngày từ khoảng ngày (>= 1)
-  const days = useMemo(() => {
-    const [start, end] = dateRange || [];
-    if (!start || !end) return 1;
-    const diff = dayjs(end).startOf("day").diff(dayjs(start).startOf("day"), "day");
-    return Math.max(1, diff || 1);
-  }, [dateRange]);
-
-  const subtotal = useMemo(() => {
-    const factor = currentVariant?.priceFactor ?? 1;
-    return Math.round(product.pricePerDay * factor * days * qty);
-  }, [days, qty, currentVariant]);
 
   const formatVND = (n) =>
     n.toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 
+  // Tạm tính theo NGÀY (không chọn ngày ở trang detail, không còn kiểu dáng)
+  const perDaySubtotal = useMemo(() => {
+    return Math.round(product.pricePerDay * qty);
+  }, [qty]);
+
   const handleAddToCart = () => {
     console.log({
       productId: product.id,
-      variant,
-      startDate: dateRange?.[0]?.toISOString?.() || null,
-      endDate: dateRange?.[1]?.toISOString?.() || null,
-      days,
       qty,
-      subtotal,
+      // Ngày thuê sẽ chọn chung ở Cart, không gửi ở đây
     });
     // TODO: gọi API thêm giỏ
   };
 
   return (
-    <div className="min-h-screen bg-gray-50"> {/* Softer background */}
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Breadcrumb
           items={[
@@ -99,7 +72,7 @@ export default function DeviceDetail() {
           className="mb-4"
         />
 
-        <Row gutter={[32, 32]}> {/* Increased gutter for breathing room */}
+        <Row gutter={[32, 32]}>
           {/* Gallery trái */}
           <Col xs={24} lg={14}>
             <Card bordered={false} className="rounded-2xl shadow-md overflow-hidden" bodyStyle={{ padding: 0 }}>
@@ -112,7 +85,7 @@ export default function DeviceDetail() {
                           src={src}
                           alt={`${product.name} ${idx + 1}`}
                           width="100%"
-                          height={idx === 0 ? 400 : 200} // Adjusted heights for better proportion
+                          height={idx === 0 ? 400 : 200}
                           style={{ objectFit: "cover" }}
                           placeholder
                         />
@@ -129,7 +102,7 @@ export default function DeviceDetail() {
             <Card
               bordered={false}
               className="rounded-2xl shadow-md"
-              style={{ position: "sticky", top: 24 }} // Slightly higher sticky for modern feel
+              style={{ position: "sticky", top: 24 }}
               bodyStyle={{ padding: 24 }}
             >
               <div className="mb-4">
@@ -139,7 +112,7 @@ export default function DeviceDetail() {
                 <Text type="secondary" style={{ fontSize: 16 }}>{product.shortDesc}</Text>
               </div>
 
-              <div className="grid grid-cols-2 gap-y-2 text-base mb-4"> {/* Larger text */}
+              <div className="grid grid-cols-2 gap-y-2 text-base mb-4">
                 <Text type="secondary">Thương hiệu:</Text>
                 <Text strong>{product.brand}</Text>
                 <Text type="secondary">Loại sản phẩm:</Text>
@@ -159,57 +132,48 @@ export default function DeviceDetail() {
 
               <Divider className="my-4" />
 
-              {/* Giá */}
+              {/* Giá / ngày */}
               <div className="mb-4">
                 <Text type="secondary" className="block text-base mb-1">
-                  Giá / ngày (theo cấu hình)
+                  Giá / ngày
                 </Text>
                 <Title level={3} style={{ color: "#ef4444", margin: 0, fontFamily: "'Inter', sans-serif" }}>
-                  {formatVND(product.pricePerDay * (currentVariant?.priceFactor ?? 1))}
+                  {formatVND(product.pricePerDay)}
                 </Title>
               </div>
 
-              {/* Kiểu dáng */}
+              {/* Số lượng (nổi bật hơn) */}
               <div className="mb-4">
-                <Text strong className="block mb-2 text-lg">Kiểu dáng:</Text>
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  {product.variants.map((v) => (
-                    <Button
-                      key={v.key}
-                      type={variant === v.key ? "primary" : "default"}
-                      block
-                      size="large"
-                      disabled={v.disabled}
-                      onClick={() => setVariant(v.key)}
-                      style={{
-                        borderRadius: 8,
-                        transition: 'all 0.3s',
-                        height: 48, // Taller buttons for touch-friendliness
-                      }}
-                    >
-                      {v.key} {v.disabled && <Tag color="default" className="ml-2">Hết hàng</Tag>}
-                    </Button>
-                  ))}
-                </Space>
+                <Text strong className="block mb-2 text-lg">Số lượng</Text>
+                <Space.Compact style={{ width: 240 }}>
+                  <Button
+                    size="large"
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    icon={<MinusOutlined />}
+                    style={{ height: 48, borderTopLeftRadius: 10, borderBottomLeftRadius: 10 }}
+                  />
+                  <InputNumber
+                    min={1}
+                    value={qty}
+                    onChange={(v) => setQty(v || 1)}
+                    style={{
+                      width: 120,
+                      height: 48,
+                      textAlign: "center",
+                      fontSize: 18,
+                    }}
+                  />
+                  <Button
+                    size="large"
+                    onClick={() => setQty((q) => q + 1)}
+                    icon={<PlusOutlined />}
+                    style={{ height: 48, borderTopRightRadius: 10, borderBottomRightRadius: 10 }}
+                  />
+                </Space.Compact>
               </div>
 
-              {/* Khoảng ngày thuê */}
-              <div className="mb-4">
-                <Text strong className="block mb-2 text-lg">Thời gian thuê:</Text>
-                <RangePicker
-                  style={{ width: "100%", height: 48, borderRadius: 8 }}
-                  format="DD/MM/YYYY"
-                  disabledDate={(current) => current && current < dayjs().startOf("day")}
-                  onChange={(vals) => setDateRange(vals)}
-                />
-                <Text type="secondary" className="block mt-2">
-                  Số ngày tính tiền: <Text strong>{days}</Text>
-                </Text>
-              </div>
-
-              {/* Số lượng + thêm giỏ */}
+              {/* Thêm giỏ + Tạm tính */}
               <div className="mb-2 flex items-center gap-4">
-                <InputNumber min={1} value={qty} onChange={(v) => setQty(v || 1)} style={{ width: 80, height: 48, borderRadius: 8 }} />
                 <Button
                   type="primary"
                   size="large"
@@ -219,17 +183,14 @@ export default function DeviceDetail() {
                   style={{
                     background: 'linear-gradient(to right, #3b82f6, #2563eb)',
                     border: 'none',
-                    borderRadius: 8,
-                    height: 48,
+                    borderRadius: 10,
+                    height: 52,
                     fontSize: 16,
                   }}
                 >
                   Thêm vào giỏ
                 </Button>
               </div>
-              <Text type="secondary" className="block text-right">
-                Tạm tính: <Text strong style={{ color: '#ef4444' }}>{formatVND(subtotal)}</Text>
-              </Text>
             </Card>
           </Col>
         </Row>

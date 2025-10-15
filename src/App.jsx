@@ -12,13 +12,13 @@ import CartPage from "./pages/cart/CartPage.jsx";
 import CheckoutPage from "./pages/cart/CheckoutPage.jsx";
 import KycPage from "./pages/KYC/KycPage.jsx";
 import CustomerProfile from "./pages/CustomerProfile.jsx";
+import NotificationsPage from "./pages/notificaiton/NotificationsPage.jsx";
 
 import AdminShell from "./pages/admin/AdminShell.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import AdminOrders from "./pages/admin/AdminOrders.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
 import AdminMaintenancePlanner from "./pages/admin/AdminMaintenancePlanner.jsx";
-import AdminKyc from "./pages/admin/AdminKyc.jsx";
 import AdminAccounts from "./pages/admin/AdminAccounts.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
@@ -26,6 +26,7 @@ import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
 import OperatorOrders from "./pages/operator/OperatorOrders.jsx";
 import OperatorTasks from "./pages/operator/OperatorTasks.jsx";
 import OperatorShifts from "./pages/operator/OperatorShifts.jsx";
+import OperatorKyc from "./pages/operator/OperatorKyc.jsx";
 
 import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
 import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="kyc" element={<KycPage />} />
         <Route path="profile" element={<CustomerProfile />} />
+        <Route path="notifications" element={<NotificationsPage />} />
       </Route>
 
       {/* ====== ADMIN (KHÔNG dùng LayoutRoot) ====== */}
@@ -56,7 +58,6 @@ export default function App() {
         <Route path="orders" element={<AdminOrders />} />
         <Route path="products" element={<AdminProducts />} />
         <Route path="maintenance" element={<AdminMaintenancePlanner />} />
-        <Route path="kyc" element={<AdminKyc />} />
         <Route path="accounts" element={<AdminAccounts />} />
       </Route>
       {/* ====== OPERATOR (KHÔNG dùng LayoutRoot) ====== */}
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="orders" element={<OperatorOrders />} />
         <Route path="tasks" element={<OperatorTasks />} />
         <Route path="shifts" element={<OperatorShifts />} />
+        <Route path="kyc" element={<OperatorKyc />} />
       </Route>
 
         {/* ====== TECHNICIAN (KHÔNG dùng LayoutRoot) ====== */}
