@@ -17,6 +17,7 @@ import {
   UserOutlined,
   SearchOutlined,
   MenuOutlined,
+  BellOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 
@@ -80,28 +81,26 @@ export default function AppHeader() {
     >
       <Row align="middle" justify="space-between">
         {/* Logo */}
-        {/* Logo */}
-<Col>
-  <Link
-    to="/"
-    aria-label="TechRent"
-    style={{ display: "inline-flex", alignItems: "center" }}
-  >
-    <img
-      src="/logo2.png" // hoặc .svg
-      alt="TechRent"
-      // Tăng kích thước logo: dùng clamp để responsive chút
-      style={{
-        height: "clamp(32px, 3.6vw, 44px)", // trước ~24–28px, giờ to hơn
-        width: "auto",
-        display: "block",
-        transform: "translateY(15px)"
-      }}
-      draggable="false"
-    />
-  </Link>
-</Col>
-
+        <Col>
+          <Link
+            to="/"
+            aria-label="TechRent"
+            style={{ display: "inline-flex", alignItems: "center" }}
+          >
+            <img
+              src="/logo2.png" // hoặc .svg
+              alt="TechRent"
+              // Tăng kích thước logo: dùng clamp để responsive chút
+              style={{
+                height: "clamp(32px, 3.6vw, 44px)", // trước ~24–28px, giờ to hơn
+                width: "auto",
+                display: "block",
+                transform: "translateY(15px)"
+              }}
+              draggable="false"
+            />
+          </Link>
+        </Col>
 
         {/* Menu desktop */}
         <Col flex="auto" className="hidden md:block">
@@ -145,7 +144,7 @@ export default function AppHeader() {
 
         {/* Search + User + Cart */}
         <Col>
-          <Space size="middle">
+          <Space size="middle" align="center">
             <Input
               placeholder="Tìm kiếm sản phẩm…"
               prefix={<SearchOutlined style={{ color: "#8c8c8c" }} />}
@@ -161,6 +160,26 @@ export default function AppHeader() {
             <Link to="/cart" style={{ display: "inline-block" }}>
               <Badge count={2} size="small" offset={[0, 6]} color="#bfbfbf">
                 <ShoppingCartOutlined
+                  style={{
+                    fontSize: 22,
+                    color: "#fff",
+                    cursor: "pointer",
+                    transition: "transform .2s ease, opacity .2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "scale(1.08)";
+                    e.currentTarget.style.opacity = 0.9;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "scale(1)";
+                    e.currentTarget.style.opacity = 1;
+                  }}
+                />
+              </Badge>
+            </Link>
+            <Link to="/notifications" style={{ display: "inline-block" }}>
+              <Badge count={3} size="small" offset={[0, 6]} color="#bfbfbf">
+                <BellOutlined
                   style={{
                     fontSize: 22,
                     color: "#fff",
