@@ -71,7 +71,7 @@ export default function FooterBar() {
               </Space>
               <Paragraph style={{ color: "rgba(255,255,255,0.7)", margin: 0 }}>
                 Thuê thiết bị công nghệ nhanh – gọn – uy tín. Laptop, camera,
-                drone, VR… giao nhanh tại HN & HCM.
+                drone, VR… giao nhanh tại TP.HCM.
               </Paragraph>
 
               <Space size="middle" wrap>
@@ -155,7 +155,7 @@ export default function FooterBar() {
                 Câu hỏi thường gặp
               </Link>
               <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Chính sách bảo mật
+                Chính sách 
               </Link>
             </Space>
           </Col>

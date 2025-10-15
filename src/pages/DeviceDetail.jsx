@@ -1,31 +1,16 @@
 // src/pages/DeviceDetail.jsx
 import React, { useMemo, useState } from "react";
 import {
-  Row,
-  Col,
-  Card,
-  Typography,
-  Breadcrumb,
-  Tag,
-  Radio,
-  Space,
-  Divider,
-  InputNumber,
-  Button,
-  Image,
-  Tabs,
-  Tooltip,
-  Rate,
+  Row, Col, Card, Typography, Breadcrumb, Tag, Space, Divider,
+  InputNumber, Button, Image, Tabs, Tooltip, Rate, DatePicker
 } from "antd";
-import {
-  ShoppingCartOutlined,
-  HeartOutlined,
-  ShareAltOutlined,
-} from "@ant-design/icons";
+import { ShoppingCartOutlined, HeartOutlined, ShareAltOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
 
 const { Title, Text, Paragraph } = Typography;
+const { RangePicker } = DatePicker;
 
-// Mock data (thay bằng API thật khi bạn có)
+// Mock data
 const product = {
   id: "ps5-combo-tv",
   name: "Cho thuê combo Playstation 5 kèm TV",
@@ -41,9 +26,7 @@ const product = {
     { key: 'PS5 + TV 75" 4K', disabled: false, priceFactor: 1.4 },
     { key: 'PS5 + TV 98" 4K', disabled: true, priceFactor: 2 },
   ],
-  rentalDays: [1, 2, 3, 4, 5, 6, 7, 14, 30],
   images: [
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
     "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
     "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
     "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
@@ -67,13 +50,21 @@ Miễn phí tư vấn setup, hỗ trợ giao lắp tại nội thành. Thiết b
 
 export default function DeviceDetail() {
   const [variant, setVariant] = useState(product.variants[0].key);
-  const [days, setDays] = useState(product.rentalDays[0]);
+  const [dateRange, setDateRange] = useState([]); // [start, end]
   const [qty, setQty] = useState(1);
 
   const currentVariant = useMemo(
     () => product.variants.find((v) => v.key === variant),
     [variant]
   );
+
+  // tính số ngày từ khoảng ngày (>= 1)
+  const days = useMemo(() => {
+    const [start, end] = dateRange || [];
+    if (!start || !end) return 1;
+    const diff = dayjs(end).startOf("day").diff(dayjs(start).startOf("day"), "day");
+    return Math.max(1, diff || 1);
+  }, [dateRange]);
 
   const subtotal = useMemo(() => {
     const factor = currentVariant?.priceFactor ?? 1;
@@ -87,6 +78,8 @@ export default function DeviceDetail() {
     console.log({
       productId: product.id,
       variant,
+      startDate: dateRange?.[0]?.toISOString?.() || null,
+      endDate: dateRange?.[1]?.toISOString?.() || null,
       days,
       qty,
       subtotal,
@@ -95,33 +88,32 @@ export default function DeviceDetail() {
   };
 
   return (
-    // KHÔNG padding-top ở đây; LayoutRoot đã chừa chỗ cho header rồi
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+    <div className="min-h-screen bg-gray-50"> {/* Softer background */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Breadcrumb
           items={[
             { title: <a href="/">Trang chủ</a> },
             { title: <a href="/games">Máy Games</a> },
             { title: product.name },
           ]}
-          className="mb-3"
+          className="mb-4"
         />
 
-        <Row gutter={[24, 24]}>
+        <Row gutter={[32, 32]}> {/* Increased gutter for breathing room */}
           {/* Gallery trái */}
           <Col xs={24} lg={14}>
-            <Card bordered className="rounded-xl">
+            <Card bordered={false} className="rounded-2xl shadow-md overflow-hidden" bodyStyle={{ padding: 0 }}>
               <Image.PreviewGroup>
                 <Row gutter={[12, 12]}>
-                  {product.images.map((src, idx) => (
+                  {product.images.slice(0, 3).map((src, idx) => (
                     <Col span={idx === 0 ? 24 : 12} key={idx}>
-                      <div className="overflow-hidden rounded-lg">
+                      <div className="overflow-hidden rounded-xl transition-transform hover:scale-105 duration-300">
                         <Image
                           src={src}
                           alt={`${product.name} ${idx + 1}`}
                           width="100%"
-                          height={idx === 0 ? 420 : 220}
-                          style={{ objectFit: "cover", borderRadius: 12 }}
+                          height={idx === 0 ? 400 : 200} // Adjusted heights for better proportion
+                          style={{ objectFit: "cover" }}
                           placeholder
                         />
                       </div>
@@ -135,138 +127,126 @@ export default function DeviceDetail() {
           {/* Panel phải */}
           <Col xs={24} lg={10}>
             <Card
-              bordered
-              className="rounded-xl"
-              style={{ position: "sticky", top: 16 }} // chỉ cách đỉnh 16px
-              bodyStyle={{ padding: 20 }}
-              actions={[
-                <Tooltip title="Yêu thích" key="fav">
-                  <HeartOutlined />
-                </Tooltip>,
-                <Tooltip title="Chia sẻ" key="share">
-                  <ShareAltOutlined />
-                </Tooltip>,
-              ]}
+              bordered={false}
+              className="rounded-2xl shadow-md"
+              style={{ position: "sticky", top: 24 }} // Slightly higher sticky for modern feel
+              bodyStyle={{ padding: 24 }}
             >
-              <div className="mb-2">
-                <Title level={3} style={{ marginBottom: 4 }}>
+              <div className="mb-4">
+                <Title level={2} style={{ marginBottom: 8, fontFamily: "'Inter', sans-serif" }}>
                   {product.name}
                 </Title>
-                <Text type="secondary">{product.shortDesc}</Text>
+                <Text type="secondary" style={{ fontSize: 16 }}>{product.shortDesc}</Text>
               </div>
 
-              <div className="grid grid-cols-2 gap-y-1 text-sm mb-3">
+              <div className="grid grid-cols-2 gap-y-2 text-base mb-4"> {/* Larger text */}
                 <Text type="secondary">Thương hiệu:</Text>
                 <Text strong>{product.brand}</Text>
-                <Text type="secondary">SKU:</Text>
-                <Text>{product.sku}</Text>
                 <Text type="secondary">Loại sản phẩm:</Text>
                 <Text>{product.category}</Text>
                 <Text type="secondary">Đánh giá:</Text>
-                <span className="inline-flex items-center gap-1">
-                  <Rate allowHalf disabled defaultValue={product.rating} />
+                <span className="inline-flex items-center gap-2">
+                  <Rate allowHalf disabled defaultValue={product.rating} style={{ fontSize: 18 }} />
                   <Text type="secondary">({product.reviews})</Text>
                 </span>
               </div>
 
-              <Space size={[8, 8]} wrap className="mb-3">
+              <Space size={[8, 8]} wrap className="mb-4">
                 {product.tags.map((t) => (
-                  <Tag key={t} color="blue">
-                    {t}
-                  </Tag>
+                  <Tag key={t} color="blue" style={{ borderRadius: 20, padding: '0 12px' }}>{t}</Tag>
                 ))}
               </Space>
 
-              <Divider className="my-3" />
+              <Divider className="my-4" />
 
               {/* Giá */}
-              <div className="mb-3">
-                <Text type="secondary" className="block text-sm">
+              <div className="mb-4">
+                <Text type="secondary" className="block text-base mb-1">
                   Giá / ngày (theo cấu hình)
                 </Text>
-                <Title level={3} style={{ color: "#ff4d4f", margin: 0 }}>
-                  {formatVND(
-                    product.pricePerDay * (currentVariant?.priceFactor ?? 1)
-                  )}
+                <Title level={3} style={{ color: "#ef4444", margin: 0, fontFamily: "'Inter', sans-serif" }}>
+                  {formatVND(product.pricePerDay * (currentVariant?.priceFactor ?? 1))}
                 </Title>
               </div>
 
               {/* Kiểu dáng */}
-              <div className="mb-3">
-                <Text strong className="block mb-2">
-                  Kiểu dáng:
-                </Text>
-                <Radio.Group
-                  onChange={(e) => setVariant(e.target.value)}
-                  value={variant}
-                >
-                  <Space direction="vertical" size={8}>
-                    {product.variants.map((v) => (
-                      <Radio key={v.key} value={v.key} disabled={v.disabled}>
-                        {v.key}
-                        {v.disabled && (
-                          <Tag color="default" className="ml-2">
-                            Hết hàng
-                          </Tag>
-                        )}
-                      </Radio>
-                    ))}
-                  </Space>
-                </Radio.Group>
+              <div className="mb-4">
+                <Text strong className="block mb-2 text-lg">Kiểu dáng:</Text>
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  {product.variants.map((v) => (
+                    <Button
+                      key={v.key}
+                      type={variant === v.key ? "primary" : "default"}
+                      block
+                      size="large"
+                      disabled={v.disabled}
+                      onClick={() => setVariant(v.key)}
+                      style={{
+                        borderRadius: 8,
+                        transition: 'all 0.3s',
+                        height: 48, // Taller buttons for touch-friendliness
+                      }}
+                    >
+                      {v.key} {v.disabled && <Tag color="default" className="ml-2">Hết hàng</Tag>}
+                    </Button>
+                  ))}
+                </Space>
               </div>
 
-              {/* Ngày thuê */}
-              <div className="mb-3">
-                <Text strong className="block mb-2">
-                  Ngày thuê:
+              {/* Khoảng ngày thuê */}
+              <div className="mb-4">
+                <Text strong className="block mb-2 text-lg">Thời gian thuê:</Text>
+                <RangePicker
+                  style={{ width: "100%", height: 48, borderRadius: 8 }}
+                  format="DD/MM/YYYY"
+                  disabledDate={(current) => current && current < dayjs().startOf("day")}
+                  onChange={(vals) => setDateRange(vals)}
+                />
+                <Text type="secondary" className="block mt-2">
+                  Số ngày tính tiền: <Text strong>{days}</Text>
                 </Text>
-                <Radio.Group onChange={(e) => setDays(e.target.value)} value={days}>
-                  <Space wrap>
-                    {product.rentalDays.map((d) => (
-                      <Radio.Button key={d} value={d} className="!mb-2">
-                        {d} NGÀY
-                      </Radio.Button>
-                    ))}
-                  </Space>
-                </Radio.Group>
               </div>
 
               {/* Số lượng + thêm giỏ */}
-              <div className="mb-3 flex items-center gap-3">
-                <InputNumber
-                  min={1}
-                  value={qty}
-                  onChange={(v) => setQty(v || 1)}
-                />
+              <div className="mb-2 flex items-center gap-4">
+                <InputNumber min={1} value={qty} onChange={(v) => setQty(v || 1)} style={{ width: 80, height: 48, borderRadius: 8 }} />
                 <Button
                   type="primary"
                   size="large"
                   icon={<ShoppingCartOutlined />}
-                  className="bg-blue-600"
+                  className="flex-1"
                   onClick={handleAddToCart}
+                  style={{
+                    background: 'linear-gradient(to right, #3b82f6, #2563eb)',
+                    border: 'none',
+                    borderRadius: 8,
+                    height: 48,
+                    fontSize: 16,
+                  }}
                 >
                   Thêm vào giỏ
                 </Button>
-                <Text type="secondary" className="ml-auto">
-                  Tạm tính: <Text strong>{formatVND(subtotal)}</Text>
-                </Text>
               </div>
+              <Text type="secondary" className="block text-right">
+                Tạm tính: <Text strong style={{ color: '#ef4444' }}>{formatVND(subtotal)}</Text>
+              </Text>
             </Card>
           </Col>
         </Row>
 
         {/* Tabs dưới */}
-        <Row gutter={[24, 24]} className="mt-4">
+        <Row gutter={[32, 32]} className="mt-8">
           <Col xs={24} lg={14}>
-            <Card bordered className="rounded-xl">
+            <Card bordered={false} className="rounded-2xl shadow-md" bodyStyle={{ padding: 24 }}>
               <Tabs
                 defaultActiveKey="desc"
+                size="large"
                 items={[
                   {
                     key: "desc",
                     label: "Mô tả",
                     children: (
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line" }}>
+                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8 }}>
                         {product.longDesc}
                       </Paragraph>
                     ),
@@ -275,16 +255,11 @@ export default function DeviceDetail() {
                     key: "spec",
                     label: "Thông số",
                     children: (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {product.specs.map((s) => (
-                          <div
-                            key={s.k}
-                            className="rounded-lg border border-slate-200 p-3"
-                          >
-                            <Text type="secondary" className="block">
-                              {s.k}
-                            </Text>
-                            <Text strong>{s.v}</Text>
+                          <div key={s.k} className="rounded-xl border border-gray-200 p-4 bg-white shadow-sm">
+                            <Text type="secondary" className="block text-base">{s.k}</Text>
+                            <Text strong style={{ fontSize: 16 }}>{s.v}</Text>
                           </div>
                         ))}
                       </div>
@@ -294,10 +269,8 @@ export default function DeviceDetail() {
                     key: "policy",
                     label: "Chính sách",
                     children: (
-                      <ul className="list-disc pl-5 space-y-2">
-                        {product.policy.map((p, i) => (
-                          <li key={i}>{p}</li>
-                        ))}
+                      <ul className="list-disc pl-6 space-y-3 text-base">
+                        {product.policy.map((p, i) => <li key={i}>{p}</li>)}
                       </ul>
                     ),
                   },

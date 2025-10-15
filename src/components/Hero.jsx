@@ -30,17 +30,6 @@ export default function Hero() {
         >
           VR, Camera, Gaming, Laptop và hơn thế nữa — nhanh chóng & uy tín.
         </p>
-
-        <div className="mt-8 flex gap-4 justify-center">
-          <Button
-            size="large"
-            type="primary"
-            className="!bg-gradient-to-r from-sky-500 to-violet-600 !border-0 !shadow-lg hover:!shadow-xl transition-all !text-white"
-            icon={<ArrowRightOutlined />}
-          >
-            Khám phá ngay
-          </Button>
-        </div>
       </div>
 
       {/* Ép trắng (nếu có rule global dùng !important) */}

@@ -46,7 +46,7 @@ export default function ProductCard() {
   return (
     <div style={{ padding: "40px 20px", maxWidth: "1200px", margin: "0 auto" }}>
       <h2 style={{ textAlign: "center", marginBottom: "40px", color: "#1a1a1a", fontSize: "28px", fontWeight: "700", letterSpacing: "1px" }}>
-        Sản phẩm nổi bật
+        Sản phẩm yêu thích
       </h2>
 
       <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>

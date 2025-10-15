@@ -12,33 +12,48 @@ export default function LayoutRoot() {
   const categoriesRef = useRef(null);
 
   useEffect(() => {
-    const calc = () => {
-      const h1 = headerRef.current?.getBoundingClientRect().height || 0;
-      const h2 = categoriesRef.current?.getBoundingClientRect().height || 0;
-      const total = h1 + h2; // tổng chiều cao 2 thanh phía trên
-      document.documentElement.style.setProperty("--stacked-header", `${total}px`);
+    let raf = null;
+
+    const isStacked = (el) => {
+      if (!el) return false;
+      const root = el.firstElementChild || el;
+      const pos = getComputedStyle(root).position;
+      return pos === "fixed" || pos === "sticky";
     };
+
+    const calc = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const h1 = headerRef.current?.getBoundingClientRect().height || 0;
+        // Category hiện để static, không cộng vào biến stacked
+        const total = isStacked(headerRef.current) ? h1 : 0;
+
+        document.documentElement.style.setProperty("--header-height", `${h1}px`);
+        document.documentElement.style.setProperty("--stacked-header", `${total}px`);
+      });
+    };
+
     calc();
     window.addEventListener("resize", calc);
-    return () => window.removeEventListener("resize", calc);
+    return () => {
+      window.removeEventListener("resize", calc);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   return (
     <Layout className="min-h-screen bg-gray-50 text-gray-900">
-      {/* Nếu Header/CategoryGrid là fixed/sticky thì cứ để như cũ;
-          ta đo chiều cao thật của chúng rồi đẩy Content xuống bằng padding-top */}
-      <div ref={headerRef}>
+      <div ref={headerRef} className="header-wrapper">
         <Header />
       </div>
-      <div ref={categoriesRef}>
+
+      <div ref={categoriesRef} className="category-wrapper category-grid-wrap category-no-seam">
         <CategoryGrid />
       </div>
 
-      <Content
-        // fallback 128px nếu biến chưa được set (lần render đầu)
-        className="pt-[var(--stacked-header,128px)]"
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Nội dung dưới sẽ bắt đầu ngay dưới header (nếu header sticky) */}
+      <Content style={{ paddingTop: "var(--stacked-header, 0px)" }}>
+        <div className="page-shell pt-0 pb-6">
           <Outlet />
         </div>
       </Content>

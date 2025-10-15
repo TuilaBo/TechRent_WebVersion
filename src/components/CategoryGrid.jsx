@@ -5,6 +5,9 @@ import {
   VideoCameraOutlined,
   AppstoreOutlined,
   PlayCircleOutlined,
+  ThunderboltOutlined,
+  SoundOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import { Link } from "react-router-dom";
 
@@ -30,21 +33,42 @@ const items = [
     { key: "android-tablet", label: <Link to="/category/android">Android</Link> },
     { key: "gaming-tablet", label: <Link to="/category/gaming-tablet">Gaming Tablet</Link> },
   ]},
-  { label: "Máy ảnh & Quay phim", key: "camera", icon: <VideoCameraOutlined />, children: [
+  { label: "Máy ảnh & Máy quay", key: "camera", icon: <VideoCameraOutlined />, children: [
     { key: "dslr", label: <Link to="/category/dslr">DSLR</Link> },
     { key: "mirrorless", label: <Link to="/category/mirrorless">Mirrorless</Link> },
+  ]},
+  { label: "Audio & Video", key: "audio-video", icon: <SoundOutlined />, children: [
+    // Add sub-items as needed, e.g.
+    { key: "headphones", label: <Link to="/category/headphones">Headphones</Link> },
+    { key: "speakers", label: <Link to="/category/speakers">Speakers</Link> },
   ]},
 ];
 
 export default function CategoryGrid() {
   return (
-    <div className="bg-white shadow-sm border-b border-gray-200">
+    <div 
+      className="bg-white"
+      style={{
+        boxShadow: 'none', // Remove shadow for cleaner look
+        borderBottom: 'none', // Remove border to eliminate visual gap
+        marginBottom: 0, // Ensure no bottom margin to connect seamlessly with Hero
+      }}
+    >
       <div className="max-w-7xl mx-auto px-4">
         <Menu
           mode="horizontal"
           items={items}
           selectable={false}
           className="!border-0 category-menu-center"
+          style={{
+            display: 'flex',
+            justifyContent: 'center', // Center the menu items horizontally
+            fontSize: '15px', // Slightly larger font for modern readability
+            fontWeight: 500, // Medium weight for a clean, professional look
+            backgroundColor: '#fff', // Ensure white background
+            lineHeight: '48px', // Adjust height for better vertical alignment
+            gap: '8px', // Subtle spacing between items
+          }}
         />
       </div>
     </div>
