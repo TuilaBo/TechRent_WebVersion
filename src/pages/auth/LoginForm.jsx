@@ -62,12 +62,26 @@ export default function LoginForm() {
                   noStyle
                   initialValue
                 >
-                  <Checkbox>Ghi nhớ tôi</Checkbox>
+                
                 </Form.Item>
                 <Link to="/forgot-password">Quên mật khẩu?</Link>
               </div>
 
-              <Button type="primary" htmlType="submit" block size="large">
+              <Button
+                htmlType="submit"
+                block
+                size="large"
+                style={{
+                  background: "#000",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "4px",
+                  fontWeight: "500",
+                  transition: "background 0.3s ease",
+                }}
+                onMouseEnter={(e) => (e.target.style.background = "#333")}
+                onMouseLeave={(e) => (e.target.style.background = "#000")}
+              >
                 Đăng nhập
               </Button>
 

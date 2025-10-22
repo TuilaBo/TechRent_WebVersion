@@ -9,7 +9,6 @@ import {
   Form,
   Input,
   Select,
-  Radio,
   Button,
   Divider,
   List,
@@ -25,11 +24,11 @@ const { Title, Text } = Typography;
 // --- MOCK giỏ hàng ---
 const CART = [
   {
-    id: "chair-sim",
-    name: "Cho thuê bộ Ghế Lái Xe Giả Lập",
-    note: "Kèm màn hình 32inch 4K / 1 ngày",
+    id: "mbp-2020-m1",
+    name: "MacBook Pro M1 2020",
+    note: "16GB RAM, 512GB SSD, 13 inch",
     image:
-      "https://images.unsplash.com/photo-1584156584582-461f6ec49a2b?q=80&w=1200&auto=format&fit=crop",
+      "https://macone.vn/wp-content/uploads/2020/11/HAN00152-Lo%CC%9B%CC%81n-1024x682.jpeg",
     dailyPrice: 2_500_000,
     days: 1,
     qty: 1,
@@ -99,7 +98,7 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const [form] = Form.useForm();
 
-  const [shippingMethod, setShippingMethod] = useState("delivery"); // delivery | pickup
+  const [shippingMethod] = useState("delivery"); // mặc định giao tận nơi
   const [coupon, setCoupon] = useState("");
   const [couponApplied, setCouponApplied] = useState(null); // {code, amount}
 
@@ -109,9 +108,9 @@ export default function CheckoutPage() {
       (sum, it) => sum + it.dailyPrice * it.days * it.qty,
       0
     );
-    const shipping = 0; // Không tính phí ship ở bản này
+    const shipping = 0;
     const discount = couponApplied?.amount || 0;
-    const deposit = Math.round(subtotal * DEPOSIT_RATE); // 30% tiền cọc
+    const deposit = Math.round(subtotal * DEPOSIT_RATE);
     const grand = Math.max(0, subtotal + deposit - discount);
     return { subtotal, shipping, discount, deposit, grand };
   }, [couponApplied]);
@@ -136,7 +135,7 @@ export default function CheckoutPage() {
       },
       shipping: {
         method: shippingMethod,
-        receiveAt: values.receiveAt?.toISOString(), // thời gian nhận
+        receiveAt: values.receiveAt?.toISOString(),
         address:
           shippingMethod === "delivery"
             ? {
@@ -166,22 +165,20 @@ export default function CheckoutPage() {
         <Breadcrumb
           items={[
             { title: <Link to="/cart">Giỏ hàng</Link> },
-            { title: "Thông tin giao hàng" },
-            { title: "Ký hợp đồng" },
+            { title: "Thanh toán" },
           ]}
           className="mb-2"
         />
 
-        {/* TIÊU ĐỀ ĐƯA RA NGOÀI 2 CỘT → 2 khối bắt đầu cùng cao độ */}
-        <Title level={2} style={{ margin: "0 0 16px 0" }}>
-          TechRent
+        <Title level={2} style={{ margin: "0 0 16px 0", color: "#111827" }}>
+          Thanh toán
         </Title>
 
         <Row gutter={[24, 24]}>
           {/* LEFT: Form giao hàng */}
           <Col xs={24} lg={14}>
             <Card bordered className="rounded-xl" bodyStyle={{ padding: 20 }}>
-              <Title level={4} style={{ marginTop: 0 }}>
+              <Title level={4} style={{ marginTop: 0, color: "#111827" }}>
                 Thông tin giao hàng
               </Title>
 
@@ -230,19 +227,7 @@ export default function CheckoutPage() {
                   </Col>
                 </Row>
 
-                <Card
-                  type="inner"
-                  title={
-                    <Radio.Group
-                      value={shippingMethod}
-                      onChange={(e) => setShippingMethod(e.target.value)}
-                    >
-                      <Radio value="delivery">Giao tận nơi</Radio>
-                    </Radio.Group>
-                  }
-                  className="rounded-lg"
-                  bodyStyle={{ paddingTop: 12 }}
-                >
+                <Card type="inner" className="rounded-lg" bodyStyle={{ paddingTop: 12 }}>
                   {shippingMethod === "delivery" ? (
                     <>
                       <Form.Item
@@ -320,11 +305,7 @@ export default function CheckoutPage() {
                   </Form.Item>
                 </Card>
 
-                <div className="mt-4">
-                  <Button type="primary" size="large" htmlType="submit" block>
-                    Tiếp tục tới ký hợp đồng
-                  </Button>
-                </div>
+                {/* (ĐÃ GỠ) Nút tạo đơn ở trái – chuyển sang card phải */}
               </Form>
             </Card>
           </Col>
@@ -350,8 +331,10 @@ export default function CheckoutPage() {
                         }
                         title={
                           <div className="flex justify-between gap-2">
-                            <span style={{ fontWeight: 500 }}>{item.name}</span>
-                            <span>{formatVND(item.dailyPrice * item.days * item.qty)}</span>
+                            <span style={{ fontWeight: 500, color: "#111827" }}>{item.name}</span>
+                            <span style={{ color: "#111827" }}>
+                              {formatVND(item.dailyPrice * item.days * item.qty)}
+                            </span>
                           </div>
                         }
                         description={<Text type="secondary">{item.note}</Text>}
@@ -362,14 +345,7 @@ export default function CheckoutPage() {
 
                 <Divider />
 
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Mã giảm giá"
-                    value={coupon}
-                    onChange={(e) => setCoupon(e.target.value)}
-                  />
-                  <Button onClick={applyCoupon}>Sử dụng</Button>
-                </div>
+                {/* (Tùy chọn) ô mã giảm giá — vẫn giữ logic */}
 
                 <Divider />
 
@@ -395,13 +371,32 @@ export default function CheckoutPage() {
                 <Divider />
 
                 <div className="flex justify-between items-center">
-                  <Title level={4} style={{ margin: 0 }}>
+                  <Title level={4} style={{ margin: 0, color: "#111827" }}>
                     Tổng cộng
                   </Title>
-                  <Title level={3} style={{ margin: 0, color: "#ff4d4f" }}>
+                  <Title level={3} style={{ margin: 0, color: "#111827" }}>
                     {formatVND(totals.grand)}
                   </Title>
                 </div>
+
+                {/* Nút tạo đơn hàng – trắng đen, đặt dưới Tổng cộng */}
+                <Button
+                  type="primary"
+                  size="large"
+                  block
+                  onClick={() => form.submit()}
+                  style={{
+                    marginTop: 12,
+                    background: "#111827",
+                    borderColor: "#111827",
+                  }}
+                >
+                  Tạo đơn hàng
+                </Button>
+
+                <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+                  *Tiền cọc sẽ được hoàn lại sau khi trả thiết bị đúng điều kiện.
+                </Text>
               </Card>
             </div>
           </Col>

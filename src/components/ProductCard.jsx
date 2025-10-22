@@ -1,38 +1,63 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { Button } from "antd";
 
 const products = [
   {
     id: 1,
-    title: "Meta Quest 3",
-    description: "Kính VR hiện đại, trải nghiệm nhập vai chân thực.",
-    image:
-      "https://images.unsplash.com/photo-1588421357574-87938a86fa28?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=VR",
+    title: "Iphone 17 pro Max",
+    description: "Điện thoại thông minh cao cấp",
+    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGX5_nAiWtKQQi5VHbZEIrYLaaW3TiPmACjPYrR84b9Er418SGn44O8PA3cYWle0YakzE&usqp=CAU",
+    price: "1.185.300đ/ngày",
   },
   {
     id: 2,
-    title: "MacBook Pro M3 14”",
-    description: "Laptop mạnh mẽ, hiệu năng cao cho công việc sáng tạo.",
-    image:
-      "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=MB",
+    title: "MacBook Pro M3",
+    description: "Laptop hiệu suất cao",
+    image: "https://cdn.tgdd.vn/Products/Images/44/318232/apple-macbook-pro-14-inch-m3-max-2023-14-core-acv-3.jpg",
+    price: "1.712.100đ/ngày",
   },
   {
     id: 3,
-    title: "Sony A7 IV",
-    description: "Máy ảnh mirrorless chuyên nghiệp, chất lượng vượt trội.",
-    image:
-      "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=Cam",
+    title: "Canon EOS R5",
+    description: "Máy ảnh không gương lật chuyên nghiệp",
+    image: "https://legacy-photolab.com/cdn/shop/files/IMG_7927_4b780e65-9b6c-4ede-a5b7-285e5903fe37_525x700.jpg?v=1728587942",
+    price: "2.238.900đ/ngày",
   },
   {
     id: 4,
-    title: "DJI Mini 4 Pro",
-    description: "Flycam nhỏ gọn, quay phim 4K siêu mượt.",
-    image:
-      "https://images.unsplash.com/photo-1512820790803-83ca734da794?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=DJI",
+    title: "MacBook Air M1",
+    description: "Laptop nhẹ và mạnh mẽ",
+    image: "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/refurb-macbook-air-space-gray-m1-202010?wid=1144&hei=1144&fmt=jpeg&qlt=90&.v=QkJpMElmU3Z2QTUxaWlZMkpyNUtsajJlUGc5WVpDMG1aRjJJVUhBeHVCSDdnbkFtTmt3K2tyekExa1pvMEU3QVlsNGdDd3FRbHFCcnpRZnZlZVVZRkxRUEREajRYYzZXa3RBN2paL1ZDMng5LzVJdWdVYnR2S2krc25NZlhjcHE",
+    price: "1.975.500đ/ngày",
+  },
+  {
+    id: 5,
+    title: "MacBook Air M1",
+    description: "Laptop nhẹ và mạnh mẽ",
+    image: "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/refurb-macbook-air-space-gray-m1-202010?wid=1144&hei=1144&fmt=jpeg&qlt=90&.v=QkJpMElmU3Z2QTUxaWlZMkpyNUtsajJlUGc5WVpDMG1aRjJJVUhBeHVCSDdnbkFtTmt3K2tyekExa1pvMEU3QVlsNGdDd3FRbHFCcnpRZnZlZVVZRkxRUEREajRYYzZXa3RBN2paL1ZDMng5LzVJdWdVYnR2S2krc25NZlhjcHE",
+    price: "1.975.500đ/ngày",
+  },
+  {
+    id: 6,
+    title: "Canon EOS R5",
+    description: "Máy ảnh không gương lật chuyên nghiệp",
+    image: "https://legacy-photolab.com/cdn/shop/files/IMG_7927_4b780e65-9b6c-4ede-a5b7-285e5903fe37_525x700.jpg?v=1728587942",
+    price: "2.238.900đ/ngày",
+  },
+  {
+    id: 7,
+    title: "Iphone 17 pro Max",
+    description: "Điện thoại thông minh cao cấp",
+    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGX5_nAiWtKQQi5VHbZEIrYLaaW3TiPmACjPYrR84b9Er418SGn44O8PA3cYWle0YakzE&usqp=CAU",
+    price: "1.185.300đ/ngày",
+  },
+  {
+    id: 8,
+    title: "Iphone 17 pro Max",
+    description: "Điện thoại thông minh cao cấp",
+    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSGX5_nAiWtKQQi5VHbZEIrYLaaW3TiPmACjPYrR84b9Er418SGn44O8PA3cYWle0YakzE&usqp=CAU",
+    price: "1.185.300đ/ngày",
   },
 ];
 
@@ -45,11 +70,27 @@ export default function ProductCard() {
 
   return (
     <div style={{ padding: "40px 20px", maxWidth: "1200px", margin: "0 auto" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "40px", color: "#1a1a1a", fontSize: "28px", fontWeight: "700", letterSpacing: "1px" }}>
-        Sản phẩm nổi bật
+      <h2
+        style={{
+          textAlign: "center",
+          marginBottom: "40px",
+          color: "#1a1a1a",
+          fontSize: "28px",
+          fontWeight: "bold",
+          letterSpacing: "1px",
+        }}
+      >
+        Sản phẩm
       </h2>
 
-      <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+          columnGap: "20px",
+          rowGap: "40px", // Tăng khoảng cách giữa các hàng lên 40px
+        }}
+      >
         {products.map((item) => (
           <div
             key={item.id}
@@ -59,16 +100,17 @@ export default function ProductCard() {
             tabIndex={0}
             style={{
               background: "#ffffff",
-              borderRadius: "16px",
+              borderRadius: "8px",
               overflow: "hidden",
-              boxShadow: "0 8px 16px rgba(0, 0, 0, 0.08)",
+              boxShadow: "0 2px 8px rgba(0, 0, 0, 0.05)",
               transition: "all 0.3s ease",
               cursor: "pointer",
-              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+              minHeight: "350px", // Tăng chiều cao tối thiểu của card lên 350px
             }}
-            className="custom-card"
           >
-            <div style={{ height: "200px", overflow: "hidden", position: "relative" }}>
+            <div style={{ height: "200px", overflow: "hidden" }}> {/* Tăng chiều cao hình ảnh lên 200px */}
               <img
                 alt={item.title}
                 src={item.image}
@@ -76,78 +118,92 @@ export default function ProductCard() {
                   width: "100%",
                   height: "100%",
                   objectFit: "cover",
-                  transition: "transform 0.5s ease",
+                  transition: "transform 0.3s ease",
                 }}
-                className="card-img"
-              />
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  height: "100%",
-                  background: "linear-gradient(to top, rgba(0,0,0,0.3), transparent)",
-                  opacity: 0,
-                  transition: "opacity 0.3s ease",
-                }}
-                className="overlay"
               />
             </div>
-            <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <img
-                  src={item.avatar}
-                  alt="avatar"
-                  style={{ width: "40px", height: "40px", borderRadius: "50%", border: "1px solid #f0f0f0" }}
-                />
-                <h3 style={{ fontSize: "16px", fontWeight: "600", color: "#333", margin: 0 }}>
-                  {item.title}
-                </h3>
-              </div>
-              <p style={{ color: "#666", fontSize: "13px", lineHeight: "1.4", margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+            <div
+              style={{
+                padding: "16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
+                flex: 1,
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: "16px",
+                  fontWeight: "600",
+                  color: "#333",
+                  margin: 0,
+                }}
+              >
+                {item.title}
+              </h3>
+              <p
+                style={{
+                  color: "#666",
+                  fontSize: "14px",
+                  margin: 0,
+                }}
+              >
                 {item.description}
               </p>
             </div>
             <div
               style={{
-                position: "absolute",
-                bottom: "16px",
-                right: "16px",
+                padding: "0 16px 16px",
                 display: "flex",
-                gap: "12px",
-                opacity: 0,
-                transition: "opacity 0.3s ease",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
-              className="actions"
             >
-              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#eb2f96", fontSize: "18px" }}>❤️</button>
-              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#1890ff", fontSize: "18px" }}>🛒</button>
-              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#52c41a", fontSize: "18px" }}>🔗</button>
+              <span
+                style={{
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                  color: "#333",
+                }}
+              >
+                {item.price}
+              </span>
+              <Button
+                style={{
+                  background: "#000",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "4px",
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  fontWeight: "500",
+                  transition: "background 0.3s ease",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate('/cart');
+                }}
+              >
+                Thuê Ngay
+              </Button>
             </div>
           </div>
         ))}
       </div>
 
       <style jsx>{`
-        .custom-card:hover {
-          transform: translateY(-8px);
-          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+        div[role="button"]:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
-        .custom-card:hover .card-img {
-          transform: scale(1.08);
+        div[role="button"]:hover img {
+          transform: scale(1.05);
         }
-        .custom-card:hover .overlay {
-          opacity: 1;
-        }
-        .custom-card:hover .actions {
-          opacity: 1;
-        }
-        .custom-card:focus {
+        div[role="button"]:focus {
           outline: 2px solid #1890ff;
         }
         @media (min-width: 1200px) {
-          .product-grid {
+          div[style*="grid-template-columns"] {
             grid-template-columns: repeat(4, 1fr);
           }
         }

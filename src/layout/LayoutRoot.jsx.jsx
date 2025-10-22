@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Layout } from "antd";
 import { Outlet } from "react-router-dom";
 import FooterBar from "../shared/FooterBar.jsx";
-import CategoryGrid from "../components/CategoryGrid.jsx";
+
 import Header from "../shared/Header.jsx";
 
 const { Content } = Layout;
@@ -47,9 +47,6 @@ export default function LayoutRoot() {
         <Header />
       </div>
 
-      <div ref={categoriesRef} className="category-wrapper category-grid-wrap category-no-seam">
-        <CategoryGrid />
-      </div>
 
       {/* Nội dung dưới sẽ bắt đầu ngay dưới header (nếu header sticky) */}
       <Content style={{ paddingTop: "var(--stacked-header, 0px)" }}>

@@ -61,7 +61,7 @@ export default function KycPage() {
 
     return (
       <>
-        <Text strong className="block mb-2">{label}</Text>
+        <Text strong className="block mb-2" style={{ color: "#000" }}>{label}</Text>
         <Dragger
           multiple={false}
           fileList={fileList}
@@ -76,17 +76,19 @@ export default function KycPage() {
             minHeight: height,
             padding: 0,
             borderRadius: 10,
+            border: "1px solid #ddd",
             backgroundImage: url ? `url(${url})` : undefined,
             backgroundSize: "cover",
             backgroundPosition: "center",
             backgroundRepeat: "no-repeat",
+            backgroundColor: "#fff",
           }}
         >
           {!url && (
             <>
-              <p className="ant-upload-drag-icon">{icon}</p>
-              <p className="ant-upload-text">Kéo thả hoặc bấm để chọn</p>
-              <p className="ant-upload-hint">1 ảnh</p>
+              <p className="ant-upload-drag-icon" style={{ color: "#000" }}>{icon}</p>
+              <p className="ant-upload-text" style={{ color: "#000" }}>Kéo thả hoặc bấm để chọn</p>
+              <p className="ant-upload-hint" style={{ color: "#666" }}>1 ảnh</p>
             </>
           )}
         </Dragger>
@@ -97,20 +99,20 @@ export default function KycPage() {
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Title level={2} style={{ marginBottom: 8 }}>
+        <Title level={2} style={{ marginBottom: 8, color: "#000" }}>
           Xác minh danh tính (KYC)
         </Title>
-        <Text type="secondary">
+        <Text type="secondary" style={{ color: "#666" }}>
           Hoàn tất các bước sau để xác minh tài khoản và tiếp tục thuê thiết bị.
         </Text>
 
-        <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20 }}>
+        <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20, background: "#fff" }} style={{ borderColor: "#ddd" }}>
           <Steps
             current={step}
             items={[
-              { title: "Tải giấy tờ", icon: <IdcardOutlined /> },
-              { title: "Thông tin", icon: <UserOutlined /> },
-              { title: "Xác nhận", icon: <CheckCircleTwoTone twoToneColor="#52c41a" /> },
+              { title: "Tải giấy tờ", icon: <IdcardOutlined style={{ color: "#000" }} /> },
+              { title: "Thông tin", icon: <UserOutlined style={{ color: "#000" }} /> },
+              { title: "Xác nhận", icon: <CheckCircleTwoTone twoToneColor="#52c41a" style={{ fontSize: 20 }} /> },
             ]}
             responsive
             size="small"
@@ -124,7 +126,7 @@ export default function KycPage() {
                 <Col xs={24} md={8}>
                   <UploadPanel
                     label="Mặt trước"
-                    icon={<InboxOutlined />}
+                    icon={<InboxOutlined style={{ color: "#000" }} />}
                     fileList={front}
                     setFileList={setFront}
                     height={260}
@@ -133,7 +135,7 @@ export default function KycPage() {
                 <Col xs={24} md={8}>
                   <UploadPanel
                     label="Mặt sau"
-                    icon={<InboxOutlined />}
+                    icon={<InboxOutlined style={{ color: "#000" }} />}
                     fileList={back}
                     setFileList={setBack}
                     height={260}
@@ -142,7 +144,7 @@ export default function KycPage() {
                 <Col xs={24} md={8}>
                   <UploadPanel
                     label="Selfie cầm giấy tờ"
-                    icon={<CameraOutlined />}
+                    icon={<CameraOutlined style={{ color: "#000" }} />}
                     fileList={selfie}
                     setFileList={setSelfie}
                     height={260}
@@ -151,7 +153,7 @@ export default function KycPage() {
               </Row>
 
               <Space className="mt-3">
-                <Button type="primary" onClick={next}>
+                <Button type="primary" onClick={next} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
                   Tiếp tục
                 </Button>
               </Space>
@@ -165,12 +167,12 @@ export default function KycPage() {
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
                     <Form.Item label="Họ và tên" name="fullName">
-                      <Input placeholder="Nguyễn Văn A" />
+                      <Input placeholder="Nguyễn Văn A" style={{ borderColor: "#ddd" }} />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={12}>
                     <Form.Item label="Số giấy tờ" name="idNumber">
-                      <Input placeholder="CCCD/CMND/Passport" />
+                      <Input placeholder="CCCD/CMND/Passport" style={{ borderColor: "#ddd" }} />
                     </Form.Item>
                   </Col>
                 </Row>
@@ -178,7 +180,7 @@ export default function KycPage() {
                 <Row gutter={16}>
                   <Col xs={24} md={8}>
                     <Form.Item label="Loại giấy tờ" name="idType" initialValue="cccd">
-                      <Select>
+                      <Select style={{ borderColor: "#ddd" }}>
                         <Option value="cccd">Căn cước công dân</Option>
                         <Option value="cmnd">Chứng minh nhân dân</Option>
                         <Option value="passport">Hộ chiếu</Option>
@@ -187,23 +189,23 @@ export default function KycPage() {
                   </Col>
                   <Col xs={24} md={8}>
                     <Form.Item label="Ngày sinh" name="dob">
-                      <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+                      <DatePicker style={{ width: "100%", borderColor: "#ddd" }} format="DD/MM/YYYY" />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={8}>
                     <Form.Item label="Ngày cấp" name="issueDate">
-                      <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+                      <DatePicker style={{ width: "100%", borderColor: "#ddd" }} format="DD/MM/YYYY" />
                     </Form.Item>
                   </Col>
                 </Row>
 
                 <Form.Item label="Địa chỉ (trên giấy tờ)" name="address">
-                  <Input placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" />
+                  <Input placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" style={{ borderColor: "#ddd" }} />
                 </Form.Item>
 
                 <Space>
-                  <Button onClick={prev}>Quay lại</Button>
-                  <Button type="primary" onClick={next}>
+                  <Button onClick={prev} style={{ borderColor: "#ddd", color: "#000" }}>Quay lại</Button>
+                  <Button type="primary" onClick={next} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
                     Tiếp tục
                   </Button>
                 </Space>
@@ -216,27 +218,27 @@ export default function KycPage() {
             <div className="max-w-4xl mx-auto">
               <Row gutter={16}>
                 <Col xs={24} md={14}>
-                  <Card type="inner" title="Xem lại thông tin" className="mb-3">
+                  <Card type="inner" title="Xem lại thông tin" className="mb-3" style={{ borderColor: "#ddd" }}>
                     <Row gutter={[8, 8]}>
                       <Col span={8}>
-                        <Text type="secondary">Họ tên</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Họ tên</Text>
                       </Col>
                       <Col span={16}>
-                        <Text strong>{form.getFieldValue("fullName") || "—"}</Text>
+                        <Text strong style={{ color: "#000" }}>{form.getFieldValue("fullName") || "—"}</Text>
                       </Col>
 
                       <Col span={8}>
-                        <Text type="secondary">Số giấy tờ</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Số giấy tờ</Text>
                       </Col>
                       <Col span={16}>
-                        <Text>{form.getFieldValue("idNumber") || "—"}</Text>
+                        <Text style={{ color: "#000" }}>{form.getFieldValue("idNumber") || "—"}</Text>
                       </Col>
 
                       <Col span={8}>
-                        <Text type="secondary">Loại giấy tờ</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Loại giấy tờ</Text>
                       </Col>
                       <Col span={16}>
-                        <Text>
+                        <Text style={{ color: "#000" }}>
                           {form.getFieldValue("idType") === "cccd"
                             ? "Căn cước công dân"
                             : form.getFieldValue("idType") === "cmnd"
@@ -248,51 +250,52 @@ export default function KycPage() {
                       </Col>
 
                       <Col span={8}>
-                        <Text type="secondary">Ngày sinh</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Ngày sinh</Text>
                       </Col>
                       <Col span={16}>
-                        <Text>
+                        <Text style={{ color: "#000" }}>
                           {form.getFieldValue("dob")?.format?.("DD/MM/YYYY") || "—"}
                         </Text>
                       </Col>
 
                       <Col span={8}>
-                        <Text type="secondary">Ngày cấp</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Ngày cấp</Text>
                       </Col>
                       <Col span={16}>
-                        <Text>
+                        <Text style={{ color: "#000" }}>
                           {form.getFieldValue("issueDate")?.format?.("DD/MM/YYYY") || "—"}
                         </Text>
                       </Col>
 
                       <Col span={8}>
-                        <Text type="secondary">Địa chỉ</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Địa chỉ</Text>
                       </Col>
                       <Col span={16}>
-                        <Text>{form.getFieldValue("address") || "—"}</Text>
+                        <Text style={{ color: "#000" }}>{form.getFieldValue("address") || "—"}</Text>
                       </Col>
                     </Row>
                   </Card>
 
                   <Space>
-                    <Button onClick={prev}>Quay lại</Button>
-                    <Button type="primary" onClick={() => setDone(true)}>
+                    <Button onClick={prev} style={{ borderColor: "#ddd", color: "#000" }}>Quay lại</Button>
+                    <Button type="primary" onClick={() => setDone(true)} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
                       Gửi xác minh
                     </Button>
                   </Space>
                 </Col>
 
                 <Col xs={24} md={10}>
-                  <Card type="inner" title="Ảnh đã tải lên">
+                  <Card type="inner" title="Ảnh đã tải lên" style={{ borderColor: "#ddd" }}>
                     <div className="grid grid-cols-2 gap-8">
                       <div>
-                        <Text type="secondary">Mặt trước</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Mặt trước</Text>
                         {front[0] && (
                           <div
                             style={{
                               width: "100%",
                               paddingTop: "66%",
                               borderRadius: 8,
+                              border: "1px solid #ddd",
                               backgroundImage: `url(${
                                 front[0].thumbUrl ||
                                 front[0].url ||
@@ -309,13 +312,14 @@ export default function KycPage() {
                       </div>
 
                       <div>
-                        <Text type="secondary">Mặt sau</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Mặt sau</Text>
                         {back[0] && (
                           <div
                             style={{
                               width: "100%",
                               paddingTop: "66%",
                               borderRadius: 8,
+                              border: "1px solid #ddd",
                               backgroundImage: `url(${
                                 back[0].thumbUrl ||
                                 back[0].url ||
@@ -332,13 +336,14 @@ export default function KycPage() {
                       </div>
 
                       <div className="col-span-2">
-                        <Text type="secondary">Selfie</Text>
+                        <Text type="secondary" style={{ color: "#666" }}>Selfie</Text>
                         {selfie[0] && (
                           <div
                             style={{
                               width: "100%",
                               paddingTop: "56%",
                               borderRadius: 8,
+                              border: "1px solid #ddd",
                               backgroundImage: `url(${
                                 selfie[0].thumbUrl ||
                                 selfie[0].url ||
@@ -367,7 +372,7 @@ export default function KycPage() {
               title="Đã gửi thông tin KYC"
               subTitle="Chúng tôi sẽ kiểm tra và phản hồi sớm nhất. Cảm ơn bạn!"
               extra={
-                <Button type="primary" onClick={() => (window.location.href = "/")}>
+                <Button type="primary" onClick={() => (window.location.href = "/")} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
                   Về trang chủ
                 </Button>
               }

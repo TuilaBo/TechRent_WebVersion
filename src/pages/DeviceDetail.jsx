@@ -11,28 +11,34 @@ const { Title, Text, Paragraph } = Typography;
 // Mock data
 const product = {
   id: "ps5-combo-tv",
-  name: "Cho thuê combo Playstation 5 kèm TV",
-  brand: "Sony",
-  sku: "PS5-55-4K-1D-RENT",
-  category: "Gaming Console",
+  name: "Macbook Pro 16-inch M1 Max 2021",
+  brand: "Apple",
+
+  category: "Laptop",
   tags: ["4K", "4K 120Hz"],
   rating: 4.8,
   reviews: 126,
   pricePerDay: 1000000, // VND/ngày
   images: [
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop",
+    "https://cdn.tgdd.vn/Products/Images/44/279402/macbook-pro-16-inch-m1-max-2021-32-core-gpu-1-750x500.jpg",
+    "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTjGUwy2P8lSD0uK0wRiEj11hii7XUj1GldOQ&s",
+    "https://macfinder.co.uk/wp-content/smush-webp/2023/08/img-MacBook-Pro-Retina-16-Inch-41411-scaled-scaled-1250x1250.jpg.webp",
   ],
   shortDesc:
-    "Bộ combo PS5 + TV 4K sẵn sàng cắm là chơi. Hỗ trợ 4K/120Hz, trải nghiệm game mượt mà cho party/teambuilding.",
-  longDesc: `Combo bao gồm: Playstation 5 (Digital), 2 tay cầm DualSense, TV 4K, dây HDMI 2.1, dây nguồn, chân đế.
-Miễn phí tư vấn setup, hỗ trợ giao lắp tại nội thành. Thiết bị được vệ sinh/QC trước và sau mỗi lượt thuê.`,
-  specs: [
-    { k: "Độ phân giải", v: "4K (3840x2160) 60/120Hz" },
-    { k: "Kết nối", v: "HDMI 2.1, Wi-Fi, Bluetooth" },
-    { k: "Phụ kiện", v: "02 tay cầm DualSense, cáp, remote TV" },
-  ],
+  "MacBook Pro 16-inch (Apple Silicon) – màn hình Liquid Retina XDR 120Hz, pin lâu, hiệu năng mạnh cho đồ họa, dựng phim, lập trình.",
+
+longDesc: `Gói thuê gồm: MacBook Pro 16-inch (M3 Pro/M2 Pro tùy lô), bộ sạc 140W USB-C và cáp USB-C.
+Máy được cài macOS mới nhất, hỗ trợ cài phần mềm cơ bản theo yêu cầu. Thiết bị được vệ sinh/QC trước và sau mỗi lượt thuê.`,
+
+specs: [
+  { k: "Màn hình", v: "16.2\" Liquid Retina XDR, 3456×2234, ProMotion 120Hz" },
+  { k: "CPU", v: "Apple Silicon (M3 Pro/M2 Pro tùy lô)" },
+  { k: "RAM", v: "16–36GB (tùy cấu hình)" },
+  { k: "Lưu trữ", v: "512GB–1TB SSD (tùy cấu hình)" },
+  { k: "Cổng kết nối", v: "MagSafe 3, 3× Thunderbolt 4 (USB-C), HDMI, SDXC, tai nghe 3.5mm" },
+  { k: "Không dây", v: "Wi-Fi 6E, Bluetooth 5.x" },
+  { k: "Âm thanh & camera", v: "6 loa Spatial Audio, mic chất lượng studio, camera 1080p" },
+],
   policy: [
     "Cọc 2–5 triệu tùy gói. Xuất hóa đơn GTGT theo yêu cầu.",
     "Miễn phí đổi thiết bị nếu lỗi do nhà cung cấp.",
@@ -46,7 +52,6 @@ export default function DeviceDetail() {
   const formatVND = (n) =>
     n.toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 
-  // Tạm tính theo NGÀY (không chọn ngày ở trang detail, không còn kiểu dáng)
   const perDaySubtotal = useMemo(() => {
     return Math.round(product.pricePerDay * qty);
   }, [qty]);
@@ -55,13 +60,12 @@ export default function DeviceDetail() {
     console.log({
       productId: product.id,
       qty,
-      // Ngày thuê sẽ chọn chung ở Cart, không gửi ở đây
     });
     // TODO: gọi API thêm giỏ
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ backgroundColor: "#FAFAFA" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Breadcrumb
           items={[
@@ -75,7 +79,7 @@ export default function DeviceDetail() {
         <Row gutter={[32, 32]}>
           {/* Gallery trái */}
           <Col xs={24} lg={14}>
-            <Card bordered={false} className="rounded-2xl shadow-md overflow-hidden" bodyStyle={{ padding: 0 }}>
+            <Card bordered={false} className="rounded-2xl shadow-md overflow-hidden" bodyStyle={{ padding: 0, background: "#fff" }}>
               <Image.PreviewGroup>
                 <Row gutter={[12, 12]}>
                   {product.images.slice(0, 3).map((src, idx) => (
@@ -102,49 +106,44 @@ export default function DeviceDetail() {
             <Card
               bordered={false}
               className="rounded-2xl shadow-md"
-              style={{ position: "sticky", top: 24 }}
+              style={{ position: "sticky", top: 24, background: "#fff" }}
               bodyStyle={{ padding: 24 }}
             >
               <div className="mb-4">
-                <Title level={2} style={{ marginBottom: 8, fontFamily: "'Inter', sans-serif" }}>
+                <Title level={2} style={{ marginBottom: 8, fontFamily: "'Inter', sans-serif", color: "#111827" }}>
                   {product.name}
                 </Title>
-                <Text type="secondary" style={{ fontSize: 16 }}>{product.shortDesc}</Text>
+                <Text style={{ color: "#4B5563", fontSize: 16 }}>{product.shortDesc}</Text>
               </div>
 
               <div className="grid grid-cols-2 gap-y-2 text-base mb-4">
-                <Text type="secondary">Thương hiệu:</Text>
-                <Text strong>{product.brand}</Text>
-                <Text type="secondary">Loại sản phẩm:</Text>
-                <Text>{product.category}</Text>
-                <Text type="secondary">Đánh giá:</Text>
+                <Text style={{ color: "#6B7280" }}>Thương hiệu:</Text>
+                <Text strong style={{ color: "#111827" }}>{product.brand}</Text>
+                <Text style={{ color: "#6B7280" }}>Loại sản phẩm:</Text>
+                <Text style={{ color: "#111827" }}>{product.category}</Text>
+                <Text style={{ color: "#6B7280" }}>Đánh giá:</Text>
                 <span className="inline-flex items-center gap-2">
-                  <Rate allowHalf disabled defaultValue={product.rating} style={{ fontSize: 18 }} />
-                  <Text type="secondary">({product.reviews})</Text>
+                  <Rate allowHalf disabled defaultValue={product.rating} style={{ fontSize: 18, color: "#111827" }} />
+                  <Text style={{ color: "#6B7280" }}>({product.reviews})</Text>
                 </span>
               </div>
 
-              <Space size={[8, 8]} wrap className="mb-4">
-                {product.tags.map((t) => (
-                  <Tag key={t} color="blue" style={{ borderRadius: 20, padding: '0 12px' }}>{t}</Tag>
-                ))}
-              </Space>
 
-              <Divider className="my-4" />
+              <Divider className="my-4" style={{ borderColor: "#E5E7EB" }} />
 
               {/* Giá / ngày */}
               <div className="mb-4">
-                <Text type="secondary" className="block text-base mb-1">
+                <Text className="block text-base mb-1" style={{ color: "#6B7280" }}>
                   Giá / ngày
                 </Text>
-                <Title level={3} style={{ color: "#ef4444", margin: 0, fontFamily: "'Inter', sans-serif" }}>
+                <Title level={3} style={{ margin: 0, fontFamily: "'Inter', sans-serif", color: "#111827" }}>
                   {formatVND(product.pricePerDay)}
                 </Title>
               </div>
 
-              {/* Số lượng (nổi bật hơn) */}
+              {/* Số lượng */}
               <div className="mb-4">
-                <Text strong className="block mb-2 text-lg">Số lượng</Text>
+                <Text strong className="block mb-2 text-lg" style={{ color: "#111827" }}>Số lượng</Text>
                 <Space.Compact style={{ width: 240 }}>
                   <Button
                     size="large"
@@ -172,17 +171,17 @@ export default function DeviceDetail() {
                 </Space.Compact>
               </div>
 
-              {/* Thêm giỏ + Tạm tính */}
+              {/* Thêm giỏ */}
               <div className="mb-2 flex items-center gap-4">
                 <Button
                   type="primary"
                   size="large"
                   icon={<ShoppingCartOutlined />}
-                  className="flex-1"
+                  className="flex-1 btn-black"
                   onClick={handleAddToCart}
                   style={{
-                    background: 'linear-gradient(to right, #3b82f6, #2563eb)',
-                    border: 'none',
+                    background: "#111827",
+                    border: "1px solid #111827",
                     borderRadius: 10,
                     height: 52,
                     fontSize: 16,
@@ -191,6 +190,12 @@ export default function DeviceDetail() {
                   Thêm vào giỏ
                 </Button>
               </div>
+
+              {/* Subtotal (ẩn màu) */}
+              <div className="mt-2">
+                <Text style={{ color: "#6B7280" }}>Tạm tính / ngày: </Text>
+                <Text strong style={{ color: "#111827" }}>{formatVND(perDaySubtotal)}</Text>
+              </div>
             </Card>
           </Col>
         </Row>
@@ -198,7 +203,7 @@ export default function DeviceDetail() {
         {/* Tabs dưới */}
         <Row gutter={[32, 32]} className="mt-8">
           <Col xs={24} lg={14}>
-            <Card bordered={false} className="rounded-2xl shadow-md" bodyStyle={{ padding: 24 }}>
+            <Card bordered={false} className="rounded-2xl shadow-md" bodyStyle={{ padding: 24, background: "#fff" }}>
               <Tabs
                 defaultActiveKey="desc"
                 size="large"
@@ -207,7 +212,7 @@ export default function DeviceDetail() {
                     key: "desc",
                     label: "Mô tả",
                     children: (
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8 }}>
+                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8, color: "#111827" }}>
                         {product.longDesc}
                       </Paragraph>
                     ),
@@ -218,9 +223,9 @@ export default function DeviceDetail() {
                     children: (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {product.specs.map((s) => (
-                          <div key={s.k} className="rounded-xl border border-gray-200 p-4 bg-white shadow-sm">
-                            <Text type="secondary" className="block text-base">{s.k}</Text>
-                            <Text strong style={{ fontSize: 16 }}>{s.v}</Text>
+                          <div key={s.k} className="rounded-xl p-4 bg-white shadow-sm" style={{ border: "1px solid #E5E7EB" }}>
+                            <Text className="block text-base" style={{ color: "#6B7280" }}>{s.k}</Text>
+                            <Text strong style={{ fontSize: 16, color: "#111827" }}>{s.v}</Text>
                           </div>
                         ))}
                       </div>
@@ -230,17 +235,30 @@ export default function DeviceDetail() {
                     key: "policy",
                     label: "Chính sách",
                     children: (
-                      <ul className="list-disc pl-6 space-y-3 text-base">
+                      <ul className="list-disc pl-6 space-y-3 text-base" style={{ color: "#111827" }}>
                         {product.policy.map((p, i) => <li key={i}>{p}</li>)}
                       </ul>
                     ),
                   },
                 ]}
+                tabBarStyle={{ color: "#111827" }}
               />
             </Card>
           </Col>
         </Row>
       </div>
+
+      {/* styles nhỏ cho B/W */}
+      <style>{`
+        .btn-black:hover,
+        .btn-black:focus {
+          background: #0B1220 !important;
+          border-color: #0B1220 !important;
+        }
+        .ant-tabs-tab-btn { color: #6B7280; }
+        .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { color: #111827 !important; }
+        .ant-tabs-ink-bar { background: #111827 !important; }
+      `}</style>
     </div>
   );
 }

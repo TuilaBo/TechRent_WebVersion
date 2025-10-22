@@ -11,7 +11,6 @@ import {
   Form,
   Input,
   message,
-  Alert,
   Progress,
   Tabs,
 } from "antd";
@@ -36,9 +35,9 @@ const { Title, Text, Paragraph } = Typography;
 /** Mock customer – sau nối API thay ở đây */
 const MOCK_CUSTOMER = {
   customerID: "CUS-000123",
-  email: "user@example.com",
+  email: "tronglhse161154@example.com",
   phone: "0912345678",
-  fullName: "Nguyễn Văn A",
+  fullName: "Lê Hoàng Trọng",
   createdAt: "2025-09-20 10:30",
   status: "active",
   shippingAddress: "12 Nguyễn Trãi, P.Bến Thành, Q.1, TP.HCM",
@@ -89,56 +88,68 @@ export default function CustomerProfile() {
     }
   };
 
+  // KYC banners (trắng–đen)
+  const KycBanner = ({ tone, icon, title, desc, cta }) => (
+    <div
+      style={{
+        background: "#F9FAFB",
+        border: "1px solid #E5E7EB",
+        borderRadius: 12,
+        padding: 16,
+      }}
+    >
+      <Space align="start">
+        {icon}
+        <div>
+          <Text strong style={{ color: "#111827" }}>{title}</Text>
+          <Paragraph style={{ margin: "4px 0 0 0", color: "#6B7280" }}>
+            {desc}
+          </Paragraph>
+          {cta}
+        </div>
+      </Space>
+    </div>
+  );
+
   const kycBlock = (() => {
     switch (customer.kycStatus) {
       case "verified":
         return (
-          <Alert
-            type="success"
-            showIcon
-            message={
-              <Space>
-                <CheckCircleTwoTone twoToneColor="#52c41a" />
-                <Text strong>Đã xác thực KYC</Text>
-              </Space>
-            }
-            description="Tài khoản của bạn đã được xác minh, có thể thuê thiết bị không giới hạn theo chính sách."
+          <KycBanner
+            tone="success"
+            icon={<CheckCircleTwoTone twoToneColor="#111827" style={{ fontSize: 20 }} />}
+            title="Đã xác thực KYC"
+            desc="Tài khoản của bạn đã được xác minh, có thể thuê thiết bị không giới hạn theo chính sách."
           />
         );
       case "pending":
         return (
-          <Alert
-            type="info"
-            showIcon
-            message={
-              <Space>
-                <SafetyCertificateOutlined />
-                <Text strong>Yêu cầu KYC đang được duyệt</Text>
-              </Space>
-            }
-            description="Chúng tôi sẽ phản hồi sớm nhất trong giờ làm việc."
+          <KycBanner
+            tone="info"
+            icon={<SafetyCertificateOutlined style={{ fontSize: 20, color: "#111827" }} />}
+            title="Yêu cầu KYC đang được duyệt"
+            desc="Chúng tôi sẽ phản hồi sớm nhất trong giờ làm việc."
           />
         );
       default:
         return (
-          <Alert
-            type="warning"
-            showIcon
-            message={
-              <Space>
-                <ExclamationCircleTwoTone twoToneColor="#faad14" />
-                <Text strong>Chưa xác thực KYC</Text>
-              </Space>
-            }
-            description={
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Text>
-                  Bạn cần hoàn tất xác minh danh tính để tiếp tục thuê thiết bị có giá trị cao.
-                </Text>
-                <Button type="primary" icon={<IdcardOutlined />}>
-                  <Link to="/kyc">Xác thực ngay</Link>
+          <KycBanner
+            tone="warning"
+            icon={<ExclamationCircleTwoTone twoToneColor="#faad14" style={{ fontSize: 20 }} />}
+            title="Chưa xác thực KYC"
+            desc="Bạn cần hoàn tất xác minh danh tính để tiếp tục thuê thiết bị có giá trị cao."
+            cta={
+              <div style={{ marginTop: 10 }}>
+                <Button
+                  type="primary"
+                  icon={<IdcardOutlined />}
+                  style={{ background: "#111827", borderColor: "#111827" }}
+                >
+                  <Link to="/kyc" style={{ color: "#fff" }}>
+                    Xác thực ngay
+                  </Link>
                 </Button>
-              </Space>
+              </div>
             }
           />
         );
@@ -156,7 +167,7 @@ export default function CustomerProfile() {
               title={
                 <Space>
                   <UserOutlined />
-                  <span>Hồ sơ khách hàng</span>
+                  <span style={{ color: "#111827", fontWeight: 600 }}>Hồ sơ của bạn</span>
                 </Space>
               }
               bodyStyle={{ padding: 18 }}
@@ -165,7 +176,8 @@ export default function CustomerProfile() {
                 column={1}
                 size="middle"
                 colon
-                labelStyle={{ width: 160 }}
+                labelStyle={{ width: 160, color: "#6B7280" }}
+                contentStyle={{ color: "#111827" }}
                 items={[
                   {
                     key: "email",
@@ -188,6 +200,7 @@ export default function CustomerProfile() {
 
             <Card className="rounded-xl mt-3" bodyStyle={{ padding: 0 }}>
               <Tabs
+                className="profile-tabs"
                 defaultActiveKey="info"
                 items={[
                   {
@@ -246,7 +259,11 @@ export default function CustomerProfile() {
                           </Form.Item>
 
                           <Space>
-                            <Button type="primary" htmlType="submit">
+                            <Button
+                              type="primary"
+                              htmlType="submit"
+                              style={{ background: "#111827", borderColor: "#111827" }}
+                            >
                               Lưu thay đổi
                             </Button>
                             <Button htmlType="button" onClick={() => infoForm.resetFields()}>
@@ -308,16 +325,13 @@ export default function CustomerProfile() {
                             />
                           </Form.Item>
 
-                          {/* Thanh strength */}
+                          {/* Strength */}
                           <Form.Item name="_pwStrength" noStyle>
                             <Input type="hidden" />
                           </Form.Item>
                           <Form.Item shouldUpdate noStyle>
                             {() => {
                               const strength = pwForm.getFieldValue("_pwStrength") || 0;
-                              const status =
-                                strength >= 80 ? "success" :
-                                strength >= 50 ? "normal" : "exception";
                               const text =
                                 strength >= 80 ? "Mạnh" :
                                 strength >= 50 ? "Khá" : "Yếu";
@@ -326,8 +340,9 @@ export default function CustomerProfile() {
                                   <Progress
                                     percent={strength}
                                     size="small"
-                                    status={status}
                                     showInfo={false}
+                                    strokeColor="#111827"
+                                    trailColor="#E5E7EB"
                                   />
                                   <Text type="secondary">Độ mạnh mật khẩu: {text}</Text>
                                 </div>
@@ -361,7 +376,12 @@ export default function CustomerProfile() {
                           </Form.Item>
 
                           <Space>
-                            <Button type="primary" htmlType="submit" loading={submittingPw}>
+                            <Button
+                              type="primary"
+                              htmlType="submit"
+                              loading={submittingPw}
+                              style={{ background: "#111827", borderColor: "#111827" }}
+                            >
                               Cập nhật mật khẩu
                             </Button>
                             <Button onClick={() => pwForm.resetFields()}>Làm mới</Button>
@@ -382,7 +402,7 @@ export default function CustomerProfile() {
               title={
                 <Space>
                   <SafetyCertificateOutlined />
-                  <span>Trạng thái KYC</span>
+                  <span style={{ color: "#111827", fontWeight: 600 }}>Trạng thái KYC</span>
                 </Space>
               }
               bodyStyle={{ padding: 18 }}
@@ -391,10 +411,10 @@ export default function CustomerProfile() {
             </Card>
 
             <Card className="rounded-xl mt-3" bodyStyle={{ padding: 18 }}>
-              <Title level={5} style={{ marginTop: 0 }}>
+              <Title level={5} style={{ marginTop: 0, color: "#111827" }}>
                 Ghi chú
               </Title>
-              <Paragraph type="secondary">
+              <Paragraph style={{ color: "#6B7280", marginBottom: 0 }}>
                 • Thông tin hồ sơ dùng để xuất hợp đồng và giao/thu hồi thiết bị.
                 <br />• Nếu bạn thay đổi địa chỉ nhận hàng, vui lòng cập nhật trước
                 khi đặt đơn mới.
@@ -403,6 +423,13 @@ export default function CustomerProfile() {
           </Col>
         </Row>
       </div>
+
+      {/* override nhỏ cho Tabs màu đen */}
+      <style>{`
+        .profile-tabs .ant-tabs-ink-bar { background: #111827; }
+        .profile-tabs .ant-tabs-tab-btn { color: #6B7280; }
+        .profile-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { color: #111827; }
+      `}</style>
     </div>
   );
 }

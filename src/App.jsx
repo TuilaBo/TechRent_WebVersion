@@ -13,6 +13,8 @@ import CheckoutPage from "./pages/cart/CheckoutPage.jsx";
 import KycPage from "./pages/KYC/KycPage.jsx";
 import CustomerProfile from "./pages/CustomerProfile.jsx";
 import NotificationsPage from "./pages/notificaiton/NotificationsPage.jsx";
+import OtpVerify from "./pages/auth/OtpVerify.jsx";
+import RentalList from "./pages/RentalList.jsx";
 
 import AdminShell from "./pages/admin/AdminShell.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
@@ -27,6 +29,7 @@ import OperatorOrders from "./pages/operator/OperatorOrders.jsx";
 import OperatorTasks from "./pages/operator/OperatorTasks.jsx";
 import OperatorShifts from "./pages/operator/OperatorShifts.jsx";
 import OperatorKyc from "./pages/operator/OperatorKyc.jsx";
+import OperatorOrderDetail from "./pages/operator/OperatorOrderDetail.jsx";
 
 import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
 import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
@@ -50,6 +53,8 @@ export default function App() {
         <Route path="kyc" element={<KycPage />} />
         <Route path="profile" element={<CustomerProfile />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="verify-otp" element={<OtpVerify />} />
+        <Route path="category" element={<RentalList />} />
       </Route>
 
       {/* ====== ADMIN (KHÔNG dùng LayoutRoot) ====== */}
@@ -67,6 +72,7 @@ export default function App() {
         <Route path="tasks" element={<OperatorTasks />} />
         <Route path="shifts" element={<OperatorShifts />} />
         <Route path="kyc" element={<OperatorKyc />} />
+        <Route path="ordersdetail" element={<OperatorOrderDetail />} />
       </Route>
 
         {/* ====== TECHNICIAN (KHÔNG dùng LayoutRoot) ====== */}

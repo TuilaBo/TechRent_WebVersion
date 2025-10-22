@@ -25,7 +25,6 @@ export default function AdminShell() {
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith("/admin/orders")) return "orders";
     if (location.pathname.startsWith("/admin/products")) return "products";
-    if (location.pathname.startsWith("/admin/kyc")) return "kyc";
     if (location.pathname.startsWith("/admin/maintenance")) return "maintenance";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
     return "dashboard";
@@ -62,7 +61,6 @@ export default function AdminShell() {
             { key: "dashboard", icon: <AppstoreOutlined />, label: <Link to="/admin">Tổng quan</Link> },
             { key: "orders", icon: <ShoppingOutlined />, label: <Link to="/admin/orders">Đơn hàng</Link> },
             { key: "products", icon: <ShoppingCartOutlined />, label: <Link to="/admin/products">Sản phẩm</Link> },
-            { key: "kyc", icon: <SecurityScanOutlined />, label: <Link to="/admin/kyc">KYC</Link> },
             { key: "maintenance", icon: <DatabaseOutlined />, label: <Link to="/admin/maintenance">Bảo trì</Link> },
             { key: "accounts", icon: <TeamOutlined />, label: <Link to="/admin/accounts">Tài khoản</Link> },
             { key: "settings", icon: <SettingOutlined />, label: <Link to="/admin/settings">Cài đặt</Link> },

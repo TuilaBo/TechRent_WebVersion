@@ -98,7 +98,19 @@ export default function RegisterForm() {
                 </Checkbox>
               </Form.Item>
 
-              <Button type="primary" htmlType="submit" block size="large">
+              <Button  htmlType="submit"
+                block
+                size="large"
+                style={{
+                  background: "#000",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "4px",
+                  fontWeight: "500",
+                  transition: "background 0.3s ease",
+                }}
+                onMouseEnter={(e) => (e.target.style.background = "#333")}
+                onMouseLeave={(e) => (e.target.style.background = "#000")}>
                 Đăng ký
               </Button>
 

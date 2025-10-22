@@ -6,7 +6,7 @@ import dayjs from "dayjs";
 
 const { Title } = Typography;
 
-/* ---- Mock data ---- */
+/* ---- Dữ liệu mẫu ---- */
 const INIT_CATEGORIES = [
   { deviceCategoryID: 1, name: "VR/AR", description: "Kính VR, AR" },
   { deviceCategoryID: 2, name: "Console", description: "Máy game" },
@@ -14,9 +14,9 @@ const INIT_CATEGORIES = [
 ];
 
 const INIT_MODELS = [
-  { deviceModelID: 1, deviceCategoryID: 1, name: "Meta Quest 3", brand: "Meta", specs_json: '{"storage":"128GB"}', isActive: true },
-  { deviceModelID: 2, deviceCategoryID: 2, name: "PS5", brand: "Sony", specs_json: '{"ssd":"1TB"}', isActive: true },
-  { deviceModelID: 3, deviceCategoryID: 3, name: "Sony A7 IV", brand: "Sony", specs_json: '{"sensor":"33MP"}', isActive: true },
+  { deviceModelID: 1, deviceCategoryID: 1, name: "Meta Quest 3", brand: "Meta", specs_json: 'Qualcomm Snapdragon XR2 Gen 28 GB LPDDR5', isActive: true },
+  { deviceModelID: 2, deviceCategoryID: 2, name: "PS5", brand: "Sony", specs_json: 'Qualcomm Snapdragon XR2 Gen 28 GB LPDDR5', isActive: true },
+  { deviceModelID: 3, deviceCategoryID: 3, name: "Sony A7 IV", brand: "Sony", specs_json: 'Qualcomm Snapdragon XR2 Gen 28 GB LPDDR5', isActive: true },
 ];
 
 const INIT_DEVICES = [
@@ -30,13 +30,13 @@ const INIT_ACCESSORIES = [
   { accessoryID: 2, deviceModelID: 3, name: "Battery NP-FZ100", description: "Pin A7 IV" },
 ];
 
-/* ---- Helpers ---- */
+/* ---- Hàm hỗ trợ ---- */
 const statusTag = (s) => {
   switch (s) {
-    case "available": return <Tag color="green">Available</Tag>;
-    case "rented": return <Tag color="blue">Rented</Tag>;
-    case "maintenance": return <Tag color="orange">Maintenance</Tag>;
-    case "broken": return <Tag color="red">Broken</Tag>;
+    case "available": return <Tag color="green">Có sẵn</Tag>;
+    case "rented": return <Tag color="blue">Đang thuê</Tag>;
+    case "maintenance": return <Tag color="orange">Bảo trì</Tag>;
+    case "broken": return <Tag color="red">Hỏng</Tag>;
     default: return <Tag>{s}</Tag>;
   }
 };
@@ -50,7 +50,7 @@ export default function AdminProducts() {
   const catOptions = categories.map(c => ({ label: c.name, value: c.deviceCategoryID }));
   const modelOptions = models.map(m => ({ label: `${m.name} (${m.brand})`, value: m.deviceModelID }));
 
-  /* ---------- CATEGORY ---------- */
+  /* ---------- LOẠI THIẾT BỊ ---------- */
   const CategoryTab = () => {
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState(null);
@@ -68,7 +68,7 @@ export default function AdminProducts() {
               setEditing(r); form.setFieldsValue(r); setOpen(true);
             }}/>
             <Button danger icon={<DeleteOutlined />} onClick={() => {
-              Modal.confirm({ title: "Xóa category?", onOk: () => setCategories(prev => prev.filter(x => x.deviceCategoryID !== r.deviceCategoryID)) });
+              Modal.confirm({ title: "Xóa loại thiết bị?", onOk: () => setCategories(prev => prev.filter(x => x.deviceCategoryID !== r.deviceCategoryID)) });
             }}/>
           </Space>
         )
@@ -78,11 +78,11 @@ export default function AdminProducts() {
     const submit = (v) => {
       if (editing) {
         setCategories(prev => prev.map(x => x.deviceCategoryID === editing.deviceCategoryID ? { ...editing, ...v } : x));
-        message.success("Đã cập nhật category");
+        message.success("Đã cập nhật loại thiết bị");
       } else {
         const id = Math.max(0, ...categories.map(x => x.deviceCategoryID)) + 1;
         setCategories(prev => [...prev, { deviceCategoryID: id, ...v }]);
-        message.success("Đã thêm category");
+        message.success("Đã thêm loại thiết bị");
       }
       setOpen(false); setEditing(null); form.resetFields();
     };
@@ -90,10 +90,10 @@ export default function AdminProducts() {
     return (
       <>
         <Space style={{ marginBottom: 12 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>Thêm category</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>Thêm loại thiết bị</Button>
         </Space>
         <Table rowKey="deviceCategoryID" columns={cols} dataSource={categories} pagination={{ pageSize: 8 }} />
-        <Modal open={open} title={editing ? "Sửa category" : "Thêm category"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
+        <Modal open={open} title={editing ? "Sửa loại thiết bị" : "Thêm loại thiết bị"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
           <Form form={form} layout="vertical" onFinish={submit}>
             <Form.Item name="name" label="Tên" rules={[{ required: true }]}><Input/></Form.Item>
             <Form.Item name="description" label="Mô tả"><Input.TextArea rows={3}/></Form.Item>
@@ -103,7 +103,7 @@ export default function AdminProducts() {
     );
   };
 
-  /* ---------- MODEL ---------- */
+  /* ---------- MẪU THIẾT BỊ ---------- */
   const ModelTab = () => {
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState(null);
@@ -111,18 +111,18 @@ export default function AdminProducts() {
 
     const cols = [
       { title: "ID", dataIndex: "deviceModelID", width: 80 },
-      { title: "Tên model", dataIndex: "name" },
-      { title: "Brand", dataIndex: "brand", width: 120 },
-      { title: "Category", dataIndex: "deviceCategoryID", width: 140, render: id => categories.find(c => c.deviceCategoryID === id)?.name },
-      { title: "Specs (JSON)", dataIndex: "specs_json", ellipsis: true },
-      { title: "Active", dataIndex: "isActive", width: 90, render: v => v ? <Tag color="green">Yes</Tag> : <Tag>No</Tag> },
+      { title: "Tên mẫu", dataIndex: "name" },
+      { title: "Thương hiệu", dataIndex: "brand", width: 120 },
+      { title: "Loại", dataIndex: "deviceCategoryID", width: 140, render: id => categories.find(c => c.deviceCategoryID === id)?.name },
+      { title: "Thông số", dataIndex: "specs_json", ellipsis: true },
+      { title: "Hoạt động", dataIndex: "isActive", width: 90, render: v => v ? <Tag color="green">Có</Tag> : <Tag>Không</Tag> },
       {
         title: "Thao tác", width: 150,
         render: (_, r) => (
           <Space>
             <Button icon={<EditOutlined />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true); }} />
             <Button danger icon={<DeleteOutlined />} onClick={() => {
-              Modal.confirm({ title: "Xóa model?", onOk: () => setModels(prev => prev.filter(x => x.deviceModelID !== r.deviceModelID)) });
+              Modal.confirm({ title: "Xóa mẫu thiết bị?", onOk: () => setModels(prev => prev.filter(x => x.deviceModelID !== r.deviceModelID)) });
             }} />
           </Space>
         )
@@ -132,11 +132,11 @@ export default function AdminProducts() {
     const submit = (v) => {
       if (editing) {
         setModels(prev => prev.map(x => x.deviceModelID === editing.deviceModelID ? { ...editing, ...v } : x));
-        message.success("Đã cập nhật model");
+        message.success("Đã cập nhật mẫu thiết bị");
       } else {
         const id = Math.max(0, ...models.map(x => x.deviceModelID)) + 1;
         setModels(prev => [...prev, { deviceModelID: id, ...v }]);
-        message.success("Đã thêm model");
+        message.success("Đã thêm mẫu thiết bị");
       }
       setOpen(false); setEditing(null); form.resetFields();
     };
@@ -144,19 +144,19 @@ export default function AdminProducts() {
     return (
       <>
         <Space style={{ marginBottom: 12 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>Thêm model</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>Thêm mẫu thiết bị</Button>
         </Space>
         <Table rowKey="deviceModelID" columns={cols} dataSource={models} pagination={{ pageSize: 8 }} />
-        <Modal open={open} title={editing ? "Sửa model" : "Thêm model"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
+        <Modal open={open} title={editing ? "Sửa mẫu thiết bị" : "Thêm mẫu thiết bị"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
           <Form form={form} layout="vertical" onFinish={submit}>
-            <Form.Item name="name" label="Tên model" rules={[{ required: true }]}><Input/></Form.Item>
-            <Form.Item name="brand" label="Brand" rules={[{ required: true }]}><Input/></Form.Item>
-            <Form.Item name="deviceCategoryID" label="Category" rules={[{ required: true }]}>
+            <Form.Item name="name" label="Tên mẫu" rules={[{ required: true }]}><Input/></Form.Item>
+            <Form.Item name="brand" label="Thương hiệu" rules={[{ required: true }]}><Input/></Form.Item>
+            <Form.Item name="deviceCategoryID" label="Loại" rules={[{ required: true }]}>
               <Select options={catOptions}/>
             </Form.Item>
-            <Form.Item name="specs_json" label="Specs (JSON)"><Input.TextArea rows={4} placeholder='{"key":"value"}' /></Form.Item>
-            <Form.Item name="isActive" label="Active" initialValue={true}>
-              <Select options={[{label:"Yes", value:true},{label:"No", value:false}]}/>
+            <Form.Item name="specs_json" label="Thông số"><Input.TextArea rows={4} placeholder='{"key":"value"}' /></Form.Item>
+            <Form.Item name="isActive" label="Hoạt động" initialValue={true}>
+              <Select options={[{label:"Có", value:true},{label:"Không", value:false}]}/>
             </Form.Item>
           </Form>
         </Modal>
@@ -164,7 +164,7 @@ export default function AdminProducts() {
     );
   };
 
-  /* ---------- DEVICE ---------- */
+  /* ---------- THIẾT BỊ ---------- */
   const DeviceTab = () => {
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState(null);
@@ -172,18 +172,18 @@ export default function AdminProducts() {
 
     const cols = [
       { title: "ID", dataIndex: "deviceID", width: 80 },
-      { title: "Model", dataIndex: "deviceModelID", render: id => models.find(m => m.deviceModelID === id)?.name },
+      { title: "Mẫu", dataIndex: "deviceModelID", render: id => models.find(m => m.deviceModelID === id)?.name },
       { title: "Serial", dataIndex: "serialNumber" },
-      { title: "Acquired", dataIndex: "acquiredAt", width: 130 },
-      { title: "Status", dataIndex: "status", width: 130, render: statusTag },
-      { title: "Shelf", dataIndex: "shelfCode", width: 100 },
+      { title: "Ngày mua", dataIndex: "acquiredAt", width: 130 },
+      { title: "Trạng thái", dataIndex: "status", width: 130, render: statusTag },
+      { title: "Vị trí kệ", dataIndex: "shelfCode", width: 100 },
       {
         title: "Thao tác", width: 150,
         render: (_, r) => (
           <Space>
             <Button icon={<EditOutlined />} onClick={() => { setEditing(r); form.setFieldsValue({ ...r, acquiredAt: r.acquiredAt ? dayjs(r.acquiredAt) : null }); setOpen(true); }} />
             <Button danger icon={<DeleteOutlined />} onClick={() => {
-              Modal.confirm({ title: "Xóa device?", onOk: () => setDevices(prev => prev.filter(x => x.deviceID !== r.deviceID)) });
+              Modal.confirm({ title: "Xóa thiết bị?", onOk: () => setDevices(prev => prev.filter(x => x.deviceID !== r.deviceID)) });
             }} />
           </Space>
         )
@@ -197,11 +197,11 @@ export default function AdminProducts() {
       };
       if (editing) {
         setDevices(prev => prev.map(x => x.deviceID === editing.deviceID ? { ...editing, ...payload } : x));
-        message.success("Đã cập nhật device");
+        message.success("Đã cập nhật thiết bị");
       } else {
         const id = Math.max(0, ...devices.map(x => x.deviceID)) + 1;
         setDevices(prev => [...prev, { deviceID: id, ...payload }]);
-        message.success("Đã thêm device");
+        message.success("Đã thêm thiết bị");
       }
       setOpen(false); setEditing(null); form.resetFields();
     };
@@ -209,30 +209,30 @@ export default function AdminProducts() {
     return (
       <>
         <Space style={{ marginBottom: 12 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>Thêm device</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true); }}>Thêm thiết bị</Button>
         </Space>
         <Table rowKey="deviceID" columns={cols} dataSource={devices} pagination={{ pageSize: 8 }} />
-        <Modal open={open} title={editing ? "Sửa device" : "Thêm device"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
+        <Modal open={open} title={editing ? "Sửa thiết bị" : "Thêm thiết bị"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
           <Form form={form} layout="vertical" onFinish={submit}>
-            <Form.Item name="deviceModelID" label="Model" rules={[{ required: true }]}><Select options={modelOptions}/></Form.Item>
+            <Form.Item name="deviceModelID" label="Mẫu" rules={[{ required: true }]}><Select options={modelOptions}/></Form.Item>
             <Form.Item name="serialNumber" label="Serial" rules={[{ required: true }]}><Input/></Form.Item>
-            <Form.Item name="acquiredAt" label="Acquired"><DatePicker style={{ width: "100%" }}/></Form.Item>
-            <Form.Item name="status" label="Status" initialValue="available">
+            <Form.Item name="acquiredAt" label="Ngày mua"><DatePicker style={{ width: "100%" }}/></Form.Item>
+            <Form.Item name="status" label="Trạng thái" initialValue="available">
               <Select options={[
-                {label:"available", value:"available"},
-                {label:"rented", value:"rented"},
-                {label:"maintenance", value:"maintenance"},
-                {label:"broken", value:"broken"},
+                {label:"Có sẵn", value:"available"},
+                {label:"Đang thuê", value:"rented"},
+                {label:"Bảo trì", value:"maintenance"},
+                {label:"Hỏng", value:"broken"},
               ]}/>
             </Form.Item>
-            <Form.Item name="shelfCode" label="Shelf code"><Input/></Form.Item>
+            <Form.Item name="shelfCode" label="Mã kệ"><Input/></Form.Item>
           </Form>
         </Modal>
       </>
     );
   };
 
-  /* ---------- ACCESSORY ---------- */
+  /* ---------- PHỤ KIỆN ---------- */
   const AccessoryTab = () => {
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState(null);
@@ -240,7 +240,7 @@ export default function AdminProducts() {
 
     const cols = [
       { title: "ID", dataIndex: "accessoryID", width: 80 },
-      { title: "Model", dataIndex: "deviceModelID", render: id => models.find(m => m.deviceModelID === id)?.name },
+      { title: "Mẫu", dataIndex: "deviceModelID", render: id => models.find(m => m.deviceModelID === id)?.name },
       { title: "Tên", dataIndex: "name" },
       { title: "Mô tả", dataIndex: "description", ellipsis: true },
       {
@@ -259,11 +259,11 @@ export default function AdminProducts() {
     const submit = (v) => {
       if (editing) {
         setAccs(prev => prev.map(x => x.accessoryID === editing.accessoryID ? { ...editing, ...v } : x));
-        message.success("Đã cập nhật accessory");
+        message.success("Đã cập nhật phụ kiện");
       } else {
         const id = Math.max(0, ...accs.map(x => x.accessoryID)) + 1;
         setAccs(prev => [...prev, { accessoryID: id, ...v }]);
-        message.success("Đã thêm accessory");
+        message.success("Đã thêm phụ kiện");
       }
       setOpen(false); setEditing(null); form.resetFields();
     };
@@ -276,7 +276,7 @@ export default function AdminProducts() {
         <Table rowKey="accessoryID" columns={cols} dataSource={accs} pagination={{ pageSize: 8 }} />
         <Modal open={open} title={editing ? "Sửa phụ kiện" : "Thêm phụ kiện"} onCancel={() => setOpen(false)} onOk={() => form.submit()}>
           <Form form={form} layout="vertical" onFinish={submit}>
-            <Form.Item name="deviceModelID" label="Model" rules={[{ required: true }]}><Select options={modelOptions}/></Form.Item>
+            <Form.Item name="deviceModelID" label="Mẫu" rules={[{ required: true }]}><Select options={modelOptions}/></Form.Item>
             <Form.Item name="name" label="Tên" rules={[{ required: true }]}><Input/></Form.Item>
             <Form.Item name="description" label="Mô tả"><Input.TextArea rows={3}/></Form.Item>
           </Form>
@@ -290,10 +290,10 @@ export default function AdminProducts() {
       <Title level={3}>Quản lý sản phẩm</Title>
       <Tabs
         items={[
-          { key: "cat", label: "Device Category", children: <CategoryTab/> },
-          { key: "model", label: "Device Model", children: <ModelTab/> },
-          { key: "device", label: "Device", children: <DeviceTab/> },
-          { key: "acc", label: "Accessory", children: <AccessoryTab/> },
+          { key: "cat", label: "Loại Thiết Bị", children: <CategoryTab/> },
+          { key: "model", label: "Mẫu Thiết Bị", children: <ModelTab/> },
+          { key: "device", label: "Thiết Bị", children: <DeviceTab/> },
+          { key: "acc", label: "Phụ Kiện", children: <AccessoryTab/> },
         ]}
       />
     </>
