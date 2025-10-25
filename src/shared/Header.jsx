@@ -1,21 +1,15 @@
+// src/components/AppHeader.jsx
 import React from "react";
-import {
-  Layout,
-  Row,
-  Col,
-  Space,
-  Badge,
-  Dropdown,
-  Menu,
-  Button,
-} from "antd";
+import { Layout, Row, Col, Space, Badge, Dropdown, Menu, Button } from "antd";
 import {
   ShoppingCartOutlined,
   UserOutlined,
   MenuOutlined,
   BellOutlined,
 } from "@ant-design/icons";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import toast from "react-hot-toast";
 
 const { Header } = Layout;
 
@@ -28,12 +22,21 @@ const navItems = [
 ];
 
 export default function AppHeader() {
+  const navigate = useNavigate();
+  const { isAuthenticated, user, logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    toast.success("Đã đăng xuất");
+    navigate("/login");
+  };
+
   const userMenu = (
     <Menu
       items={[
         { key: "1", label: <Link to="/profile">Tài khoản</Link> },
         { key: "2", label: <Link to="/orders">Đơn thuê</Link> },
-        { key: "3", label: <Link to="/logout">Đăng xuất</Link> },
+        { key: "3", label: <span onClick={handleLogout}>Đăng xuất</span> },
       ]}
     />
   );
@@ -71,82 +74,96 @@ export default function AppHeader() {
           </Link>
         </Col>
 
-        {/* Menu desktop */}
-        <Col flex="auto" className="hidden md:block">
-          <Space size="large" style={{ marginLeft: 40 }}>
-            {navItems.map((item) => (
-              <Link
-                key={item.key}
-                to={item.link}
+        {/* Nếu CHƯA đăng nhập -> chỉ hiện nút Sign In */}
+        {!isAuthenticated ? (
+          <Col>
+            <Link to="/login" aria-label="Đăng nhập">
+              <div
                 style={{
-                  color: "rgba(0,0,0,0.85)",
-                  fontWeight: 500,
-                  fontSize: 15,
-                  position: "relative",
-                  textDecoration: "none",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = "#000";
-                  e.currentTarget.style.setProperty(
-                    "--underline-width",
-                    "100%"
-                  );
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "rgba(0,0,0,0.85)";
-                  e.currentTarget.style.setProperty("--underline-width", "0");
+                  background: "#000",
+                  color: "#fff",
+                  borderRadius: 12,
+                  padding: "10px 20px",
+                  fontWeight: 600,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                  display: "inline-block",
+                  lineHeight: 1,
                 }}
               >
-                {item.label}
-                <span
-                  style={{
-                    position: "absolute",
-                    bottom: -4,
-                    left: 0,
-                    width: "var(--underline-width, 0)",
-                    height: 2,
-                    backgroundColor: "rgba(0,0,0,0.6)",
-                    transition: "width .25s ease",
-                  }}
-                />
-              </Link>
-            ))}
-          </Space>
-        </Col>
-
-        {/* Icons (loại bỏ search) */}
-        <Col>
-          <div className="header-icons">
-            {/* Notification */}
-            <Link to="/notifications" className="header-icon" aria-label="Notifications">
-              <Badge count={3} size="small" offset={[4, 4]} color="#000">
-                <BellOutlined style={{ fontSize: 20, color: "#000" }} />
-              </Badge>
-            </Link>
-
-            {/* Cart */}
-            <Link to="/cart" className="header-icon" aria-label="Cart">
-              <Badge count={2} size="small" offset={[4, 4]} color="#000">
-                <ShoppingCartOutlined style={{ fontSize: 20, color: "#000" }} />
-              </Badge>
-            </Link>
-
-            {/* Avatar / User */}
-            <Dropdown overlay={userMenu} trigger={["click"]}>
-              <div className="header-icon" role="button" aria-label="Account menu">
-                <UserOutlined style={{ fontSize: 20, color: "#000" }} />
+                Đăng nhập
               </div>
-            </Dropdown>
+            </Link>
+          </Col>
+        ) : (
+          <>
+            {/* ĐÃ đăng nhập -> hiện menu điều hướng + icon như trước */}
+            <Col flex="auto" className="hidden md:block">
+              <Space size="large" style={{ marginLeft: 40 }}>
+                {navItems.map((item) => (
+                  <Link
+                    key={item.key}
+                    to={item.link}
+                    style={{
+                      color: "rgba(0,0,0,0.85)",
+                      fontWeight: 500,
+                      fontSize: 15,
+                      position: "relative",
+                      textDecoration: "none",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = "#000";
+                      e.currentTarget.style.setProperty(
+                        "--underline-width",
+                        "100%"
+                      );
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = "rgba(0,0,0,0.85)";
+                      e.currentTarget.style.setProperty("--underline-width", "0");
+                    }}
+                  >
+                    {item.label}
+                    <span
+                      style={{
+                        position: "absolute",
+                        bottom: -4,
+                        left: 0,
+                        width: "var(--underline-width, 0)",
+                        height: 2,
+                        backgroundColor: "rgba(0,0,0,0.6)",
+                        transition: "width .25s ease",
+                      }}
+                    />
+                  </Link>
+                ))}
+              </Space>
+            </Col>
 
-            {/* Menu mobile */}
-            <Button
-              type="text"
-              icon={<MenuOutlined style={{ fontSize: 20 }} />}
-              className="md:hidden"
-              style={{ color: "#000" }}
-            />
-          </div>
-        </Col>
+            <Col>
+              <div className="header-icons">
+                <Link to="/notifications" className="header-icon" aria-label="Notifications">
+                  <Badge count={3} size="small" offset={[4, 4]} color="#000">
+                    <BellOutlined style={{ fontSize: 20, color: "#000" }} />
+                  </Badge>
+                </Link>
+
+                <Link to="/cart" className="header-icon" aria-label="Cart">
+                  <Badge count={2} size="small" offset={[4, 4]} color="#000">
+                    <ShoppingCartOutlined style={{ fontSize: 20, color: "#000" }} />
+                  </Badge>
+                </Link>
+
+                <Dropdown overlay={userMenu} trigger={["click"]}>
+                  <div className="header-icon" role="button" aria-label="Account menu" title={user?.username || "Tài khoản"}>
+                    <UserOutlined style={{ fontSize: 20, color: "#000" }} />
+                  </div>
+                </Dropdown>
+
+                
+              </div>
+            </Col>
+          </>
+        )}
       </Row>
     </Header>
   );

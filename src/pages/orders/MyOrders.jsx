@@ -108,7 +108,7 @@ const MOCK = [
         name: "iPhone 12 + Phụ kiện",
         qty: 1,
         image:
-          "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=600&auto=format&fit=crop",
+          "",
       },
       {
         name: "Ốp lưng MagSafe",
