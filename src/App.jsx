@@ -54,7 +54,7 @@ export default function App() {
         <Route path="profile" element={<CustomerProfile />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="verify-otp" element={<OtpVerify />} />
-        <Route path="category" element={<RentalList />} />
+        <Route path="/category/:id" element={<RentalList />} />
       </Route>
 
       {/* ====== ADMIN (KHÔNG dùng LayoutRoot) ====== */}
