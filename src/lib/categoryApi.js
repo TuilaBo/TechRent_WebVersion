@@ -12,3 +12,5 @@ export async function fetchCategoryById(id) {
   const { data } = await api.get(`/api/device-categories/${id}`);
   return data?.data ?? data ?? null;
 }
+
+

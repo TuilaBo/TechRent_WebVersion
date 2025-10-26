@@ -17,7 +17,14 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       <BrowserRouter>
         <App />
         {/* Toaster global */}
-        <Toaster position="top-center" toastOptions={{ duration: 2500 }} />
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            duration: 2500,
+            style: { borderRadius: 10, padding: "10px 14px", zIndex: 9999 },
+            success: { iconTheme: { primary: "#111827", secondary: "#fff" } },
+          }}
+        />
       </BrowserRouter>
     </AuthProvider>
   </React.StrictMode>

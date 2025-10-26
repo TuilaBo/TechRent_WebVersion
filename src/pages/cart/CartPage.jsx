@@ -1,80 +1,116 @@
-// src/pages/cart/CartPage.jsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
-  Row,
-  Col,
-  Card,
-  Typography,
-  Breadcrumb,
-  Button,
-  InputNumber,
-  Divider,
-  Space,
-  message,
-  Empty,
-  DatePicker,
-  Radio,
-  Tooltip,
+  Row, Col, Card, Typography, Breadcrumb, Button, InputNumber,
+  Divider, Space, message, Empty, DatePicker, Tooltip, Skeleton
 } from "antd";
 import {
-  DeleteOutlined,
-  ArrowLeftOutlined,
-  ShoppingCartOutlined,
-  CalendarOutlined,
+  DeleteOutlined, ArrowLeftOutlined, ShoppingCartOutlined, CalendarOutlined
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
+import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
+import {
+  getCartFromStorage, saveCartToStorage,
+  removeFromCart, updateCartItemQuantity
+} from "../../lib/cartUtils";
 
 const { Title, Text } = Typography;
 
-// Helpers
-const fmtVND = (n) => n.toLocaleString("vi-VN", { style: "currency", currency: "VND" });
+const fmtVND = (n) => Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 const disabledPast = (cur) => cur && cur < dayjs().startOf("day");
+const CART_DATES_STORAGE_KEY = "techrent-cart-dates";
 
-// Mock items
-const INITIAL_ITEMS = [
-  {
-    id: "mbp16-m3pro",
-    name: 'MacBook Pro 16" M3 Pro',
-    badge: "MacBook",
-    image:
-      "data:image/webp;base64,UklGRp4FAABXRUJQVlA4IJIFAACQIACdASqYAGQAPjkMjkciEREOCCADhLS24sPmtmEoiwG0YRn80/cDvHMUPNA/7no3+oP+h6sX+26+Ho1le18CCDIvMOIUUAHtasRFGaUJ0lz7D7QdLnYlPy2/YY6oXsAKEJie8AwM7lTDwZ9Pjw98bEi7bO6ECtnN8f61ayhhSUrrkTjiPaZCOyYoSDs4I67YFUQySxuQIMaOmlteF7i9CKwoh5ja5E593jpcqQpJ+m92pmFCO9ZJinM6Zllp2F3ecZSOx4kS0ZzR5f1daSxCqVtk+r0tG4vcwEkugNqE2DdWhWIu8lXtpV3oRD/nr2WbxQ0A1bINkOq8xzp2VZnFBg0wb6WvFHrUTmOKgAD+/10TPsBV++1ufdABSzof5FdN/KDv8YF3fa2gwTu1LjX8PmfLP+9tAr/xkRj0gyRA2quO1nMurREKiHDffSbOFAQxMKK1RUXVSVK6N+hvSF5Jq7o96Y8JIlOcRvskK8onIeRXsbsisRtk3HE2DO00LYsPU2vMXGrPV6ZtZKrNZ+0N9CJdmADupb4hrOuiCnWzA6opt+/TNlvCfD5/5N2S7KBtQ0LJauijmvpA/b4Kt+fbgLyELW05De+jy/87MBQfostmWGM7uCyD1WKdAqLVTOs03bhNexgN7cLjIapOHyySUXL96IVzBKOY0b9PTWU/x2LEnW6ouBG0nUK1W0JmnfhPE/L2VnYUbSLwXeXjvmwh2Ifn5QemlVCE6GzISjgLX/w2w8h/cKmL2Yp76Pq1ZZlijgvmGZtZinnkf6lTVFE64+NYwMa/JV8xVpJx9Y6hLIAOHTysIEFcaMfRUAeghvjk+4xg/RrOP5LmeEbgEXNQwf67dxX5Hq1VFscSyOvtOp+n40rrrzrWx473c7SeE25Kq/C7mpv9ol3+XEbAWTzURJo70ffySppMlVnkBTXURe3vHKwbqAbH7jAv84BOgqhk30VTsir/ZeaoR9nhUubyRTNeB3mvbXuX3HC7tfKgB/fZZ0woKzu01amqWX3HPI28S5APy7LScOT3oNWLLLMzOPu0TIuagFigYEpiwjHED6YzsPERKKaAvQOOopWZ/w7lNfUNP1E/aU/Nk+NZWHo+37g7xSl5wIGIMoZvcAe1ARsoLRl4vbbSuWr2sCWR9cK5KO5q8q7Igz2uVz5derf3ypPltl4PXk9CoVkxaL24FpevO7iZkJqTGtg7M16hUTQTzupwKskWSTNumE1sg4qA5v9loWq5nPsiejcN1bxrnJVw32LN8biTrT/TsobdnBlRrW0WyySvJgf501DNCy4t2O2G95rEy84UF3XSkzhdkPwVPbvgxI6c5kPh6A3euuqfB93el3YDCaSFL0hBUbOaQx8ntclIdaJtxto8UxgJ1XGI3uQrEtvnJQfHbrU3P3FQLuYF6OUCUSImLL2JyJDBjS2fDYLDUUCmYmBvAt7cFc70kwOul0m5iqCZIndyw84MvMaNi38/pm4WAwe2+on4YYmvptn6RklS5nP+fRbkeCNrAdM6/GMY2CMMczdgPk2MbX5+/T93VjfZ//0ng5JK1fEkoXARtJ+YI2x/MTcM3imO973N76kobuuKgI7n0/+QA+L5IPL3h2X+ksNFly1keeb6MtUaNddO356SanXEaTmYCXo+eiEaBwGtICN2UCAok1t/a0xKj98v3redv2n/JsfwFUPkOLoot0qd+UJuz4XuyA8Uea+xihKBJ/MUf/+ECbUhIRC8qB0qdgR2M5xdd92+Zj8/QGnhmRxdhjykGgwusKvtg/CtCvj4BqLnUv97t3xfvyMP4NZRyi/DFdcF07v8Rr1P/aRVB5OFsyIJl9cc6yQnnPMX+A5Qhm6V/sV54YXch63UEanFhkx3ilJH9Gnt5xDl3rRyulwAAAAAAAAA",
-    dailyPrice: 1_200_000,
-    qty: 1,
-    note: "Hiệu năng mạnh cho đồ họa/dựng phim",
-  },
-  {
-    id: "canon-eos-r5",
-    name: "Canon EOS R5",
-    badge: "Camera",
-    image:
-      "https://i.ebayimg.com/images/g/4uYAAeSw8Z1o8PM8/s-l1600.webp",
-    dailyPrice: 1_300_000,
-    qty: 1,
-    note: "Máy ảnh chuyên nghiệp",
-  },
-  {
-    id: "Iphone 17-pro-max",
-    name: "Iphone 17 Pro Max",
-    badge: "Điện Thoại",
-    image:
-      "https://lh3.googleusercontent.com/RGhCKugjPU0Lg_DINbPIkLUFpvwn4C6SQxH-5LsNxbMERnVC0hsRwHQg2akzWWgms8wPP1LNuTW-5QvYblGbipab1ds0yF9B=w500-rw",
-    dailyPrice: 700_000,
-    qty: 1,
-    note: "Điện thoại thông minh cao cấp",
-  },
-];
-
-const DEPOSIT_RATE = 0.35;
+const createCartItem = (model, qty = 1) => ({
+  id: model.id,
+  name: model.name,
+  brand: model.brand,
+  image: model.image,
+  dailyPrice: model.pricePerDay,
+  depositPercent: model.depositPercent,   // <-- cần có
+  deviceValue: model.deviceValue,         // <-- cần có
+  qty,
+  note: model.description || "",
+});
 
 export default function CartPage() {
   const navigate = useNavigate();
-  const [items, setItems] = useState(INITIAL_ITEMS);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   // Dates
   const [startDate, setStartDate] = useState(dayjs().add(1, "day"));
   const [endDate, setEndDate] = useState(dayjs().add(6, "day"));
-  const [delivery, setDelivery] = useState(true);
+
+  useEffect(() => {
+    const loadCart = async () => {
+      try {
+        setLoading(true);
+
+        const cartItems = getCartFromStorage();
+        const savedDates = localStorage.getItem(CART_DATES_STORAGE_KEY);
+        if (savedDates) {
+          const d = JSON.parse(savedDates);
+          if (d.startDate) setStartDate(dayjs(d.startDate));
+          if (d.endDate) setEndDate(dayjs(d.endDate));
+        }
+
+        if (!Array.isArray(cartItems) || cartItems.length === 0) {
+          setItems([]);
+          return;
+        }
+
+        const itemsWithDetails = await Promise.all(
+          cartItems.map(async (ci) => {
+            try {
+              const m = await getDeviceModelById(ci.id);
+              const nm = normalizeModel(m);
+              return createCartItem(nm, ci.qty || 1);
+            } catch {
+              // Fallback nếu API lỗi
+              return {
+                id: ci.id,
+                name: ci.name,
+                image: ci.image,
+                dailyPrice: ci.dailyPrice,
+                depositPercent: ci.depositPercent ?? 0,
+                deviceValue: ci.deviceValue ?? 0,
+                qty: ci.qty || 1,
+                note: ci.note || "",
+              };
+            }
+          })
+        );
+
+        setItems(itemsWithDetails);
+      } catch (e) {
+        console.error("Failed to load cart:", e);
+        message.error("Không thể tải giỏ hàng");
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCart();
+  }, []);
+
+  // Persist items to localStorage when changed (sau khi đã load xong)
+  useEffect(() => {
+    if (!loading) saveCartToStorage(items);
+  }, [items, loading]);
+
+  // Persist dates
+  useEffect(() => {
+    if (startDate && endDate) {
+      localStorage.setItem(
+        CART_DATES_STORAGE_KEY,
+        JSON.stringify({
+          startDate: startDate.format("YYYY-MM-DD"),
+          endDate: endDate.format("YYYY-MM-DD"),
+        })
+      );
+    }
+  }, [startDate, endDate]);
 
   const days = useMemo(() => {
     if (!startDate || !endDate) return 1;
@@ -82,69 +118,83 @@ export default function CartPage() {
     return Math.max(1, diff || 1);
   }, [startDate, endDate]);
 
-  const lineTotals = useMemo(
-    () =>
-      items.map((it) => ({
+  // Tính tiền từng dòng: subtotal theo ngày; cọc theo % * deviceValue * qty
+  const lineTotals = useMemo(() => {
+    return items.map((it) => {
+      const qty = Number(it.qty || 1);
+      const subtotal = Number(it.dailyPrice || 0) * days * qty;
+      const deposit = Math.round(
+        Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty
+      );
+      return {
         id: it.id,
         name: it.name,
-        total: it.dailyPrice * days * it.qty,
-      })),
-    [items, days]
-  );
+        qty,
+        subtotal,
+        deposit,
+        depositPercent: Number(it.depositPercent || 0),
+      };
+    });
+  }, [items, days]);
 
-  const subtotal = useMemo(() => lineTotals.reduce((s, x) => s + x.total, 0), [lineTotals]);
-  const deposit = useMemo(() => Math.round(subtotal * DEPOSIT_RATE), [subtotal]);
+  const subtotal = useMemo(
+    () => lineTotals.reduce((s, x) => s + x.subtotal, 0),
+    [lineTotals]
+  );
+  const deposit = useMemo(
+    () => lineTotals.reduce((s, x) => s + x.deposit, 0),
+    [lineTotals]
+  );
   const grandTotal = useMemo(() => subtotal + deposit, [subtotal, deposit]);
 
-  const updateItem = (id, patch) =>
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
-  const removeItem = (id) => setItems((prev) => prev.filter((it) => it.id !== id));
+  const updateItem = (id, patch) => {
+    const updated = items.map((it) => (it.id === id ? { ...it, ...patch } : it));
+    setItems(updated);
+    if (patch.qty !== undefined) updateCartItemQuantity(id, patch.qty);
+  };
+
+  const removeItemHandler = (id) => {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+    removeFromCart(id);
+  };
 
   const checkout = () => {
-    if (items.length === 0) return message.warning("Giỏ hàng đang trống.");
-    if (!startDate || !endDate) return message.warning("Vui lòng chọn ngày thuê.");
-    message.success("Đi tới trang thanh toán…");
+    if (!items.length) return message.warning("Giỏ hàng đang trống.");
     navigate("/checkout");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+          <Breadcrumb items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]} className="mb-4" />
+          <Title level={3}>Giỏ hàng</Title>
+          <Skeleton active paragraph={{ rows: 8 }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-        <Breadcrumb
-          items={[
-            { title: <Link to="/">Trang chủ</Link> },
-            { title: "Giỏ hàng" },
-          ]}
-          className="mb-4"
-        />
-
+        <Breadcrumb items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]} className="mb-4" />
         <Title level={3} style={{ color: "#111827", marginBottom: 16 }}>
           Giỏ hàng
         </Title>
 
         <Row gutter={[24, 24]}>
-          {/* LEFT: Items in Cart */}
+          {/* LEFT: Items */}
           <Col xs={24} lg={9}>
-            <Card
-              bordered
-              className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Sản phẩm trong giỏ</Text>}
-              headStyle={{ background: "#fff" }}
-            >
+            <Card bordered className="rounded-xl" bodyStyle={{ padding: 16 }} title={<Text strong>Sản phẩm trong giỏ</Text>}>
               {items.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có sản phẩm" />
+                <Empty description="Chưa có sản phẩm" />
               ) : (
                 items.map((it) => {
-                  const lineTotal = it.dailyPrice * days * it.qty;
+                  const percent = Math.round(Number(it.depositPercent || 0) * 100);
+                  const line = lineTotals.find((x) => x.id === it.id);
                   return (
-                    <Card
-                      key={it.id}
-                      bordered
-                      style={{ background: "#fff", marginBottom: 12, borderColor: "#E5E7EB" }}
-                      bodyStyle={{ padding: 12 }}
-                    >
-                      {/* 3 cột cố định như Figma: 64px | 1fr | auto */}
+                    <Card key={it.id} bordered style={{ marginBottom: 12, borderColor: "#E5E7EB" }} bodyStyle={{ padding: 12 }}>
                       <div
                         style={{
                           display: "grid",
@@ -153,7 +203,6 @@ export default function CartPage() {
                           columnGap: 12,
                         }}
                       >
-                        {/* Ảnh 64x64 */}
                         <div
                           style={{
                             width: 64,
@@ -164,56 +213,27 @@ export default function CartPage() {
                             borderRadius: 10,
                           }}
                         />
-
-                        {/* Thông tin (để minWidth:0 để không phá grid) */}
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                            <Link to={`/device/${it.id}`} style={{ minWidth: 0 }}>
-                              <Text
-                                strong
-                                style={{
-                                  color: "#111827",
-                                  display: "block",
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  maxWidth: "100%",
-                                }}
-                              >
-                                {it.name}
-                              </Text>
-                            </Link>
-                          </div>
+                          <Text strong style={{ color: "#111827", display: "block" }}>
+                            {it.name}
+                          </Text>
 
                           <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>
-                            {it.note}
+                            {fmtVND(it.dailyPrice)} / ngày
                           </Text>
-
-                          <Text strong style={{ fontSize: 14, color: "#111827" }}>
-                            {fmtVND(it.dailyPrice)}
+                          <Text type="secondary">
+                            Cọc {percent}%: {fmtVND(line?.deposit || 0)}
                           </Text>
-                          <Text type="secondary"> / ngày</Text>
                         </div>
 
-                        {/* Cột phải: trên = thành tiền + xoá, dưới = số lượng (căn phải) */}
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-end",
-                            gap: 8,
-                          }}
-                        >
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <Tooltip title="Xóa">
-                              <Button type="text" icon={<DeleteOutlined />} onClick={() => removeItem(it.id)} />
+                              <Button type="text" icon={<DeleteOutlined />} onClick={() => removeItemHandler(it.id)} />
                             </Tooltip>
                           </div>
-
                           <Space.Compact>
-                            <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>
-                              –
-                            </Button>
+                            <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>–</Button>
                             <InputNumber
                               min={1}
                               value={it.qty}
@@ -231,20 +251,12 @@ export default function CartPage() {
             </Card>
           </Col>
 
-          {/* MIDDLE: Rental Dates */}
+          {/* MIDDLE: Dates */}
           <Col xs={24} lg={8}>
-            <Card
-              bordered
-              className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Thời gian thuê</Text>}
-              headStyle={{ background: "#fff" }}
-            >
+            <Card bordered className="rounded-xl" bodyStyle={{ padding: 16 }} title={<Text strong>Thời gian thuê</Text>}>
               <Space direction="vertical" size={12} style={{ width: "100%" }}>
                 <div>
-                  <Text type="secondary" className="block">
-                    Ngày bắt đầu
-                  </Text>
+                  <Text type="secondary" className="block">Ngày bắt đầu</Text>
                   <DatePicker
                     value={startDate}
                     onChange={setStartDate}
@@ -254,29 +266,21 @@ export default function CartPage() {
                     suffixIcon={<CalendarOutlined />}
                   />
                 </div>
-
                 <div>
-                  <Text type="secondary" className="block">
-                    Ngày kết thúc
-                  </Text>
+                  <Text type="secondary" className="block">Ngày kết thúc</Text>
                   <DatePicker
                     value={endDate}
                     onChange={setEndDate}
                     style={{ width: "100%" }}
                     format="YYYY-MM-DD"
                     disabledDate={(cur) =>
-                      disabledPast(cur) ||
-                      (startDate &&
-                        cur.startOf("day").diff(startDate.startOf("day"), "day") <= 0)
+                      disabledPast(cur) || (startDate && cur.startOf("day").diff(startDate.startOf("day"), "day") <= 0)
                     }
                     suffixIcon={<CalendarOutlined />}
                   />
                 </div>
-
                 <div>
-                  <Text type="secondary" className="block">
-                    Số ngày
-                  </Text>
+                  <Text type="secondary" className="block">Số ngày</Text>
                   <div
                     style={{
                       width: "100%",
@@ -293,36 +297,23 @@ export default function CartPage() {
                     {days} ngày
                   </div>
                 </div>
-
               </Space>
             </Card>
           </Col>
 
-          {/* RIGHT: Order Summary */}
+          {/* RIGHT: Summary */}
           <Col xs={24} lg={7}>
-            <Card
-              bordered
-              className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Tóm tắt đơn hàng</Text>}
-              headStyle={{ background: "#fff" }}
-              style={{ position: "sticky", top: 24 }}
-            >
+            <Card bordered className="rounded-xl" bodyStyle={{ padding: 16 }} title={<Text strong>Tóm tắt đơn hàng</Text>}>
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
                 {lineTotals.map((ln) => (
                   <div
                     key={ln.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      color: "#111827",
-                    }}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#111827" }}
                   >
                     <Text type="secondary" style={{ maxWidth: 220 }}>
                       {ln.name} ({days} ngày)
                     </Text>
-                    <Text>{fmtVND(ln.total)}</Text>
+                    <Text>{fmtVND(ln.subtotal)}</Text>
                   </div>
                 ))}
               </Space>
@@ -331,7 +322,11 @@ export default function CartPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Text type="secondary">Tiền cọc</Text>
+                  <Text type="secondary">Tiền hàng</Text>
+                  <Text>{fmtVND(subtotal)}</Text>
+                </div>
+                <div className="flex items-center justify-between">
+                  <Text type="secondary">Tiền cọc (theo % × giá trị máy)</Text>
                   <Text>{fmtVND(deposit)}</Text>
                 </div>
               </div>
@@ -346,7 +341,7 @@ export default function CartPage() {
               </div>
 
               <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-                *Tiền cọc sẽ được hoàn lại sau khi trả hàng đúng điều kiện.
+                *Tiền cọc được tính theo tỉ lệ cọc của từng mẫu nhân với giá trị thiết bị.
               </Text>
 
               <Button

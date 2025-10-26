@@ -1,15 +1,16 @@
 // src/components/AppHeader.jsx
-import React from "react";
-import { Layout, Row, Col, Space, Badge, Dropdown, Menu, Button } from "antd";
+import React, { useState, useEffect } from "react";
+import { Layout, Row, Col, Space, Badge, Dropdown, Menu, Input } from "antd";
 import {
   ShoppingCartOutlined,
   UserOutlined,
-  MenuOutlined,
   BellOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
+import { getCartCount } from "../lib/cartUtils";
 
 const { Header } = Layout;
 
@@ -24,6 +25,39 @@ const navItems = [
 export default function AppHeader() {
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuth();
+  const [cartCount, setCartCount] = useState(0);
+  const [bump, setBump] = useState(false); // <-- NEW
+
+  useEffect(() => {
+    const update = (count) => {
+      setCartCount(count ?? getCartCount());
+      // chạy animation
+      setBump(true);
+      const t = setTimeout(() => setBump(false), 500);
+      return () => clearTimeout(t);
+    };
+
+    // lần đầu
+    update(getCartCount());
+
+    // tab khác
+    const onStorage = (e) => {
+      if (e.key === "techrent-cart") update(getCartCount());
+    };
+
+    // cùng tab (custom event)
+    const onCartUpdated = (e) => {
+      update(e?.detail?.count);
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("cart:updated", onCartUpdated);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("cart:updated", onCartUpdated);
+    };
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -41,6 +75,27 @@ export default function AppHeader() {
     />
   );
 
+  const searchInputStyle = {
+    borderRadius: 50,
+    background: "#fff",
+    border: "2px solid rgba(0,0,0,0.25)",
+    padding: "8px 16px",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+    transition: "all 0.3s ease",
+    fontWeight: 600,
+  };
+
+  const searchInputMobileStyle = {
+    borderRadius: 50,
+    background: "#fff",
+    border: "2px solid rgba(0,0,0,0.25)",
+    padding: "6px 12px",
+    width: 200,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+    transition: "all 0.3s ease",
+    fontWeight: 600,
+  };
+
   return (
     <Header
       style={{
@@ -55,8 +110,41 @@ export default function AppHeader() {
         borderBottom: "1px solid rgba(0,0,0,0.08)",
       }}
     >
+      {/* CSS animation cho badge/cart */}
+      <style>{`
+        @keyframes cart-bump {
+          0%   { transform: scale(1); }
+          10%  { transform: scale(1.15); }
+          30%  { transform: scale(0.95); }
+          50%  { transform: scale(1.08); }
+          100% { transform: scale(1); }
+        }
+        .cart-badge-bump {
+          animation: cart-bump .5s ease;
+        }
+        .icon-wrap {
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .ping {
+          position: absolute;
+          width: 8px; height: 8px;
+          border-radius: 9999px;
+          background: #111827;
+          top: -2px; right: -2px;
+          opacity: 0.75;
+          animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) 1 forwards;
+        }
+        @keyframes ping {
+          0% { transform: scale(1); opacity: .8; }
+          70% { transform: scale(2.2); opacity: .25; }
+          100% { transform: scale(2.8); opacity: 0; }
+        }
+      `}</style>
+
       <Row align="middle" justify="space-between" style={{ height: 56 }}>
-        {/* Logo */}
         <Col>
           <Link
             to="/"
@@ -74,7 +162,6 @@ export default function AppHeader() {
           </Link>
         </Col>
 
-        {/* Nếu CHƯA đăng nhập -> chỉ hiện nút Sign In */}
         {!isAuthenticated ? (
           <Col>
             <Link to="/login" aria-label="Đăng nhập">
@@ -96,7 +183,6 @@ export default function AppHeader() {
           </Col>
         ) : (
           <>
-            {/* ĐÃ đăng nhập -> hiện menu điều hướng + icon như trước */}
             <Col flex="auto" className="hidden md:block">
               <Space size="large" style={{ marginLeft: 40 }}>
                 {navItems.map((item) => (
@@ -112,10 +198,7 @@ export default function AppHeader() {
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = "#000";
-                      e.currentTarget.style.setProperty(
-                        "--underline-width",
-                        "100%"
-                      );
+                      e.currentTarget.style.setProperty("--underline-width", "100%");
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.color = "rgba(0,0,0,0.85)";
@@ -139,18 +222,57 @@ export default function AppHeader() {
               </Space>
             </Col>
 
+            <Col flex="1" style={{ maxWidth: 300, marginLeft: 16, marginRight: 16 }} className="hidden md:block">
+              <Input
+                prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.65)", fontSize: 18 }} />}
+                placeholder="Tìm kiếm sản phẩm..."
+                allowClear
+                style={searchInputStyle}
+                onFocus={(e) => {
+                  e.target.parentNode.style.boxShadow = "0 6px 16px rgba(0,0,0,0.2)";
+                  e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.45)";
+                }}
+                onBlur={(e) => {
+                  e.target.parentNode.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+                  e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.25)";
+                }}
+              />
+            </Col>
+
             <Col>
-              <div className="header-icons">
+              <div className="header-icons" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div className="md:hidden">
+                  <Input
+                    prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.65)", fontSize: 16 }} />}
+                    placeholder="Tìm kiếm..."
+                    allowClear
+                    style={searchInputMobileStyle}
+                    onFocus={(e) => {
+                      e.target.parentNode.style.boxShadow = "0 6px 16px rgba(0,0,0,0.2)";
+                      e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.45)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.parentNode.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+                      e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.25)";
+                    }}
+                  />
+                </div>
+
                 <Link to="/notifications" className="header-icon" aria-label="Notifications">
                   <Badge count={3} size="small" offset={[4, 4]} color="#000">
                     <BellOutlined style={{ fontSize: 20, color: "#000" }} />
                   </Badge>
                 </Link>
 
+                {/* Cart icon + bump + ping */}
                 <Link to="/cart" className="header-icon" aria-label="Cart">
-                  <Badge count={2} size="small" offset={[4, 4]} color="#000">
-                    <ShoppingCartOutlined style={{ fontSize: 20, color: "#000" }} />
-                  </Badge>
+                  <span className={`icon-wrap ${bump ? "cart-badge-bump" : ""}`}>
+                    <Badge count={cartCount} size="small" offset={[4, 4]} color="#000">
+                      <ShoppingCartOutlined style={{ fontSize: 20, color: "#000" }} />
+                    </Badge>
+                    {/* Ping “chớp” mỗi lần cập nhật */}
+                    {bump && <span className="ping" />}
+                  </span>
                 </Link>
 
                 <Dropdown overlay={userMenu} trigger={["click"]}>
@@ -158,8 +280,6 @@ export default function AppHeader() {
                     <UserOutlined style={{ fontSize: 20, color: "#000" }} />
                   </div>
                 </Dropdown>
-
-                
               </div>
             </Col>
           </>

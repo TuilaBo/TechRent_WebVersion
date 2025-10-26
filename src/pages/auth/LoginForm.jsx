@@ -48,12 +48,8 @@ export default function LoginForm() {
 
             <Form layout="vertical" onFinish={onFinish} requiredMark={false} onChange={clearError}>
               <Form.Item
-                label="Email"
+                label="Email hoặc tên đăng nhập"
                 name="email"
-                rules={[
-                  { required: true, message: "Vui lòng nhập email!" },
-                  { type: "email", message: "Email không hợp lệ!" },
-                ]}
               >
                 <Input prefix={<MailOutlined />} placeholder="you@example.com" />
               </Form.Item>

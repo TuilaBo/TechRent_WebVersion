@@ -18,34 +18,17 @@ export default function Hero() {
       {/* Nội dung */}
       <div className="relative z-10 max-w-2xl px-4">
         <h1
-          className="text-4xl md:text-5xl font-extrabold drop-shadow-none leading-tight animate-fade-in text-black"
+          className="text-4xl md:text-5xl font-extrabold drop-shadow-none leading-tight animate-fade-in text-white"
         >
           Thuê thiết bị công nghệ nhanh chóng
         </h1>
         <p
-          className="mt-4 text-lg animate-fade-in-delay text-gray-800"
+          className="mt-4 text-lg animate-fade-in-delay text-gray=-800"
         >
          Camera, Laptop và hơn thế nữa — nhanh chóng & uy tín.
         </p>
 
-        {/* Search */}
-        <div className="mt-6">
-          <Input
-            placeholder="Tìm kiếm sản phẩm…"
-            allowClear
-            prefix={<SearchOutlined style={{ color: "#8c8c8c" }} />}
-            style={{
-              borderRadius: 0,
-              width: "100%",
-              maxWidth: 480,
-              backgroundColor: "#fff",
-              border: "1px solid rgba(0,0,0,0.12)",
-              color: "#000",
-              padding: "8px 14px",
-              height: 40,
-            }}
-          />
-        </div>
+        
       </div>
 
       {/* Ép đen toàn bộ text trong hero (ghi đè các rule cũ) */}

@@ -18,17 +18,20 @@ export const fmtVND = (n) =>
   Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 
 /** Chuẩn hoá dữ liệu từ BE -> UI */
-export function normalizeModel(m) {
+export function normalizeModel(m = {}) {
   return {
-    id: m?.deviceModelId ?? m?.id,
-    name: m?.deviceName ?? m?.name ?? "Thiết bị",
-    brand: m?.brand ?? "",
-    image: m?.imageURL ?? m?.imageUrl ?? m?.image ?? "",
-    // BE có thể trả pricePerDay hoặc priceValue -> ưu tiên pricePerDay
-    pricePerDay: m?.pricePerDay ?? m?.priceValue ?? 0,
-    specifications: m?.specifications ?? "",
-    description: m?.description ?? "",
-    images: m?.images ?? (m?.imageURL ? [m.imageURL] : []),
-    // có thể mở rộng thêm các field khác sau
+    id: m.deviceModelId ?? m.id,
+    name: m.deviceName ?? m.name ?? "",
+    brand: m.brand ?? m.manufacturer ?? "",
+    image: m.imageURL ?? m.imageUrl ?? m.image ?? "",
+    pricePerDay: Number(m.pricePerDay ?? m.dailyPrice ?? m.price ?? 0),
+
+    // ⚠️ THÊM 2 DÒNG NÀY
+    depositPercent: Number(m.depositPercent ?? m.deposit_percentage ?? m.depositRate ?? 0),
+    deviceValue:    Number(m.deviceValue ?? m.assetValue ?? 0),
+
+    description: m.specifications ?? m.description ?? "",
+    categoryId: m.deviceCategoryId ?? m.categoryId ?? null,
+    active: Boolean(m.active ?? true),
   };
 }
