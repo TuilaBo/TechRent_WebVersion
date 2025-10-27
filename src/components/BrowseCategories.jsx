@@ -1,17 +1,19 @@
 // src/pages/browse/BrowseCategories.jsx
 import React, { useEffect, useState } from "react";
-import { Card, Row, Col, Typography, Space, Skeleton, Alert } from "antd";
+import { Card, Row, Col, Typography, Space, Skeleton, Alert, Empty } from "antd";
 import { Link } from "react-router-dom";
 import {
   CameraOutlined,
   LaptopOutlined,
-  CustomerServiceOutlined,
+  AudioOutlined,
   PlayCircleOutlined,
-  RocketOutlined,
-  VideoCameraOutlined,
+  MobileOutlined,
+  MonitorOutlined,
+  DesktopOutlined,
+  CustomerServiceOutlined,
   AppstoreOutlined,
 } from "@ant-design/icons";
-import { fetchCategories } from "../lib/categoryApi";
+import { fetchCategories } from "../lib/categoryApi"
 
 const { Title, Text } = Typography;
 
@@ -20,20 +22,22 @@ const ICONS = {
   laptop: <LaptopOutlined />,
   audio: <CustomerServiceOutlined />,
   gaming: <PlayCircleOutlined />,
-  drone: <VideoCameraOutlined />,
-  phone: <RocketOutlined />,
+  monitor: <MonitorOutlined />,
+  phone: <MobileOutlined />,
+  pc: <DesktopOutlined />,
   default: <AppstoreOutlined />,
 };
 
 const pickIcon = (name = "") => {
   const n = name.toLowerCase();
-  if (n.includes("máy ảnh") || n.includes("camera")) return ICONS.camera;
-  if (n.includes("laptop") || n.includes("macbook")) return ICONS.laptop;
-  if (n.includes("âm thanh") || n.includes("audio")) return ICONS.audio;
-  if (n.includes("game")) return ICONS.gaming;
-  if (n.includes("flycam") || n.includes("drone")) return ICONS.drone;
-  if (n.includes("iphone") || n.includes("phone")) return ICONS.phone;
-  return ICONS.default;
+  if (n.includes("máy ảnh") || n.includes("camera")) return "camera";
+  if (n.includes("laptop") || n.includes("macbook") || n.includes("dell")) return "laptop";
+  if (n.includes("âm thanh") || n.includes("audio") || n.includes("tai nghe") || n.includes("headphone")) return "audio";
+  if (n.includes("game") || n.includes("xbox") || n.includes("ps") || n.includes("console")) return "gaming";
+  if (n.includes("màn hình") || n.includes("monitor") || n.includes("display")) return "monitor";
+  if (n.includes("iphone") || n.includes("phone") || n.includes("mobile") || n.includes("smartphone")) return "phone";
+  if (n.includes("pc") || n.includes("desktop") || n.includes("máy tính")) return "pc";
+  return "default";
 };
 
 export default function BrowseCategories() {
@@ -57,45 +61,108 @@ export default function BrowseCategories() {
   }, []);
 
   return (
-    <div className="bg-white py-12 rounded-2xl mb-24">
-      <div className="text-center mb-10">
-        <Title level={3} style={{ marginBottom: 40, color: "#1a1a1a", fontSize: 28, fontWeight: "bold" }}>
+    <div style={{ 
+      padding: "60px 0 80px",
+    }}>
+      <div className="text-center mb-12">
+        <Title
+          level={1}
+          style={{
+            marginBottom: 12,
+            color: "#000",
+            fontSize: 32,
+            fontWeight: 700,
+            letterSpacing: "-1px",
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+          }}
+        >
           Danh mục sản phẩm
         </Title>
+
       </div>
 
-      <div className="container mx-auto px-4">
+      <div className="container mx-auto px-6">
         {loading ? (
           <Skeleton active paragraph={{ rows: 6 }} />
         ) : err ? (
-          <Alert type="error" message={err} showIcon />
+          <Alert type="error" message={err} showIcon style={{ borderRadius: 12 }} />
+        ) : list.length === 0 ? (
+          <Empty description="Chưa có danh mục" />
         ) : (
-          <Row gutter={[16, 16]} justify="center">
+          <Row gutter={[24, 24]} justify="center">
             {list.map((cat) => {
-              const id = cat?.deviceCategoryId ?? cat?.id;
-              const name = cat?.name ?? cat?.categoryName ?? "Danh mục";
-              const countText = cat?.productCount ? `${cat.productCount}+ sản phẩm` : "Xem sản phẩm";
+              const id = cat.id;
+              const name = cat.name;
+              const iconType = pickIcon(name);
+              const countText = cat.productCount
+                ? `${cat.productCount}+ sản phẩm`
+                : "Xem sản phẩm";
+
               return (
-                <Col key={id} xs={12} sm={8} md={8} lg={4} className="flex justify-center">
+                <Col key={id} xs={12} sm={8} md={6} lg={4} className="flex justify-center">
                   <Link
                     to={`/category/${id}`}
                     aria-label={`Xem danh mục ${name}`}
                     style={{ width: "100%", maxWidth: 180, textDecoration: "none" }}
-                    className="block"
                   >
                     <Card
                       hoverable
                       bordered={false}
-                      className="w-full rounded-xl shadow-md hover:shadow-xl transition-all text-center hover:scale-105"
+                      style={{
+                        borderRadius: 16,
+                        overflow: "hidden",
+                        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                        border: "2px solid #f5f5f5",
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                        background: "#fff"
+                      }}
+                      className="category-card"
+                      bodyStyle={{ padding: "24px 16px" }}
                     >
-                      <Space direction="vertical" align="center" size="middle" className="w-full">
-                        <div className="text-4xl text-[#000]">{pickIcon(name)}</div>
-                        <Text strong className="block text-gray-900 text-base">
-                          {name}
-                        </Text>
-                        <Text type="secondary" className="text-sm">
-                          {countText}
-                        </Text>
+                      <Space direction="vertical" align="center" size={16} className="w-full">
+                        <div
+                          style={{
+                            width: 64,
+                            height: 64,
+                            borderRadius: 16,
+                            background: "#000",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 28,
+                            color: "#fff",
+                            transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                          }}
+                          className="icon-wrapper"
+                        >
+                          {ICONS[iconType]}
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <Text
+                            strong
+                            style={{
+                              display: "block",
+                              color: "#000",
+                              fontSize: 14,
+                              fontWeight: 600,
+                              marginBottom: 4,
+                              lineHeight: 1.4,
+                              letterSpacing: "-0.2px"
+                            }}
+                          >
+                            {name}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              color: "#999",
+                              fontWeight: 400,
+                              letterSpacing: "0.1px"
+                            }}
+                          >
+                            {countText}
+                          </Text>
+                        </div>
                       </Space>
                     </Card>
                   </Link>
@@ -105,6 +172,28 @@ export default function BrowseCategories() {
           </Row>
         )}
       </div>
+
+      <style jsx>{`
+        .category-card:hover {
+          transform: translateY(-12px);
+          box-shadow: 0 20px 40px rgba(0,0,0,0.12) !important;
+          border-color: #000 !important;
+        }
+        
+        .category-card:hover .icon-wrapper {
+          transform: scale(1.15);
+          background: #000;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        }
+        
+        .category-card:active {
+          transform: translateY(-8px);
+        }
+        
+        .icon-wrapper {
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+      `}</style>
     </div>
   );
 }

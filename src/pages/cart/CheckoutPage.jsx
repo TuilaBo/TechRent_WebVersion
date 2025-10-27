@@ -125,26 +125,27 @@ export default function Checkout() {
   const placeOrder = async () => {
     if (!items.length) return message.warning("Giỏ hàng đang trống.");
     if (!customerId) return message.error("Không xác định được khách hàng, vui lòng đăng nhập lại.");
-
+  
     try {
       setPlacing(true);
-
+  
+      // chỉ gửi những field mà BE nhận
       const payload = {
         startDate: toISOStartOfDay(startDate),
         endDate: toISOEndOfDay(endDate),
+        shippingAddress: (shippingAddress || ""),  // có thể để rỗng nếu BE cho phép
         customerId,
-        shippingAddress: (shippingAddress || "").trim(),
-        note: (note || "").trim(),
-        contactName: (fullName || "").trim(),
-        contactPhone: (phone || "").trim(),
-        email: (email || "").trim(),
-        items: items.map((x) => ({ id: x.id, qty: x.qty })),
-        orderDetails: items.map((x) => ({ deviceModelId: x.id, quantity: x.qty })),
+        // tuỳ chọn: truyền 1 trong 2, ở đây dùng orderDetails
+        orderDetails: items.map((x) => ({
+          deviceModelId: x.id,
+          quantity: x.qty,
+        })),
       };
-
+  
       const res = await createRentalOrder(payload);
       message.success("Đặt đơn thuê thành công!");
       clearCart();
+  
       const orderId = res?.orderId ?? res?.id;
       navigate(orderId ? `/orders/${orderId}` : "/orders");
     } catch (e) {

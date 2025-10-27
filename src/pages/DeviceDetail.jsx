@@ -3,25 +3,85 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Row, Col, Card, Typography, Breadcrumb, Space, Divider,
-  InputNumber, Button, Image, Tabs, Skeleton
+  InputNumber, Button, Image, Tabs, Skeleton, Carousel
 } from "antd";
-import { ShoppingCartOutlined, MinusOutlined, PlusOutlined } from "@ant-design/icons";
+import { ShoppingCartOutlined, MinusOutlined, PlusOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import toast, { Toaster } from "react-hot-toast";
-import { useAuth } from "../context/AuthContext";                  // +++
+
+import { useAuth } from "../context/AuthContext";
 import { getDeviceModelById, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
-import { addToCart, getCartCount } from "../lib/cartUtils";        // +++
+import { addToCart, getCartCount } from "../lib/cartUtils";
 
 const { Title, Text, Paragraph } = Typography;
+
+/* ===== Helpers ===== */
+const looksLikeJSON = (s) => {
+  if (typeof s !== "string") return false;
+  const t = s.trim();
+  return (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
+};
+
+// Flatten object to key/value pairs for readable list
+const flattenEntries = (val, prefix = "") => {
+  const out = [];
+  const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
+  if (Array.isArray(val)) {
+    val.forEach((v, i) => {
+      if (isObj(v) || Array.isArray(v)) out.push(...flattenEntries(v, `${prefix}${i + 1}. `));
+      else out.push([`${prefix}${i + 1}`, v]);
+    });
+  } else if (isObj(val)) {
+    Object.entries(val).forEach(([k, v]) => {
+      const label = prefix ? `${prefix}${k}` : k;
+      if (isObj(v) || Array.isArray(v)) out.push(...flattenEntries(v, `${label}.`));
+      else out.push([label, v]);
+    });
+  } else {
+    out.push([prefix || "Thông tin", val]);
+  }
+  return out;
+};
+
+// Render specs as text list (no JSON block)
+const renderSpecsText = (specs) => {
+  if (!specs) return "Chưa có thông số.";
+  try {
+    const parsed = typeof specs === "string" && looksLikeJSON(specs)
+      ? JSON.parse(specs)
+      : specs;
+
+    // Nếu sau khi parse vẫn là string thì hiển thị như text
+    if (typeof parsed === "string") {
+      return <span style={{ whiteSpace: "pre-line" }}>{parsed}</span>;
+    }
+
+    const entries = flattenEntries(parsed);
+    if (!entries.length) return "Chưa có thông số.";
+
+    return (
+      <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+        {entries.map(([k, v], idx) => (
+          <li key={idx}>
+            <b>{String(k).replace(/\.$/, "")}</b>: {String(v)}
+          </li>
+        ))}
+      </ul>
+    );
+  } catch {
+    // Không parse được => hiển thị thuần
+    return <span style={{ whiteSpace: "pre-line" }}>{String(specs)}</span>;
+  }
+};
 
 export default function DeviceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();                           // +++
+  const { isAuthenticated } = useAuth();
 
   const [qty, setQty] = useState(1);
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false); // chặn spam
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -42,10 +102,30 @@ export default function DeviceDetail() {
     [item, qty]
   );
 
+  const depositPercent = Number(item?.depositPercent ?? 0);
+  const depositAmount = useMemo(() => {
+    const value = Number(item?.deviceValue ?? 0);
+    return value > 0 && depositPercent > 0 ? Math.round(value * depositPercent) : null;
+  }, [item, depositPercent]);
+
+  // Chuẩn hoá mô tả/thông số (nếu BE để specs trong description)
+  const displayDesc =
+    item?.specifications
+      ? (item?.description || "")
+      : looksLikeJSON(item?.description)
+      ? "" // description là JSON => coi là specs, mô tả để trống
+      : (item?.description || "");
+
+  const displaySpecs =
+    item?.specifications
+      ? item.specifications
+      : looksLikeJSON(item?.description)
+      ? item.description
+      : "";
+
   const handleAddToCart = async () => {
     if (adding) return;
 
-    // Chặn khi chưa đăng nhập + gợi ý đăng nhập
     if (!isAuthenticated) {
       toast((t) => (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -54,9 +134,9 @@ export default function DeviceDetail() {
             <button
               onClick={() => { toast.dismiss(t.id); navigate("/login"); }}
               style={{
-                padding: "6px 10px", borderRadius: 6,
-                border: "1px solid #111827", background: "#111827",
-                color: "#fff", cursor: "pointer",
+                padding: "8px 12px", borderRadius: 8,
+                border: "none", background: "#111827",
+                color: "#fff", cursor: "pointer", fontWeight: 500,
               }}
             >
               Đăng nhập
@@ -64,9 +144,9 @@ export default function DeviceDetail() {
             <button
               onClick={() => toast.dismiss(t.id)}
               style={{
-                padding: "6px 10px", borderRadius: 6,
+                padding: "8px 12px", borderRadius: 8,
                 border: "1px solid #e5e7eb", background: "#fff",
-                color: "#111827", cursor: "pointer",
+                color: "#111827", cursor: "pointer", fontWeight: 500,
               }}
             >
               Để sau
@@ -81,7 +161,6 @@ export default function DeviceDetail() {
       setAdding(true);
       const result = await addToCart(id, qty);
       if (result.success) {
-        // Toast xác nhận
         toast.success((t) => (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div>
@@ -92,9 +171,9 @@ export default function DeviceDetail() {
               <button
                 onClick={() => { toast.dismiss(t.id); navigate("/cart"); }}
                 style={{
-                  padding: "6px 10px", borderRadius: 6,
-                  border: "1px solid #111827", background: "#111827",
-                  color: "#fff", cursor: "pointer",
+                  padding: "8px 12px", borderRadius: 8,
+                  border: "none", background: "#111827",
+                  color: "#fff", cursor: "pointer", fontWeight: 500,
                 }}
               >
                 Xem giỏ hàng
@@ -102,9 +181,9 @@ export default function DeviceDetail() {
               <button
                 onClick={() => toast.dismiss(t.id)}
                 style={{
-                  padding: "6px 10px", borderRadius: 6,
+                  padding: "8px 12px", borderRadius: 8,
                   border: "1px solid #e5e7eb", background: "#fff",
-                  color: "#111827", cursor: "pointer",
+                  color: "#111827", cursor: "pointer", fontWeight: 500,
                 }}
               >
                 Đóng
@@ -113,7 +192,6 @@ export default function DeviceDetail() {
           </div>
         ), { duration: 2500 });
 
-        // Báo cho header cập nhật badge + bump
         try {
           const count = getCartCount();
           window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
@@ -130,8 +208,8 @@ export default function DeviceDetail() {
 
   if (loading || !item) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: "#FAFAFA" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="min-h-screen" style={{ backgroundColor: "#F9FAFB" }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Skeleton active paragraph={{ rows: 12 }} />
           <Toaster position="top-right" />
         </div>
@@ -140,129 +218,146 @@ export default function DeviceDetail() {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#FAFAFA" }}>
-      {/* Toaster cục bộ (giữ đúng như bạn muốn) */}
+    <div className="min-h-screen" style={{ backgroundColor: "#F9FAFB" }}>
       <Toaster position="top-right" />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb
           items={[
             { title: <a href="/">Trang chủ</a> },
             { title: item.brand || "Thiết bị" },
             { title: item.name },
           ]}
-          className="mb-4"
+          className="mb-6"
+          style={{ fontSize: 16 }}
         />
 
         <Row gutter={[32, 32]}>
-          {/* Gallery trái */}
+          {/* Gallery trái - Sử dụng Carousel cho hình ảnh */}
           <Col xs={24} lg={14}>
-            <Card bordered={false} className="rounded-2xl shadow-md overflow-hidden" bodyStyle={{ padding: 0, background: "#fff" }}>
-              <Image.PreviewGroup>
-                <Row gutter={[12, 12]}>
-                  {(item.images?.length ? item.images : [item.image]).slice(0, 3).map((src, idx) => (
-                    <Col span={idx === 0 ? 24 : 12} key={idx}>
-                      <div className="overflow-hidden rounded-xl transition-transform hover:scale-105 duration-300">
-                        <Image
-                          src={src || "https://placehold.co/1200x900?text=No+Image"}
-                          alt={`${item.name} ${idx + 1}`}
-                          width="100%"
-                          height={idx === 0 ? 400 : 200}
-                          style={{ objectFit: "cover" }}
-                          placeholder
-                        />
-                      </div>
-                    </Col>
-                  ))}
-                </Row>
-              </Image.PreviewGroup>
+            <Card bordered={false} className="rounded-2xl shadow-lg overflow-hidden" bodyStyle={{ padding: 0 }}>
+              <Carousel
+                arrows
+                prevArrow={<LeftOutlined />}
+                nextArrow={<RightOutlined />}
+                autoplay
+                autoplaySpeed={5000}
+                dots={{ className: "custom-dots" }}
+                className="product-carousel"
+              >
+                {(item.images?.length ? item.images : [item.image]).map((src, idx) => (
+                  <div key={idx} className="carousel-item">
+                    <Image
+                      src={src || "https://placehold.co/1200x900?text=No+Image"}
+                      alt={`${item.name} ${idx + 1}`}
+                      width="100%"
+                      height={500}
+                      style={{ objectFit: "cover", borderRadius: "16px 16px 0 0" }}
+                      placeholder
+                    />
+                  </div>
+                ))}
+              </Carousel>
             </Card>
           </Col>
 
-          {/* Panel phải */}
+          {/* Panel phải - Sticky, với shadow mượt hơn */}
           <Col xs={24} lg={10}>
             <Card
               bordered={false}
-              className="rounded-2xl shadow-md"
-              style={{ position: "sticky", top: 24, background: "#fff" }}
-              bodyStyle={{ padding: 24 }}
+              className="rounded-2xl shadow-lg"
+              style={{ position: "sticky", top: 32, background: "#FFFFFF" }}
+              bodyStyle={{ padding: 32 }}
             >
-              <div className="mb-4">
-                <Title level={2} style={{ marginBottom: 8, fontFamily: "'Inter', sans-serif", color: "#111827" }}>
+              <div className="mb-6">
+                <Title level={2} style={{ marginBottom: 8, fontFamily: "'Inter', sans-serif", color: "#101828", fontWeight: 600 }}>
                   {item.name}
                 </Title>
-                <Text style={{ color: "#4B5563", fontSize: 16 }}>
-                  Thương hiệu: <b style={{ color: "#111827" }}>{item.brand || "—"}</b>
+                <Text style={{ color: "#475467", fontSize: 16 }}>
+                  Thương hiệu: <b style={{ color: "#101828" }}>{item.brand || "—"}</b>
                 </Text>
               </div>
 
-              <Divider className="my-4" style={{ borderColor: "#E5E7EB" }} />
+              <Divider className="my-6" style={{ borderColor: "#EAECF0" }} />
 
               {/* Giá / ngày */}
               <div className="mb-4">
-                <Text className="block text-base mb-1" style={{ color: "#6B7280" }}>Giá / ngày</Text>
-                <Title level={3} style={{ margin: 0, fontFamily: "'Inter', sans-serif", color: "#111827" }}>
+                <Text className="block text-base mb-1" style={{ color: "#667085", fontWeight: 500 }}>Giá / ngày</Text>
+                <Title level={3} style={{ margin: 0, fontFamily: "'Inter', sans-serif", color: "#101828" }}>
                   {fmtVND(item.pricePerDay)}
                 </Title>
               </div>
 
+              {/* Tiền cọc */}
+              {depositAmount !== null && (
+                <div className="mb-6">
+                  <Text className="block text-base mb-1" style={{ color: "#667085", fontWeight: 500 }}>Tiền cọc</Text>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <Title level={4} style={{ margin: 0, fontFamily: "'Inter', sans-serif", color: "#101828" }}>
+                      {fmtVND(depositAmount)}
+                    </Title>
+                    <Text style={{ color: "#667085" }}>
+                      ({Math.round(depositPercent * 100)}%)
+                    </Text>
+                  </div>
+                </div>
+              )}
+
               {/* Số lượng */}
-              <div className="mb-4">
-                <Text strong className="block mb-2 text-lg" style={{ color: "#111827" }}>Số lượng</Text>
-                <Space.Compact style={{ width: 240 }}>
+              <div className="mb-6">
+                <Text strong className="block mb-2 text-lg" style={{ color: "#101828", fontWeight: 600 }}>Số lượng</Text>
+                <Space.Compact style={{ width: 200 }}>
                   <Button
                     size="large"
                     onClick={() => setQty((q) => Math.max(1, q - 1))}
                     icon={<MinusOutlined />}
-                    style={{ height: 48, borderTopLeftRadius: 10, borderBottomLeftRadius: 10 }}
+                    style={{ height: 48, width: 48, borderRadius: "12px 0 0 12px", borderColor: "#D0D5DD" }}
                     disabled={adding}
                   />
                   <InputNumber
                     min={1}
                     value={qty}
                     onChange={(v) => setQty(v || 1)}
-                    style={{ width: 120, height: 48, textAlign: "center", fontSize: 18 }}
+                    style={{ width: 104, height: 48, textAlign: "center", fontSize: 18, borderRadius: 0, borderColor: "#D0D5DD" }}
                     disabled={adding}
                   />
                   <Button
                     size="large"
                     onClick={() => setQty((q) => q + 1)}
                     icon={<PlusOutlined />}
-                    style={{ height: 48, borderTopRightRadius: 10, borderBottomRightRadius: 10 }}
+                    style={{ height: 48, width: 48, borderRadius: "0 12px 12px 0", borderColor: "#D0D5DD" }}
                     disabled={adding}
                   />
                 </Space.Compact>
               </div>
 
               {/* Thêm giỏ */}
-              <div className="mb-2 flex items-center gap-4">
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<ShoppingCartOutlined />}
-                  className="flex-1 btn-black"
-                  onClick={handleAddToCart}
-                  loading={adding}
-                  disabled={adding}
-                  style={{ background: "#111827", border: "1px solid #111827", borderRadius: 10, height: 52, fontSize: 16 }}
-                >
-                  {adding ? "Đang thêm..." : "Thêm vào giỏ"}
-                </Button>
-              </div>
+              <Button
+                type="primary"
+                size="large"
+                icon={<ShoppingCartOutlined />}
+                className="w-full btn-primary"
+                onClick={handleAddToCart}
+                loading={adding}
+                disabled={adding}
+                style={{ background: "#101828", border: "none", borderRadius: 12, height: 52, fontSize: 16, fontWeight: 500 }}
+              >
+                {adding ? "Đang thêm..." : "Thêm vào giỏ"}
+              </Button>
 
               {/* Subtotal */}
-              <div className="mt-2">
-                <Text style={{ color: "#6B7280" }}>Tạm tính / ngày: </Text>
-                <Text strong style={{ color: "#111827" }}>{fmtVND(perDaySubtotal)}</Text>
+              <div className="mt-4 text-center">
+                <Text style={{ color: "#667085" }}>Tạm tính / ngày: </Text>
+                <Text strong style={{ color: "#101828", fontSize: 16 }}>{fmtVND(perDaySubtotal)}</Text>
               </div>
             </Card>
           </Col>
         </Row>
 
-        {/* Tabs dưới */}
-        <Row gutter={[32, 32]} className="mt-8">
+        {/* Tabs dưới - Với padding lớn hơn */}
+        <Row gutter={[32, 32]} className="mt-12">
           <Col xs={24} lg={14}>
-            <Card bordered={false} className="rounded-2xl shadow-md" bodyStyle={{ padding: 24, background: "#fff" }}>
+            <Card bordered={false} className="rounded-2xl shadow-lg" bodyStyle={{ padding: 32, background: "#FFFFFF" }}>
               <Tabs
                 defaultActiveKey="desc"
                 size="large"
@@ -271,8 +366,8 @@ export default function DeviceDetail() {
                     key: "desc",
                     label: "Mô tả",
                     children: (
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8, color: "#111827" }}>
-                        {item.description || "Chưa có mô tả."}
+                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8, color: "#344054" }}>
+                        {displayDesc || "Chưa có mô tả."}
                       </Paragraph>
                     ),
                   },
@@ -280,13 +375,13 @@ export default function DeviceDetail() {
                     key: "spec",
                     label: "Thông số",
                     children: (
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8, color: "#111827" }}>
-                        {item.specifications || "Chưa có thông số."}
+                      <Paragraph style={{ marginBottom: 0, fontSize: 16, lineHeight: 1.8, color: "#344054" }}>
+                        {renderSpecsText(displaySpecs)}
                       </Paragraph>
                     ),
                   },
                 ]}
-                tabBarStyle={{ color: "#111827" }}
+                tabBarStyle={{ marginBottom: 24 }}
               />
             </Card>
           </Col>
@@ -294,10 +389,54 @@ export default function DeviceDetail() {
       </div>
 
       <style>{`
-        .btn-black:hover, .btn-black:focus { background: #0B1220 !important; border-color: #0B1220 !important; }
-        .ant-tabs-tab-btn { color: #6B7280; }
-        .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { color: #111827 !important; }
-        .ant-tabs-ink-bar { background: #111827 !important; }
+        .product-carousel .ant-carousel .slick-arrow {
+          color: #667085;
+          font-size: 24px;
+          background: rgba(255, 255, 255, 0.8);
+          border-radius: 50%;
+          padding: 8px;
+          transition: all 0.3s;
+        }
+        .product-carousel .ant-carousel .slick-arrow:hover {
+          color: #101828;
+          background: #FFFFFF;
+        }
+        .product-carousel .ant-carousel .slick-dots li button {
+          background: #D0D5DD;
+          height: 4px;
+          border-radius: 2px;
+        }
+        .product-carousel .ant-carousel .slick-dots li.slick-active button {
+          background: #101828;
+        }
+        .carousel-item {
+          display: flex !important;
+          justify-content: center;
+          align-items: center;
+          height: 500px;
+          overflow: hidden;
+        }
+        .btn-primary:hover, .btn-primary:focus {
+          background: #0A1120 !important;
+        }
+        .ant-tabs-tab-btn {
+          color: #667085 !important;
+          font-weight: 500;
+          font-size: 16px;
+        }
+        .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+          color: #101828 !important;
+          font-weight: 600;
+        }
+        .ant-tabs-ink-bar {
+          background: #101828 !important;
+        }
+        .ant-card {
+          transition: box-shadow 0.3s;
+        }
+        .ant-card:hover {
+          box-shadow: 0 4px 20px rgba(16, 24, 40, 0.1) !important;
+        }
       `}</style>
     </div>
   );

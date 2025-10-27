@@ -1,15 +1,40 @@
-// src/pages/auth/LoginForm.jsx
 import { Form, Input, Button, Typography, Card, Alert } from "antd";
 import { MailOutlined, LockOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { FcGoogle } from "react-icons/fc";
 import { useAuth } from "../../context/AuthContext";
-// 👇 thêm
 import toast from "react-hot-toast";
+import { useEffect } from "react";
 
 export default function LoginForm() {
   const navigate = useNavigate();
-  const { login, loading, error, clearError } = useAuth();
+  const { login, fetchMe, user, role, loading, error, clearError, bootstrapped } = useAuth();
+
+  // Nếu đã đăng nhập sẵn → tự điều hướng theo role
+  useEffect(() => {
+    if (!bootstrapped) return;       // đợi boot xong để khỏi nháy
+    if (!user) return;
+    redirectByRole(role);
+  }, [bootstrapped, user, role]);
+
+  const redirectByRole = (r) => {
+    switch (r) {
+      case "ADMIN":
+        navigate("/admin", { replace: true });
+        break;
+      case "OPERATOR":
+        navigate("/operator", { replace: true });
+        break;
+      case "TECHNICIAN":
+        navigate("/technician", { replace: true });
+        break;
+      case "SUPPORT":
+        navigate("/support", { replace: true });
+        break;
+      default:
+        navigate("/", { replace: true });
+    }
+  };
 
   const onFinish = async (values) => {
     try {
@@ -18,13 +43,15 @@ export default function LoginForm() {
         usernameOrEmail: values.email,
         password: values.password,
       });
+      // đảm bảo đã có user/role mới điều hướng
+      const me = await fetchMe();
       toast.success("Đăng nhập thành công!");
-      navigate("/");
+      redirectByRole(me?.role || role);
     } catch (e) {
-      // error đã set trong store; hiển thị toast luôn cho nhanh
       toast.error(e?.response?.data?.message || e?.message || "Đăng nhập thất bại");
     }
   };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pt-32 md:pt-40">
       <section className="px-4 pb-10">
@@ -38,19 +65,16 @@ export default function LoginForm() {
             </Typography.Paragraph>
 
             {error && (
-              <Alert
-                type="error"
-                message={error}
-                showIcon
-                className="mb-3"
-              />
+              <Alert type="error" message={error} showIcon className="mb-3" />
             )}
 
-            <Form layout="vertical" onFinish={onFinish} requiredMark={false} onChange={clearError}>
-              <Form.Item
-                label="Email hoặc tên đăng nhập"
-                name="email"
-              >
+            <Form
+              layout="vertical"
+              onFinish={onFinish}
+              requiredMark={false}
+              onChange={clearError}
+            >
+              <Form.Item label="Email hoặc tên đăng nhập" name="email">
                 <Input prefix={<MailOutlined />} placeholder="you@example.com" />
               </Form.Item>
 
@@ -63,9 +87,7 @@ export default function LoginForm() {
               </Form.Item>
 
               <div className="flex items-center justify-between mb-2">
-                <Form.Item name="remember" valuePropName="checked" noStyle initialValue>
-                  {/* có thể lưu vào local nếu bạn muốn */}
-                </Form.Item>
+                <Form.Item name="remember" valuePropName="checked" noStyle initialValue />
                 <Link to="/forgot-password">Quên mật khẩu?</Link>
               </div>
 

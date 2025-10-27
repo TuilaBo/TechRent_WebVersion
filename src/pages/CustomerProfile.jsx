@@ -38,7 +38,7 @@ import {
   updateMyCustomerProfile,
 } from "../lib/customerApi";
 import { fetchDistrictsHCM, fetchWardsByDistrict } from "../lib/locationVn";
-
+import { BANKS } from "../../Bank";
 const { Title, Text, Paragraph } = Typography;
 
 // --- helpers: bỏ dấu & chuẩn hóa chuỗi để so khớp ---
@@ -585,8 +585,20 @@ export default function CustomerProfile() {
                             />
                           </Form.Item>
 
-                          <Form.Item label="Ngân hàng" name="bankName">
-                            <Input placeholder="VD: Vietcombank" />
+                          <Form.Item
+                            label="Ngân hàng"
+                            name="bankName"
+                            rules={[
+                              { required: false }, // Nếu muốn required, đổi thành true
+                            ]}
+                          >
+                            <Select
+                              options={BANKS}
+                              placeholder="Chọn ngân hàng"
+                              showSearch
+                              optionFilterProp="label"
+                              allowClear // Cho phép xóa nếu không bắt buộc
+                            />
                           </Form.Item>
                           <Form.Item
                             label="Chủ tài khoản"

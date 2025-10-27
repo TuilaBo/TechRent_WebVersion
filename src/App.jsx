@@ -38,6 +38,9 @@ import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
 
 import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
+
+
+import RequireRole from "./routes/RequireRole.jsx";
 export default function App() {
   return (
     <Routes>
@@ -58,7 +61,14 @@ export default function App() {
       </Route>
 
       {/* ====== ADMIN (KHÔNG dùng LayoutRoot) ====== */}
-      <Route path="/admin" element={<AdminShell />}>
+      <Route
+        path="/admin"
+        element={
+          <RequireRole role="ADMIN">
+            <AdminShell />
+          </RequireRole>
+        }
+      >
         <Route index element={<AdminDashboard />} />
         <Route path="orders" element={<AdminOrders />} />
         <Route path="products" element={<AdminProducts />} />

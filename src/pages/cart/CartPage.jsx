@@ -11,7 +11,7 @@ import dayjs from "dayjs";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
   getCartFromStorage, saveCartToStorage,
-  removeFromCart, updateCartItemQuantity
+  removeFromCart, updateCartItemQuantity, debugCart
 } from "../../lib/cartUtils";
 
 const { Title, Text } = Typography;
@@ -82,6 +82,10 @@ export default function CartPage() {
         );
 
         setItems(itemsWithDetails);
+        
+        // Debug: Log cart state
+        console.log('Cart loaded:', itemsWithDetails);
+        debugCart();
       } catch (e) {
         console.error("Failed to load cart:", e);
         message.error("Không thể tải giỏ hàng");
@@ -148,13 +152,15 @@ export default function CartPage() {
   const grandTotal = useMemo(() => subtotal + deposit, [subtotal, deposit]);
 
   const updateItem = (id, patch) => {
-    const updated = items.map((it) => (it.id === id ? { ...it, ...patch } : it));
+    const idStr = String(id);
+    const updated = items.map((it) => (String(it.id) === idStr ? { ...it, ...patch } : it));
     setItems(updated);
     if (patch.qty !== undefined) updateCartItemQuantity(id, patch.qty);
   };
 
   const removeItemHandler = (id) => {
-    setItems((prev) => prev.filter((it) => it.id !== id));
+    const idStr = String(id);
+    setItems((prev) => prev.filter((it) => String(it.id) !== idStr));
     removeFromCart(id);
   };
 
@@ -182,6 +188,8 @@ export default function CartPage() {
         <Title level={3} style={{ color: "#111827", marginBottom: 16 }}>
           Giỏ hàng
         </Title>
+        
+  
 
         <Row gutter={[24, 24]}>
           {/* LEFT: Items */}

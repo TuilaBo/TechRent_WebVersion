@@ -4,40 +4,56 @@ import { useAuthStore } from "../store/authStore";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const { token, user, fetchMe, login, register, verifyEmail, resendVerification, logout, loading, error, clearError } =
-    useAuthStore();
+  const {
+    token,
+    user,
+    fetchMe,
+    login,
+    register,
+    verifyEmail,
+    resendVerification,
+    logout,
+    loading,
+    error,
+    clearError,
+  } = useAuthStore();
+
   const [bootstrapped, setBootstrapped] = useState(false);
 
-  // khi có token -> gọi /me 1 lần để lấy hồ sơ
+  // Khi có token -> lấy hồ sơ /me (nếu chưa có user)
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (token && !user) {
-        await fetchMe().catch(() => {});
+      try {
+        if (token && !user) {
+          await fetchMe().catch(() => {});
+        }
+      } finally {
+        if (mounted) setBootstrapped(true);
       }
-      if (mounted) setBootstrapped(true);
     })();
     return () => {
       mounted = false;
     };
-  }, [token]); // intentionally ignore user
+  }, [token]); // cố ý bỏ user khỏi deps
 
   const value = useMemo(
     () => ({
       token,
       user,
+      role: user?.role ?? null,            // <-- expose role
       isAuthenticated: !!token && !!user,
       loading,
       error,
       clearError,
-      // expose actions
+      // actions
       login,
       register,
       verifyEmail,
       resendVerification,
       fetchMe,
       logout,
-      bootstrapped, // để chặn flash khi SSR/refresh
+      bootstrapped,
     }),
     [token, user, loading, error, bootstrapped]
   );

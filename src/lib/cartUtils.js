@@ -45,15 +45,23 @@ export const saveCartToStorage = (cartItems) => {
 export const addToCart = async (deviceId, qty = 1) => {
   try {
     const currentCart = getCartFromStorage();
-    const idx = currentCart.findIndex((item) => item.id === deviceId);
+    // Đảm bảo so sánh id dưới dạng string hoặc number
+    const deviceIdStr = String(deviceId);
+    const idx = currentCart.findIndex((item) => String(item.id) === deviceIdStr);
+
+    console.log('Adding to cart:', { deviceId, deviceIdStr, currentCart, idx });
 
     if (idx >= 0) {
+      // Sản phẩm đã có trong giỏ -> cộng thêm số lượng
       currentCart[idx].qty += qty;
+      console.log('Updated existing item:', currentCart[idx]);
     } else {
+      // Sản phẩm chưa có -> thêm mới
       const deviceModel = await getDeviceModelById(deviceId);
       const normalized = normalizeModel(deviceModel);
       const newItem = createCartItem(normalized, qty);
       currentCart.push(newItem);
+      console.log('Added new item:', newItem);
     }
 
     saveCartToStorage(currentCart); // sẽ broadcast ở trong này
@@ -67,7 +75,8 @@ export const addToCart = async (deviceId, qty = 1) => {
 export const removeFromCart = (deviceId) => {
   try {
     const currentCart = getCartFromStorage();
-    const updatedCart = currentCart.filter((item) => item.id !== deviceId);
+    const deviceIdStr = String(deviceId);
+    const updatedCart = currentCart.filter((item) => String(item.id) !== deviceIdStr);
     saveCartToStorage(updatedCart); // sẽ broadcast
     return { success: true, cart: updatedCart };
   } catch (error) {
@@ -79,8 +88,9 @@ export const removeFromCart = (deviceId) => {
 export const updateCartItemQuantity = (deviceId, qty) => {
   try {
     const currentCart = getCartFromStorage();
+    const deviceIdStr = String(deviceId);
     const updatedCart = currentCart.map((item) =>
-      item.id === deviceId ? { ...item, qty: Math.max(1, qty) } : item
+      String(item.id) === deviceIdStr ? { ...item, qty: Math.max(1, qty) } : item
     );
     saveCartToStorage(updatedCart); // sẽ broadcast
     return { success: true, cart: updatedCart };
@@ -104,4 +114,12 @@ export const clearCart = () => {
 export const getCartCount = () => {
   const cart = getCartFromStorage();
   return cart.reduce((total, item) => total + item.qty, 0);
+};
+
+// Debug function để kiểm tra trạng thái giỏ hàng
+export const debugCart = () => {
+  const cart = getCartFromStorage();
+  console.log('Current cart state:', cart);
+  console.log('Cart count:', getCartCount());
+  return cart;
 };

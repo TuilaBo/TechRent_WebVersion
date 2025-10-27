@@ -7,24 +7,16 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
-
-// 👇 thêm
 import { Toaster } from "react-hot-toast";
-
+import ScrollToTop from "./components/ScrollToTop.jsx";
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <AuthProvider>
       <BrowserRouter>
+        {/* Scroll to top on route change */}
+        <ScrollToTop />
         <App />
-        {/* Toaster global */}
-        <Toaster
-          position="top-center"
-          toastOptions={{
-            duration: 2500,
-            style: { borderRadius: 10, padding: "10px 14px", zIndex: 9999 },
-            success: { iconTheme: { primary: "#111827", secondary: "#fff" } },
-          }}
-        />
+        <Toaster position="top-center" toastOptions={{ duration: 2500 }} />
       </BrowserRouter>
     </AuthProvider>
   </React.StrictMode>
