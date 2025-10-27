@@ -25,6 +25,7 @@ import {
   LogoutOutlined,
   UserOutlined,
   HomeOutlined,
+  TagsOutlined,
 } from "@ant-design/icons";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -46,6 +47,7 @@ export default function AdminShell() {
     if (location.pathname.startsWith("/admin/maintenance"))
       return "maintenance";
     if (location.pathname.startsWith("/admin/accounts")) return "accounts";
+    if (location.pathname.startsWith("/admin/task-categories")) return "task-categories";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
     return "dashboard";
   }, [location.pathname]);
@@ -127,6 +129,11 @@ export default function AdminShell() {
               key: "accounts",
               icon: <TeamOutlined />,
               label: <Link to="/admin/accounts">Tài khoản</Link>,
+            },
+            {
+              key: "task-categories",
+              icon: <TagsOutlined />,
+              label: <Link to="/admin/task-categories">Loại công việc</Link>,
             },
           ]}
         />

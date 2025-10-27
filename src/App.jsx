@@ -22,6 +22,7 @@ import AdminOrders from "./pages/admin/AdminOrders.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
 import AdminMaintenancePlanner from "./pages/admin/AdminMaintenancePlanner.jsx";
 import AdminAccounts from "./pages/admin/AdminAccounts.jsx";
+import AdminTaskCategory from "./pages/admin/AdminTaskCategory.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
 import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="products" element={<AdminProducts />} />
         <Route path="maintenance" element={<AdminMaintenancePlanner />} />
         <Route path="accounts" element={<AdminAccounts />} />
+        <Route path="task-categories" element={<AdminTaskCategory />} />
       </Route>
       {/* ====== OPERATOR (KHÔNG dùng LayoutRoot) ====== */}
       <Route path="/operator" element={<OperatorShell />}>

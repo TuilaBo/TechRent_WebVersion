@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Skeleton, Empty } from "antd";
+import { ShoppingCartOutlined } from "@ant-design/icons";
 import toast, { Toaster } from "react-hot-toast"; // <-- giữ Toaster cục bộ
 import { useAuth } from "../context/AuthContext";
 import { getDeviceModels, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
@@ -231,16 +232,8 @@ export default function ProductCard() {
                   {fmtVND(it.pricePerDay)}/ngày
                 </span>
                 <Button
-                  style={{
-                    background: "#000",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 4,
-                    padding: "8px 16px",
-                    fontSize: 14,
-                    fontWeight: 500,
-                    transition: "background .3s ease",
-                  }}
+                  style={{ background: "#000", color: "#fff", border: "none", borderRadius: 4, padding: "8px 16px" }}
+                  icon={<ShoppingCartOutlined />}
                   loading={!!addingMap[it.id]}
                   disabled={!!addingMap[it.id]}
                   onClick={(e) => handleAdd(e, it)}

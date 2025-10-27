@@ -1,212 +1,225 @@
 // src/pages/operator/OperatorTasks.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Table, Button, Space, Tag, Modal, Form, Input,
-  DatePicker, Select, Typography, message,
+  DatePicker, Select, Typography, Spin, InputNumber, Popconfirm,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import toast, { Toaster } from "react-hot-toast";
+import {
+  listTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+} from "../../lib/taskApi";
+import {
+  listTaskCategories,
+  normalizeTaskCategory,
+} from "../../lib/taskCategoryApi";
 
 const { Title } = Typography;
 const { Option } = Select;
 
-// Chỉ có 2 bộ phận như yêu cầu
-const DEPARTMENTS = ["CSKH", "Kỹ thuật"];
-
-// Map bộ phận -> danh sách loại công việc cho phép
-const ROLE_WORK_TYPES = {
-  CSKH: ["Gọi điện", "Tư vấn"],
-  "Kỹ thuật": ["Chuẩn bị hàng", "Kiểm tra thiết bị", "Giao hàng", "Thu hồi", "Khác"],
-};
-
-// dữ liệu mẫu
-const INIT = [
-  {
-    id: 1,
-    title: "Gọi xác nhận đơn TR-241001-023",
-    department: "CSKH",
-    assignee: "Tuấn",
-    deadline: "2025-10-02 10:00",
-    status: "todo",
-    workType: "Gọi điện",
-    createdAt: "2025-10-01 09:20",
-  },
-  {
-    id: 2,
-    title: "Chuẩn bị bộ PS5 + TV giao Quận 3",
-    department: "Kỹ thuật",
-    assignee: "Linh",
-    deadline: "2025-10-02 13:00",
-    status: "doing",
-    workType: "Chuẩn bị hàng",
-    createdAt: "2025-10-01 11:00",
-  },
-];
-
-function fmt(d) {
-  return d ? dayjs(d).format("YYYY-MM-DD HH:mm") : "";
-}
-
 export default function OperatorTasks() {
-  const [data, setData] = useState(INIT);
+  const [data, setData] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
 
-  // watch để điều khiển field phụ thuộc
-  const currentDept = Form.useWatch("department", form);
-  const currentType = Form.useWatch("workType", form);
-  const currentQcPhase = Form.useWatch("qcPhase", form); // 'pre' | 'post'
-  const workTypeOptions = currentDept ? ROLE_WORK_TYPES[currentDept] || [] : [];
+  // Load data từ API
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [tasksRes, catsRes] = await Promise.all([
+        listTasks(),
+        listTaskCategories(),
+      ]);
+      setData(tasksRes);
+      setCategories(catsRes.map(normalizeTaskCategory));
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Không thể tải dữ liệu");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const openCreate = () => {
     setEditing(null);
     form.setFieldsValue({
-      title: "",
-      department: undefined,
-      assignee: "",
-      deadline: null,
-      status: "todo",
-      workType: undefined,
-      qcPhase: undefined,   // chọn loại kiểm tra
-      orderId: undefined,   // mã đơn (xuất hiện theo điều kiện)
-      createdAt: dayjs(),
+      taskCategoryId: undefined,
+      orderId: undefined,
+      assignedStaffId: undefined,
+      type: "",
+      description: "",
+      plannedStart: dayjs(),
+      plannedEnd: null,
     });
     setOpen(true);
   };
 
   const openEdit = (r) => {
-    const validTypes = ROLE_WORK_TYPES[r.department] || [];
     form.setFieldsValue({
-      title: r.title,
-      department: r.department,
-      assignee: r.assignee,
-      deadline: r.deadline ? dayjs(r.deadline) : null,
-      status: r.status,
-      workType: validTypes.includes(r.workType) ? r.workType : undefined,
-      qcPhase: r.workType === "Kiểm tra thiết bị" ? r.qcPhase : undefined,
-      // Mã đơn: xuất hiện khi Giao hàng, Thu hồi, hoặc Kiểm tra thiết bị (đã chọn pre/post)
-      orderId:
-        (r.workType === "Giao hàng" ||
-         r.workType === "Thu hồi" ||
-         (r.workType === "Kiểm tra thiết bị" && r.qcPhase))
-          ? r.orderId
-          : undefined,
-      createdAt: r.createdAt ? dayjs(r.createdAt) : dayjs(),
+      taskCategoryId: r.taskCategoryId,
+      orderId: r.orderId,
+      assignedStaffId: r.assignedStaffId,
+      type: r.type || "",
+      description: r.description || "",
+      plannedStart: r.plannedStart ? dayjs(r.plannedStart) : null,
+      plannedEnd: r.plannedEnd ? dayjs(r.plannedEnd) : null,
     });
     setEditing(r);
     setOpen(true);
   };
 
-  const remove = (r) => {
-    Modal.confirm({
-      title: "Xoá task?",
-      onOk: () => {
-        setData((prev) => prev.filter((x) => x.id !== r.id));
-        message.success("Đã xoá task.");
-      },
-    });
+  const remove = async (r) => {
+    const taskId = r.taskId;
+    const prev = data;
+    setData(prev.filter((x) => x.taskId !== taskId));
+    try {
+      await deleteTask(taskId);
+      toast.success("Đã xoá task.");
+      await loadData();
+    } catch (e) {
+      setData(prev);
+      toast.error(e?.response?.data?.message || e?.message || "Xoá thất bại");
+    }
   };
 
-  const submit = (vals) => {
-    // Cần mã đơn khi:
-    // - workType = "Giao hàng" hoặc "Thu hồi"
-    // - hoặc workType = "Kiểm tra thiết bị" và đã chọn qcPhase (trước/sau khi giao)
-    const needOrderId =
-      vals.workType === "Giao hàng" ||
-      vals.workType === "Thu hồi" ||
-      (vals.workType === "Kiểm tra thiết bị" && !!vals.qcPhase);
+  const submit = async (vals) => {
+    try {
+      const payload = {
+        taskCategoryId: vals.taskCategoryId,
+        orderId: vals.orderId ? Number(vals.orderId) : undefined,
+        assignedStaffId: vals.assignedStaffId ? Number(vals.assignedStaffId) : undefined,
+        type: vals.type?.trim() || "",
+        description: vals.description?.trim() || "",
+        plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
+        plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).toISOString() : undefined,
+      };
 
-    const payload = {
-      title: vals.title?.trim(),
-      department: vals.department,
-      assignee: vals.assignee?.trim(),
-      deadline: fmt(vals.deadline),
-      status: vals.status,
-      workType: vals.workType,
-      qcPhase: vals.workType === "Kiểm tra thiết bị" ? vals.qcPhase : undefined,
-      orderId: needOrderId ? vals.orderId?.trim() : undefined,
-      createdAt: fmt(vals.createdAt || dayjs()),
-    };
+      if (editing) {
+        await updateTask(editing.taskId || editing.id, payload);
+        toast.success("Đã cập nhật task.");
+      } else {
+        await createTask(payload);
+        toast.success("Đã tạo task.");
+      }
 
-    if (editing) {
-      setData((prev) =>
-        prev.map((x) => (x.id === editing.id ? { ...x, ...payload } : x))
-      );
-      message.success("Đã cập nhật task.");
-    } else {
-      const id = Math.max(0, ...data.map((x) => x.id)) + 1;
-      setData((prev) => [{ id, ...payload }, ...prev]);
-      message.success("Đã tạo task.");
+      setOpen(false);
+      setEditing(null);
+      form.resetFields();
+      await loadData();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Lưu thất bại");
     }
-    setOpen(false);
+  };
+
+  const statusTag = (status) => {
+    switch (status) {
+      case "PENDING":
+        return <Tag color="orange">Chờ thực hiện</Tag>;
+      case "IN_PROGRESS":
+        return <Tag color="blue">Đang thực hiện</Tag>;
+      case "COMPLETED":
+        return <Tag color="green">Hoàn thành</Tag>;
+      default:
+        return <Tag>{status}</Tag>;
+    }
   };
 
   const columns = [
-    { title: "ID", dataIndex: "id", width: 70, sorter: (a, b) => a.id - b.id },
-    { title: "Tiêu đề", dataIndex: "title", ellipsis: true },
+    { title: "Task ID", dataIndex: "taskId", width: 80, sorter: (a, b) => a.taskId - b.taskId },
     {
-      title: "Bộ phận phụ trách",
-      dataIndex: "department",
-      width: 130,
-      filters: DEPARTMENTS.map((d) => ({ text: d, value: d })),
-      onFilter: (v, r) => r.department === v,
+      title: "Loại công việc",
+      dataIndex: "taskCategoryName",
+      key: "taskCategoryName",
+      width: 150,
     },
-    { title: "Người nào", dataIndex: "assignee", width: 120 },
-    { title: "Deadline", dataIndex: "deadline", width: 170 },
     {
-      title: "Trạng thái",
-      dataIndex: "status",
+      title: "Mô tả",
+      dataIndex: "description",
+      key: "description",
+      ellipsis: true,
+    },
+    {
+      title: "Loại",
+      dataIndex: "type",
+      key: "type",
       width: 120,
-      filters: [
-        { text: "Chưa làm", value: "todo" },
-        { text: "Đang làm", value: "doing" },
-        { text: "Hoàn thành", value: "done" },
-      ],
-      onFilter: (v, r) => r.status === v,
-      render: (s) =>
-        s === "done" ? (
-          <Tag color="green">Hoàn thành</Tag>
-        ) : s === "doing" ? (
-          <Tag color="blue">Đang làm</Tag>
-        ) : (
-          <Tag>Chưa làm</Tag>
-        ),
     },
-    { title: "Loại công việc", dataIndex: "workType", width: 160 },
     {
-      title: "Loại kiểm tra",
-      dataIndex: "qcPhase",
-      width: 140,
-      render: (v, r) =>
-        r.workType === "Kiểm tra thiết bị" && v ? (
-          <Tag color={v === "pre" ? "gold" : "purple"}>
-            {v === "pre" ? "Trước khi giao" : "Sau khi giao"}
-          </Tag>
-        ) : (
-          "-"
-        ),
+      title: "Người phụ trách",
+      dataIndex: "assignedStaffName",
+      key: "assignedStaffName",
+      width: 150,
+      render: (name) => name || "-",
+    },
+    {
+      title: "Vai trò",
+      dataIndex: "assignedStaffRole",
+      key: "assignedStaffRole",
+      width: 120,
+      render: (role) => <Tag color="geekblue">{role || "-"}</Tag>,
     },
     {
       title: "Mã đơn",
       dataIndex: "orderId",
-      width: 180,
-      render: (v, r) =>
-        (r.workType === "Giao hàng" ||
-          r.workType === "Thu hồi" ||
-          (r.workType === "Kiểm tra thiết bị" && r.qcPhase)) && v
-          ? v
-          : "-",
+      key: "orderId",
+      width: 120,
+      render: (id) => id || "-",
     },
-    { title: "Ngày tạo task", dataIndex: "createdAt", width: 170 },
+    {
+      title: "Bắt đầu",
+      dataIndex: "plannedStart",
+      key: "plannedStart",
+      width: 170,
+      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY HH:mm") : "-"),
+    },
+    {
+      title: "Kết thúc",
+      dataIndex: "plannedEnd",
+      key: "plannedEnd",
+      width: 170,
+      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY HH:mm") : "-"),
+    },
+    {
+      title: "Trạng thái",
+      dataIndex: "status",
+      key: "status",
+      width: 130,
+      filters: [
+        { text: "Chờ thực hiện", value: "PENDING" },
+        { text: "Đang thực hiện", value: "IN_PROGRESS" },
+        { text: "Hoàn thành", value: "COMPLETED" },
+      ],
+      onFilter: (value, record) => record.status === value,
+      render: statusTag,
+    },
+    {
+      title: "Ngày tạo",
+      dataIndex: "createdAt",
+      key: "createdAt",
+      width: 170,
+      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY HH:mm") : "-"),
+    },
     {
       title: "Thao tác",
-      width: 160,
+      key: "actions",
       fixed: "right",
+      width: 160,
       render: (_, r) => (
         <Space>
           <Button icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          <Button danger icon={<DeleteOutlined />} onClick={() => remove(r)} />
+          <Popconfirm title="Xóa task này?" onConfirm={() => remove(r)}>
+            <Button danger icon={<DeleteOutlined />} />
+          </Popconfirm>
         </Space>
       ),
     },
@@ -214,6 +227,7 @@ export default function OperatorTasks() {
 
   return (
     <>
+      <Toaster position="top-center" />
       <Title level={3}>Quản lý nhiệm vụ</Title>
 
       <div className="mb-2">
@@ -222,13 +236,15 @@ export default function OperatorTasks() {
         </Button>
       </div>
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={data}
-        pagination={{ pageSize: 8 }}
-        scroll={{ x: 1200 }}
-      />
+      <Spin spinning={loading}>
+        <Table
+          rowKey="taskId"
+          columns={columns}
+          dataSource={data}
+          pagination={{ pageSize: 10 }}
+          scroll={{ x: 1500 }}
+        />
+      </Spin>
 
       <Modal
         title={editing ? "Cập nhật task" : "Tạo task"}
@@ -236,109 +252,61 @@ export default function OperatorTasks() {
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
         okText={editing ? "Lưu" : "Tạo"}
+        width={600}
       >
         <Form form={form} layout="vertical" onFinish={submit}>
           <Form.Item
-            label="Mô tả"
-            name="title"
-            rules={[{ required: true, message: "Vui lòng nhập Mô tả" }]}
-          >
-            <Input placeholder="Nhập mô tả ngắn gọn" />
-          </Form.Item>
-
-          <Form.Item
-            label="Bộ phận phụ trách"
-            name="department"
-            rules={[{ required: true, message: "Chọn bộ phận" }]}
-          >
-            <Select
-              placeholder="Chọn bộ phận"
-              onChange={() =>
-                form.setFieldsValue({ workType: undefined, qcPhase: undefined, orderId: undefined })
-              }
-              options={DEPARTMENTS.map((d) => ({ label: d, value: d }))}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Người nào"
-            name="assignee"
-            rules={[{ required: true, message: "Nhập người phụ trách" }]}
-          >
-            <Input placeholder="Tên nhân sự" />
-          </Form.Item>
-
-          <Form.Item label="Deadline" name="deadline">
-            <DatePicker showTime style={{ width: "100%" }} />
-          </Form.Item>
-
-          <Form.Item label="Trạng thái" name="status" initialValue="todo">
-            <Select
-              options={[
-                { label: "Chưa làm", value: "todo" },
-                { label: "Đang làm", value: "doing" },
-                { label: "Hoàn thành", value: "done" },
-              ]}
-            />
-          </Form.Item>
-
-          <Form.Item
             label="Loại công việc"
-            name="workType"
+            name="taskCategoryId"
             rules={[{ required: true, message: "Chọn loại công việc" }]}
           >
             <Select
-              placeholder={currentDept ? "Chọn loại công việc" : "Chọn bộ phận trước"}
-              disabled={!currentDept}
-              onChange={() => {
-                // reset field phụ thuộc khi đổi loại công việc
-                form.setFieldsValue({ orderId: undefined, qcPhase: undefined });
-              }}
-            >
-              {workTypeOptions.map((t) => (
-                <Option key={t} value={t}>
-                  {t}
-                </Option>
-              ))}
-            </Select>
+              placeholder="Chọn loại công việc"
+              options={categories.map((c) => ({
+                label: c.name,
+                value: c.taskCategoryId,
+              }))}
+            />
           </Form.Item>
 
-          {/* Nếu là Kiểm tra thiết bị → chọn Loại kiểm tra */}
-          {currentType === "Kiểm tra thiết bị" && (
-            <Form.Item
-              label="Loại kiểm tra"
-              name="qcPhase"
-              rules={[{ required: true, message: "Chọn loại kiểm tra" }]}
-            >
-              <Select
-                options={[
-                  { label: "Trước khi giao", value: "pre" },
-                  { label: "Sau khi giao", value: "post" },
-                ]}
-                placeholder="Chọn loại kiểm tra"
-              />
-            </Form.Item>
-          )}
+          <Form.Item label="Mã đơn hàng" name="orderId">
+            <InputNumber placeholder="Mã đơn hàng (optional)" style={{ width: "100%" }} min={0} />
+          </Form.Item>
 
-          {/* MÃ ĐƠN HÀNG:
-              - Hiện khi Giao hàng
-              - Hiện khi Thu hồi
-              - Hoặc khi Kiểm tra thiết bị MÀ đã chọn Loại kiểm tra (pre/post)
-          */}
-          {(currentType === "Giao hàng" ||
-            currentType === "Thu hồi" ||
-            (currentType === "Kiểm tra thiết bị" && currentQcPhase)) && (
-            <Form.Item
-              label="Mã đơn hàng"
-              name="orderId"
-              rules={[{ required: true, message: "Nhập mã đơn hàng" }]}
-            >
-              <Input placeholder="VD: TR-241001-023" />
-            </Form.Item>
-          )}
+          <Form.Item label="ID nhân viên phụ trách" name="assignedStaffId">
+            <InputNumber placeholder="ID nhân viên (optional)" style={{ width: "100%" }} min={1} />
+          </Form.Item>
 
-          <Form.Item label="Ngày tạo task" name="createdAt">
-            <DatePicker showTime style={{ width: "100%" }} />
+          <Form.Item
+            label="Loại"
+            name="type"
+            rules={[{ required: true, message: "Nhập loại" }]}
+          >
+            <Input placeholder="VD: Rental QC, Setup, etc." />
+          </Form.Item>
+
+          <Form.Item
+            label="Mô tả"
+            name="description"
+            rules={[{ required: true, message: "Nhập mô tả" }]}
+          >
+            <Input.TextArea rows={3} placeholder="Mô tả chi tiết" />
+          </Form.Item>
+
+          <Form.Item
+            label="Ngày bắt đầu"
+            name="plannedStart"
+            rules={[{ required: true, message: "Chọn ngày bắt đầu" }]}
+          >
+            <DatePicker showTime style={{ width: "100%" }} format="DD/MM/YYYY HH:mm" />
+          </Form.Item>
+
+          <Form.Item
+            label="Ngày kết thúc"
+            name="plannedEnd"
+            rules={[{ required: true, message: "Chọn ngày kết thúc" }]}
+          >
+            <DatePicker showTime style={{ width: "100%" }} format="DD/MM/YYYY HH:mm" />
           </Form.Item>
         </Form>
       </Modal>
