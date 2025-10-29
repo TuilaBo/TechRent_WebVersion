@@ -84,7 +84,15 @@ export default function OperatorOrders() {
     try {
       setLoading(true);
       const list = await listRentalOrders();
-      setRows(Array.isArray(list) ? list : []);
+      const arr = Array.isArray(list) ? list : [];
+      // sort newest -> oldest by createdAt then orderId
+      arr.sort((a, b) => {
+        const ta = new Date(a?.createdAt || 0).getTime();
+        const tb = new Date(b?.createdAt || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b?.orderId || 0) - (a?.orderId || 0);
+      });
+      setRows(arr);
     } catch (e) {
       message.error(e?.response?.data?.message || e?.message || "Không tải được danh sách đơn.");
     } finally {
@@ -473,8 +481,8 @@ export default function OperatorOrders() {
                 {dayjs(detail.createdAt).format("YYYY-MM-DD HH:mm")}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Bắt đầu">{dayjs(detail.startDate).format("YYYY-MM-DD")}</Descriptions.Item>
-              <Descriptions.Item label="Kết thúc">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
+              <Descriptions.Item label="Ngày bắt đầu thuê">{dayjs(detail.startDate).format("YYYY-MM-DD")}</Descriptions.Item>
+              <Descriptions.Item label="Ngày giao trả hàng">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
               <Descriptions.Item label="Số ngày">{detailDays} ngày</Descriptions.Item>
               <Descriptions.Item label="Địa chỉ giao">{detail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>

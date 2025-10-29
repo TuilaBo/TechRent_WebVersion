@@ -25,7 +25,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext"; // <-- thêm
 import { fetchCategoryById } from "../lib/categoryApi";
-import { getDeviceModels } from "../lib/deviceModelsApi";
+import { getDeviceModels, normalizeModel } from "../lib/deviceModelsApi";
+import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils"; // <-- thêm
 
 const { Title, Text } = Typography;
@@ -71,7 +72,20 @@ export default function RentalList() {
         setCategory(cat ?? null);
         // lấy tất cả rồi lọc FE theo categoryId
         const all = await getDeviceModels();
-        const list = (Array.isArray(all) ? all : []).filter(
+        const normalized = (Array.isArray(all) ? all : []).map(normalizeModel);
+        // enrich brand names where available by brandId
+        const enriched = await Promise.all(
+          normalized.map(async (m) => {
+            if (!m.brand && m.brandId) {
+              try {
+                const b = await getBrandById(m.brandId);
+                return { ...m, brand: b?.brandName ?? b?.name ?? "" };
+              } catch { return m; }
+            }
+            return m;
+          })
+        );
+        const list = enriched.filter(
           (m) => String(m.categoryId ?? m.deviceCategoryId ?? m.category?.id) === String(categoryId)
         );
         setModels(list);

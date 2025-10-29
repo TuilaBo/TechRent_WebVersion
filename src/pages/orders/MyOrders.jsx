@@ -68,7 +68,7 @@ async function mapOrderFromApi(order) {
     order?.code ??
     (backendId != null ? String(backendId) : "—");
 
-  // Map items từ orderDetails -> lấy thêm tên/ảnh từ device model (nếu cần)
+  // Map items từ orderDetails -> lấy thêm tên/ảnh và các thông tin giá cọc
   const items = await Promise.all(
     (order?.orderDetails ?? []).map(async (detail) => {
       try {
@@ -79,12 +79,18 @@ async function mapOrderFromApi(order) {
           name: model?.deviceName || model?.name || detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
           qty: detail?.quantity ?? 1,
           image: model?.imageURL || model?.imageUrl || detail?.imageUrl || "",
+          pricePerDay: Number(detail?.pricePerDay ?? model?.pricePerDay ?? 0),
+          depositAmountPerUnit: Number(detail?.depositAmountPerUnit ?? 0),
+          deviceModelId: detail?.deviceModelId ?? model?.id ?? null,
         };
       } catch {
         return {
           name: detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
           qty: detail?.quantity ?? 1,
           image: "",
+          pricePerDay: Number(detail?.pricePerDay ?? 0),
+          depositAmountPerUnit: Number(detail?.depositAmountPerUnit ?? 0),
+          deviceModelId: detail?.deviceModelId ?? null,
         };
       }
     })
@@ -92,6 +98,18 @@ async function mapOrderFromApi(order) {
 
   const startDate = order?.startDate ?? order?.rentalStartDate ?? null;
   const endDate   = order?.endDate   ?? order?.rentalEndDate   ?? null;
+
+  // Tính số ngày ưu tiên theo tiền BE trả về để đồng bộ hiển thị
+  const rawTotal = Number(order?.totalPrice ?? order?.total ?? 0);
+  const rawDailyFromBE = Number(order?.pricePerDay ?? 0);
+  const dailyFromItems = items.reduce(
+    (s, it) => s + Number(it.pricePerDay || 0) * Number(it.qty || 1),
+    0
+  );
+  const dailyTotal = rawDailyFromBE > 0 ? rawDailyFromBE : dailyFromItems;
+  const daysFromMoney = dailyTotal > 0 ? Math.max(1, Math.round(rawTotal / dailyTotal)) : 0;
+  const daysByRange = diffDays(startDate, endDate);
+  const normalizedDays = daysFromMoney || daysByRange || 1;
 
   return {
     // QUAN TRỌNG: id là Long cho BE
@@ -102,7 +120,7 @@ async function mapOrderFromApi(order) {
     createdAt: order?.createdAt ?? order?.created_date ?? null,
     startDate,
     endDate,
-    days: diffDays(startDate, endDate),
+    days: normalizedDays,
 
     items,
     total: order?.totalPrice ?? order?.total ?? 0,
@@ -570,60 +588,135 @@ export default function MyOrders() {
                 label: "Tổng quan",
                 children: (
                   <div style={{ padding: 24 }}>
-                    <Descriptions bordered column={2} size="middle" className="mb-4">
-                      <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
-                      <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
-                      <Descriptions.Item label="Thời gian thuê" span={2}>
-                        {current.startDate && current.endDate
-                          ? (<>{formatDateTime(current.startDate)} → {formatDateTime(current.endDate)} ({current.days} ngày)</>)
-                          : "—"}
-                      </Descriptions.Item>
+                    {(() => {
+                      const days = Number(current?.days || 1);
+                      const items = Array.isArray(current?.items) ? current.items : [];
+                      const rentalPerDay = items.reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+                      const rentalTotal = rentalPerDay * days;
+                      const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+                      const systemTotal = Number(current?.total || 0);
+                      return (
+                        <>
+                          <Descriptions bordered column={2} size="middle" className="mb-4">
+                            <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
+                            <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
+                            <Descriptions.Item label="Thời gian thuê" span={2}>
+                              {current.startDate && current.endDate
+                                ? (<>{formatDateTime(current.startDate)} → {formatDateTime(current.endDate)} ({days} ngày)</>)
+                                : "—"}
+                            </Descriptions.Item>
 
-                      <Descriptions.Item label="Trạng thái đơn">
-                        <Tag color={(ORDER_STATUS_MAP[current.orderStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
-                          {(ORDER_STATUS_MAP[current.orderStatus] || {}).label ?? current.orderStatus ?? "—"}
-                        </Tag>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Thanh toán">
-                        <Tag color={(PAYMENT_STATUS_MAP[current.paymentStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
-                          {(PAYMENT_STATUS_MAP[current.paymentStatus] || {}).label ?? current.paymentStatus ?? "—"}
-                        </Tag>
-                      </Descriptions.Item>
+                            <Descriptions.Item label="Trạng thái đơn">
+                              <Tag color={(ORDER_STATUS_MAP[current.orderStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
+                                {(ORDER_STATUS_MAP[current.orderStatus] || {}).label ?? current.orderStatus ?? "—"}
+                              </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Thanh toán">
+                              <Tag color={(PAYMENT_STATUS_MAP[current.paymentStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
+                                {(PAYMENT_STATUS_MAP[current.paymentStatus] || {}).label ?? current.paymentStatus ?? "—"}
+                              </Tag>
+                            </Descriptions.Item>
 
-                      <Descriptions.Item label="Giá/ngày">{formatVND(current.price || (current.total / (current.days || 1)))}</Descriptions.Item>
-                      <Descriptions.Item label="Tổng tiền"><Text strong>{formatVND(current.total)}</Text></Descriptions.Item>
+                            <Descriptions.Item label="Tổng tiền thuê (ước tính)">
+                              <Space direction="vertical" size={0}>
+                                <Text strong>{formatVND(rentalTotal)}</Text>
+                                <Text type="secondary">= (Tổng tiền/ngày {formatVND(rentalPerDay)}) × {days} ngày</Text>
+                              </Space>
+                            </Descriptions.Item>
 
-                      <Descriptions.Item label="Cọc giữ">{formatVND(current.depositAmountHeld || 0)}</Descriptions.Item>
-                      <Descriptions.Item label="Cọc đã hoàn">{formatVND(current.depositAmountReleased || 0)}</Descriptions.Item>
-                      <Descriptions.Item label="Cọc đã sử dụng" span={2}>{formatVND(current.depositAmountUsed || 0)}</Descriptions.Item>
+                          
 
-                      {current.orderStatus === "cancelled" && (
-                        <Descriptions.Item label="Lý do hủy" span={2}>
-                          <Text type="danger">{current.cancelReason || "—"}</Text>
-                        </Descriptions.Item>
-                      )}
-                    </Descriptions>
-                  </div>
-                ),
-              },
-              {
-                key: "items",
-                label: "Sản phẩm",
-                children: (
-                  <div style={{ padding: 24 }}>
-                    <List
-                      itemLayout="horizontal"
-                      dataSource={current.items || []}
-                      renderItem={(it) => (
-                        <List.Item style={{ padding: "12px 0", borderBottom: "1px solid #f0f0f0" }}>
-                          <List.Item.Meta
-                            avatar={<Avatar shape="square" size={72} src={it.image} style={{ borderRadius: 8 }} />}
-                            title={<Text strong style={{ fontSize: 16 }}>{it.name}</Text>}
-                            description={<Text type="secondary">Số lượng: {it.qty}</Text>}
+                            <Descriptions.Item label="Tổng tiền cọc (ước tính)">
+                              <Text strong>{formatVND(depositTotal)}</Text>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Tiền Cọc đã hoàn">{formatVND(current.depositAmountReleased || 0)}</Descriptions.Item>
+                            <Descriptions.Item label="Tiền Cọc đã trả" span={2}>{formatVND(current.depositAmountUsed || 0)}</Descriptions.Item>
+
+                            {current.orderStatus === "cancelled" && (
+                              <Descriptions.Item label="Lý do hủy" span={2}>
+                                <Text type="danger">{current.cancelReason || "—"}</Text>
+                              </Descriptions.Item>
+                            )}
+                          </Descriptions>
+
+                          <Divider />
+                          <Title level={5} style={{ marginBottom: 8 }}>Sản phẩm trong đơn</Title>
+                          <Table
+                            rowKey={(r, idx) => `${r.deviceModelId || r.name}-${idx}`}
+                            dataSource={items}
+                            pagination={false}
+                            size="middle"
+                            scroll={{ x: 980 }}
+                            columns={[
+                              {
+                                title: "Sản phẩm",
+                                dataIndex: "name",
+                                width: 280,
+                                render: (v, r) => (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                                    <Avatar shape="square" size={48} src={r.image} style={{ borderRadius: 8 }} />
+                                    <div style={{ minWidth: 0 }}>
+                                      <Text strong style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v}</Text>
+                                    </div>
+                                  </div>
+                                ),
+                              },
+                              { title: "SL", dataIndex: "qty", width: 70, align: "center" },
+                              {
+                                title: "Đơn giá 1 SP",
+                                dataIndex: "pricePerDay",
+                                width: 130,
+                                align: "right",
+                                render: (v) => formatVND(v),
+                              },
+                              {
+                                title: "Tiền/ngày",
+                                key: "perDay",
+                                width: 130,
+                                align: "right",
+                                render: (_, r) => formatVND(Number(r.pricePerDay || 0) * Number(r.qty || 1)),
+                              },
+                              {
+                                title: "Số ngày",
+                                key: "days",
+                                width: 90,
+                                align: "center",
+                                render: () => days,
+                              },
+                              {
+                                title: "Thành tiền thuê",
+                                key: "subtotal",
+                                width: 150,
+                                align: "right",
+                                render: (_, r) => formatVND(Number(r.pricePerDay || 0) * Number(r.qty || 1) * days),
+                              },
+                              {
+                                title: "Cọc/1 SP",
+                                dataIndex: "depositAmountPerUnit",
+                                width: 130,
+                                align: "right",
+                                render: (v) => formatVND(v),
+                              },
+                              {
+                                title: "Tổng cọc",
+                                key: "depositSubtotal",
+                                width: 130,
+                                align: "right",
+                                render: (_, r) => formatVND(Number(r.depositAmountPerUnit || 0) * Number(r.qty || 1)),
+                              },
+                            ]}
                           />
-                        </List.Item>
-                      )}
-                    />
+
+                          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                            <Space direction="vertical" align="end">
+                              <Text>Tổng tiền/ngày: <Text strong>{formatVND(rentalPerDay)}</Text></Text>
+                              <Text>Tổng tiền thuê ({days} ngày): <Text strong>{formatVND(rentalTotal)}</Text></Text>
+                              <Text>Tổng tiền cọc: <Text strong>{formatVND(depositTotal)}</Text></Text>
+                            </Space>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 ),
               },

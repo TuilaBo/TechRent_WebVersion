@@ -24,16 +24,26 @@ export default function AdminKyc() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const [statusOptions, setStatusOptions] = useState([]);
+  // giữ lại nếu cần cho tương lai; hiện tại không dùng trực tiếp
+  const [, setStatusOptions] = useState([]);
   const [operatorOptions, setOperatorOptions] = useState([]);
   const [form] = Form.useForm();
   const [updateOpen, setUpdateOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   const load = async () => {
     setLoading(true);
     try {
       const rows = await listPendingKycs();
       const mapped = (Array.isArray(rows) ? rows : []).map(normalizeKycItem);
+      // sort newest submissions first
+      mapped.sort((a, b) => {
+        const ta = new Date(a?.createdAt || a?.submittedAt || 0).getTime();
+        const tb = new Date(b?.createdAt || b?.submittedAt || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b?.customerId || 0) - (a?.customerId || 0);
+      });
       setData(mapped);
       const sts = await listKycStatuses();
       setStatusOptions((Array.isArray(sts) ? sts : []).map((s) => ({ label: s.label ?? s.value, value: s.value })));
@@ -55,24 +65,46 @@ export default function AdminKyc() {
     load();
   }, []);
 
-  const submitUpdate = async () => {
+  const approveKyc = async () => {
     if (!cur) return;
     try {
       setUpdating(true);
-      const vals = await form.validateFields();
       await updateKycStatus(cur.customerId, {
-        status: vals.status,
-        rejectionReason: vals.rejectionReason || undefined,
-        verifiedAt: vals.verifiedAt ? vals.verifiedAt.toISOString() : undefined,
-        verifiedBy: vals.verifiedBy,
+        status: "VERIFIED",
+        verifiedAt: dayjs().toISOString(),
+        verifiedBy: cur?.verifiedBy ?? (operatorOptions?.[0]?.value ?? undefined),
       });
-      message.success("Đã cập nhật trạng thái KYC");
+      message.success("Đã duyệt KYC");
+      setUpdateOpen(false);
       setOpen(false);
       setCur(null);
-      form.resetFields();
       load();
     } catch (e) {
-      message.error(e?.response?.data?.message || e?.message || "Cập nhật thất bại");
+      message.error(e?.response?.data?.message || e?.message || "Duyệt thất bại");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const submitReject = async () => {
+    if (!cur) return;
+    try {
+      setUpdating(true);
+      await updateKycStatus(cur.customerId, {
+        status: "REJECTED",
+        rejectionReason: rejectReason || undefined,
+        verifiedAt: dayjs().toISOString(),
+        verifiedBy: cur?.verifiedBy ?? (operatorOptions?.[0]?.value ?? undefined),
+      });
+      message.success("Đã từ chối KYC");
+      setRejectOpen(false);
+      setUpdateOpen(false);
+      setOpen(false);
+      setCur(null);
+      setRejectReason("");
+      load();
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Từ chối thất bại");
     } finally {
       setUpdating(false);
     }
@@ -100,15 +132,9 @@ export default function AdminKyc() {
             onClick={() => {
               setCur(r);
               setUpdateOpen(true);
-              form.setFieldsValue({
-                status: r.kycStatus,
-                rejectionReason: r.rejectionReason || undefined,
-                verifiedAt: dayjs(),
-                verifiedBy: r.verifiedBy ?? (operatorOptions?.[0]?.value ?? null),
-              });
             }}
           >
-            Cập nhật
+            Xem xét
           </Button>
         </Space>
       ),
@@ -184,39 +210,36 @@ export default function AdminKyc() {
       </Drawer>
 
       <Modal
-        title={cur ? `Cập nhật KYC • KH #${cur.customerId}` : "Cập nhật KYC"}
+        title={cur ? `Xem xét KYC • KH #${cur.customerId}` : "Xem xét KYC"}
         open={updateOpen}
         onCancel={() => setUpdateOpen(false)}
-        onOk={submitUpdate}
-        okText="Cập nhật"
-        confirmLoading={updating}
+        footer={[
+          <Button key="reject" danger onClick={() => setRejectOpen(true)}>
+            Từ chối
+          </Button>,
+          <Button key="approve" type="primary" loading={updating} onClick={approveKyc}>
+            Duyệt
+          </Button>,
+        ]}
         destroyOnClose
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="status" label="Trạng thái" rules={[{ required: true, message: "Chọn trạng thái" }]}>
-            <Select
-              options={statusOptions}
-              placeholder="Chọn trạng thái KYC"
-              showSearch
-              optionFilterProp="label"
-            />
-          </Form.Item>
-          <Form.Item name="rejectionReason" label="Lý do (nếu từ chối)">
-            <Input.TextArea rows={3} placeholder="Nhập lý do" />
-          </Form.Item>
-          <Form.Item name="verifiedAt" label="Verified At">
-            <DatePicker showTime style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item name="verifiedBy" label="Verified By (staff)">
-            <Select
-              options={operatorOptions}
-              placeholder="Chọn Operator xác minh"
-              showSearch
-              optionFilterProp="label"
-              allowClear
-            />
-          </Form.Item>
-        </Form>
+        <p>Hãy chọn Duyệt hoặc Từ chối. Nếu từ chối, bạn sẽ nhập lý do ở bước tiếp theo.</p>
+      </Modal>
+
+      <Modal
+        title="Nhập lý do từ chối"
+        open={rejectOpen}
+        onCancel={() => setRejectOpen(false)}
+        onOk={submitReject}
+        okText="Xác nhận từ chối"
+        confirmLoading={updating}
+      >
+        <Input.TextArea
+          rows={4}
+          placeholder="Nhập lý do từ chối KYC"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+        />
       </Modal>
     </>
   );

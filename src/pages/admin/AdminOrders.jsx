@@ -158,7 +158,15 @@ export default function AdminOrders() {
     try {
       setLoading(true);
       const list = await listRentalOrders();
-      setRows(Array.isArray(list) ? list : []);
+      const arr = Array.isArray(list) ? list.slice() : [];
+      // newest -> oldest by createdAt then orderId
+      arr.sort((a, b) => {
+        const ta = new Date(a?.createdAt || 0).getTime();
+        const tb = new Date(b?.createdAt || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b?.orderId || 0) - (a?.orderId || 0);
+      });
+      setRows(arr);
     } catch (e) {
       message.error(
         e?.response?.data?.message ||

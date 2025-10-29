@@ -6,6 +6,7 @@ import { ShoppingCartOutlined } from "@ant-design/icons";
 import toast from "react-hot-toast"; // <-- chỉ giữ toast API
 import { useAuth } from "../context/AuthContext";
 import { getDeviceModels, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
+import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils";
 
 export default function ProductCard() {
@@ -25,7 +26,23 @@ export default function ProductCard() {
       try {
         setLoading(true);
         const list = await getDeviceModels();
-        setItems(list.map(normalizeModel));
+        const mapped = list.map(normalizeModel);
+        // enrich brand name from brandId if missing
+        const enriched = await Promise.all(
+          mapped.map(async (it) => {
+            if (!it.brand && it.brandId) {
+              try {
+                const b = await getBrandById(it.brandId);
+                const name = b?.brandName ?? b?.name ?? "";
+                return { ...it, brand: name };
+              } catch {
+                return it;
+              }
+            }
+            return it;
+          })
+        );
+        setItems(enriched);
       } catch (e) {
         setErr(
           e?.response?.data?.message ||

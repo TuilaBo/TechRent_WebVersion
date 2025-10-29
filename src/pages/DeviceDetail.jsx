@@ -10,6 +10,7 @@ import toast from "react-hot-toast";
 
 import { useAuth } from "../context/AuthContext";
 import { getDeviceModelById, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
+import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils";
 
 const { Title, Text, Paragraph } = Typography;
@@ -88,7 +89,15 @@ export default function DeviceDetail() {
       try {
         setLoading(true);
         const raw = await getDeviceModelById(id);
-        setItem(normalizeModel(raw));
+        const nm = normalizeModel(raw);
+        // fill brand by brandId if missing
+        if (!nm.brand && nm.brandId) {
+          try {
+            const b = await getBrandById(nm.brandId);
+            nm.brand = b?.brandName ?? b?.name ?? nm.brand;
+          } catch {}
+        }
+        setItem(nm);
       } catch (e) {
         toast.error(e?.response?.data?.message || e?.message || "Không thể tải chi tiết thiết bị.");
       } finally {
@@ -286,7 +295,7 @@ export default function DeviceDetail() {
                 </Title>
               </div>
 
-              {/* Tiền cọc */}
+              {/* Tiền cọc + giải thích theo giá trị máy */}
               {depositAmount !== null && (
                 <div className="mb-6">
                   <Text className="block text-base mb-1" style={{ color: "#667085", fontWeight: 500 }}>Tiền cọc</Text>
@@ -298,6 +307,11 @@ export default function DeviceDetail() {
                       ({Math.round(depositPercent * 100)}%)
                     </Text>
                   </div>
+                  {Number(item?.deviceValue || 0) > 0 && (
+                    <Text type="secondary" style={{ display: "block", marginTop: 6 }}>
+                      Công thức: Giá trị máy {fmtVND(item.deviceValue)} × {Math.round(depositPercent * 100)}% = {fmtVND(depositAmount)}
+                    </Text>
+                  )}
                 </div>
               )}
 

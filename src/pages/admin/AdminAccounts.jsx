@@ -88,8 +88,15 @@ export default function AdminAccounts() {
     try {
       setStaffLoading(true);
       const rows = roleFilter ? await listStaffByRole(roleFilter) : await listStaff();
-      // bảo đảm có đủ các field qua normalize
-      setStaff(rows.map(normalizeStaff));
+      // bảo đảm có đủ các field qua normalize và sort mới -> cũ
+      const mapped = rows.map(normalizeStaff);
+      mapped.sort((a, b) => {
+        const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
+        const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b?.staffId || b?.id || 0) - (a?.staffId || a?.id || 0);
+      });
+      setStaff(mapped);
     } catch (e) {
       toast.error(
         e?.response?.data?.message || e?.message || "Không tải được danh sách staff"
@@ -195,8 +202,8 @@ export default function AdminAccounts() {
       dataIndex: "staffId", 
       width: 80, 
       sorter: (a, b) => a.staffId - b.staffId,
-      defaultSortOrder: 'ascend',
-      sortDirections: ['ascend', 'descend']
+      defaultSortOrder: 'descend',
+      sortDirections: ['descend', 'ascend']
     },
     { title: "Username", dataIndex: "username", width: 160, ellipsis: true },
     { title: "Email", dataIndex: "email", width: 240, ellipsis: true },
@@ -238,7 +245,14 @@ export default function AdminAccounts() {
     try {
       setCustLoading(true);
       const list = await listCustomers();
-      setCustomers(list.map(normalizeCustomer));
+      const mapped = list.map(normalizeCustomer);
+      mapped.sort((a, b) => {
+        const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
+        const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b?.id || 0) - (a?.id || 0);
+      });
+      setCustomers(mapped);
     } catch (e) {
       toast.error(
         e?.response?.data?.message || e?.message || "Không tải được danh sách khách hàng"
@@ -307,8 +321,8 @@ export default function AdminAccounts() {
       dataIndex: "id", 
       width: 100, 
       sorter: (a, b) => a.id - b.id,
-      defaultSortOrder: 'ascend',
-      sortDirections: ['ascend', 'descend']
+      defaultSortOrder: 'descend',
+      sortDirections: ['descend', 'ascend']
     },
     { title: "Họ tên", dataIndex: "fullName" },
     { title: "Email", dataIndex: "email" },

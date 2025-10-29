@@ -22,7 +22,9 @@ export function normalizeModel(m = {}) {
   return {
     id: m.deviceModelId ?? m.id,
     name: m.deviceName ?? m.name ?? "",
-    brand: m.brand ?? m.manufacturer ?? "",
+    // Lưu cả brandId để có thể gọi API lấy tên brand khi thiếu
+    brandId: m.brandId ?? m.brand?.brandId ?? m.brand?.id ?? null,
+    brand: m.brand?.brandName ?? m.brand ?? m.manufacturer ?? "",
     image: m.imageURL ?? m.imageUrl ?? m.image ?? "",
     pricePerDay: Number(m.pricePerDay ?? m.dailyPrice ?? m.price ?? 0),
 

@@ -19,8 +19,10 @@ const CART_DATES_STORAGE_KEY = "techrent-cart-dates";
 const fmtVND = (n) =>
   Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 
-const toISOStartOfDay = (d) => dayjs(d).startOf("day").toDate().toISOString();
-const toISOEndOfDay   = (d) => dayjs(d).endOf("day").toDate().toISOString();
+// IMPORTANT: send local-time ISO WITHOUT timezone (avoid UTC shift -7h)
+// Example: 2025-10-29T00:00:00 and 2025-10-30T23:59:59.999
+const toISOStartOfDay = (d) => dayjs(d).startOf("day").format("YYYY-MM-DD[T]HH:mm:ss");
+const toISOEndOfDay   = (d) => dayjs(d).endOf("day").format("YYYY-MM-DD[T]HH:mm:ss.SSS");
 
 export default function Checkout() {
   const navigate = useNavigate();

@@ -132,12 +132,25 @@ export default function AdminProducts() {
         listAccessoryCategories(), // NEW
         listBrands(),
       ]);
-      setCategories(cats);
-      setModels(mods);
-      setDevices(devs);
-      setAccs(acs);
-      setAccCats(aCats); // NEW
-      setBrands(brs); // NEW
+      const sortDesc = (arr, keys = []) =>
+        (Array.isArray(arr) ? arr.slice() : []).sort((a, b) => {
+          const getTime = (x) =>
+            keys.reduce((t, k) => (t || new Date(x?.[k] || 0).getTime()), 0) ||
+            new Date(x?.createdAt || x?.updatedAt || 0).getTime();
+          const tb = getTime(b);
+          const ta = getTime(a);
+          if (tb !== ta) return tb - ta;
+          // fallback by id
+          const idb = b?.id || b?.deviceId || b?.deviceModelId || b?.brandId || b?.accessoryId || b?.deviceCategoryId || b?.accessoryCategoryId || 0;
+          const ida = a?.id || a?.deviceId || a?.deviceModelId || a?.brandId || a?.accessoryId || a?.deviceCategoryId || a?.accessoryCategoryId || 0;
+          return idb - ida;
+        });
+      setCategories(sortDesc(cats, ["createdAt", "updatedAt"]));
+      setModels(sortDesc(mods, ["createdAt", "updatedAt"]));
+      setDevices(sortDesc(devs, ["acquireAt", "createdAt", "updatedAt"]));
+      setAccs(sortDesc(acs, ["createdAt", "updatedAt"]));
+      setAccCats(sortDesc(aCats, ["createdAt", "updatedAt"])); // NEW
+      setBrands(sortDesc(brs, ["createdAt", "updatedAt"])); // NEW
     } catch (e) {
       toast.error(e?.message || "Không tải được dữ liệu");
     } finally {

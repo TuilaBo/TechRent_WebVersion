@@ -46,7 +46,13 @@ export default function OperatorTasks() {
         listActiveStaff().catch(() => []),
         listRentalOrders().catch(() => []),
       ]);
-      setData(tasksRes);
+      const sortedTasks = (Array.isArray(tasksRes) ? tasksRes : []).slice().sort((a, b) => {
+        const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
+        const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b?.taskId || b?.id || 0) - (a?.taskId || a?.id || 0);
+      });
+      setData(sortedTasks);
       setCategories(catsRes.map(normalizeTaskCategory));
       setStaffs(Array.isArray(staffRes) ? staffRes : []);
       setOrders(Array.isArray(ordersRes) ? ordersRes : []);
