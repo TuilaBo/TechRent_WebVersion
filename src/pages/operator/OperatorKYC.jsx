@@ -1,97 +1,87 @@
-// src/pages/admin/AdminKyc.jsx
-import React, { useState } from "react";
-import {
-  Table,
-  Tag,
-  Space,
-  Button,
-  Drawer,
-  Descriptions,
-  Image,
-  Typography,
-  message,
-  Divider,
-} from "antd";
-import {
-  CheckOutlined,
-  CloseOutlined,
-  IdcardOutlined,
-} from "@ant-design/icons";
+// src/pages/operator/OperatorKYC.jsx
+import React, { useEffect, useState } from "react";
+import { Table, Tag, Space, Button, Drawer, Descriptions, Image, Typography, message, Divider, Form, Select, Input, DatePicker, Modal } from "antd";
+import { IdcardOutlined } from "@ant-design/icons";
+import { listPendingKycs, updateKycStatus, normalizeKycItem, listKycStatuses } from "../../lib/kycApi";
+import { listActiveStaff } from "../../lib/staffManage";
+import dayjs from "dayjs";
 
 const { Title } = Typography;
 
-const INIT = [
-  {
-    id: "KYC-001",
-    name: "Nguyễn Văn A",
-    phone: "0903 123 456",
-    email: "a@example.com",
-    status: "pending",
-    frontUrl: "https://canhsatquanlyhanhchinh.gov.vn/Uploads/Images/2024/7/4/3/4.1.2.jpg",
-    backUrl: "https://static.hieuluat.vn/uploaded/Images/Original/2021/03/23/mat-sau-can-cuoc-cong-dan-gan-chip_2303161703.jpg",
-    selfieUrl: "https://nhadathoangviet.com/wp-content/uploads/2024/08/lam-can-cuoc-cong-dan-thu-duc.png",
-    createdAt: "2025-10-01 08:30",
-
-    // ▼ Bổ sung dữ liệu giấy tờ
-    docNumber: "0792xxxxxx",
-    docType: "Căn cước công dân", // CCCD/CMND/Passport
-    dob: "1995-06-21",
-    issueDate: "2022-03-12",
-    idAddress: "Số 12 Nguyễn Trãi, P.Bến Thành, Q.1, TP.HCM",
-  },
-  {
-    id: "KYC-002",
-    name: "Trần Bảo",
-    phone: "0912 666 777",
-    email: "b@example.com",
-    status: "approved",
-    frontUrl: "https://picsum.photos/seed/f4/600/360",
-    backUrl: "https://picsum.photos/seed/f5/600/360",
-    selfieUrl: "https://picsum.photos/seed/f6/600/360",
-    createdAt: "2025-09-28 10:00",
-
-    docNumber: "CMND 0123xxxxx",
-    docType: "Chứng minh nhân dân",
-    dob: "1990-05-15",
-    issueDate: "2015-04-10",
-    idAddress: "123 Main Street, Cityville, State 12345",
-  },
-];
-
-const kycTag = (s) =>
-  s === "approved" ? (
-    <Tag color="green">Approved</Tag>
-  ) : s === "rejected" ? (
-    <Tag color="red">Rejected</Tag>
-  ) : (
-    <Tag color="gold">Pending</Tag>
-  );
+// Map màu trạng thái KYC
+const kycTag = (s) => {
+  const v = String(s || "").toUpperCase();
+  if (v.includes("VERIFIED")) return <Tag color="green">VERIFIED</Tag>;
+  if (v.includes("REJECT")) return <Tag color="red">REJECTED</Tag>;
+  if (v.includes("PENDING") || v.includes("SUBMITTED")) return <Tag color="gold">PENDING</Tag>;
+  if (v.includes("EXPIRED")) return <Tag>EXPIRED</Tag>;
+  return <Tag>{v || "NOT_STARTED"}</Tag>;
+};
 
 export default function AdminKyc() {
-  const [data, setData] = useState(INIT);
+  const [data, setData] = useState([]);
   const [cur, setCur] = useState(null);
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [statusOptions, setStatusOptions] = useState([]);
+  const [operatorOptions, setOperatorOptions] = useState([]);
+  const [form] = Form.useForm();
+  const [updateOpen, setUpdateOpen] = useState(false);
 
-  const approve = (r) => {
-    setData((prev) =>
-      prev.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x))
-    );
-    message.success("KYC approved");
+  const load = async () => {
+    setLoading(true);
+    try {
+      const rows = await listPendingKycs();
+      const mapped = (Array.isArray(rows) ? rows : []).map(normalizeKycItem);
+      setData(mapped);
+      const sts = await listKycStatuses();
+      setStatusOptions((Array.isArray(sts) ? sts : []).map((s) => ({ label: s.label ?? s.value, value: s.value })));
+
+      // Load active staff and filter OPERATOR
+      const staff = await listActiveStaff();
+      const ops = (Array.isArray(staff) ? staff : [])
+        .filter((s) => String(s.staffRole || "").toUpperCase() === "OPERATOR")
+        .map((s) => ({ label: `${s.username || s.email || "User"} #${s.staffId}` , value: s.staffId }));
+      setOperatorOptions(ops);
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Không tải được danh sách KYC");
+    } finally {
+      setLoading(false);
+    }
   };
-  const reject = (r) => {
-    setData((prev) =>
-      prev.map((x) => (x.id === r.id ? { ...x, status: "rejected" } : x))
-    );
-    message.success("KYC rejected");
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const submitUpdate = async () => {
+    if (!cur) return;
+    try {
+      setUpdating(true);
+      const vals = await form.validateFields();
+      await updateKycStatus(cur.customerId, {
+        status: vals.status,
+        rejectionReason: vals.rejectionReason || undefined,
+        verifiedAt: vals.verifiedAt ? vals.verifiedAt.toISOString() : undefined,
+        verifiedBy: vals.verifiedBy,
+      });
+      message.success("Đã cập nhật trạng thái KYC");
+      setOpen(false);
+      setCur(null);
+      form.resetFields();
+      load();
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Cập nhật thất bại");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const columns = [
-    { title: "KYC ID", dataIndex: "id", width: 120 },
-    { title: "Khách hàng", dataIndex: "name" },
-    { title: "SĐT", dataIndex: "phone", width: 130 },
-    { title: "Email", dataIndex: "email" },
-    { title: "Ngày tạo", dataIndex: "createdAt", width: 160 },
-    { title: "Trạng thái", dataIndex: "status", width: 120, render: kycTag },
+    { title: "Customer ID", dataIndex: "customerId", width: 120 },
+    { title: "Khách hàng", dataIndex: "fullName" },
+    { title: "Trạng thái", dataIndex: "kycStatus", width: 160, render: kycTag },
     {
       title: "Thao tác",
       width: 280,
@@ -107,14 +97,18 @@ export default function AdminKyc() {
             Xem
           </Button>
           <Button
-            type="primary"
-            icon={<CheckOutlined />}
-            onClick={() => approve(r)}
+            onClick={() => {
+              setCur(r);
+              setUpdateOpen(true);
+              form.setFieldsValue({
+                status: r.kycStatus,
+                rejectionReason: r.rejectionReason || undefined,
+                verifiedAt: dayjs(),
+                verifiedBy: r.verifiedBy ?? (operatorOptions?.[0]?.value ?? null),
+              });
+            }}
           >
-            Chấp nhận
-          </Button>
-          <Button danger icon={<CloseOutlined />} onClick={() => reject(r)}>
-            Từ chối
+            Cập nhật
           </Button>
         </Space>
       ),
@@ -123,17 +117,18 @@ export default function AdminKyc() {
 
   return (
     <>
-      <Title level={3}>Duyệt KYC</Title>
+      <Title level={3}>Duyệt KYC (đang chờ)</Title>
 
       <Table
-        rowKey="id"
+        rowKey={(r) => r.customerId}
         columns={columns}
         dataSource={data}
+        loading={loading}
         pagination={{ pageSize: 8 }}
       />
 
       <Drawer
-        title={cur ? `KYC ${cur.id}` : ""}
+        title={cur ? `KYC của KH #${cur.customerId}` : ""}
         open={open}
         onClose={() => setOpen(false)}
         width={860}
@@ -143,47 +138,13 @@ export default function AdminKyc() {
             {/* Khối 1: Thông tin cơ bản */}
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="Khách hàng" span={1}>
-                {cur.name}
+                {cur.fullName}
               </Descriptions.Item>
               <Descriptions.Item label="Trạng thái" span={1}>
-                {kycTag(cur.status)}
+                {kycTag(cur.kycStatus)}
               </Descriptions.Item>
-
-              <Descriptions.Item label="SĐT">{cur.phone}</Descriptions.Item>
-              <Descriptions.Item label="Email">{cur.email}</Descriptions.Item>
-
-              <Descriptions.Item label="Ngày tạo" span={2}>
-                {cur.createdAt}
-              </Descriptions.Item>
-            </Descriptions>
-
-            <Divider />
-
-            {/* Khối 2: Thông tin giấy tờ — thêm mới theo hình */}
-            <Title level={5} style={{ marginTop: 0 }}>
-              Thông tin giấy tờ
-            </Title>
-            <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="Họ và tên">
-                {cur.name || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Số giấy tờ">
-                {cur.docNumber || "—"}
-              </Descriptions.Item>
-
-              <Descriptions.Item label="Loại giấy tờ">
-                {cur.docType || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Ngày sinh">
-                {cur.dob || "—"}
-              </Descriptions.Item>
-
-              <Descriptions.Item label="Ngày cấp">
-                {cur.issueDate || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Địa chỉ (trên giấy tờ)" span={2}>
-                {cur.idAddress || "—"}
-              </Descriptions.Item>
+              <Descriptions.Item label="Customer ID">{cur.customerId}</Descriptions.Item>
+              <Descriptions.Item label="Verified At">{cur.verifiedAt || "—"}</Descriptions.Item>
             </Descriptions>
 
             <Divider />
@@ -212,9 +173,51 @@ export default function AdminKyc() {
                 alt="Selfie"
               />
             </Image.PreviewGroup>
+
+            <Divider />
+            <Space>
+              <Button onClick={() => setOpen(false)}>Đóng</Button>
+              <Button type="primary" onClick={() => { setUpdateOpen(true); form.setFieldsValue({ status: cur.kycStatus, rejectionReason: cur.rejectionReason || undefined, verifiedAt: dayjs(), verifiedBy: cur.verifiedBy ?? (operatorOptions?.[0]?.value ?? null) }); }}>Cập nhật trạng thái</Button>
+            </Space>
           </>
         )}
       </Drawer>
+
+      <Modal
+        title={cur ? `Cập nhật KYC • KH #${cur.customerId}` : "Cập nhật KYC"}
+        open={updateOpen}
+        onCancel={() => setUpdateOpen(false)}
+        onOk={submitUpdate}
+        okText="Cập nhật"
+        confirmLoading={updating}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="status" label="Trạng thái" rules={[{ required: true, message: "Chọn trạng thái" }]}>
+            <Select
+              options={statusOptions}
+              placeholder="Chọn trạng thái KYC"
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+          <Form.Item name="rejectionReason" label="Lý do (nếu từ chối)">
+            <Input.TextArea rows={3} placeholder="Nhập lý do" />
+          </Form.Item>
+          <Form.Item name="verifiedAt" label="Verified At">
+            <DatePicker showTime style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="verifiedBy" label="Verified By (staff)">
+            <Select
+              options={operatorOptions}
+              placeholder="Chọn Operator xác minh"
+              showSearch
+              optionFilterProp="label"
+              allowClear
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </>
   );
 }

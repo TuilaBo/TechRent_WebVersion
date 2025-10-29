@@ -6,7 +6,7 @@ import {
   InputNumber, Button, Image, Tabs, Skeleton, Carousel
 } from "antd";
 import { ShoppingCartOutlined, MinusOutlined, PlusOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 
 import { useAuth } from "../context/AuthContext";
 import { getDeviceModelById, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
@@ -211,7 +211,6 @@ export default function DeviceDetail() {
       <div className="min-h-screen" style={{ backgroundColor: "#F9FAFB" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Skeleton active paragraph={{ rows: 12 }} />
-          <Toaster position="top-right" />
         </div>
       </div>
     );
@@ -219,7 +218,6 @@ export default function DeviceDetail() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#F9FAFB" }}>
-      <Toaster position="top-right" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb

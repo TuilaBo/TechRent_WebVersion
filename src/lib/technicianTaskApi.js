@@ -1,0 +1,80 @@
+// src/lib/technicianTaskApi.js
+import { api } from "./api";
+
+/** -------------------------------------------------
+ *  Helpers
+ * ------------------------------------------------- */
+const unwrap = (res) => res?.data?.data ?? res?.data ?? null;
+
+/** Convert BE payload -> FE shape (optional but handy) */
+export function normalizeTechnicianTask(raw = {}) {
+  return {
+    taskId: raw.taskId,
+    taskCategoryId: raw.taskCategoryId,
+    taskCategoryName: raw.taskCategoryName,
+    orderId: raw.orderId,
+    assignedStaffId: raw.assignedStaffId,
+    assignedStaffName: raw.assignedStaffName,
+    assignedStaffRole: raw.assignedStaffRole,
+    type: raw.type,
+    description: raw.description,
+    plannedStart: raw.plannedStart,
+    plannedEnd: raw.plannedEnd,
+    status: raw.status,            // "PENDING" | "IN_PROGRESS" | "COMPLETED"
+    createdAt: raw.createdAt,
+    completedAt: raw.completedAt,
+  };
+}
+
+/** Optional enum for status used by technician endpoints */
+export const TECH_TASK_STATUS = {
+  PENDING: "PENDING",
+  IN_PROGRESS: "IN_PROGRESS",
+  COMPLETED: "COMPLETED",
+};
+
+// Màu cho trạng thái (dùng cho Tag/Badge ở UI)
+export const TECH_TASK_STATUS_COLOR = {
+  PENDING: { bg: "#000000", text: "#ffffff" },        // nền đen, chữ trắng
+  IN_PROGRESS: { bg: "#1677ff", text: "#ffffff" },   // xanh dương
+  COMPLETED: { bg: "#52c41a", text: "#ffffff" },     // xanh lá
+  CANCELLED: { bg: "#ff4d4f", text: "#ffffff" },     // đỏ
+};
+
+export function getTechnicianStatusColor(status) {
+  const key = String(status || "").toUpperCase();
+  return (
+    TECH_TASK_STATUS_COLOR[key] || { bg: "#000000", text: "#ffffff" }
+  );
+}
+
+/** -------------------------------------------------
+ *  APIs
+ * ------------------------------------------------- */
+
+/** GET /api/technician/tasks?status=...  */
+export async function listTechnicianTasks(status = TECH_TASK_STATUS.PENDING) {
+  const { data } = await api.get("/api/technician/tasks", {
+    params: { status },
+  });
+  const payload = unwrap(data);
+  return Array.isArray(payload) ? payload.map(normalizeTechnicianTask) : [];
+}
+
+/** GET /api/technician/tasks/{taskId} */
+export async function getTechnicianTaskById(taskId) {
+  const { data } = await api.get(`/api/technician/tasks/${Number(taskId)}`);
+  const payload = unwrap(data);
+  return payload ? normalizeTechnicianTask(payload) : null;
+}
+
+/** PUT /api/technician/tasks/{taskId}/status?status=... */
+export async function updateTechnicianTaskStatus(taskId, status) {
+  const { data } = await api.put(
+    `/api/technician/tasks/${Number(taskId)}/status`,
+    null,
+    { params: { status } }
+  );
+  const payload = unwrap(data);
+  return payload ? normalizeTechnicianTask(payload) : null;
+}

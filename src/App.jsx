@@ -44,67 +44,79 @@ import SupportShell from "./pages/CST/SupportShell.jsx";
 import RequireRole from "./routes/RequireRole.jsx";
 export default function App() {
   return (
-    <Routes>
-      {/* ====== PUBLIC (có LayoutRoot) ====== */}
-      <Route path="/" element={<LayoutRoot />}>
-        <Route index element={<Home />} />
-        <Route path="login" element={<LoginForm />} />
-        <Route path="register" element={<RegisterForm />} />
-        <Route path="devices/:id" element={<DeviceDetail />} />
-        <Route path="orders" element={<MyOrders />} />
-        <Route path="cart" element={<CartPage />} />
-        <Route path="checkout" element={<CheckoutPage />} />
-        <Route path="kyc" element={<KycPage />} />
-        <Route path="profile" element={<CustomerProfile />} />
-        <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="verify-otp" element={<OtpVerify />} />
-        <Route path="/category/:id" element={<RentalList />} />
-      </Route>
-
-      {/* ====== ADMIN (KHÔNG dùng LayoutRoot) ====== */}
-      <Route
-        path="/admin"
-        element={
-          <RequireRole role="ADMIN">
-            <AdminShell />
-          </RequireRole>
-        }
-      >
-        <Route index element={<AdminDashboard />} />
-        <Route path="orders" element={<AdminOrders />} />
-        <Route path="products" element={<AdminProducts />} />
-        <Route path="maintenance" element={<AdminMaintenancePlanner />} />
-        <Route path="accounts" element={<AdminAccounts />} />
-        <Route path="task-categories" element={<AdminTaskCategory />} />
-      </Route>
-      {/* ====== OPERATOR (KHÔNG dùng LayoutRoot) ====== */}
-      <Route path="/operator" element={<OperatorShell />}>
-        <Route index element={<OperatorDashboard />} />
-        <Route path="orders" element={<OperatorOrders />} />
-        <Route path="tasks" element={<OperatorTasks />} />
-        <Route path="shifts" element={<OperatorShifts />} />
-        <Route path="kyc" element={<OperatorKyc />} />
-        <Route path="ordersdetail" element={<OperatorOrderDetail />} />
-      </Route>
-
-        {/* ====== TECHNICIAN (KHÔNG dùng LayoutRoot) ====== */}
-        <Route path="/technician" element={<TechnicianShell />}>
-        <Route index element={<TechnicianCalendar />} />
-        <Route path="reports" element={<TechnicianReports />} />
-        <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
+    <>
+     
+      <Routes>
+        {/* ✅ Chỉ chứa <Route> hoặc <React.Fragment> */}
+        <Route path="/" element={<LayoutRoot />}>
+          <Route index element={<Home />} />
+          <Route path="login" element={<LoginForm />} />
+          <Route path="register" element={<RegisterForm />} />
+          <Route path="devices/:id" element={<DeviceDetail />} />
+          <Route path="orders" element={<MyOrders />} />
+          <Route path="cart" element={<CartPage />} />
+          <Route path="checkout" element={<CheckoutPage />} />
+          <Route path="kyc" element={<KycPage />} />
+          <Route path="profile" element={<CustomerProfile />} />
+          <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="verify-otp" element={<OtpVerify />} />
+          <Route path="category/:id" element={<RentalList />} />
         </Route>
 
-        {/* ====== CUSTOMER SUPPORT (KHÔNG dùng LayoutRoot) ====== */}
+        <Route
+          path="/admin"
+          element={
+            <RequireRole role="ADMIN">
+              <AdminShell />
+            </RequireRole>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="orders" element={<AdminOrders />} />
+          <Route path="products" element={<AdminProducts />} />
+          <Route path="maintenance" element={<AdminMaintenancePlanner />} />
+          <Route path="accounts" element={<AdminAccounts />} />
+          <Route path="task-categories" element={<AdminTaskCategory />} />
+        </Route>
+
+        <Route
+          path="/operator"
+          element={
+            <RequireRole role="OPERATOR">
+              <OperatorShell />
+            </RequireRole>
+          }
+        >
+          <Route index element={<OperatorDashboard />} />
+          <Route path="orders" element={<OperatorOrders />} />
+          <Route path="tasks" element={<OperatorTasks />} />
+          <Route path="shifts" element={<OperatorShifts />} />
+          <Route path="kyc" element={<OperatorKyc />} />
+          <Route path="ordersdetail" element={<OperatorOrderDetail />} />
+        </Route>
+
+        <Route
+          path="/technician"
+          element={
+            <RequireRole role="TECHNICIAN">
+              <TechnicianShell />
+            </RequireRole>
+          }
+        >
+          <Route index element={<TechnicianCalendar />} />
+          <Route path="reports" element={<TechnicianReports />} />
+          <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
+        </Route>
+
         <Route path="/support" element={<SupportShell />}>
-        <Route index element={<SupportDesk />} />
-        <Route path="desk" element={<SupportDesk />} />
-        <Route path="chats" element={<div>Live Chats (sắp có)</div>} />
-        <Route path="settings" element={<div>Settings (sắp có)</div>} />
+          <Route index element={<SupportDesk />} />
+          <Route path="desk" element={<SupportDesk />} />
+          <Route path="chats" element={<div>Live Chats (sắp có)</div>} />
+          <Route path="settings" element={<div>Settings (sắp có)</div>} />
         </Route>
-      {/* ====== 404 cho mọi route còn lại ====== */}
 
-        
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </>
   );
 }

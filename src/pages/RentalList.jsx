@@ -22,7 +22,7 @@ import {
   ShoppingCartOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext"; // <-- thêm
 import { fetchCategoryById } from "../lib/categoryApi";
 import { getDeviceModels } from "../lib/deviceModelsApi";
@@ -180,7 +180,9 @@ export default function RentalList() {
         try {
           const count = getCartCount();
           window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
-        } catch {}
+        } catch {
+          // ignore
+        }
       } else {
         toast.error(result.error || "Không thể thêm vào giỏ hàng");
       }
@@ -259,7 +261,6 @@ export default function RentalList() {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Skeleton active paragraph={{ rows: 10 }} />
-        <Toaster position="top-right" />
       </div>
     );
   }
@@ -267,7 +268,6 @@ export default function RentalList() {
     return (
       <div className="max-w-7xl mx_auto px-4 sm:px-6 lg:px-8 py-6">
         <Alert type="error" message={err} showIcon />
-        <Toaster position="top-right" />
       </div>
     );
   }
@@ -276,8 +276,7 @@ export default function RentalList() {
 
   return (
     <div className="min-h-screen" style={{ background: "#FAFAFA" }}>
-      {/* Toaster — bạn bảo cứ để trong component, nên mình để ở đây */}
-      <Toaster position="top-right" />
+      {/* toast hiển thị qua Toaster global */}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Row gutter={[24, 24]}>

@@ -61,9 +61,12 @@ export async function getStaffById(staffId) {
 /** POST /api/admin/staff – Tạo staff
  * body ví dụ: { accountId: 3, staffRole: "OPERATOR" }
  */
-export async function createStaff({ accountId, staffRole }) {
+export async function createStaff({ username, email, password, phoneNumber, staffRole }) {
   const body = {
-    accountId: Number(accountId),
+    username,
+    email,
+    password,
+    phoneNumber,
     staffRole,
   };
   const { data } = await api.post("/api/admin/staff", body);
@@ -74,6 +77,11 @@ export async function createStaff({ accountId, staffRole }) {
 /** DELETE /api/admin/staff/{staffId} – Xoá (soft-delete) staff */
 export async function deleteStaff(staffId) {
   return safeDelete(`/api/admin/staff/${Number(staffId)}`);
+}
+export async function listActiveStaff() {
+  const { data } = await api.get("/api/staff/active");
+  const payload = data?.data ?? data ?? [];
+  return Array.isArray(payload) ? payload.map(normalizeStaff) : [];
 }
 
 /* ---------------------------------------------------

@@ -113,7 +113,10 @@ export default function AdminAccounts() {
   const submitCreateStaff = async (vals) => {
     try {
       await createStaff({
-        accountId: Number(vals.accountId),
+        username: vals.username,
+        email: vals.email,
+        password: vals.password,
+        phoneNumber: vals.phoneNumber,
         staffRole: vals.staffRole,
       });
       toast.success("Tạo staff thành công");
@@ -141,7 +144,7 @@ export default function AdminAccounts() {
       const detail = await getStaffById(id);
       setViewingStaff(normalizeStaff(detail));
       setOpenStaffView(true);
-    } catch (e) {
+    } catch {
       toast.error("Không tải được chi tiết staff");
     }
   };
@@ -416,12 +419,17 @@ export default function AdminAccounts() {
           okText="Tạo"
         >
           <Form form={staffForm} layout="vertical" onFinish={submitCreateStaff}>
-            <Form.Item
-              label="Account ID"
-              name="accountId"
-              rules={[{ required: true, message: "Nhập accountId" }]}
-            >
-              <Input type="number" placeholder="VD: 3" />
+            <Form.Item label="Username" name="username" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item label="Email" name="email" rules={[{ type: "email", required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item label="Mật khẩu" name="password" rules={[{ required: true, min: 6 }]}>
+              <Input.Password />
+            </Form.Item>
+            <Form.Item label="Số điện thoại" name="phoneNumber" rules={[{ required: true }]}>
+              <Input />
             </Form.Item>
             <Form.Item
               label="Vai trò (Role)"

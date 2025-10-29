@@ -6,7 +6,7 @@ import {
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 import {
   listTasks,
   createTask,
@@ -17,6 +17,8 @@ import {
   listTaskCategories,
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
+import { listActiveStaff } from "../../lib/staffManage";
+import { getRentalOrderById, listRentalOrders } from "../../lib/rentalOrdersApi";
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -25,20 +27,39 @@ export default function OperatorTasks() {
   const [data, setData] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [staffs, setStaffs] = useState([]); // for assignedStaffId selection
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
+  const [orderMap, setOrderMap] = useState({});
+  const [orders, setOrders] = useState([]); // for orderId selection
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [orderViewing, setOrderViewing] = useState(null);
 
   // Load data từ API
   const loadData = async () => {
     setLoading(true);
     try {
-      const [tasksRes, catsRes] = await Promise.all([
+      const [tasksRes, catsRes, staffRes, ordersRes] = await Promise.all([
         listTasks(),
         listTaskCategories(),
+        listActiveStaff().catch(() => []),
+        listRentalOrders().catch(() => []),
       ]);
       setData(tasksRes);
       setCategories(catsRes.map(normalizeTaskCategory));
+      setStaffs(Array.isArray(staffRes) ? staffRes : []);
+      setOrders(Array.isArray(ordersRes) ? ordersRes : []);
+
+      const ids = Array.from(new Set((tasksRes || []).map((t) => t.orderId).filter(Boolean)));
+      if (ids.length) {
+        const pairs = await Promise.all(ids.map(async (oid) => {
+          try { const o = await getRentalOrderById(oid); return [oid, o]; } catch { return [oid, null]; }
+        }));
+        setOrderMap(Object.fromEntries(pairs));
+      } else {
+        setOrderMap({});
+      }
     } catch (e) {
       toast.error(e?.response?.data?.message || e?.message || "Không thể tải dữ liệu");
     } finally {
@@ -172,8 +193,46 @@ export default function OperatorTasks() {
       title: "Mã đơn",
       dataIndex: "orderId",
       key: "orderId",
-      width: 120,
-      render: (id) => id || "-",
+      width: 140,
+      render: (id) => (
+        id ? (
+          <Space>
+            <span>#{id}</span>
+            <Button size="small" onClick={async () => {
+              if (!orderMap[id]) {
+                try {
+                  const o = await getRentalOrderById(id);
+                  setOrderMap((m) => ({ ...m, [id]: o }));
+                  setOrderViewing(o);
+                } catch {
+                  toast.error("Không tải được đơn hàng");
+                  return;
+                }
+              } else {
+                setOrderViewing(orderMap[id]);
+              }
+              setOrderModalOpen(true);
+            }}>Xem</Button>
+          </Space>
+        ) : ("-")
+      ),
+    },
+    {
+      title: "TT đơn",
+      dataIndex: "orderId",
+      key: "orderStatus",
+      width: 130,
+      render: (id) => {
+        const st = orderMap[id]?.status || orderMap[id]?.orderStatus || null;
+        if (!id) return "-";
+        if (!st) return <Tag>—</Tag>;
+        const s = String(st).toUpperCase();
+        if (s.includes("PENDING")) return <Tag color="orange">PENDING</Tag>;
+        if (s.includes("CONFIRM")) return <Tag color="blue">CONFIRMED</Tag>;
+        if (s.includes("CANCEL")) return <Tag color="red">CANCELLED</Tag>;
+        if (s.includes("DONE") || s.includes("COMPLETE")) return <Tag color="green">COMPLETED</Tag>;
+        return <Tag>{st}</Tag>;
+      },
     },
     {
       title: "Bắt đầu",
@@ -227,7 +286,6 @@ export default function OperatorTasks() {
 
   return (
     <>
-      <Toaster position="top-center" />
       <Title level={3}>Quản lý nhiệm vụ</Title>
 
       <div className="mb-2">
@@ -270,11 +328,29 @@ export default function OperatorTasks() {
           </Form.Item>
 
           <Form.Item label="Mã đơn hàng" name="orderId">
-            <InputNumber placeholder="Mã đơn hàng (optional)" style={{ width: "100%" }} min={0} />
+            <Select
+              allowClear
+              placeholder="Chọn mã đơn (tuỳ chọn)"
+              showSearch
+              optionFilterProp="label"
+              options={orders.map((o) => ({
+                label: `#${o.orderId ?? o.id} • ${(o.status || o.orderStatus || '').toString()}`,
+                value: o.orderId ?? o.id,
+              }))}
+            />
           </Form.Item>
 
-          <Form.Item label="ID nhân viên phụ trách" name="assignedStaffId">
-            <InputNumber placeholder="ID nhân viên (optional)" style={{ width: "100%" }} min={1} />
+          <Form.Item label="Nhân viên phụ trách" name="assignedStaffId">
+            <Select
+              allowClear
+              placeholder="Chọn nhân viên (tuỳ chọn)"
+              showSearch
+              optionFilterProp="label"
+              options={staffs.map((s) => ({
+                label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
+                value: s.staffId ?? s.id,
+              }))}
+            />
           </Form.Item>
 
           <Form.Item
@@ -309,6 +385,34 @@ export default function OperatorTasks() {
             <DatePicker showTime style={{ width: "100%" }} format="DD/MM/YYYY HH:mm" />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        open={orderModalOpen}
+        title={`Đơn hàng ${orderViewing?.orderId ?? orderViewing?.id ?? ""}`}
+        onCancel={() => { setOrderModalOpen(false); setOrderViewing(null); }}
+        footer={[<Button key="close" onClick={() => setOrderModalOpen(false)}>Đóng</Button>]}
+        width={700}
+      >
+        {orderViewing ? (
+          <div>
+            <p><b>Trạng thái:</b> {orderViewing.status || orderViewing.orderStatus || "—"}</p>
+            <p><b>Khách hàng:</b> {orderViewing.customerId ?? "—"}</p>
+            <p><b>Ngày bắt đầu:</b> {orderViewing.startDate || "—"}</p>
+            <p><b>Ngày kết thúc:</b> {orderViewing.endDate || "—"}</p>
+            {Array.isArray(orderViewing.orderDetails) && (
+              <div>
+                <b>Chi tiết:</b>
+                <ul>
+                  {orderViewing.orderDetails.map((d, i) => (
+                    <li key={i}>Model #{d.deviceModelId} × {d.quantity}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : (
+          <span>Đang tải…</span>
+        )}
       </Modal>
     </>
   );

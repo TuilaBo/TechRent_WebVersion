@@ -110,3 +110,35 @@ export async function updateAccessory(id, payload) {
 export async function deleteAccessory(id) {
   return safeDelete(`/api/accessories/${Number(id)}`);
 }
+
+/* ---------------------------- Brands ---------------------------- */
+
+// GET /api/brands – List brands
+export async function listBrands() {
+  const { data } = await api.get("/api/brands");
+  return data?.data ?? data ?? [];
+}
+
+// GET /api/brands/{id} – Get brand by ID
+export async function getBrandById(id) {
+  const { data } = await api.get(`/api/brands/${Number(id)}`);
+  return data?.data ?? data ?? null;
+}
+
+// POST /api/brands – Create brand
+// body: { brandName: string, description?: string, active?: boolean }
+export async function createBrand(payload) {
+  const { data } = await api.post("/api/brands", payload);
+  return data?.data ?? data;
+}
+
+// PUT /api/brands/{id} – Update brand
+export async function updateBrand(id, payload) {
+  const { data } = await api.put(`/api/brands/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+
+// DELETE /api/brands/{id} – Delete brand
+export async function deleteBrand(id) {
+  return safeDelete(`/api/brands/${Number(id)}`);
+}

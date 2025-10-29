@@ -1,3 +1,4 @@
+// src/pages/CustomerProfile.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Row,
@@ -15,6 +16,8 @@ import {
   Skeleton,
   Alert,
   Select,
+  Modal,
+  Popconfirm,
 } from "antd";
 import { Link } from "react-router-dom";
 import {
@@ -30,26 +33,28 @@ import {
   EyeInvisibleOutlined,
   EyeTwoTone,
   EditOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  BankOutlined,
 } from "@ant-design/icons";
-import { toast } from "react-hot-toast";
+import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
 import {
   fetchMyCustomerProfile,
   updateMyCustomerProfile,
+  createShippingAddress,
+  updateShippingAddress,
+  deleteShippingAddress,
+  createBankInformation,
+  updateBankInformation,
+  deleteBankInformation,
+  normalizeCustomer,
 } from "../lib/customerApi";
 import { fetchDistrictsHCM, fetchWardsByDistrict } from "../lib/locationVn";
 import { BANKS } from "../../Bank";
-const { Title, Text, Paragraph } = Typography;
+import { getMyKyc } from "../lib/kycApi";
 
-// --- helpers: bỏ dấu & chuẩn hóa chuỗi để so khớp ---
-const normalize = (s = "") =>
-  s
-    .toString()
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ");
+const { Title, Text, Paragraph } = Typography;
 
 export default function CustomerProfile() {
   const { isAuthenticated, user } = useAuth();
@@ -60,73 +65,29 @@ export default function CustomerProfile() {
 
   const [infoForm] = Form.useForm();
   const [pwForm] = Form.useForm();
+  const [addressForm] = Form.useForm();
+  const [bankForm] = Form.useForm();
 
   const [saving, setSaving] = useState(false);
   const [submittingPw, setSubmittingPw] = useState(false);
+  const [kycStatus, setKycStatus] = useState("");
+  const [kycRejectionReason, setKycRejectionReason] = useState("");
 
-  // Địa giới HCM
-  const [districts, setDistricts] = useState([]); // [{value,label}]
-  const [selectedDistrict, setSelectedDistrict] = useState(null);
-  const [wardOptions, setWardOptions] = useState([]); // [{value,label}] theo quận
-  const [loadingWards, setLoadingWards] = useState(false);
+  // addresses & banks
+  const [addresses, setAddresses] = useState([]);
+  const [banks, setBanks] = useState([]);
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
+  const [bankModalVisible, setBankModalVisible] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(null);
+  const [editingBank, setEditingBank] = useState(null);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [bankLoading, setBankLoading] = useState(false);
 
-  // Parse địa chỉ đã lưu để prefill quận/phường/đường
-  // TÁCH địa chỉ lưu trong shippingAddress ra 3 phần:
-  // addressLine (số nhà + tên đường), ward, district
-  const prefillAddress = async (addr, ds) => {
-    if (!addr || !ds?.length) return;
-
-    // 1) cắt theo dấu phẩy & bỏ các phần là "TP. Hồ Chí Minh"
-    const isCity = (s) => {
-      const n = normalize(s);
-      return /(^(tp|thanh pho)\s*ho chi minh$)|(^ho chi minh city$)/.test(n);
-    };
-    const parts = addr
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const partsNoCity = parts.filter((p) => !isCity(p));
-
-    // 2) tìm quận theo label trong danh sách districts
-    const joined = normalize(partsNoCity.join(", "));
-    const foundDistrict = ds.find((d) => joined.includes(normalize(d.label)));
-
-    if (!foundDistrict) {
-      // fallback: không tìm được quận -> lấy phần đầu làm addressLine
-      infoForm.setFieldsValue({ addressLine: partsNoCity[0] || addr });
-      return;
-    }
-
-    // set quận để mở select phường
-    setSelectedDistrict(foundDistrict.value);
-    infoForm.setFieldsValue({ districtCode: foundDistrict.value });
-
-    // 3) tải phường theo quận & tìm phường phù hợp
-    setLoadingWards(true);
-    try {
-      const wards = await fetchWardsByDistrict(foundDistrict.value);
-      setWardOptions(wards);
-
-      const foundWard = wards.find((w) => joined.includes(normalize(w.label)));
-      if (foundWard) {
-        infoForm.setFieldsValue({ wardCode: foundWard.value });
-      }
-
-      // 4) Loại bỏ ward & district để còn lại CHỈ "số nhà + tên đường"
-      const addressParts = partsNoCity.filter((p) => {
-        const np = normalize(p);
-        if (foundWard && np === normalize(foundWard.label)) return false;
-        if (np === normalize(foundDistrict.label)) return false;
-        return true;
-      });
-
-      // thường phần đầu chính là số nhà + đường; nếu có nhiều phần còn lại, join lại
-      const addressLine = addressParts[0] || addressParts.join(", ");
-      infoForm.setFieldsValue({ addressLine });
-    } finally {
-      setLoadingWards(false);
-    }
-  };
+  // HCM location (for modal)
+  const [districts, setDistricts] = useState([]);
+  const [modalDistrictCode, setModalDistrictCode] = useState(null);
+  const [modalWardOptions, setModalWardOptions] = useState([]);
+  const [modalWardsLoading, setModalWardsLoading] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -138,42 +99,50 @@ export default function CustomerProfile() {
       setLoading(true);
       setErr(null);
       try {
-        // 1) Profile
+        // profile
         const c = await fetchMyCustomerProfile();
-        const normalized = {
-          customerID: c?.customerId ?? c?.id ?? "-",
-          email: c?.email ?? user?.email ?? "-",
-          phone: c?.phoneNumber ?? "",
-          fullName: c?.fullName ?? c?.username ?? "",
-          createdAt: c?.createdAt ?? "-",
-          status: c?.status || user?.isActive ? "active" : "inactive",
-          shippingAddress: c?.shippingAddress ?? "",
-          kycStatus: (c?.kycStatus || "unverified").toLowerCase(),
-          bankAccountNumber: c?.bankAccountNumber ?? "",
-          bankName: c?.bankName ?? "",
-          bankAccountHolder: c?.bankAccountHolder ?? "",
-        };
+        const normalized = normalizeCustomer(c);
+        normalized.customerID = c?.customerId ?? c?.id ?? "-";
+        normalized.email = c?.email ?? user?.email ?? "-";
+        normalized.phone = c?.phoneNumber ?? "";
+        normalized.fullName = c?.fullName ?? c?.username ?? "";
+        normalized.createdAt = c?.createdAt ?? "-";
+        normalized.status = c?.status || user?.isActive ? "active" : "inactive";
+        normalized.shippingAddress = c?.shippingAddress ?? "";
+        normalized.kycStatus = (c?.kycStatus || "unverified").toLowerCase();
+        normalized.bankAccountNumber = c?.bankAccountNumber ?? "";
+        normalized.bankName = c?.bankName ?? "";
+        normalized.bankAccountHolder = c?.bankAccountHolder ?? "";
+
         if (!mounted) return;
         setCustomer(normalized);
+        setAddresses(normalized.shippingAddresses || []);
+        setBanks(normalized.bankInformations || []);
 
+        // KYC
+        try {
+          const kyc = await getMyKyc();
+          const ks = String(
+            kyc?.kycStatus || kyc?.status || normalized.kycStatus || ""
+          ).toLowerCase();
+          setKycStatus(ks);
+          setKycRejectionReason(kyc?.rejectionReason || "");
+        } catch {}
+
+        // preselect first items
+        const firstAddress = normalized.shippingAddresses?.[0];
+        const firstBank = normalized.bankInformations?.[0];
         infoForm.setFieldsValue({
           fullName: normalized.fullName,
           phone: normalized.phone,
-          districtCode: undefined,
-          wardCode: undefined,
-          addressLine: "",
-          bankAccountNumber: normalized.bankAccountNumber,
-          bankName: normalized.bankName,
-          bankAccountHolder: normalized.bankAccountHolder,
+          selectedAddressId: firstAddress?.shippingAddressId || null,
+          selectedBankId: firstBank?.bankInformationId || null,
         });
 
-        // 2) Danh sách QUẬN (không kèm phường)
+        // districts for modal
         const ds = await fetchDistrictsHCM();
         if (!mounted) return;
         setDistricts(ds);
-
-        // 3) Prefill địa chỉ từ shippingAddress
-        await prefillAddress(normalized.shippingAddress, ds);
       } catch (e) {
         if (!mounted) return;
         setErr(
@@ -186,33 +155,16 @@ export default function CustomerProfile() {
     return () => {
       mounted = false;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, infoForm, user?.email, user?.isActive]);
 
-  // Lưu thông tin (PUT /api/customer/profile)
   const onSaveInfo = async (vals) => {
     try {
       setSaving(true);
-
-      // Tên quận/phường từ code
-      const districtName =
-        districts.find((d) => d.value === vals.districtCode)?.label || "";
-      const wardName =
-        wardOptions.find((w) => w.value === vals.wardCode)?.label || "";
-
-      const composedAddress =
-        `${(vals.addressLine || "").trim()}${wardName ? `, ${wardName}` : ""}` +
-        `${districtName ? `, ${districtName}` : ""}, TP. Hồ Chí Minh`;
-
       const payload = {
         email: customer.email,
         phoneNumber: (vals.phone || "").trim(),
         fullName: (vals.fullName || "").trim(),
-        shippingAddress: composedAddress,
-        bankAccountNumber: (vals.bankAccountNumber || "").trim() || null,
-        bankName: (vals.bankName || "").trim() || null,
-        bankAccountHolder: (vals.bankAccountHolder || "").trim() || null,
       };
-
       const updated = await updateMyCustomerProfile(payload);
 
       if (
@@ -249,13 +201,14 @@ export default function CustomerProfile() {
           phone: fresh?.phoneNumber ?? prev.phone,
           fullName: fresh?.fullName ?? prev.fullName,
           shippingAddress: fresh?.shippingAddress ?? prev.shippingAddress,
-          bankAccountNumber: fresh?.bankAccountNumber ?? prev.bankAccountNumber,
+          bankAccountNumber:
+            fresh?.bankAccountNumber ?? prev.bankAccountNumber,
           bankName: fresh?.bankName ?? prev.bankName,
-          bankAccountHolder: fresh?.bankAccountHolder ?? prev.bankAccountHolder,
+          bankAccountHolder:
+            fresh?.bankAccountHolder ?? prev.bankAccountHolder,
         }));
       }
 
-      message.success("Đã cập nhật hồ sơ.");
       toast.success("Cập nhật hồ sơ thành công!");
     } catch (e) {
       const msg =
@@ -267,7 +220,139 @@ export default function CustomerProfile() {
     }
   };
 
-  // Password mock
+  // address modal submit
+  const handleAddressSubmit = async (values) => {
+    try {
+      setAddressLoading(true);
+      const districtName =
+        districts.find((d) => d.value === values.districtCode)?.label || "";
+      const wardName =
+        modalWardOptions.find((w) => w.value === values.wardCode)?.label || "";
+      const composed =
+        `${(values.addressLine || "").trim()}${
+          wardName ? `, ${wardName}` : ""
+        }` + `${districtName ? `, ${districtName}` : ""}, TP. Hồ Chí Minh`;
+
+      const body = { address: composed };
+
+      if (editingAddress) {
+        await updateShippingAddress(editingAddress.shippingAddressId, body);
+        toast.success("Cập nhật địa chỉ thành công!");
+      } else {
+        await createShippingAddress(body);
+        toast.success("Thêm địa chỉ thành công!");
+      }
+      setAddressModalVisible(false);
+      setEditingAddress(null);
+      addressForm.resetFields();
+      setModalDistrictCode(null);
+      setModalWardOptions([]);
+
+      const freshProfile = await fetchMyCustomerProfile();
+      setAddresses(freshProfile.shippingAddressDtos || []);
+      if (freshProfile.shippingAddressDtos?.length > 0) {
+        infoForm.setFieldsValue({
+          selectedAddressId:
+            freshProfile.shippingAddressDtos[0].shippingAddressId,
+        });
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Có lỗi xảy ra");
+    } finally {
+      setAddressLoading(false);
+    }
+  };
+
+  const handleBankSubmit = async (values) => {
+    try {
+      setBankLoading(true);
+      if (editingBank) {
+        await updateBankInformation(editingBank.bankInformationId, values);
+        toast.success("Cập nhật thông tin ngân hàng thành công!");
+      } else {
+        await createBankInformation(values);
+        toast.success("Thêm thông tin ngân hàng thành công!");
+      }
+      setBankModalVisible(false);
+      setEditingBank(null);
+      bankForm.resetFields();
+
+      const freshProfile = await fetchMyCustomerProfile();
+      setBanks(freshProfile.bankInformationDtos || []);
+      if (freshProfile.bankInformationDtos?.length > 0) {
+        infoForm.setFieldsValue({
+          selectedBankId:
+            freshProfile.bankInformationDtos[0].bankInformationId,
+        });
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Có lỗi xảy ra");
+    } finally {
+      setBankLoading(false);
+    }
+  };
+
+  const handleDeleteAddress = async (addressId) => {
+    try {
+      await deleteShippingAddress(addressId);
+      toast.success("Xóa địa chỉ thành công!");
+      const freshProfile = await fetchMyCustomerProfile();
+      setAddresses(freshProfile.shippingAddressDtos || []);
+      if (freshProfile.shippingAddressDtos?.length > 0) {
+        infoForm.setFieldsValue({
+          selectedAddressId:
+            freshProfile.shippingAddressDtos[0].shippingAddressId,
+        });
+      } else {
+        infoForm.setFieldsValue({ selectedAddressId: null });
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Có lỗi xảy ra");
+    }
+  };
+
+  const handleDeleteBank = async (bankId) => {
+    try {
+      await deleteBankInformation(bankId);
+      toast.success("Xóa thông tin ngân hàng thành công!");
+      const freshProfile = await fetchMyCustomerProfile();
+      setBanks(freshProfile.bankInformationDtos || []);
+      if (freshProfile.bankInformationDtos?.length > 0) {
+        infoForm.setFieldsValue({
+          selectedBankId:
+            freshProfile.bankInformationDtos[0].bankInformationId,
+        });
+      } else {
+        infoForm.setFieldsValue({ selectedBankId: null });
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Có lỗi xảy ra");
+    }
+  };
+
+  const openAddressModal = (address = null) => {
+    setEditingAddress(address);
+    setModalDistrictCode(null);
+    setModalWardOptions([]);
+    addressForm.resetFields();
+    setAddressModalVisible(true);
+  };
+
+  const openBankModal = (bank = null) => {
+    setEditingBank(bank);
+    if (bank) {
+      bankForm.setFieldsValue({
+        bankName: bank.bankName,
+        bankHolder: bank.bankHolder,
+        cardNumber: bank.cardNumber,
+      });
+    } else {
+      bankForm.resetFields();
+    }
+    setBankModalVisible(true);
+  };
+
+  // password mock
   const calcStrength = (v = "") => {
     let s = 0;
     if (v.length >= 8) s += 25;
@@ -289,38 +374,82 @@ export default function CustomerProfile() {
     }
   };
 
-  const KycBanner = ({ icon, title, desc, cta }) => (
-    <div
-      style={{
-        background: "#F9FAFB",
-        border: "1px solid #E5E7EB",
-        borderRadius: 12,
-        padding: 16,
-      }}
-    >
-      <Space align="start">
-        {icon}
-        <div>
-          <Text strong style={{ color: "#111827" }}>
-            {title}
-          </Text>
-          <Paragraph style={{ margin: "4px 0 0 0", color: "#6B7280" }}>
-            {desc}
-          </Paragraph>
-          {cta}
-        </div>
-      </Space>
-    </div>
-  );
+  // === KycBanner with tone (NEW) ===
+  const KycBanner = ({ tone = "info", icon, title, desc, cta }) => {
+    const TONES = {
+      success: {
+        bg: "#ECFDF5",
+        border: "#A7F3D0",
+        title: "#065F46",
+        desc: "#047857",
+      },
+      warning: {
+        bg: "#FFFBEB",
+        border: "#FDE68A",
+        title: "#92400E",
+        desc: "#B45309",
+      },
+      error: {
+        bg: "#FEF2F2",
+        border: "#FCA5A5",
+        title: "#7F1D1D",
+        desc: "#B91C1C",
+      },
+      info: {
+        bg: "#F9FAFB",
+        border: "#E5E7EB",
+        title: "#111827",
+        desc: "#6B7280",
+      },
+    };
+    const c = TONES[tone] || TONES.info;
 
+    return (
+      <div
+        style={{
+          background: c.bg,
+          border: `1px solid ${c.border}`,
+          borderRadius: 12,
+          padding: 16,
+        }}
+      >
+        <Space align="start">
+          {icon}
+          <div>
+            <Text strong style={{ color: c.title }}>
+              {title}
+            </Text>
+            <Paragraph style={{ margin: "4px 0 0 0", color: c.desc }}>
+              {desc}
+            </Paragraph>
+            {cta}
+          </div>
+        </Space>
+      </div>
+    );
+  };
+
+  // === KYC block (UPDATED) ===
   const kycBlock = useMemo(() => {
-    const status = customer?.kycStatus || "unverified";
+    const statusRaw = kycStatus || customer?.kycStatus || "";
+    const s = String(statusRaw).toLowerCase();
+    const status = !s
+      ? "unverified"
+      : s.includes("verified") || s.includes("approved")
+      ? "verified"
+      : s.includes("rejected") || s.includes("denied")
+      ? "rejected"
+      : s.includes("submit") || s.includes("review") || s.includes("pending")
+      ? "pending"
+      : s;
+
     if (status === "verified") {
       return (
         <KycBanner
+          tone="success"
           icon={
             <CheckCircleTwoTone
-              twoToneColor="#111827"
+              twoToneColor="#10B981"
               style={{ fontSize: 20 }}
             />
           }
@@ -329,12 +458,53 @@ export default function CustomerProfile() {
         />
       );
     }
+
+    if (status === "rejected") {
+      return (
+        <div>
+          <KycBanner
+            tone="error"
+            icon={
+              <ExclamationCircleTwoTone
+                twoToneColor="#EF4444"
+                style={{ fontSize: 20 }}
+              />
+            }
+            title="KYC đã bị từ chối"
+            desc="Vui lòng xem lý do từ chối và xác thực lại KYC."
+            cta={
+              <div style={{ marginTop: 10 }}>
+                <Button
+                  type="primary"
+                  style={{ background: "#111827", borderColor: "#111827" }}
+                >
+                  <Link to="/kyc" style={{ color: "#fff" }}>
+                    Xác thực lại
+                  </Link>
+                </Button>
+              </div>
+            }
+          />
+          {kycRejectionReason && (
+            <Alert
+              message="Lý do từ chối"
+              description={kycRejectionReason}
+              type="error"
+              showIcon
+              style={{ marginTop: 12 }}
+            />
+          )}
+        </div>
+      );
+    }
+
     if (status === "pending") {
       return (
         <KycBanner
+          tone="warning"
           icon={
             <SafetyCertificateOutlined
-              style={{ fontSize: 20, color: "#111827" }}
+              style={{ fontSize: 20, color: "#B45309" }}
             />
           }
           title="Yêu cầu KYC đang duyệt"
@@ -342,8 +512,10 @@ export default function CustomerProfile() {
         />
       );
     }
+
     return (
       <KycBanner
+        tone="info"
         icon={
           <ExclamationCircleTwoTone
             twoToneColor="#faad14"
@@ -366,7 +538,7 @@ export default function CustomerProfile() {
         }
       />
     );
-  }, [customer?.kycStatus]);
+  }, [customer?.kycStatus, kycStatus, kycRejectionReason]);
 
   if (loading) {
     return (
@@ -430,7 +602,43 @@ export default function CustomerProfile() {
                       <Space>
                         <HomeOutlined />
                         <Text>
-                          {customer.shippingAddress || "Chưa cập nhật"}
+                          {(() => {
+                            const selectedAddrId =
+                              infoForm.getFieldValue("selectedAddressId");
+                            const selectedAddr = addresses.find(
+                              (a) =>
+                                a.shippingAddressId === selectedAddrId
+                            );
+                            return (
+                              selectedAddr?.address ||
+                              customer.shippingAddress ||
+                              "Chưa cập nhật"
+                            );
+                          })()}
+                        </Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    key: "bank",
+                    label: "Tài khoản ngân hàng",
+                    children: (
+                      <Space>
+                        <BankOutlined />
+                        <Text>
+                          {(() => {
+                            const selectedBankId =
+                              infoForm.getFieldValue("selectedBankId");
+                            const selectedBank = banks.find(
+                              (b) =>
+                                b.bankInformationId === selectedBankId
+                            );
+                            return selectedBank
+                              ? `${selectedBank.bankName} - ${selectedBank.bankHolder} - ${selectedBank.cardNumber}`
+                              : customer.bankName
+                              ? `${customer.bankName} - ${customer.bankAccountHolder} - ${customer.bankAccountNumber}`
+                              : "Chưa cập nhật";
+                          })()}
                         </Text>
                       </Space>
                     ),
@@ -496,121 +704,169 @@ export default function CustomerProfile() {
                             />
                           </Form.Item>
 
-                          {/* ĐỊA CHỈ GIAO HÀNG */}
+                          {/* Select địa chỉ */}
                           <Form.Item
-                            label="Quận/Huyện (TP. HCM)"
-                            name="districtCode"
-                            rules={[
-                              {
-                                required: true,
-                                message: "Vui lòng chọn quận/huyện",
-                              },
-                            ]}
+                            label="Địa chỉ giao hàng"
+                            name="selectedAddressId"
                           >
                             <Select
-                              options={districts}
-                              placeholder="Chọn quận/huyện"
-                              showSearch
-                              optionFilterProp="label"
-                              onChange={async (code) => {
-                                setSelectedDistrict(code);
-                                infoForm.setFieldsValue({
-                                  wardCode: undefined,
-                                });
-                                setLoadingWards(true);
-                                try {
-                                  const wards = await fetchWardsByDistrict(
-                                    code
-                                  );
-                                  setWardOptions(wards);
-                                } finally {
-                                  setLoadingWards(false);
-                                }
-                              }}
+                              placeholder="Chọn địa chỉ giao hàng"
+                              allowClear
+                              notFoundContent="Chưa có địa chỉ"
+                              options={addresses.map((addr) => ({
+                                value: addr.shippingAddressId,
+                                label: (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <span style={{ flex: 1 }}>
+                                      {addr.address}
+                                    </span>
+                                    <Space
+                                      size={8}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Button
+                                        type="link"
+                                        size="small"
+                                        icon={<EditOutlined />}
+                                        onClick={() => {
+                                          const addrObj = addresses.find(
+                                            (a) =>
+                                              a.shippingAddressId ===
+                                              addr.shippingAddressId
+                                          );
+                                          openAddressModal(addrObj);
+                                        }}
+                                      />
+                                      <Popconfirm
+                                        title="Xóa địa chỉ này?"
+                                        onConfirm={() =>
+                                          handleDeleteAddress(
+                                            addr.shippingAddressId
+                                          )
+                                        }
+                                        okText="Xóa"
+                                        cancelText="Hủy"
+                                      >
+                                        <Button
+                                          type="link"
+                                          size="small"
+                                          danger
+                                          icon={<DeleteOutlined />}
+                                        />
+                                      </Popconfirm>
+                                    </Space>
+                                  </div>
+                                ),
+                              }))}
+                              dropdownRender={(menu) => (
+                                <>
+                                  {menu}
+                                  <div
+                                    style={{
+                                      padding: "8px 12px",
+                                      borderTop: "1px solid #f0f0f0",
+                                    }}
+                                  >
+                                    <Button
+                                      type="link"
+                                      icon={<PlusOutlined />}
+                                      onClick={() => openAddressModal()}
+                                      block
+                                    >
+                                      Thêm địa chỉ mới
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
                             />
                           </Form.Item>
 
+                          {/* Select ngân hàng */}
                           <Form.Item
-                            label="Phường/Xã"
-                            name="wardCode"
-                            dependencies={["districtCode"]}
-                            rules={[
-                              {
-                                required: true,
-                                message: "Vui lòng chọn phường/xã",
-                              },
-                            ]}
+                            label="Tài khoản ngân hàng"
+                            name="selectedBankId"
                           >
                             <Select
-                              options={wardOptions}
-                              placeholder="Chọn phường/xã"
-                              disabled={!selectedDistrict}
-                              loading={loadingWards}
-                              showSearch
-                              optionFilterProp="label"
-                            />
-                          </Form.Item>
-
-                          <Form.Item
-                            label="Địa chỉ chi tiết (Số nhà, tên đường)"
-                            name="addressLine"
-                            rules={[
-                              {
-                                required: true,
-                                message: "Vui lòng nhập số nhà, tên đường",
-                              },
-                            ]}
-                          >
-                            <Input
-                              prefix={<HomeOutlined />}
-                              placeholder="VD: 12 Nguyễn Trãi"
-                            />
-                          </Form.Item>
-
-                          {/* BANK INFO */}
-                          <Form.Item
-                            label="Số tài khoản ngân hàng"
-                            name="bankAccountNumber"
-                            rules={[
-                              { required: false },
-                              {
-                                pattern: /^[0-9\s\-]{6,20}$/,
-                                message: "Số tài khoản không hợp lệ",
-                              },
-                            ]}
-                          >
-                            <Input
-                              prefix={<IdcardOutlined />}
-                              placeholder="VD: 1234567890"
-                            />
-                          </Form.Item>
-
-                          <Form.Item
-                            label="Ngân hàng"
-                            name="bankName"
-                            rules={[
-                              { required: false }, // Nếu muốn required, đổi thành true
-                            ]}
-                          >
-                            <Select
-                              options={BANKS}
-                              placeholder="Chọn ngân hàng"
-                              showSearch
-                              optionFilterProp="label"
-                              allowClear // Cho phép xóa nếu không bắt buộc
-                            />
-                          </Form.Item>
-                          <Form.Item
-                            label="Chủ tài khoản"
-                            name="bankAccountHolder"
-                            rules={[
-                              { required: false },
-                              { max: 100, message: "Tên quá dài" },
-                            ]}
-                          >
-                            <Input
-                              prefix={<UserOutlined />}
-                              placeholder="VD: NGUYEN VAN A"
+                              placeholder="Chọn tài khoản ngân hàng"
+                              allowClear
+                              notFoundContent="Chưa có thông tin ngân hàng"
+                              options={banks.map((bank) => ({
+                                value: bank.bankInformationId,
+                                label: (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <span style={{ flex: 1 }}>
+                                      {`${bank.bankName} - ${bank.bankHolder}`}
+                                    </span>
+                                    <Space
+                                      size={8}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Button
+                                        type="link"
+                                        size="small"
+                                        icon={<EditOutlined />}
+                                        onClick={() => {
+                                          const bankObj = banks.find(
+                                            (b) =>
+                                              b.bankInformationId ===
+                                              bank.bankInformationId
+                                          );
+                                          openBankModal(bankObj);
+                                        }}
+                                      />
+                                      <Popconfirm
+                                        title="Xóa thông tin ngân hàng này?"
+                                        onConfirm={() =>
+                                          handleDeleteBank(
+                                            bank.bankInformationId
+                                          )
+                                        }
+                                        okText="Xóa"
+                                        cancelText="Hủy"
+                                      >
+                                        <Button
+                                          type="link"
+                                          size="small"
+                                          danger
+                                          icon={<DeleteOutlined />}
+                                        />
+                                      </Popconfirm>
+                                    </Space>
+                                  </div>
+                                ),
+                              }))}
+                              dropdownRender={(menu) => (
+                                <>
+                                  {menu}
+                                  <div
+                                    style={{
+                                      padding: "8px 12px",
+                                      borderTop: "1px solid #f0f0f0",
+                                    }}
+                                  >
+                                    <Button
+                                      type="link"
+                                      icon={<PlusOutlined />}
+                                      onClick={() => openBankModal()}
+                                      block
+                                    >
+                                      Thêm ngân hàng mới
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
                             />
                           </Form.Item>
 
@@ -740,7 +996,9 @@ export default function CustomerProfile() {
                                   if (!v || getFieldValue("newPassword") === v)
                                     return Promise.resolve();
                                   return Promise.reject(
-                                    new Error("Mật khẩu xác nhận không khớp")
+                                    new Error(
+                                      "Mật khẩu xác nhận không khớp"
+                                    )
                                   );
                                 },
                               }),
@@ -811,6 +1069,179 @@ export default function CustomerProfile() {
           </Col>
         </Row>
       </div>
+
+      {/* Address Modal */}
+      <Modal
+        title={editingAddress ? "Sửa địa chỉ" : "Thêm địa chỉ mới"}
+        open={addressModalVisible}
+        onCancel={() => {
+          setAddressModalVisible(false);
+          setEditingAddress(null);
+          addressForm.resetFields();
+          setModalDistrictCode(null);
+          setModalWardOptions([]);
+        }}
+        footer={null}
+        width={600}
+      >
+        <Form
+          form={addressForm}
+          layout="vertical"
+          onFinish={handleAddressSubmit}
+          requiredMark={false}
+        >
+          <Form.Item
+            label="Quận/Huyện (TP. HCM)"
+            name="districtCode"
+            rules={[{ required: true, message: "Vui lòng chọn quận/huyện" }]}
+          >
+            <Select
+              options={districts}
+              placeholder="Chọn quận/huyện"
+              showSearch
+              optionFilterProp="label"
+              value={modalDistrictCode}
+              onChange={async (code) => {
+                setModalDistrictCode(code);
+                addressForm.setFieldsValue({ wardCode: undefined });
+                setModalWardsLoading(true);
+                try {
+                  const wards = await fetchWardsByDistrict(code);
+                  setModalWardOptions(wards);
+                } finally {
+                  setModalWardsLoading(false);
+                }
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Phường/Xã"
+            name="wardCode"
+            dependencies={["districtCode"]}
+            rules={[{ required: true, message: "Vui lòng chọn phường/xã" }]}
+          >
+            <Select
+              options={modalWardOptions}
+              placeholder="Chọn phường/xã"
+              disabled={!modalDistrictCode}
+              loading={modalWardsLoading}
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Địa chỉ chi tiết (Số nhà, tên đường)"
+            name="addressLine"
+            rules={[
+              { required: true, message: "Vui lòng nhập số nhà, tên đường" },
+            ]}
+          >
+            <Input prefix={<HomeOutlined />} placeholder="VD: 12 Nguyễn Trãi" />
+          </Form.Item>
+
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            <Button
+              onClick={() => {
+                setAddressModalVisible(false);
+                setEditingAddress(null);
+                addressForm.resetFields();
+                setModalDistrictCode(null);
+                setModalWardOptions([]);
+              }}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={addressLoading}
+              style={{ background: "#111827", borderColor: "#111827" }}
+            >
+              {editingAddress ? "Cập nhật" : "Thêm"}
+            </Button>
+          </Space>
+        </Form>
+      </Modal>
+
+      {/* Bank Modal */}
+      <Modal
+        title={
+          editingBank
+            ? "Sửa thông tin ngân hàng"
+            : "Thêm thông tin ngân hàng mới"
+        }
+        open={bankModalVisible}
+        onCancel={() => {
+          setBankModalVisible(false);
+          setEditingBank(null);
+          bankForm.resetFields();
+        }}
+        footer={null}
+        width={600}
+      >
+        <Form
+          form={bankForm}
+          layout="vertical"
+          onFinish={handleBankSubmit}
+          requiredMark={false}
+        >
+          <Form.Item
+            label="Tên ngân hàng"
+            name="bankName"
+            rules={[{ required: true, message: "Vui lòng nhập tên ngân hàng" }]}
+          >
+            <Select
+              options={BANKS}
+              placeholder="Chọn ngân hàng"
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Chủ tài khoản"
+            name="bankHolder"
+            rules={[
+              { required: true, message: "Vui lòng nhập tên chủ tài khoản" },
+            ]}
+          >
+            <Input placeholder="Tên chủ tài khoản" />
+          </Form.Item>
+
+          <Form.Item
+            label="Số tài khoản"
+            name="cardNumber"
+            rules={[
+              { required: true, message: "Vui lòng nhập số tài khoản" },
+              { pattern: /^[0-9\s-]{6,20}$/, message: "Số tài khoản không hợp lệ" },
+            ]}
+          >
+            <Input placeholder="Số tài khoản" />
+          </Form.Item>
+
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            <Button
+              onClick={() => {
+                setBankModalVisible(false);
+                setEditingBank(null);
+                bankForm.resetFields();
+              }}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={bankLoading}
+              style={{ background: "#111827", borderColor: "#111827" }}
+            >
+              {editingBank ? "Cập nhật" : "Thêm"}
+            </Button>
+          </Space>
+        </Form>
+      </Modal>
 
       <style>{`
         .profile-tabs .ant-tabs-ink-bar { background: #111827; }

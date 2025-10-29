@@ -2,7 +2,8 @@ import axios from "axios";
 import { useAuthStore } from "../store/authStore";
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  // Dùng proxy Vite nếu không set env
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
   // Nếu BE dùng cookie session -> bật true và cấu hình CORS Allow-Credentials:
   withCredentials: false,
   timeout: 15000,

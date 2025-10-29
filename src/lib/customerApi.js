@@ -18,7 +18,7 @@ async function safeDelete(path) {
   }
 }
 
-/** Chuẩn hoá object Customer về key “thân thiện” cho FE (tuỳ chọn) */
+/** Chuẩn hoá object Customer về key "thân thiện" cho FE (tuỳ chọn) */
 export function normalizeCustomer(c = {}) {
   return {
     id: c.customerId ?? c.id,
@@ -29,6 +29,9 @@ export function normalizeCustomer(c = {}) {
     bankAccountNumber: c.bankAccountNumber ?? "",
     bankName: c.bankName ?? "",
     bankAccountHolder: c.bankAccountHolder ?? "",
+    // Arrays for multiple addresses and banks
+    shippingAddresses: c.shippingAddressDtos ?? [],
+    bankInformations: c.bankInformationDtos ?? [],
     isActive: c.isActive ?? c.active ?? true,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
@@ -85,4 +88,82 @@ export async function updateCustomerById(customerId, payload) {
 /** 4) Xoá customer theo ID (dành cho admin) */
 export async function deleteCustomerById(customerId) {
   return safeDelete(`/api/customer/${Number(customerId)}`);
+}
+
+/** ----------------- Bank Information (CRUD) ----------------- */
+
+// GET /api/bank-informations
+export async function listBankInformations() {
+  const res = await api.get("/api/bank-informations");
+  const raw = unwrap(res) ?? [];
+  return Array.isArray(raw) ? raw : [];
+}
+
+// GET /api/bank-informations/{id}
+export async function getBankInformationById(id) {
+  const res = await api.get(`/api/bank-informations/${Number(id)}`);
+  return unwrap(res);
+}
+
+// POST /api/bank-informations
+// body: { bankName, bankHolder, cardNumber }
+export async function createBankInformation(payload) {
+  const body = {
+    bankName: payload.bankName,
+    bankHolder: payload.bankHolder,
+    cardNumber: payload.cardNumber,
+  };
+  const res = await api.post("/api/bank-informations", body);
+  return unwrap(res);
+}
+
+// PUT /api/bank-informations/{id}
+export async function updateBankInformation(id, payload) {
+  const body = {
+    bankName: payload.bankName,
+    bankHolder: payload.bankHolder,
+    cardNumber: payload.cardNumber,
+  };
+  const res = await api.put(`/api/bank-informations/${Number(id)}`, body);
+  return unwrap(res);
+}
+
+// DELETE /api/bank-informations/{id}
+export async function deleteBankInformation(id) {
+  return safeDelete(`/api/bank-informations/${Number(id)}`);
+}
+
+/** ----------------- Shipping Address (CRUD) ----------------- */
+
+// GET /api/shipping-addresses
+export async function listShippingAddresses() {
+  const res = await api.get("/api/shipping-addresses");
+  const raw = unwrap(res) ?? [];
+  return Array.isArray(raw) ? raw : [];
+}
+
+// GET /api/shipping-addresses/{id}
+export async function getShippingAddressById(id) {
+  const res = await api.get(`/api/shipping-addresses/${Number(id)}`);
+  return unwrap(res);
+}
+
+// POST /api/shipping-addresses
+// body: { address }
+export async function createShippingAddress(payload) {
+  const body = { address: payload.address };
+  const res = await api.post("/api/shipping-addresses", body);
+  return unwrap(res);
+}
+
+// PUT /api/shipping-addresses/{id}
+export async function updateShippingAddress(id, payload) {
+  const body = { address: payload.address };
+  const res = await api.put(`/api/shipping-addresses/${Number(id)}`, body);
+  return unwrap(res);
+}
+
+// DELETE /api/shipping-addresses/{id}
+export async function deleteShippingAddress(id) {
+  return safeDelete(`/api/shipping-addresses/${Number(id)}`);
 }

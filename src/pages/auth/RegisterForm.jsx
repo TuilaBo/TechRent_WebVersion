@@ -1,9 +1,10 @@
 // src/pages/auth/RegisterForm.jsx
-import { Form, Input, Button, Checkbox, Typography, Card, Alert, message } from "antd";
+import { Form, Input, Button, Checkbox, Typography, Card, Alert } from "antd";
 import { UserOutlined, MailOutlined, LockOutlined, PhoneOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import toast from "react-hot-toast";
+
 export default function RegisterForm() {
   const navigate = useNavigate();
   const { register, loading, error, clearError } = useAuth();
@@ -12,17 +13,32 @@ export default function RegisterForm() {
   const onFinish = async (values) => {
     try {
       clearError();
+      // Chuẩn hoá 9 số sau +84
+      const local9 = String(values.phoneNumber ?? "")
+        .replace(/\D/g, "")     // chỉ giữ số
+        .replace(/^0/, "")      // bỏ 0 đầu nếu có
+        .slice(0, 9);           // giới hạn 9 số
+
+      const fullPhone = `+84${local9}`;
+
       await register({
         username: values.username,
         password: values.password,
         email: values.email,
-        phoneNumber: values.phoneNumber,
+        phoneNumber: fullPhone, // gửi dạng +84XXXXXXXXX
       });
+
       toast.success("Đăng ký thành công! Kiểm tra email để nhận mã OTP.");
       navigate("/verify-otp", { state: { email: values.email } });
     } catch (e) {
       toast.error(e?.response?.data?.message || e?.message || "Đăng ký thất bại");
     }
+  };
+
+  // Chuẩn hoá input: chỉ cho nhập số, bỏ 0 đầu, max 9 số
+  const sanitizePhone = (e) => {
+    const v = e?.target?.value ?? "";
+    return v.replace(/\D/g, "").replace(/^0/, "").slice(0, 9);
   };
 
   return (
@@ -51,7 +67,7 @@ export default function RegisterForm() {
                 name="username"
                 rules={[{ required: true, message: "Vui lòng nhập tên đăng nhập!" }]}
               >
-                <Input prefix={<UserOutlined />} placeholder="Vui lập nhập tên đăng nhập" />
+                <Input prefix={<UserOutlined />} placeholder="Vui lòng nhập tên đăng nhập" />
               </Form.Item>
 
               <Form.Item
@@ -68,12 +84,27 @@ export default function RegisterForm() {
               <Form.Item
                 label="Số điện thoại"
                 name="phoneNumber"
+                // Nhận giá trị đã sanitize
+                getValueFromEvent={sanitizePhone}
                 rules={[
                   { required: true, message: "Vui lòng nhập số điện thoại!" },
-                  { pattern: /^[0-9+\-\s]{8,15}$/, message: "SĐT không hợp lệ" },
+                  {
+                    validator: (_, value) => {
+                      const v = String(value ?? "");
+                      return /^\d{9}$/.test(v)
+                        ? Promise.resolve()
+                        : Promise.reject(new Error("Nhập đủ 9 số sau +84"));
+                    },
+                  },
                 ]}
               >
-                <Input prefix={<PhoneOutlined />} placeholder="0901234567" />
+                <Input
+                  prefix={<PhoneOutlined />}
+                  addonBefore={<span style={{ width: 44, display: "inline-block", textAlign: "center" }}>+84</span>}
+                  placeholder="9 số (vd: 912345678)"
+                  inputMode="numeric"
+                  maxLength={9}
+                />
               </Form.Item>
 
               <Form.Item

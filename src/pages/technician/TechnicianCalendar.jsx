@@ -1,5 +1,5 @@
 // src/pages/technician/TechnicianCalendar.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   Badge,
@@ -14,6 +14,8 @@ import {
   Typography,
   Divider,
   message,
+  Tabs,
+  Select,
 } from "antd";
 import {
   PlusOutlined,
@@ -22,7 +24,18 @@ import {
   InboxOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
+import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
+import {
+  listTechnicianTasks,
+  getTechnicianTaskById,
+  updateTechnicianTaskStatus,
+    TECH_TASK_STATUS,
+    getTechnicianStatusColor,
+} from "../../lib/technicianTaskApi";
+import { getRentalOrderById } from "../../lib/rentalOrdersApi";
+import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
+import { getDeviceModelById, normalizeModel, fmtVND } from "../../lib/deviceModelsApi";
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -35,76 +48,97 @@ const TYPES = {
   DELIVERY: { color: "green", label: "ĐI GIAO THIẾT BỊ" },
 };
 
-/** ----- Mock task: được GIAO bởi operator/admin ----- */
-const INIT = [
-  // QC có dữ liệu đơn để sang trang chi tiết
-  {
-    id: 1,
-    type: "QC",
-    title: "QC – Meta Quest 3",
-    date: "2025-10-03 09:00",
-    // Thông tin đơn hàng cho QC
-    orderId: "TR-241001-023",
-    quantity: 2,
-    devices: ["Meta Quest 3 #A12", "Meta Quest 3 #B09"],
-    deadline: "2025-10-03 17:00",
-    // Hiển thị ngắn trên lịch
-    device: "Meta Quest 3",
-    category: "VR/AR",
-    location: "Kho A",
-    assignedBy: "operator",
-  },
-  {
-    id: 2,
-    type: "HANDOVER_CHECK",
-    title: "Check Handover – TR-241001-023",
-    date: "2025-10-03 14:00",
-    device: 'PS5 + TV 55" 4K',
-    location: "Quận 3",
-    orderId: "TR-241001-023",
-    assignedBy: "operator",
-    handovers: [
-      { id: "H1", name: "Biên bản giao 1", status: "đã ký", url: "https://picsum.photos/seed/h1/900/500" },
-      { id: "H2", name: "Biên bản giao 2", status: "chờ ký", url: "" },
-    ],
-  },
-  // Admin tạo lịch cố định
-  {
-    id: 3,
-    type: "MAINTAIN",
-    title: "Bảo trì – Sony A7 IV",
-    date: "2025-10-04 10:00",
-    device: "Sony A7 IV",
-    category: "Camera",
-    location: "Kho B",
-    assignedBy: "admin",
-    lastMaintainedAt: "2025-09-20 15:00",
-    cycleDays: 30,
-  },
-  // Operator giao nhiệm vụ đi giao
-  {
-    id: 4,
-    type: "DELIVERY",
-    title: "Giao thiết bị – Đơn TR-241005-002",
-    date: "2025-10-05 09:30",
-    device: "DJI Mini 4 Pro",
-    orderId: "TR-241005-002",
-    customer: "Nguyễn Minh",
-    phone: "09xx xxx 789",
-    address: "12 Nguyễn Trãi, Q.1, TP.HCM",
-    location: "TP.HCM",
-    assignedBy: "operator",
-    deliveryWindow: { start: "2025-10-05 09:30", end: "2025-10-05 10:30" },
-    note: "Gọi khách trước 15 phút",
-  },
-];
+// Map BE task to display fields used by the calendar UI
+const taskToDisplay = (t) => ({
+  id: t.taskId,
+  type: t.type || "QC",
+  title: t.description || t.type,
+  date: t.plannedStart || t.createdAt,
+  device: t.deviceName || t.taskCategoryName || "Thiết bị",
+  location: t.location || "—",
+  orderId: t.orderId,
+  status: t.status,
+  taskCategoryName: t.taskCategoryName,
+});
+
+const fmtStatus = (s) => {
+  const v = String(s || "").toUpperCase();
+  if (!v) return "";
+  if (v.includes("PENDING")) return "PENDING";
+  if (v.includes("IN_PROGRESS")) return "IN_PROGRESS";
+  if (v.includes("COMPLETED") || v.includes("DONE")) return "COMPLETED";
+  return v;
+};
 
 export default function TechnicianCalendar() {
-  const [tasks] = useState(INIT);
+  const [tasks, setTasks] = useState([]);
+  const [tasksAll, setTasksAll] = useState([]);
   const [value, setValue] = useState(dayjs()); // ngày đang xem
-  const [detailTask, setDetailTask] = useState(null); // task được click
+  const [detailTask, setDetailTask] = useState(null); // task được click (đầy đủ từ API detail)
   const [drawerOpen, setDrawerOpen] = useState(false);
   const navigate = useNavigate();
+  const [orderDetail, setOrderDetail] = useState(null);
+  const [customerDetail, setCustomerDetail] = useState(null);
+  const [filterStatus, setFilterStatus] = useState("ALL");
+
+  const viewOrderDetail = async (oid) => {
+    if (!oid) return;
+    try {
+      const od = await getRentalOrderById(oid);
+      let enriched = od || null;
+      // attach device model info for each order detail
+      if (enriched && Array.isArray(enriched.orderDetails) && enriched.orderDetails.length) {
+        const ids = Array.from(new Set(enriched.orderDetails.map((d) => d.deviceModelId).filter(Boolean)));
+        const pairs = await Promise.all(
+          ids.map(async (id) => {
+            try { const m = await getDeviceModelById(id); return [id, normalizeModel(m)]; }
+            catch { return [id, null]; }
+          })
+        );
+        const modelMap = Object.fromEntries(pairs);
+        enriched = {
+          ...enriched,
+          orderDetails: enriched.orderDetails.map((d) => ({ ...d, deviceModel: modelMap[d.deviceModelId] || null })),
+        };
+      }
+      setOrderDetail(enriched);
+      // fetch customer info if available
+      const cid = od?.customerId;
+      if (cid) {
+        try {
+          const cus = await fetchCustomerById(cid);
+          setCustomerDetail(normalizeCustomer ? normalizeCustomer(cus) : cus);
+        } catch {
+          setCustomerDetail(null);
+        }
+      } else {
+        setCustomerDetail(null);
+      }
+      if (!od) toast.error("Không tìm thấy đơn hàng");
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Không tải được đơn hàng");
+    }
+  };
+
+  // Load all tasks (pending + in_progress)
+  useEffect(() => {
+    (async () => {
+      try {
+        const [p, doing, done, cancelled] = await Promise.all([
+          listTechnicianTasks(TECH_TASK_STATUS.PENDING),
+          listTechnicianTasks(TECH_TASK_STATUS.IN_PROGRESS),
+          listTechnicianTasks(TECH_TASK_STATUS.COMPLETED),
+          listTechnicianTasks("CANCELLED"),
+        ]);
+        const calendarTasks = [...p, ...doing].map(taskToDisplay);
+        setTasks(calendarTasks);
+        const all = [...p, ...doing, ...done, ...cancelled].map(taskToDisplay);
+        setTasksAll(all);
+      } catch (e) {
+        toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
+      }
+    })();
+  }, []);
 
   // filter theo ngày chọn
   const selectedDate = value.format("YYYY-MM-DD");
@@ -124,7 +158,23 @@ export default function TechnicianCalendar() {
       <ul style={{ paddingLeft: 12 }}>
         {items.slice(0, 3).map((t) => (
           <li key={t.id} style={{ cursor: "pointer" }} onClick={() => onClickTask(t)}>
-            <Badge color={TYPES[t.type]?.color} text={`${dayjs(t.date).format("HH:mm")} ${t.title}`} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Badge color={TYPES[t.type]?.color} />
+              <span style={{ fontWeight: 600 }}>
+                {t.taskCategoryName || TYPES[t.type]?.label || t.type}
+              </span>
+              {t.status && (() => {
+                const { bg, text } = getTechnicianStatusColor(t.status);
+                return (
+                  <Tag style={{ marginLeft: 4, backgroundColor: bg, color: text, border: 'none' }}>
+                    {fmtStatus(t.status)}
+                  </Tag>
+                );
+              })()}
+            </div>
+            <div style={{ marginLeft: 18, color: "#555" }}>
+              {dayjs(t.date).format("HH:mm")} – {t.title}
+            </div>
           </li>
         ))}
         {items.length > 3 && <Tag style={{ marginTop: 4 }}>+{items.length - 3}</Tag>}
@@ -133,9 +183,47 @@ export default function TechnicianCalendar() {
   };
 
   // Click item trên lịch hoặc danh sách → luôn mở Drawer
-  const onClickTask = (task) => {
-    setDetailTask(task);
-    setDrawerOpen(true);
+  const onClickTask = async (task) => {
+    try {
+      const full = await getTechnicianTaskById(task.id);
+      setDetailTask(full || task);
+      // fetch order by ID if exists
+      const oid = (full || task)?.orderId;
+      setOrderDetail(null);
+      if (oid) viewOrderDetail(oid);
+      setDrawerOpen(true);
+    } catch {
+      toast.error("Không tải được chi tiết task");
+    }
+  };
+
+  const updateStatus = async (status) => {
+    if (!detailTask?.taskId && !detailTask?.id) return;
+    const id = detailTask.taskId || detailTask.id;
+    try {
+      const updated = await updateTechnicianTaskStatus(id, status);
+      setDetailTask(updated || detailTask);
+
+      const display = taskToDisplay(updated || detailTask);
+
+      // Update calendar list (only PENDING/IN_PROGRESS)
+      setTasks((prev) => {
+        const keep = [TECH_TASK_STATUS.PENDING, TECH_TASK_STATUS.IN_PROGRESS].includes(
+          String(display.status || '').toUpperCase()
+        );
+        const exists = prev.some((t) => t.id === id);
+        if (keep) {
+          return exists ? prev.map((t) => (t.id === id ? { ...t, ...display } : t)) : [...prev, display];
+        }
+        return prev.filter((t) => t.id !== id);
+      });
+
+      // Update All list
+      setTasksAll((prev) => (prev.some((t) => t.id === id) ? prev.map((t) => (t.id === id ? { ...t, ...display } : t)) : [display, ...prev]));
+      toast.success("Đã cập nhật trạng thái");
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Cập nhật trạng thái thất bại");
+    }
   };
 
   // HANDOVER_CHECK: upload ảnh bằng chứng (UI only)
@@ -152,7 +240,7 @@ export default function TechnicianCalendar() {
 
     const header = (
       <Space wrap size={8}>
-        <Tag color={TYPES[t.type]?.color}>{TYPES[t.type]?.label}</Tag>
+        <Tag color={TYPES[t.type]?.color || "blue"}>{TYPES[t.type]?.label || t.taskCategoryName || t.type}</Tag>
         <Text type="secondary">
           {dayjs(t.date).format("DD/MM/YYYY HH:mm")} • {t.location}
         </Text>
@@ -186,6 +274,10 @@ export default function TechnicianCalendar() {
             >
               Thực hiện QC
             </Button>
+            <Button onClick={() => updateStatus(TECH_TASK_STATUS.IN_PROGRESS)}>Bắt đầu</Button>
+            <Button onClick={() => updateStatus(TECH_TASK_STATUS.COMPLETED)} type="dashed">Hoàn thành</Button>
+            <Button danger onClick={() => updateStatus('CANCELLED')}>Hủy</Button>
+            
           </Space>
         </>
       );
@@ -302,46 +394,187 @@ export default function TechnicianCalendar() {
           <Text type="secondary">
             *Xác nhận đã giao xong bằng app ký nhận/ảnh biên bản nếu cần (tích hợp sau).
           </Text>
+          <Divider />
+          <Space>
+            <Button onClick={() => updateStatus(TECH_TASK_STATUS.IN_PROGRESS)}>Bắt đầu</Button>
+            <Button onClick={() => updateStatus(TECH_TASK_STATUS.COMPLETED)} type="primary">Đánh dấu hoàn thành</Button>
+            <Button danger onClick={() => updateStatus('CANCELLED')}>Hủy</Button>
+      
+          </Space>
         </>
       );
     }
 
-    return null;
+    // Fallback generic detail for loại không xác định
+    return (
+      <>
+        {header}
+        <Divider />
+        <Descriptions bordered size="small" column={1}>
+          <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Trạng thái">
+            {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
+              <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+            ); })() : "—"}
+          </Descriptions.Item>
+          <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+        </Descriptions>
+          {orderDetail && (
+            <>
+              <Divider />
+              <Title level={5} style={{ marginTop: 0 }}>Chi tiết đơn #{orderDetail.orderId || orderDetail.id}</Title>
+              <Descriptions bordered size="small" column={1}>
+                <Descriptions.Item label="Trạng thái">{orderDetail.status || orderDetail.orderStatus || "—"}</Descriptions.Item>
+                <Descriptions.Item label="Khách hàng">
+                  {customerDetail ? (
+                    <>
+                      {customerDetail.fullName || customerDetail.username || "Khách hàng"}
+                      {customerDetail.phoneNumber ? ` • ${customerDetail.phoneNumber}` : ""}
+                      {customerDetail.email ? ` • ${customerDetail.email}` : ""}
+                    </>
+                  ) : (
+                    orderDetail.customerId ?? "—"
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian">{orderDetail.startDate || "—"} → {orderDetail.endDate || "—"}</Descriptions.Item>
+                <Descriptions.Item label="Địa chỉ giao">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
+              </Descriptions>
+              {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                <>
+                  <Divider />
+                  <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                  <List
+                    size="small"
+                    dataSource={orderDetail.orderDetails}
+                    renderItem={(d) => (
+                      <List.Item>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          {d.deviceModel?.image ? (
+                            <img src={d.deviceModel.image} alt={d.deviceModel.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }} />
+                          ) : null}
+                          <div>
+                            <div style={{ fontWeight: 600 }}>
+                              {d.deviceModel?.name || `Model #${d.deviceModelId}`} {`× ${d.quantity}`}
+                            </div>
+                            {d.deviceModel && (
+                              <div style={{ color: '#667085' }}>
+                                {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ''}
+                                Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                </>
+              )}
+            </>
+          )}
+        {/* duplicate order detail block removed */}
+        <Divider />
+        <Space>
+          <Button onClick={() => updateStatus(TECH_TASK_STATUS.IN_PROGRESS)}>Bắt đầu</Button>
+          <Button onClick={() => updateStatus(TECH_TASK_STATUS.COMPLETED)} type="primary">Hoàn thành</Button>
+          <Button danger onClick={() => updateStatus('CANCELLED')}>Hủy</Button>
+         
+        </Space>
+      </>
+    );
   };
 
   return (
     <>
-      {/* Thanh công cụ nhỏ (tuỳ chọn tạo nhanh, chỉ UI) */}
-                <Title level={3}>Lịch công việc kỹ thuật</Title>
+      <Title level={3}>Lịch công việc kỹ thuật</Title>
 
-      <Card>
-        <Calendar
-          value={value}
-          onSelect={setValue}
-          onPanelChange={setValue}
-          dateCellRender={dateCellRender}
-        />
-      </Card>
+      <Tabs
+        defaultActiveKey="calendar"
+        items={[
+          {
+            key: "calendar",
+            label: "Lịch",
+            children: (
+              <>
+                <Card>
+                  <Calendar
+                    value={value}
+                    onSelect={setValue}
+                    onPanelChange={setValue}
+                    dateCellRender={dateCellRender}
+                  />
+                </Card>
 
-      <Card className="mt-4" title={`Công việc ngày ${value.format("DD/MM/YYYY")}`}>
-        <List
-          dataSource={dayTasks}
-          locale={{ emptyText: "Không có công việc trong ngày" }}
-          renderItem={(t) => (
-            <List.Item onClick={() => onClickTask(t)} style={{ cursor: "pointer" }}>
-              <List.Item.Meta
-                title={
-                  <Space>
-                    <Tag color={TYPES[t.type]?.color}>{TYPES[t.type]?.label}</Tag>
-                    <Text strong>{t.title}</Text>
-                  </Space>
-                }
-                description={`${dayjs(t.date).format("HH:mm")} • ${t.device} • ${t.location}`}
-              />
-            </List.Item>
-          )}
-        />
-      </Card>
+                <Card className="mt-4" title={`Công việc ngày ${value.format("DD/MM/YYYY")}`}>
+                  <List
+                    dataSource={dayTasks}
+                    locale={{ emptyText: "Không có công việc trong ngày" }}
+                    renderItem={(t) => (
+                      <List.Item onClick={() => onClickTask(t)} style={{ cursor: "pointer" }}>
+                        <List.Item.Meta
+                          title={
+                            <Space>
+                              <Tag color={TYPES[t.type]?.color}>{TYPES[t.type]?.label}</Tag>
+                              <Text strong>{t.title}</Text>
+                            </Space>
+                          }
+                          description={`${dayjs(t.date).format("HH:mm")} • ${t.device} • ${t.location}`}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                </Card>
+              </>
+            ),
+          },
+          {
+            key: "all",
+            label: "Tất cả",
+            children: (
+              <>
+                <Space style={{ marginBottom: 12 }}>
+                  <span>Lọc trạng thái:</span>
+                  <Select
+                    style={{ width: 200 }}
+                    value={filterStatus}
+                    onChange={setFilterStatus}
+                    options={[
+                      { label: "Tất cả", value: "ALL" },
+                      { label: "PENDING", value: TECH_TASK_STATUS.PENDING },
+                      { label: "IN_PROGRESS", value: TECH_TASK_STATUS.IN_PROGRESS },
+                      { label: "COMPLETED", value: TECH_TASK_STATUS.COMPLETED },
+                      { label: "CANCELLED", value: "CANCELLED" },
+                    ]}
+                  />
+                </Space>
+                <Card>
+                  <List
+                    dataSource={tasksAll.filter((t) =>
+                      filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase()
+                    ).sort((a, b) => dayjs(b.date) - dayjs(a.date))}
+                    renderItem={(t) => (
+                      <List.Item onClick={() => onClickTask(t)} style={{ cursor: "pointer" }}>
+                        <List.Item.Meta
+                          title={
+                            <Space>
+                              <Tag color={TYPES[t.type]?.color}>{TYPES[t.type]?.label}</Tag>
+                              <Text strong>{t.title}</Text>
+                              {(() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
+                                <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+                              ); })()}
+                            </Space>
+                          }
+                          description={`${dayjs(t.date).format("DD/MM/YYYY HH:mm")} • ${t.device} • ${t.location}`}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                </Card>
+              </>
+            ),
+          },
+        ]}
+      />
 
       <Drawer
         title={detailTask ? detailTask.title : "Chi tiết công việc"}

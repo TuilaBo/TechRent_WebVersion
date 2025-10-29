@@ -28,7 +28,6 @@ import dayjs from "dayjs";
 import {
   listRentalOrders,
   getRentalOrderById,
-  updateRentalOrder,
   deleteRentalOrder,
   fmtVND,
 } from "../../lib/rentalOrdersApi";
@@ -53,7 +52,7 @@ const statusTag = (s) => {
   }
 };
 
-const columnsDef = ({ onApprove, onCancel, onDelete, onView }) => [
+const columnsDef = ({ onDelete, onView }) => [
   {
     title: "Mã đơn",
     dataIndex: "orderId",
@@ -123,9 +122,6 @@ const columnsDef = ({ onApprove, onCancel, onDelete, onView }) => [
     fixed: "right",
     width: 260,
     render: (_, r) => {
-      const s = String(r.orderStatus).toUpperCase();
-      const canApprove = s === "PENDING" || s === "AWAITING";
-      const canCancel = s === "PENDING" || s === "CONFIRMED";
       return (
         <Space>
           <Button icon={<EyeOutlined />} onClick={() => onView(r)}>
@@ -133,8 +129,8 @@ const columnsDef = ({ onApprove, onCancel, onDelete, onView }) => [
           </Button>
 
           <Popconfirm
-            title="Xoá đơn?"
-            okText="Xoá"
+            title="Huỷ đơn?"
+            okText="Huỷ"
             okButtonProps={{ danger: true }}
             onConfirm={() => onDelete(r)}
           >
@@ -178,37 +174,11 @@ export default function AdminOrders() {
     fetchAll();
   }, []);
 
-  const doApprove = async (r) => {
-    try {
-      await updateRentalOrder(r.orderId, { orderStatus: "CONFIRMED" });
-      message.success(`Đã xác nhận đơn #${r.orderId}`);
-      await fetchAll();
-      // refresh trong drawer nếu đang mở đơn này
-      if (detail?.orderId === r.orderId) viewDetail(r.orderId);
-    } catch (e) {
-      message.error(
-        e?.response?.data?.message || e?.message || "Không duyệt được đơn."
-      );
-    }
-  };
-
-  const doCancel = async (r) => {
-    try {
-      await updateRentalOrder(r.orderId, { orderStatus: "CANCELLED" });
-      message.success(`Đã hủy đơn #${r.orderId}`);
-      await fetchAll();
-      if (detail?.orderId === r.orderId) viewDetail(r.orderId);
-    } catch (e) {
-      message.error(
-        e?.response?.data?.message || e?.message || "Không hủy được đơn."
-      );
-    }
-  };
 
   const doDelete = async (r) => {
     try {
       await deleteRentalOrder(r.orderId);
-      message.success(`Đã xoá đơn #${r.orderId}`);
+      message.success(`Đã huỷ đơn #${r.orderId}`);
       setRows((prev) => prev.filter((x) => x.orderId !== r.orderId));
       if (detail?.orderId === r.orderId) {
         setOpen(false);
@@ -216,7 +186,7 @@ export default function AdminOrders() {
       }
     } catch (e) {
       message.error(
-        e?.response?.data?.message || e?.message || "Không xoá được đơn."
+        e?.response?.data?.message || e?.message || "Không huỷ được đơn."
       );
     }
   };
@@ -347,8 +317,6 @@ export default function AdminOrders() {
         <Table
           rowKey="orderId"
           columns={columnsDef({
-            onApprove: doApprove,
-            onCancel: doCancel,
             onDelete: doDelete,
             onView,
           })}
@@ -457,13 +425,13 @@ export default function AdminOrders() {
 
             <Space>
               <Popconfirm
-                title="Xoá đơn?"
-                okText="Xoá"
+                title="Huỷ đơn?"
+                okText="Huỷ"
                 okButtonProps={{ danger: true }}
                 onConfirm={() => doDelete(detail)}
               >
                 <Button danger icon={<DeleteOutlined />}>
-                  Xoá đơn
+                  Huỷ đơn
                 </Button>
               </Popconfirm>
             </Space>

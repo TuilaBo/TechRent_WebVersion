@@ -1,18 +1,21 @@
+// src/pages/cart/CartPage.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
   Row, Col, Card, Typography, Breadcrumb, Button, InputNumber,
-  Divider, Space, message, Empty, DatePicker, Tooltip, Skeleton
+  Divider, Space, Empty, DatePicker, Tooltip, Skeleton
 } from "antd";
 import {
   DeleteOutlined, ArrowLeftOutlined, ShoppingCartOutlined, CalendarOutlined
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
+import toast from "react-hot-toast";                     // <-- dùng toast
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
   getCartFromStorage, saveCartToStorage,
   removeFromCart, updateCartItemQuantity, debugCart
 } from "../../lib/cartUtils";
+import { getMyKyc } from "../../lib/kycApi";
 
 const { Title, Text } = Typography;
 
@@ -26,8 +29,8 @@ const createCartItem = (model, qty = 1) => ({
   brand: model.brand,
   image: model.image,
   dailyPrice: model.pricePerDay,
-  depositPercent: model.depositPercent,   // <-- cần có
-  deviceValue: model.deviceValue,         // <-- cần có
+  depositPercent: model.depositPercent,
+  deviceValue: model.deviceValue,
   qty,
   note: model.description || "",
 });
@@ -37,6 +40,10 @@ export default function CartPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // KYC
+  const [kycStatus, setKycStatus] = useState("");
+  const [kycLoading, setKycLoading] = useState(true);
+
   // Dates
   const [startDate, setStartDate] = useState(dayjs().add(1, "day"));
   const [endDate, setEndDate] = useState(dayjs().add(6, "day"));
@@ -45,8 +52,8 @@ export default function CartPage() {
     const loadCart = async () => {
       try {
         setLoading(true);
-
         const cartItems = getCartFromStorage();
+
         const savedDates = localStorage.getItem(CART_DATES_STORAGE_KEY);
         if (savedDates) {
           const d = JSON.parse(savedDates);
@@ -66,7 +73,6 @@ export default function CartPage() {
               const nm = normalizeModel(m);
               return createCartItem(nm, ci.qty || 1);
             } catch {
-              // Fallback nếu API lỗi
               return {
                 id: ci.id,
                 name: ci.name,
@@ -82,14 +88,7 @@ export default function CartPage() {
         );
 
         setItems(itemsWithDetails);
-        
-        // Debug: Log cart state
-        console.log('Cart loaded:', itemsWithDetails);
         debugCart();
-      } catch (e) {
-        console.error("Failed to load cart:", e);
-        message.error("Không thể tải giỏ hàng");
-        setItems([]);
       } finally {
         setLoading(false);
       }
@@ -98,7 +97,24 @@ export default function CartPage() {
     loadCart();
   }, []);
 
-  // Persist items to localStorage when changed (sau khi đã load xong)
+  // Load KYC status
+  useEffect(() => {
+    const loadKycStatus = async () => {
+      try {
+        setKycLoading(true);
+        const kyc = await getMyKyc();
+        const status = String(kyc?.kycStatus || kyc?.status || "").toLowerCase();
+        setKycStatus(status || "unverified");
+      } catch {
+        setKycStatus("unverified");
+      } finally {
+        setKycLoading(false);
+      }
+    };
+    loadKycStatus();
+  }, []);
+
+  // Persist items
   useEffect(() => {
     if (!loading) saveCartToStorage(items);
   }, [items, loading]);
@@ -122,24 +138,26 @@ export default function CartPage() {
     return Math.max(1, diff || 1);
   }, [startDate, endDate]);
 
-  // Tính tiền từng dòng: subtotal theo ngày; cọc theo % * deviceValue * qty
-  const lineTotals = useMemo(() => {
-    return items.map((it) => {
-      const qty = Number(it.qty || 1);
-      const subtotal = Number(it.dailyPrice || 0) * days * qty;
-      const deposit = Math.round(
-        Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty
-      );
-      return {
-        id: it.id,
-        name: it.name,
-        qty,
-        subtotal,
-        deposit,
-        depositPercent: Number(it.depositPercent || 0),
-      };
-    });
-  }, [items, days]);
+  // Tính tiền
+  const lineTotals = useMemo(
+    () =>
+      items.map((it) => {
+        const qty = Number(it.qty || 1);
+        const subtotal = Number(it.dailyPrice || 0) * days * qty;
+        const deposit = Math.round(
+          Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty
+        );
+        return {
+          id: it.id,
+          name: it.name,
+          qty,
+          subtotal,
+          deposit,
+          depositPercent: Number(it.depositPercent || 0),
+        };
+      }),
+    [items, days]
+  );
 
   const subtotal = useMemo(
     () => lineTotals.reduce((s, x) => s + x.subtotal, 0),
@@ -164,12 +182,43 @@ export default function CartPage() {
     removeFromCart(id);
   };
 
+  // Chuẩn hoá kyc -> bucket
+  const kycBucket = useMemo(() => {
+    const s = String(kycStatus || "").toLowerCase();
+    if (!s || s === "unverified") return "unverified";
+    if (s.includes("verified") || s.includes("approved")) return "verified";
+    if (s.includes("reject") || s.includes("denied")) return "rejected";
+    if (s.includes("pending") || s.includes("submit") || s.includes("review")) return "pending";
+    return "unverified";
+  }, [kycStatus]);
+
   const checkout = () => {
-    if (!items.length) return message.warning("Giỏ hàng đang trống.");
+    if (!items.length) {
+      toast("Giỏ hàng đang trống.", { icon: "🛒" });
+      return;
+    }
+    if (kycLoading) {
+      toast.loading("Đang kiểm tra trạng thái KYC...", { id: "kyc-check" });
+      setTimeout(() => toast.dismiss("kyc-check"), 900);
+      return;
+    }
+
+    // Nếu chưa verified -> toast và dừng
+    if (kycBucket !== "verified") {
+      const msg =
+        kycBucket === "rejected"
+          ? "KYC của bạn bị từ chối. Vui lòng xác thực lại trước khi tạo đơn."
+          : kycBucket === "pending"
+          ? "KYC của bạn đang được duyệt. Vui lòng chờ hoàn tất."
+          : "Bạn chưa đủ điều kiện KYC để tạo đơn.";
+      toast.error(msg, { duration: 3000 });
+      return;
+    }
+
     navigate("/checkout");
   };
 
-  if (loading) {
+  if (loading || kycLoading) {
     return (
       <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
@@ -188,8 +237,6 @@ export default function CartPage() {
         <Title level={3} style={{ color: "#111827", marginBottom: 16 }}>
           Giỏ hàng
         </Title>
-        
-  
 
         <Row gutter={[24, 24]}>
           {/* LEFT: Items */}

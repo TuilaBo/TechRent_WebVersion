@@ -1,5 +1,5 @@
 // src/pages/kyc/KycPage.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Steps,
   Card,
@@ -14,6 +14,8 @@ import {
   Col,
   Space,
   Result,
+  Alert,
+  Spin,
 } from "antd";
 import {
   UserOutlined,
@@ -21,7 +23,10 @@ import {
   CheckCircleTwoTone,
   InboxOutlined,
   CameraOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
+import toast from "react-hot-toast";
+import { uploadKycDocumentsBatch, getMyKyc } from "../../lib/kycApi";
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -29,16 +34,45 @@ const { Dragger } = Upload;
 
 export default function KycPage() {
   const [step, setStep] = useState(0);
-  const [form] = Form.useForm();
 
   // Chỉ để hiển thị UI upload (không upload lên server)
   const [front, setFront] = useState([]);
   const [back, setBack] = useState([]);
   const [selfie, setSelfie] = useState([]);
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // KYC status checking
+  const [kycStatus, setKycStatus] = useState(null);
+  const [loadingKyc, setLoadingKyc] = useState(true);
 
   const next = () => setStep((s) => s + 1);
   const prev = () => setStep((s) => s - 1);
+
+  // Check KYC status on mount
+  useEffect(() => {
+    const checkKycStatus = async () => {
+      try {
+        setLoadingKyc(true);
+        const response = await getMyKyc();
+        console.log("Raw KYC response:", response);
+        
+        // Handle different response structures
+        const kyc = response?.data || response;
+        console.log("Parsed KYC data:", kyc);
+        console.log("KYC status:", kyc?.kycStatus);
+        
+        setKycStatus(kyc?.kycStatus);
+      } catch (err) {
+        console.error("Error checking KYC status:", err);
+        // If error, assume no KYC exists yet
+        setKycStatus(null);
+      } finally {
+        setLoadingKyc(false);
+      }
+    };
+    checkKycStatus();
+  }, []);
 
   /**
    * Panel upload: Ảnh fill-full khung, cao mặc định 260px.
@@ -96,6 +130,46 @@ export default function KycPage() {
     );
   };
 
+  // Show loading while checking KYC status
+  if (loadingKyc) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+
+  // Show success if KYC was approved
+  if (kycStatus === "APPROVED") {
+    return (
+      <div className="min-h-screen bg-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Title level={2} style={{ marginBottom: 8, color: "#000" }}>
+            Xác minh danh tính (KYC)
+          </Title>
+          
+          <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20, background: "#fff" }} style={{ borderColor: "#ddd" }}>
+            <Result
+              status="success"
+              title="KYC đã được phê duyệt"
+              subTitle="Tài khoản của bạn đã được xác minh thành công!"
+              extra={
+                <Button 
+                  type="primary" 
+                  onClick={() => (window.location.href = "/")}
+                  style={{ background: "#000", borderColor: "#000", color: "#fff" }}
+                >
+                  Về trang chủ
+                </Button>
+              }
+            />
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -106,12 +180,12 @@ export default function KycPage() {
           Hoàn tất các bước sau để xác minh tài khoản và tiếp tục thuê thiết bị.
         </Text>
 
+
         <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20, background: "#fff" }} style={{ borderColor: "#ddd" }}>
           <Steps
             current={step}
             items={[
               { title: "Tải giấy tờ", icon: <IdcardOutlined style={{ color: "#000" }} /> },
-              { title: "Thông tin", icon: <UserOutlined style={{ color: "#000" }} /> },
               { title: "Xác nhận", icon: <CheckCircleTwoTone twoToneColor="#52c41a" style={{ fontSize: 20 }} /> },
             ]}
             responsive
@@ -160,61 +234,9 @@ export default function KycPage() {
             </div>
           )}
 
-          {/* BƯỚC 2: THÔNG TIN (không validate) */}
-          {step === 1 && (
-            <div className="max-w-3xl mx-auto">
-              <Form form={form} layout="vertical" requiredMark={false}>
-                <Row gutter={16}>
-                  <Col xs={24} md={12}>
-                    <Form.Item label="Họ và tên" name="fullName">
-                      <Input placeholder="Nguyễn Văn A" style={{ borderColor: "#ddd" }} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Form.Item label="Số giấy tờ" name="idNumber">
-                      <Input placeholder="CCCD/CMND/Passport" style={{ borderColor: "#ddd" }} />
-                    </Form.Item>
-                  </Col>
-                </Row>
+          {/* BƯỚC 2: XÁC NHẬN & GỬI ẢNH (bỏ qua nhập thông tin) */}
 
-                <Row gutter={16}>
-                  <Col xs={24} md={8}>
-                    <Form.Item label="Loại giấy tờ" name="idType" initialValue="cccd">
-                      <Select style={{ borderColor: "#ddd" }}>
-                        <Option value="cccd">Căn cước công dân</Option>
-                        <Option value="cmnd">Chứng minh nhân dân</Option>
-                        <Option value="passport">Hộ chiếu</Option>
-                      </Select>
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item label="Ngày sinh" name="dob">
-                      <DatePicker style={{ width: "100%", borderColor: "#ddd" }} format="DD/MM/YYYY" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item label="Ngày cấp" name="issueDate">
-                      <DatePicker style={{ width: "100%", borderColor: "#ddd" }} format="DD/MM/YYYY" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-
-                <Form.Item label="Địa chỉ (trên giấy tờ)" name="address">
-                  <Input placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" style={{ borderColor: "#ddd" }} />
-                </Form.Item>
-
-                <Space>
-                  <Button onClick={prev} style={{ borderColor: "#ddd", color: "#000" }}>Quay lại</Button>
-                  <Button type="primary" onClick={next} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
-                    Tiếp tục
-                  </Button>
-                </Space>
-              </Form>
-            </div>
-          )}
-
-          {/* BƯỚC 3: XÁC NHẬN */}
-          {step === 2 && !done && (
+          {step === 1 && !done && (
             <div className="max-w-4xl mx-auto">
               <Row gutter={16}>
                 <Col xs={24} md={14}>
@@ -224,61 +246,77 @@ export default function KycPage() {
                         <Text type="secondary" style={{ color: "#666" }}>Họ tên</Text>
                       </Col>
                       <Col span={16}>
-                        <Text strong style={{ color: "#000" }}>{form.getFieldValue("fullName") || "—"}</Text>
+                        <Text strong style={{ color: "#000" }}>—</Text>
                       </Col>
 
                       <Col span={8}>
                         <Text type="secondary" style={{ color: "#666" }}>Số giấy tờ</Text>
                       </Col>
                       <Col span={16}>
-                        <Text style={{ color: "#000" }}>{form.getFieldValue("idNumber") || "—"}</Text>
+                        <Text style={{ color: "#000" }}>—</Text>
                       </Col>
 
                       <Col span={8}>
                         <Text type="secondary" style={{ color: "#666" }}>Loại giấy tờ</Text>
                       </Col>
                       <Col span={16}>
-                        <Text style={{ color: "#000" }}>
-                          {form.getFieldValue("idType") === "cccd"
-                            ? "Căn cước công dân"
-                            : form.getFieldValue("idType") === "cmnd"
-                            ? "Chứng minh nhân dân"
-                            : form.getFieldValue("idType") === "passport"
-                            ? "Hộ chiếu"
-                            : "—"}
-                        </Text>
+                        <Text style={{ color: "#000" }}>—</Text>
                       </Col>
 
                       <Col span={8}>
                         <Text type="secondary" style={{ color: "#666" }}>Ngày sinh</Text>
                       </Col>
                       <Col span={16}>
-                        <Text style={{ color: "#000" }}>
-                          {form.getFieldValue("dob")?.format?.("DD/MM/YYYY") || "—"}
-                        </Text>
+                        <Text style={{ color: "#000" }}>—</Text>
                       </Col>
 
                       <Col span={8}>
                         <Text type="secondary" style={{ color: "#666" }}>Ngày cấp</Text>
                       </Col>
                       <Col span={16}>
-                        <Text style={{ color: "#000" }}>
-                          {form.getFieldValue("issueDate")?.format?.("DD/MM/YYYY") || "—"}
-                        </Text>
+                        <Text style={{ color: "#000" }}>—</Text>
                       </Col>
 
                       <Col span={8}>
                         <Text type="secondary" style={{ color: "#666" }}>Địa chỉ</Text>
                       </Col>
                       <Col span={16}>
-                        <Text style={{ color: "#000" }}>{form.getFieldValue("address") || "—"}</Text>
+                        <Text style={{ color: "#000" }}>—</Text>
                       </Col>
                     </Row>
                   </Card>
 
                   <Space>
                     <Button onClick={prev} style={{ borderColor: "#ddd", color: "#000" }}>Quay lại</Button>
-                    <Button type="primary" onClick={() => setDone(true)} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
+                    <Button
+                      type="primary"
+                      loading={submitting}
+                      onClick={async () => {
+                        try {
+                          setSubmitting(true);
+                          const payload = {
+                            front: front?.[0]?.originFileObj || front?.[0]?.file || null,
+                            back: back?.[0]?.originFileObj || back?.[0]?.file || null,
+                            selfie: selfie?.[0]?.originFileObj || selfie?.[0]?.file || null,
+                          };
+                          if (!payload.front && !payload.back && !payload.selfie) {
+                            toast.error("Vui lòng chọn ít nhất 1 ảnh");
+                            setSubmitting(false);
+                            return;
+                          }
+                          await uploadKycDocumentsBatch(payload);
+                          toast.success("Đã gửi ảnh KYC");
+                          setDone(true);
+                          // Reset KYC status to check again after upload
+                          setKycStatus(null);
+                        } catch (e) {
+                          toast.error(e?.response?.data?.message || e?.message || "Gửi ảnh KYC thất bại");
+                        } finally {
+                          setSubmitting(false);
+                        }
+                      }}
+                      style={{ background: "#000", borderColor: "#000", color: "#fff" }}
+                    >
                       Gửi xác minh
                     </Button>
                   </Space>

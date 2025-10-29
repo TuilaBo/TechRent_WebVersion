@@ -38,6 +38,12 @@ import {
   createAccessory,
   updateAccessory,
   deleteAccessory,
+  // Brands (NEW)
+  listBrands,
+  getBrandById,
+  createBrand,
+  updateBrand,
+  deleteBrand,
   // Accessory Categories  <-- NEW
   listAccessoryCategories,
   createAccessoryCategory,
@@ -72,6 +78,7 @@ export default function AdminProducts() {
   const [models, setModels] = useState([]);
   const [devices, setDevices] = useState([]);
   const [accs, setAccs] = useState([]);
+  const [brands, setBrands] = useState([]); // NEW
 
   // NEW: accessory categories
   const [accCats, setAccCats] = useState([]);
@@ -104,21 +111,33 @@ export default function AdminProducts() {
     [accCats]
   );
 
+  // NEW: brand options for device model form
+  const brandOptions = useMemo(
+    () =>
+      (brands || []).map((b) => ({
+        label: b.brandName ?? b.name,
+        value: b.brandId ?? b.id, // lưu theo brandId
+      })),
+    [brands]
+  );
+
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [cats, mods, devs, acs, aCats] = await Promise.all([
+      const [cats, mods, devs, acs, aCats, brs] = await Promise.all([
         listDeviceCategories(),
         listDeviceModels(),
         listDevices(),
         listAccessories(),
         listAccessoryCategories(), // NEW
+        listBrands(),
       ]);
       setCategories(cats);
       setModels(mods);
       setDevices(devs);
       setAccs(acs);
       setAccCats(aCats); // NEW
+      setBrands(brs); // NEW
     } catch (e) {
       toast.error(e?.message || "Không tải được dữ liệu");
     } finally {
@@ -306,7 +325,20 @@ export default function AdminProducts() {
         dataIndex: "deviceName",
         render: (_, r) => r.deviceName ?? r.name,
       },
-      { title: "Thương hiệu", dataIndex: "brand", width: 140 },
+      {
+        title: "Thương hiệu",
+        dataIndex: "brandId",
+        width: 140,
+        render: (_, r) => {
+          const id = r.brandId ?? r.brand?.id ?? null;
+          if (id != null) {
+            const b = brands.find((x) => (x.brandId ?? x.id) === id);
+            return b ? b.brandName ?? b.name : id;
+          }
+          // fallback nếu BE vẫn trả brand string cũ
+          return r.brand ?? "-";
+        },
+      },
       {
         title: "Loại",
         dataIndex: "deviceCategoryId",
@@ -322,7 +354,24 @@ export default function AdminProducts() {
         title: "Thông số",
         dataIndex: "specifications",
         ellipsis: true,
-        render: (v) => v || "-",
+        render: (v) => {
+          if (!v) return "-";
+          
+          try {
+            // Try to parse as JSON
+            const parsed = typeof v === 'string' ? JSON.parse(v) : v;
+            if (typeof parsed === 'object' && parsed !== null) {
+              // Format as key-value pairs
+              return Object.entries(parsed)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(', ');
+            }
+            return v;
+          } catch {
+            // If not valid JSON, return as is
+            return v;
+          }
+        },
       },
       {
         title: "Hoạt động",
@@ -341,7 +390,10 @@ export default function AdminProducts() {
                 setEditing(r);
                 form.setFieldsValue({
                   deviceName: r.deviceName ?? r.name,
-                  brand: r.brand,
+                  brandId: r.brandId ?? (function () {
+                    const match = (brands || []).find((b) => (b.brandName ?? b.name) === r.brand);
+                    return match ? (match.brandId ?? match.id) : undefined;
+                  })(),
                   deviceCategoryId: r.deviceCategoryId,
                   specifications: r.specifications ?? r.specs_json,
                   imageURL: r.imageURL ?? r.imageUrl ?? r.image,
@@ -390,7 +442,7 @@ export default function AdminProducts() {
       try {
         const payload = {
           deviceName: v.deviceName,
-          brand: v.brand,
+          brandId: v.brandId,
           imageURL: v.imageURL ?? "",
           specifications: v.specifications ?? "",
           deviceCategoryId: v.deviceCategoryId,
@@ -454,11 +506,16 @@ export default function AdminProducts() {
               <Input />
             </Form.Item>
             <Form.Item
-              name="brand"
+              name="brandId"
               label="Thương hiệu"
               rules={[{ required: true }]}
             >
-              <Input />
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Chọn thương hiệu"
+                options={brandOptions}
+              />
             </Form.Item>
             <Form.Item
               name="deviceCategoryId"
@@ -1012,11 +1069,143 @@ export default function AdminProducts() {
     );
   };
 
+  /* ================= BRAND TAB (NEW) ================= */
+  const BrandTab = () => {
+    const [open, setOpen] = useState(false);
+    const [editing, setEditing] = useState(null);
+    const [form] = Form.useForm();
+    const [modal, contextHolder] = Modal.useModal();
+
+    const cols = [
+      { title: "ID", dataIndex: "brandId", width: 90, render: (_, r) => r.brandId ?? r.id },
+      { title: "Tên thương hiệu", dataIndex: "brandName", render: (v, r) => v ?? r.name },
+      { title: "Mô tả", dataIndex: "description", ellipsis: true },
+      { title: "Trạng thái", dataIndex: "active", width: 150, render: (v) => <ActiveTag v={!!v} /> },
+      {
+        title: "Thao tác",
+        width: 170,
+        render: (_, r) => (
+          <Space>
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => {
+                setEditing(r);
+                form.setFieldsValue({
+                  brandName: r.brandName ?? r.name,
+                  description: r.description ?? "",
+                  active: r.active ?? true,
+                });
+                setOpen(true);
+              }}
+            />
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() =>
+                modal.confirm({
+                  title: "Xoá thương hiệu?",
+                  okButtonProps: { danger: true },
+                  onOk: async () => {
+                    const id = r.brandId ?? r.id;
+                    const prev = brands;
+                    setBrands(prev.filter((x) => (x.brandId ?? x.id) !== id));
+                    try {
+                      await deleteBrand(id);
+                      toast.success("Đã xoá thương hiệu");
+                    } catch (e) {
+                      setBrands(prev);
+                      toast.error(e?.message || "Xoá thất bại");
+                      throw e;
+                    }
+                  },
+                })
+              }
+            />
+          </Space>
+        ),
+      },
+    ];
+
+    const submit = async (v) => {
+      try {
+        const payload = {
+          brandName: v.brandName,
+          description: v.description ?? "",
+          active: !!v.active,
+        };
+        if (editing) {
+          const id = editing.brandId ?? editing.id;
+          await updateBrand(id, payload);
+          toast.success("Cập nhật thương hiệu thành công");
+        } else {
+          await createBrand(payload);
+          toast.success("Thêm thương hiệu thành công");
+        }
+        setOpen(false);
+        setEditing(null);
+        form.resetFields();
+        loadAll();
+      } catch (e) {
+        toast.error(e?.message || "Lưu thất bại");
+      }
+    };
+
+    return (
+      <>
+        {contextHolder}
+        <Space style={{ marginBottom: 12 }}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditing(null);
+              form.resetFields();
+              setOpen(true);
+            }}
+          >
+            Thêm thương hiệu
+          </Button>
+        </Space>
+        <Table
+          rowKey={(r) => r.brandId ?? r.id}
+          columns={cols}
+          dataSource={brands}
+          loading={loading}
+          pagination={{ pageSize: 8 }}
+        />
+        <Modal
+          open={open}
+          title={editing ? "Sửa thương hiệu" : "Thêm thương hiệu"}
+          onCancel={() => setOpen(false)}
+          onOk={() => form.submit()}
+        >
+          <Form form={form} layout="vertical" onFinish={submit}>
+            <Form.Item name="brandName" label="Tên thương hiệu" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="description" label="Mô tả">
+              <Input.TextArea rows={3} />
+            </Form.Item>
+            <Form.Item name="active" label="Trạng thái" initialValue={true}>
+              <Select
+                options={[
+                  { label: "Đang hoạt động", value: true },
+                  { label: "Ngưng", value: false },
+                ]}
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
+      </>
+    );
+  };
+
   return (
     <>
       <Title level={3}>Quản lý sản phẩm</Title>
       <Tabs
         items={[
+          { key: "brand", label: "Thương hiệu", children: <BrandTab /> },
           { key: "cat", label: "Loại Thiết Bị", children: <CategoryTab /> },
           { key: "model", label: "Mẫu Thiết Bị", children: <ModelTab /> },
           { key: "device", label: "Thiết Bị", children: <DeviceTab /> },

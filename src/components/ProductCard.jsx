@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Skeleton, Empty } from "antd";
 import { ShoppingCartOutlined } from "@ant-design/icons";
-import toast, { Toaster } from "react-hot-toast"; // <-- giữ Toaster cục bộ
+import toast from "react-hot-toast"; // <-- chỉ giữ toast API
 import { useAuth } from "../context/AuthContext";
 import { getDeviceModels, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
 import { addToCart, getCartCount } from "../lib/cartUtils";
@@ -27,7 +27,11 @@ export default function ProductCard() {
         const list = await getDeviceModels();
         setItems(list.map(normalizeModel));
       } catch (e) {
-        setErr(e?.response?.data?.message || e?.message || "Không thể tải danh sách thiết bị.");
+        setErr(
+          e?.response?.data?.message ||
+            e?.message ||
+            "Không thể tải danh sách thiết bị."
+        );
       } finally {
         setLoading(false);
       }
@@ -98,49 +102,55 @@ export default function ProductCard() {
           });
         }, 700);
 
-        toast.success((t) => (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div>
-              <b>{it.name}</b> đã thêm vào giỏ • <b>{fmtVND(it.pricePerDay)}/ngày</b>
+        toast.success(
+          (t) => (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>
+                <b>{it.name}</b> đã thêm vào giỏ •{" "}
+                <b>{fmtVND(it.pricePerDay)}/ngày</b>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    navigate("/cart");
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #111827",
+                    background: "#111827",
+                    color: "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  Xem giỏ hàng
+                </button>
+                <button
+                  onClick={() => toast.dismiss(t.id)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #e5e7eb",
+                    background: "#fff",
+                    color: "#111827",
+                    cursor: "pointer",
+                  }}
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => {
-                  toast.dismiss(t.id);
-                  navigate("/cart");
-                }}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  border: "1px solid #111827",
-                  background: "#111827",
-                  color: "#fff",
-                  cursor: "pointer",
-                }}
-              >
-                Xem giỏ hàng
-              </button>
-              <button
-                onClick={() => toast.dismiss(t.id)}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  border: "1px solid #e5e7eb",
-                  background: "#fff",
-                  color: "#111827",
-                  cursor: "pointer",
-                }}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        ), { duration: 2500 });
+          ),
+          { duration: 2500 }
+        );
 
         // báo cho header cập nhật badge + bump
         try {
           const count = getCartCount();
-          window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
+          window.dispatchEvent(
+            new CustomEvent("cart:updated", { detail: { count } })
+          );
         } catch {}
       } else {
         toast.error(result.error || "Không thể thêm vào giỏ hàng");
@@ -156,17 +166,18 @@ export default function ProductCard() {
     return (
       <div style={{ padding: 40, maxWidth: 1200, margin: "0 auto" }}>
         <Skeleton active paragraph={{ rows: 8 }} />
-        {/* Toaster cục bộ */}
-        <Toaster position="top-right" />
       </div>
     );
   }
 
   return (
-    <div style={{ padding: "40px 20px", maxWidth: "1200px", margin: "0 auto" }}>
-      {/* Toaster cục bộ */}
-      <Toaster position="top-right" />
-
+    <div
+      style={{
+        padding: "40px 20px",
+        maxWidth: "1200px",
+        margin: "0 auto",
+      }}
+    >
       <h2
         style={{
           textAlign: "center",
@@ -216,23 +227,60 @@ export default function ProductCard() {
                 <img
                   alt={it.name}
                   src={it.image || "https://placehold.co/800x600?text=No+Image"}
-                  style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform .3s ease" }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    transition: "transform .3s ease",
+                  }}
                 />
               </div>
 
-              <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>{it.name}</h3>
+              <div
+                style={{
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  flex: 1,
+                }}
+              >
+                <h3
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 600,
+                    color: "#333",
+                    margin: 0,
+                  }}
+                >
+                  {it.name}
+                </h3>
                 <p style={{ color: "#666", fontSize: 14, margin: 0 }}>
                   Thương hiệu: <b style={{ color: "#111" }}>{it.brand || "—"}</b>
                 </p>
               </div>
 
-              <div style={{ padding: "0 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}>
+              <div
+                style={{
+                  padding: "0 16px 16px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span
+                  style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}
+                >
                   {fmtVND(it.pricePerDay)}/ngày
                 </span>
                 <Button
-                  style={{ background: "#000", color: "#fff", border: "none", borderRadius: 4, padding: "8px 16px" }}
+                  style={{
+                    background: "#000",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 4,
+                    padding: "8px 16px",
+                  }}
                   icon={<ShoppingCartOutlined />}
                   loading={!!addingMap[it.id]}
                   disabled={!!addingMap[it.id]}
