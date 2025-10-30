@@ -15,6 +15,7 @@ import CustomerProfile from "./pages/CustomerProfile.jsx";
 import NotificationsPage from "./pages/notificaiton/NotificationsPage.jsx";
 import OtpVerify from "./pages/auth/OtpVerify.jsx";
 import RentalList from "./pages/RentalList.jsx";
+import FindProduct from "./components/FindProduct.jsx";
 
 import AdminShell from "./pages/admin/AdminShell.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="verify-otp" element={<OtpVerify />} />
           <Route path="category/:id" element={<RentalList />} />
+          <Route path="search" element={<FindProduct />} />
         </Route>
 
         <Route

@@ -13,6 +13,39 @@ export async function getDeviceModelById(id) {
   return data?.data ?? data;
 }
 
+/** Tìm kiếm mẫu thiết bị với phân trang/sort/filter */
+export async function searchDeviceModels(params = {}) {
+  const {
+    deviceName,
+    brandId,
+    deviceCategoryId,
+    isActive,
+    page = 0,
+    size = 10,
+    sort, // ví dụ: ["createdAt,desc"] hoặc "createdAt,desc"
+  } = params || {};
+
+  const query = {};
+  if (deviceName) query.deviceName = deviceName;
+  if (brandId != null) query.brandId = brandId;
+  if (deviceCategoryId != null) query.deviceCategoryId = deviceCategoryId;
+  if (typeof isActive === "boolean") query.isActive = isActive;
+  // Spring thường dùng page,size,sort (thay vì pageable.*)
+  query.page = page;
+  query.size = size;
+  if (sort) query.sort = sort;
+
+  const { data } = await api.get("/api/device-models/search", { params: query });
+  // BE có thể trả dạng { data: { content: [] } } hoặc { data: [] }
+  const payload = data?.data ?? data ?? {};
+  const list = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.content)
+    ? payload.content
+    : [];
+  return list;
+}
+
 /** Helper định dạng giá VND */
 export const fmtVND = (n) =>
   Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });

@@ -12,6 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import { getDeviceModelById, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
 import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils";
+import RelatedCard from "../components/RelatedCard";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -399,6 +400,13 @@ export default function DeviceDetail() {
           </Col>
         </Row>
       </div>
+
+      {/* Sản phẩm liên quan */}
+      {item?.categoryId && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <RelatedCard categoryId={item.categoryId} excludeId={item.id} />
+        </div>
+      )}
 
       <style>{`
         .product-carousel .ant-carousel .slick-arrow {

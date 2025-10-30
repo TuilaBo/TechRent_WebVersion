@@ -14,7 +14,7 @@ export default function Home() {
       <section className="space-y-6">
         <BrowseCategories />
       </section>
-      <section className="space-y-4">
+      <section id="home-products" className="space-y-4">
         <ProductCard />
       </section>
       

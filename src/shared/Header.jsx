@@ -1,5 +1,5 @@
 // src/components/AppHeader.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Layout, Row, Col, Space, Badge, Dropdown, Menu, Input } from "antd";
 import {
   ShoppingCartOutlined,
@@ -28,24 +28,24 @@ export default function AppHeader() {
   const [cartCount, setCartCount] = useState(0);
   const [bump, setBump] = useState(false); // <-- NEW
 
+  const [hidden, setHidden] = useState(false);
+  const lastYRef = useRef(typeof window !== 'undefined' ? window.scrollY : 0);
+  const headerRef = useRef(null);
+
   useEffect(() => {
     const update = (count) => {
       setCartCount(count ?? getCartCount());
-      // chạy animation
       setBump(true);
       const t = setTimeout(() => setBump(false), 500);
       return () => clearTimeout(t);
     };
 
-    // lần đầu
     update(getCartCount());
 
-    // tab khác
     const onStorage = (e) => {
       if (e.key === "techrent-cart") update(getCartCount());
     };
 
-    // cùng tab (custom event)
     const onCartUpdated = (e) => {
       update(e?.detail?.count);
     };
@@ -57,6 +57,35 @@ export default function AppHeader() {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("cart:updated", onCartUpdated);
     };
+  }, []);
+
+  // Auto hide/show header on scroll
+  useEffect(() => {
+    const onScroll = () => {
+      const currentY = window.scrollY || 0;
+      const lastY = lastYRef.current || 0;
+      const headerH = headerRef.current?.offsetHeight || 0;
+
+      // cập nhật biến chiều cao để phần hero bù trừ đúng
+      document.documentElement.style.setProperty("--stacked-header", `${headerH}px`);
+
+      const delta = currentY - lastY;
+      if (Math.abs(delta) < 4) return;
+
+      if (currentY > headerH && delta > 0) {
+        setHidden(true);
+      } else {
+        setHidden(false);
+      }
+
+      lastYRef.current = currentY;
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const headerH = headerRef.current?.offsetHeight || 0;
+    document.documentElement.style.setProperty("--stacked-header", `${headerH}px`);
+
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const handleLogout = () => {
@@ -75,16 +104,6 @@ export default function AppHeader() {
     />
   );
 
-  const searchInputStyle = {
-    borderRadius: 50,
-    background: "#fff",
-    border: "2px solid rgba(0,0,0,0.25)",
-    padding: "8px 16px",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-    transition: "all 0.3s ease",
-    fontWeight: 600,
-  };
-
   const searchInputMobileStyle = {
     borderRadius: 50,
     background: "#fff",
@@ -98,6 +117,7 @@ export default function AppHeader() {
 
   return (
     <Header
+      ref={headerRef}
       style={{
         position: "sticky",
         top: 0,
@@ -108,6 +128,8 @@ export default function AppHeader() {
         padding: "0 24px",
         boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
         borderBottom: "1px solid rgba(0,0,0,0.08)",
+        transform: hidden ? "translateY(-100%)" : "translateY(0)",
+        transition: "transform .25s ease",
       }}
     >
       {/* CSS animation cho badge/cart */}
@@ -119,29 +141,18 @@ export default function AppHeader() {
           50%  { transform: scale(1.08); }
           100% { transform: scale(1); }
         }
-        .cart-badge-bump {
-          animation: cart-bump .5s ease;
-        }
-        .icon-wrap {
-          position: relative;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .ping {
-          position: absolute;
-          width: 8px; height: 8px;
-          border-radius: 9999px;
-          background: #111827;
-          top: -2px; right: -2px;
-          opacity: 0.75;
-          animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) 1 forwards;
-        }
-        @keyframes ping {
-          0% { transform: scale(1); opacity: .8; }
-          70% { transform: scale(2.2); opacity: .25; }
-          100% { transform: scale(2.8); opacity: 0; }
-        }
+        .cart-badge-bump { animation: cart-bump .5s ease; }
+        .icon-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+        .ping { position: absolute; width: 8px; height: 8px; border-radius: 9999px; background: #000; top: -2px; right: -2px; opacity: 0.65; animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) 1 forwards; }
+        @keyframes ping { 0% { transform: scale(1); opacity: .8; } 70% { transform: scale(2.2); opacity: .28; } 100% { transform: scale(2.8); opacity: 0; } }
+        .nav-link { color: #141414 !important; font-weight: 600; background: none !important; transition: color .16s linear; }
+        .nav-link .nav-underline { position: absolute; bottom: -4px; left: 0; width: var(--underline-width, 0); height: 2px; background: #000; border-radius: 8px; transition: width 0.27s cubic-bezier(.82,-0.01,.43,.98); }
+        .nav-link:hover, .nav-link:focus { color: #000 !important; }
+        .nav-link:focus .nav-underline, .nav-link:hover .nav-underline { width: 100% !important; }
+        .login-btn { background: #000 !important; color: #fff !important; border-radius: 999px; padding: 11px 26px !important; font-weight: 700; font-size: 17px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border: none; min-width: 120px; transition: all .18s cubic-bezier(.6,-0.04,.43,.99); }
+        .login-btn:hover, .login-btn:focus { background: #fff !important; color: #000 !important; border: 2px solid #000; }
+        .search-input { border-radius: 33px !important; border: 2px solid #e3e3e3 !important; background: #fff !important; font-weight: 600; box-shadow: none !important; padding: 8px 18px !important; transition: border-color .18s; }
+        .search-input:focus { border: 2.2px solid #000 !important; box-shadow: 0px 1px 7px rgba(20,20,20,.09); }
       `}</style>
 
       <Row align="middle" justify="space-between" style={{ height: 56 }}>
@@ -222,23 +233,6 @@ export default function AppHeader() {
               </Space>
             </Col>
 
-            <Col flex="1" style={{ maxWidth: 300, marginLeft: 16, marginRight: 16 }} className="hidden md:block">
-              <Input
-                prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.65)", fontSize: 18 }} />}
-                placeholder="Tìm kiếm sản phẩm..."
-                allowClear
-                style={searchInputStyle}
-                onFocus={(e) => {
-                  e.target.parentNode.style.boxShadow = "0 6px 16px rgba(0,0,0,0.2)";
-                  e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.45)";
-                }}
-                onBlur={(e) => {
-                  e.target.parentNode.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-                  e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.25)";
-                }}
-              />
-            </Col>
-
             <Col>
               <div className="header-icons" style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <div className="md:hidden">
@@ -270,7 +264,6 @@ export default function AppHeader() {
                     <Badge count={cartCount} size="small" offset={[4, 4]} color="#000">
                       <ShoppingCartOutlined style={{ fontSize: 20, color: "#000" }} />
                     </Badge>
-                    {/* Ping “chớp” mỗi lần cập nhật */}
                     {bump && <span className="ping" />}
                   </span>
                 </Link>
