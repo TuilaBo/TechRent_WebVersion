@@ -65,7 +65,8 @@ export function normalizeModel(m = {}) {
     depositPercent: Number(m.depositPercent ?? m.deposit_percentage ?? m.depositRate ?? 0),
     deviceValue:    Number(m.deviceValue ?? m.assetValue ?? 0),
 
-    description: m.specifications ?? m.description ?? "",
+    description: m.description ?? "",
+    specifications: m.specifications ?? "",
     categoryId: m.deviceCategoryId ?? m.categoryId ?? null,
     active: Boolean(m.active ?? true),
   };

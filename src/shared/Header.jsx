@@ -236,20 +236,6 @@ export default function AppHeader() {
             <Col>
               <div className="header-icons" style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <div className="md:hidden">
-                  <Input
-                    prefix={<SearchOutlined style={{ color: "rgba(0,0,0,0.65)", fontSize: 16 }} />}
-                    placeholder="Tìm kiếm..."
-                    allowClear
-                    style={searchInputMobileStyle}
-                    onFocus={(e) => {
-                      e.target.parentNode.style.boxShadow = "0 6px 16px rgba(0,0,0,0.2)";
-                      e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.45)";
-                    }}
-                    onBlur={(e) => {
-                      e.target.parentNode.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-                      e.target.parentNode.style.border = "2px solid rgba(0,0,0,0.25)";
-                    }}
-                  />
                 </div>
 
                 <Link to="/notifications" className="header-icon" aria-label="Notifications">

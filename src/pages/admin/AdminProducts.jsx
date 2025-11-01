@@ -409,6 +409,7 @@ export default function AdminProducts() {
                   })(),
                   deviceCategoryId: r.deviceCategoryId,
                   specifications: r.specifications ?? r.specs_json,
+                  description: r.description ?? "",
                   imageURL: r.imageURL ?? r.imageUrl ?? r.image,
                   pricePerDay: r.pricePerDay,
                   deviceValue: r.deviceValue,
@@ -458,6 +459,7 @@ export default function AdminProducts() {
           brandId: v.brandId,
           imageURL: v.imageURL ?? "",
           specifications: v.specifications ?? "",
+          description: v.description ?? "",
           deviceCategoryId: v.deviceCategoryId,
           deviceValue: Number(v.deviceValue ?? 0),
           pricePerDay: Number(v.pricePerDay ?? 0),
@@ -538,6 +540,9 @@ export default function AdminProducts() {
               <Select options={catOptions} />
             </Form.Item>
             <Form.Item name="specifications" label="Thông số">
+              <Input.TextArea rows={3} />
+            </Form.Item>
+            <Form.Item name="description" label="Mô tả">
               <Input.TextArea rows={3} />
             </Form.Item>
             <Form.Item name="imageURL" label="Ảnh (URL)">

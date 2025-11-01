@@ -243,10 +243,10 @@ export default function OperatorOrders() {
       const normalized = normalizeContract(updatedContract);
       setContractDetail(normalized);
       
-      // Refresh contracts list and order contracts
-      fetchContracts();
+      // Refresh contracts list and order contracts (await để đảm bảo refresh hoàn tất)
+      await fetchContracts();
       if (detail?.orderId) {
-        fetchOrderContracts(detail.orderId, detail?.customerId);
+        await fetchOrderContracts(detail.orderId, detail?.customerId);
       }
     } catch (e) {
       message.error(e?.response?.data?.message || e?.message || "Không gửi được hợp đồng để ký.");
@@ -618,7 +618,7 @@ export default function OperatorOrders() {
             <Divider />
 
             <Space>
-              <Button 
+                <Button
                 icon={<FileTextOutlined />} 
                 onClick={() => doCreateContract(detail)}
                 title="Tạo hợp đồng"
@@ -876,9 +876,9 @@ export default function OperatorOrders() {
                                   onClick={() => doSendForSignature(record.id)}
                                 >
                                   Gửi ký
-                                </Button>
+              </Button>
                               )}
-                            </Space>
+          </Space>
                           ),
                         },
                       ]}

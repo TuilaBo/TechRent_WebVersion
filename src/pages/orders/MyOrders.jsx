@@ -12,6 +12,9 @@ import {
 import { listRentalOrders, getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract } from "../../lib/contractApi";
+import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -154,16 +157,30 @@ export default function MyOrders() {
   const [contractDetail, setContractDetail] = useState(null);
   const [contractDetailOpen, setContractDetailOpen] = useState(false);
   const [loadingContractDetail, setLoadingContractDetail] = useState(false);
+  const [contractCustomer, setContractCustomer] = useState(null);
   const [signingContract, setSigningContract] = useState(false);
   const [signModalOpen, setSignModalOpen] = useState(false);
   const [currentContractId, setCurrentContractId] = useState(null);
   const [pinSent, setPinSent] = useState(false);
   const [signing, setSigning] = useState(false);
+  const [customerProfile, setCustomerProfile] = useState(null);
 
   useEffect(() => { 
     loadOrders(); 
     loadAllContracts();
+    loadCustomerProfile();
   }, []);
+
+  const loadCustomerProfile = async () => {
+    try {
+      const profile = await fetchMyCustomerProfile();
+      const normalized = normalizeCustomer(profile || {});
+      setCustomerProfile(normalized);
+    } catch (e) {
+      console.error("Failed to load customer profile:", e);
+      // Không hiển thị error để không làm gián đoạn UX
+    }
+  };
 
   const loadOrders = async () => {
     try {
@@ -254,24 +271,29 @@ export default function MyOrders() {
     }
   };
 
-  const loadOrderContracts = async (orderId) => {
+  const loadOrderContracts = async (orderId, contractsToFilter = null) => {
     try {
       setContractsLoading(true);
       
-      // If contracts haven't been loaded yet, load them first
-      if (allContracts.length === 0) {
-        console.log('Contracts not loaded yet, loading all contracts first...');
-        await loadAllContracts();
+      // Use provided contracts or fetch if needed
+      let contracts = contractsToFilter;
+      if (!contracts) {
+        // If contracts haven't been loaded yet, load them first
+        if (allContracts.length === 0) {
+          console.log('Contracts not loaded yet, loading all contracts first...');
+          await loadAllContracts();
+        }
+        contracts = allContracts;
       }
       
-      // Filter contracts by order ID from the already loaded contracts
-      const orderContracts = allContracts.filter(contract => 
+      // Filter contracts by order ID
+      const orderContracts = contracts.filter(contract => 
         contract.orderId === orderId || 
         contract.orderId === Number(orderId) ||
         String(contract.orderId) === String(orderId)
       );
       console.log('Filtering contracts for orderId:', orderId);
-      console.log('All contracts:', allContracts);
+      console.log('All contracts:', contracts);
       console.log('Filtered contracts:', orderContracts);
       setContracts(orderContracts);
     } catch (e) {
@@ -291,6 +313,22 @@ export default function MyOrders() {
       console.log('Contract status:', normalized.status);
       console.log('Status check:', String(normalized.status).toUpperCase() === "PENDING_SIGNATURE");
       setContractDetail(normalized);
+      
+      // Sử dụng customerProfile đã có sẵn hoặc fetch lại từ profile API
+      if (customerProfile) {
+        setContractCustomer(customerProfile);
+      } else {
+        try {
+          const profile = await fetchMyCustomerProfile();
+          const normalizedProfile = normalizeCustomer(profile || {});
+          setCustomerProfile(normalizedProfile);
+          setContractCustomer(normalizedProfile);
+        } catch (e) {
+          console.error("Failed to fetch customer profile:", e);
+          setContractCustomer(null);
+        }
+      }
+      
       setContractDetailOpen(true);
     } catch (e) {
       message.error(e?.response?.data?.message || e?.message || "Không tải được chi tiết hợp đồng.");
@@ -299,23 +337,43 @@ export default function MyOrders() {
     }
   };
 
-  const handleSignContract = (contractId) => {
+  const handleSignContract = async (contractId) => {
     console.log('Starting contract signing for ID:', contractId);
     if (!contractId) {
       message.error('ID hợp đồng không hợp lệ');
       return;
     }
+    
+    // Đảm bảo customer profile đã được load
+    if (!customerProfile) {
+      try {
+        await loadCustomerProfile();
+      } catch {
+        message.error('Không thể tải thông tin khách hàng. Vui lòng thử lại.');
+        return;
+      }
+    }
+    
+    // Kiểm tra email và fullName có tồn tại không
+    if (!customerProfile?.email) {
+      message.error('Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin.');
+      return;
+    }
+    
     setCurrentContractId(contractId);
     setSignModalOpen(true);
     setPinSent(false);
   };
 
-  const sendPin = async (email) => {
-    if (!currentContractId) return;
+  const sendPin = async () => {
+    if (!currentContractId || !customerProfile?.email) {
+      message.error('Không tìm thấy email để gửi mã PIN.');
+      return;
+    }
     
     try {
       setSigningContract(true);
-      await sendPinEmail(currentContractId, email);
+      await sendPinEmail(currentContractId, customerProfile.email);
       message.success("Đã gửi mã PIN đến email của bạn!");
       setPinSent(true);
     } catch (e) {
@@ -328,10 +386,14 @@ export default function MyOrders() {
   const handleSign = async (values) => {
     if (!currentContractId) return;
     
+    // Backend yêu cầu "string" literal cho digitalSignature
+    // Nhưng chúng ta hiển thị tên khách hàng trong UI cho user biết
+    const digitalSignature = "string"; // Backend chỉ chấp nhận giá trị này
+    
     try {
       setSigning(true);
       const payload = {
-        digitalSignature: values.digitalSignature || "string", // Use "string" as default like the working example
+        digitalSignature: digitalSignature,
         pinCode: values.pinCode,
         signatureMethod: "EMAIL_OTP",
         deviceInfo: "string", // Use "string" like the working example
@@ -341,15 +403,16 @@ export default function MyOrders() {
       console.log('Sending sign contract payload:', payload);
       console.log('Contract ID:', currentContractId);
       console.log('Contract ID type:', typeof currentContractId);
+      console.log('Customer name (for display only):', customerProfile?.fullName);
       
       // Ensure contract ID is a number
       const contractIdNum = Number(currentContractId);
       console.log('Contract ID as number:', contractIdNum);
       
-      // Test with exact working payload format
+      // Payload với format chính xác mà backend yêu cầu
       const testPayload = {
         contractId: contractIdNum,
-        digitalSignature: "string",
+        digitalSignature: "string", // Backend chỉ chấp nhận giá trị literal này
         pinCode: values.pinCode,
         signatureMethod: "EMAIL_OTP",
         deviceInfo: "string",
@@ -361,23 +424,36 @@ export default function MyOrders() {
       const result = await signContract(contractIdNum, testPayload);
       console.log('Sign contract result:', result);
       
+      // Lưu contractId trước khi reset để refresh
+      const signedContractId = contractIdNum;
+      const currentOrderId = current?.id;
+      
       // Close modal first
       setSignModalOpen(false);
       setCurrentContractId(null);
       setPinSent(false);
       
-      // Show success message with delay to ensure modal is closed
-      setTimeout(() => {
-        message.success("Bạn đã ký hợp đồng thành công và hợp đồng có hiệu lực!");
-      }, 100);
+      // Show success message
+      message.success("Bạn đã ký hợp đồng thành công!");
       
-      // Refresh contract detail and contracts list
-      if (contractDetailOpen) {
-        await viewContractDetail(currentContractId);
+      // Refresh contracts và order contracts để cập nhật trạng thái
+      // Load all contracts first to get fresh data
+      const freshContracts = await getMyContracts();
+      const normalizedContracts = Array.isArray(freshContracts) 
+        ? freshContracts.map(normalizeContract) 
+        : [];
+      
+      // Update all contracts state
+      setAllContracts(normalizedContracts);
+      
+      // Refresh order contracts nếu có order đang mở (sử dụng contracts mới)
+      if (currentOrderId) {
+        await loadOrderContracts(currentOrderId, normalizedContracts);
       }
-      await loadAllContracts();
-      if (current?.id) {
-        await loadOrderContracts(current.id);
+      
+      // Refresh contract detail nếu đang mở
+      if (contractDetailOpen) {
+        await viewContractDetail(signedContractId);
       }
     } catch (e) {
       console.error('Sign contract error:', e);
@@ -418,6 +494,197 @@ export default function MyOrders() {
       document.body.appendChild(a);
       a.click();
       a.remove();
+    }
+  };
+
+  const generateContractPDF = async (contract) => {
+    if (!contract) {
+      message.warning("Không có thông tin hợp đồng để tạo PDF.");
+      return;
+    }
+
+    try {
+      message.loading({ content: "Đang tạo file PDF...", key: "pdf-generate", duration: 0 });
+
+      // Sử dụng customerProfile đã có sẵn hoặc fetch từ profile API
+      let customerInfo = customerProfile;
+      if (!customerInfo) {
+        try {
+          const profile = await fetchMyCustomerProfile();
+          customerInfo = normalizeCustomer(profile || {});
+        } catch (e) {
+          console.error("Failed to fetch customer profile:", e);
+          // Tiếp tục với customerId nếu không fetch được
+          customerInfo = null;
+        }
+      }
+
+      // Tạo một container ẩn để render HTML
+      const printContainer = document.createElement("div");
+      printContainer.style.position = "absolute";
+      printContainer.style.left = "-9999px";
+      printContainer.style.width = "210mm"; // A4 width
+      printContainer.style.padding = "20mm";
+      printContainer.style.backgroundColor = "#ffffff";
+      printContainer.style.fontFamily = "Arial, sans-serif";
+      printContainer.style.fontSize = "12px";
+      printContainer.style.lineHeight = "1.6";
+      printContainer.style.color = "#000000";
+
+      // Tạo phần hiển thị khách hàng
+      const customerDisplay = customerInfo 
+        ? `${customerInfo.fullName || customerInfo.name || "—"}${customerInfo.email ? `<br/><span style="color: #666; font-size: 11px;">${customerInfo.email}</span>` : ""}${contract.customerId ? `<br/><span style="color: #999; font-size: 10px;">(Mã: #${contract.customerId})</span>` : ""}`
+        : contract.customerId ? `#${contract.customerId}` : "—";
+
+      // Tạo HTML content cho PDF
+      const contractHTML = `
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #1890ff; margin: 0 0 10px 0; font-size: 24px;">${contract.title || "HỢP ĐỒNG THUÊ THIẾT BỊ"}</h1>
+          <p style="margin: 5px 0; color: #666;">Số hợp đồng: ${contract.number || `#${contract.id}`}</p>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h2 style="font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">THÔNG TIN CƠ BẢN</h2>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 5px; width: 40%;"><strong>Mã hợp đồng:</strong></td>
+              <td style="padding: 5px;">#${contract.id}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Đơn thuê:</strong></td>
+              <td style="padding: 5px;">#${contract.orderId || "—"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Khách hàng:</strong></td>
+              <td style="padding: 5px;">${customerDisplay}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Loại hợp đồng:</strong></td>
+              <td style="padding: 5px;">${contract.type || "—"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Trạng thái:</strong></td>
+              <td style="padding: 5px;">${contract.status || "—"}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h2 style="font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">THỜI GIAN THUÊ</h2>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 5px; width: 40%;"><strong>Ngày bắt đầu:</strong></td>
+              <td style="padding: 5px;">${contract.startDate ? formatDateTime(contract.startDate) : "—"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Ngày kết thúc:</strong></td>
+              <td style="padding: 5px;">${contract.endDate ? formatDateTime(contract.endDate) : "—"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Số ngày thuê:</strong></td>
+              <td style="padding: 5px;">${contract.rentalPeriodDays ? `${contract.rentalPeriodDays} ngày` : "—"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Hết hạn:</strong></td>
+              <td style="padding: 5px;">${contract.expiresAt ? formatDateTime(contract.expiresAt) : "—"}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <h2 style="font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">TÀI CHÍNH</h2>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 5px; width: 40%;"><strong>Tổng tiền thuê:</strong></td>
+              <td style="padding: 5px; text-align: right; font-weight: bold; color: #52c41a;">${formatVND(contract.totalAmount || 0)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 5px;"><strong>Tiền cọc:</strong></td>
+              <td style="padding: 5px; text-align: right; font-weight: bold; color: #1890ff;">${formatVND(contract.depositAmount || 0)}</td>
+            </tr>
+          </table>
+        </div>
+
+        ${contract.description ? `
+        <div style="margin-bottom: 20px;">
+          <h2 style="font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">MÔ TẢ</h2>
+          <p style="margin: 0;">${contract.description}</p>
+        </div>
+        ` : ""}
+
+        ${contract.contentHtml ? `
+        <div style="margin-bottom: 20px;">
+          <h2 style="font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">NỘI DUNG HỢP ĐỒNG</h2>
+          <div style="border: 1px solid #f0f0f0; padding: 15px; border-radius: 4px; background-color: #fafafa;">
+            ${contract.contentHtml}
+          </div>
+        </div>
+        ` : ""}
+
+        ${contract.terms ? `
+        <div style="margin-bottom: 20px;">
+          <h2 style="font-size: 16px; margin-bottom: 10px; border-bottom: 1px solid #ddd; padding-bottom: 5px;">ĐIỀU KHOẢN VÀ ĐIỀU KIỆN</h2>
+          <div style="border: 1px solid #f0f0f0; padding: 15px; border-radius: 4px; background-color: #fafafa; white-space: pre-line;">
+            ${contract.terms}
+          </div>
+        </div>
+        ` : ""}
+
+        <div style="margin-top: 40px; text-align: right;">
+          <p style="margin: 5px 0;">Ngày tạo: ${contract.createdAt ? formatDateTime(contract.createdAt) : "—"}</p>
+          ${contract.signedAt ? `<p style="margin: 5px 0;">Ngày ký: ${formatDateTime(contract.signedAt)}</p>` : ""}
+        </div>
+      `;
+
+      printContainer.innerHTML = contractHTML;
+      document.body.appendChild(printContainer);
+
+      // Convert HTML to canvas then to PDF
+      const canvas = await html2canvas(printContainer, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      document.body.removeChild(printContainer);
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const imgScaledWidth = imgWidth * ratio;
+      const imgScaledHeight = imgHeight * ratio;
+      const xOffset = (pdfWidth - imgScaledWidth) / 2;
+      const yOffset = 0;
+
+      // Nếu nội dung dài hơn 1 trang, chia thành nhiều trang
+      const pageHeight = imgScaledHeight;
+      let heightLeft = imgScaledHeight;
+      let position = yOffset;
+
+      pdf.addImage(imgData, "PNG", xOffset, position, imgScaledWidth, imgScaledHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgScaledHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", xOffset, position, imgScaledWidth, imgScaledHeight);
+        heightLeft -= pageHeight;
+      }
+
+      // Download PDF
+      const filename = `HopDong_${contract.number || contract.id}_${new Date().toISOString().split("T")[0]}.pdf`;
+      pdf.save(filename);
+
+      message.success({ content: "Đã tạo và tải file PDF thành công!", key: "pdf-generate" });
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      message.error({ content: "Không thể tạo file PDF. Vui lòng thử lại.", key: "pdf-generate" });
     }
   };
 
@@ -594,7 +861,6 @@ export default function MyOrders() {
                       const rentalPerDay = items.reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
                       const rentalTotal = rentalPerDay * days;
                       const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-                      const systemTotal = Number(current?.total || 0);
                       return (
                         <>
                           <Descriptions bordered column={2} size="middle" className="mb-4">
@@ -785,7 +1051,7 @@ export default function MyOrders() {
                             {
                               title: "Thao tác",
                               key: "actions",
-                              width: 150,
+                              width: 200,
                               render: (_, record) => (
                                 <Space size="small">
                                   <Button 
@@ -795,6 +1061,25 @@ export default function MyOrders() {
                                     loading={loadingContractDetail}
                                   >
                                     Xem
+                                  </Button>
+                                  <Button 
+                                    size="small" 
+                                    icon={<FilePdfOutlined />}
+                                    onClick={async () => {
+                                      try {
+                                        // Fetch full contract detail if not already loaded
+                                        let contractData = record;
+                                        if (!contractData.contentHtml && !contractData.terms) {
+                                          const fullContract = await getContractById(record.id);
+                                          contractData = normalizeContract(fullContract);
+                                        }
+                                        await generateContractPDF(contractData);
+                                      } catch {
+                                        message.error("Không thể tải thông tin hợp đồng để tạo PDF.");
+                                      }
+                                    }}
+                                  >
+                                    Tải PDF
                                   </Button>
                                   {record.status === "PENDING_SIGNATURE" && (
                                     <Button 
@@ -881,11 +1166,26 @@ export default function MyOrders() {
       <Modal
         title="Chi tiết hợp đồng"
         open={contractDetailOpen}
-        onCancel={() => setContractDetailOpen(false)}
+        onCancel={() => {
+          setContractDetailOpen(false);
+          setContractCustomer(null);
+        }}
         footer={[
-          <Button key="close" onClick={() => setContractDetailOpen(false)}>
+          <Button key="close" onClick={() => {
+            setContractDetailOpen(false);
+            setContractCustomer(null);
+          }}>
             Đóng
           </Button>,
+          contractDetail && (
+            <Button 
+              key="download-pdf" 
+              icon={<FilePdfOutlined />}
+              onClick={() => generateContractPDF(contractDetail)}
+            >
+              Tải PDF
+            </Button>
+          ),
           contractDetail && String(contractDetail.status).toUpperCase() === "PENDING_SIGNATURE" && (
             <Button 
               key="sign" 
@@ -933,7 +1233,22 @@ export default function MyOrders() {
                     <Descriptions size="small" column={1}>
                       <Descriptions.Item label="Mã hợp đồng">#{contractDetail.id}</Descriptions.Item>
                       <Descriptions.Item label="Đơn thuê">#{contractDetail.orderId}</Descriptions.Item>
-                      <Descriptions.Item label="Khách hàng">#{contractDetail.customerId}</Descriptions.Item>
+                      <Descriptions.Item label="Khách hàng">
+                        {contractCustomer ? (
+                          <div>
+                            <div><strong>{contractCustomer.fullName || contractCustomer.name || "—"}</strong></div>
+                            {contractCustomer.email && (
+                              <div style={{ color: "#666", fontSize: "12px" }}>{contractCustomer.email}</div>
+                            )}
+                            {contractCustomer.phoneNumber && (
+                              <div style={{ color: "#666", fontSize: "12px" }}>{contractCustomer.phoneNumber}</div>
+                            )}
+                            <div style={{ color: "#999", fontSize: "11px" }}>(Mã: #{contractDetail.customerId})</div>
+                          </div>
+                        ) : (
+                          <>#{contractDetail.customerId}</>
+                        )}
+                      </Descriptions.Item>
                       <Descriptions.Item label="Loại hợp đồng">
                         <Tag color="blue">{contractDetail.type}</Tag>
                       </Descriptions.Item>
@@ -1073,37 +1388,51 @@ export default function MyOrders() {
       >
         <Form
           layout="vertical"
-          onFinish={pinSent ? handleSign : (values) => sendPin(values.email)}
+          onFinish={pinSent ? handleSign : sendPin}
+          initialValues={{
+            email: customerProfile?.email || '',
+          }}
         >
           {!pinSent ? (
             <>
               <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                <Text>Nhập email để nhận mã PIN ký hợp đồng</Text>
+                <Text>Email đã được tự động điền từ tài khoản của bạn</Text>
               </div>
               
               <Form.Item
                 label="Email"
                 name="email"
-                rules={[
-                  { required: true, message: 'Vui lòng nhập email!' },
-                  { type: 'email', message: 'Email không hợp lệ!' }
-                ]}
               >
                 <Input 
-                  placeholder="Nhập email của bạn"
+                  value={customerProfile?.email || ''}
+                  disabled
                   size="large"
+                  style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
                 />
               </Form.Item>
               
+              {!customerProfile?.email && (
+                <div style={{ marginBottom: 16, padding: 12, background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591' }}>
+                  <Text type="warning">
+                    Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin trước khi ký hợp đồng.
+                  </Text>
+                </div>
+              )}
+              
               <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
                 <Space>
-                  <Button onClick={() => setSignModalOpen(false)}>
+                  <Button onClick={() => {
+                    setSignModalOpen(false);
+                    setCurrentContractId(null);
+                    setPinSent(false);
+                  }}>
                     Hủy
                   </Button>
                   <Button 
                     type="primary" 
                     htmlType="submit"
                     loading={signingContract}
+                    disabled={!customerProfile?.email}
                   >
                     Gửi mã PIN
                   </Button>
@@ -1134,13 +1463,18 @@ export default function MyOrders() {
               </Form.Item>
               
               <Form.Item
-                label="Chữ ký số (tùy chọn)"
+                label="Chữ ký số"
                 name="digitalSignature"
               >
                 <Input 
-                  placeholder="Nhập chữ ký số hoặc để trống (sẽ dùng 'string')"
+                  value={customerProfile?.fullName || 'Chưa có tên'}
+                  disabled
                   size="large"
+                  style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
                 />
+                <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                  Tên của bạn: <Text strong>{customerProfile?.fullName || 'Chưa cập nhật'}</Text>
+                </Text>
               </Form.Item>
               
               <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
