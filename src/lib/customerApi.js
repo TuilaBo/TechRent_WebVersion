@@ -20,18 +20,31 @@ async function safeDelete(path) {
 
 /** Chuẩn hoá object Customer về key "thân thiện" cho FE (tuỳ chọn) */
 export function normalizeCustomer(c = {}) {
+  // Lấy mảng addresses và banks từ API
+  const shippingAddresses = c.shippingAddressDtos ?? c.shippingAddresses ?? [];
+  const bankInformations = c.bankInformationDtos ?? c.bankInformations ?? [];
+  
+  // Nếu không có shippingAddress đơn lẻ, lấy từ mảng đầu tiên
+  const shippingAddress = c.shippingAddress ?? shippingAddresses[0]?.address ?? "";
+  
+  // Nếu không có bank info đơn lẻ, lấy từ mảng đầu tiên
+  const bankInfo = bankInformations[0] || {};
+  const bankAccountNumber = c.bankAccountNumber ?? bankInfo.cardNumber ?? "";
+  const bankName = c.bankName ?? bankInfo.bankName ?? "";
+  const bankAccountHolder = c.bankAccountHolder ?? bankInfo.bankHolder ?? "";
+  
   return {
     id: c.customerId ?? c.id,
     email: c.email ?? "",
     phoneNumber: c.phoneNumber ?? "",
     fullName: c.fullName ?? c.name ?? "",
-    shippingAddress: c.shippingAddress ?? "",
-    bankAccountNumber: c.bankAccountNumber ?? "",
-    bankName: c.bankName ?? "",
-    bankAccountHolder: c.bankAccountHolder ?? "",
+    shippingAddress: shippingAddress,
+    bankAccountNumber: bankAccountNumber,
+    bankName: bankName,
+    bankAccountHolder: bankAccountHolder,
     // Arrays for multiple addresses and banks
-    shippingAddresses: c.shippingAddressDtos ?? [],
-    bankInformations: c.bankInformationDtos ?? [],
+    shippingAddresses: shippingAddresses,
+    bankInformations: bankInformations,
     isActive: c.isActive ?? c.active ?? true,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,

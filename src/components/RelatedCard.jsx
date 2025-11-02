@@ -145,6 +145,11 @@ export default function RelatedCard({ categoryId, excludeId }) {
               <p style={{ color: "#666", fontSize: 14, margin: 0 }}>
                 Thương hiệu: <b style={{ color: "#111" }}>{it.brand || "—"}</b>
               </p>
+              <p style={{ color: "#667085", fontSize: 13, margin: "4px 0 0 0" }}>
+                Còn lại: <b style={{ color: it.amountAvailable > 0 ? "#52c41a" : "#ff4d4f" }}>
+                  {it.amountAvailable || 0}
+                </b> thiết bị
+              </p>
             </div>
             <div
               style={{
@@ -154,11 +159,13 @@ export default function RelatedCard({ categoryId, excludeId }) {
                 justifyContent: "space-between",
               }}
             >
-              <span
-                style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}
-              >
-                {fmtVND(it.pricePerDay)}/ngày
-              </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span
+                  style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}
+                >
+                  {fmtVND(it.pricePerDay)}/ngày
+                </span>
+              </div>
               <Button
                 style={{
                   background: "#000",

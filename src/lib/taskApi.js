@@ -66,8 +66,8 @@ export async function getTaskById(taskId) {
 export async function createTask(body) {
   const payload = {
     taskCategoryId: Number(body.taskCategoryId),
-    orderId: Number(body.orderId),
-    assignedStaffId: Number(body.assignedStaffId),
+    ...(body.orderId !== undefined && body.orderId !== null && { orderId: Number(body.orderId) }),
+    ...(body.assignedStaffId !== undefined && body.assignedStaffId !== null && { assignedStaffId: Number(body.assignedStaffId) }),
     type: String(body.type || "").trim(),
     description: String(body.description || "").trim(),
     plannedStart: body.plannedStart ?? null, // ISO string

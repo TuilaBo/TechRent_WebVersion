@@ -22,16 +22,19 @@ import {
   EnvironmentOutlined,
   PhoneOutlined,
   InboxOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import {
-  listTechnicianTasks,
-  getTechnicianTaskById,
-  updateTechnicianTaskStatus,
-    TECH_TASK_STATUS,
-    getTechnicianStatusColor,
+  listTasks,
+  getTaskById,
+  normalizeTask,
+} from "../../lib/taskApi";
+import {
+  TECH_TASK_STATUS,
+  getTechnicianStatusColor,
 } from "../../lib/technicianTaskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
@@ -50,15 +53,17 @@ const TYPES = {
 
 // Map BE task to display fields used by the calendar UI
 const taskToDisplay = (t) => ({
-  id: t.taskId,
+  id: t.taskId ?? t.id,
   type: t.type || "QC",
-  title: t.description || t.type,
-  date: t.plannedStart || t.createdAt,
+  title: t.description || t.type || t.taskCategoryName || "Task",
+  date: t.plannedStart || t.createdAt || null,
   device: t.deviceName || t.taskCategoryName || "Thiết bị",
   location: t.location || "—",
-  orderId: t.orderId,
-  status: t.status,
-  taskCategoryName: t.taskCategoryName,
+  orderId: t.orderId ?? null,
+  status: t.status ?? null,
+  taskCategoryName: t.taskCategoryName || "",
+  assignedStaffName: t.assignedStaffName || "",
+  assignedStaffRole: t.assignedStaffRole || "",
 });
 
 const fmtStatus = (s) => {
@@ -68,6 +73,25 @@ const fmtStatus = (s) => {
   if (v.includes("IN_PROGRESS")) return "IN_PROGRESS";
   if (v.includes("COMPLETED") || v.includes("DONE")) return "COMPLETED";
   return v;
+};
+
+/** Kiểm tra xem task có phải là Pre rental QC không */
+const isPreRentalQC = (task) => {
+  if (!task) return false;
+  const categoryName = String(task.taskCategoryName || "").toUpperCase();
+  const type = String(task.type || "").toUpperCase();
+  
+  // Kiểm tra taskCategoryName: "Pre rental QC", "PRE_RENTAL_QC", etc.
+  if (categoryName.includes("PRE") && categoryName.includes("RENTAL") && categoryName.includes("QC")) {
+    return true;
+  }
+  
+  // Kiểm tra type: "PRE_RENTAL_QC", "Pre rental QC", etc.
+  if (type.includes("PRE_RENTAL_QC") || (type.includes("PRE") && type.includes("RENTAL") && type.includes("QC"))) {
+    return true;
+  }
+  
+  return false;
 };
 
 export default function TechnicianCalendar() {
@@ -120,20 +144,24 @@ export default function TechnicianCalendar() {
     }
   };
 
-  // Load all tasks (pending + in_progress)
+  // Load all tasks từ /api/staff/tasks (backend tự filter theo technician từ token)
   useEffect(() => {
     (async () => {
       try {
-        const [p, doing, done, cancelled] = await Promise.all([
-          listTechnicianTasks(TECH_TASK_STATUS.PENDING),
-          listTechnicianTasks(TECH_TASK_STATUS.IN_PROGRESS),
-          listTechnicianTasks(TECH_TASK_STATUS.COMPLETED),
-          listTechnicianTasks("CANCELLED"),
-        ]);
-        const calendarTasks = [...p, ...doing].map(taskToDisplay);
+        // Lấy tất cả tasks - backend sẽ tự động filter theo technician đang đăng nhập
+        const allTasksRaw = await listTasks();
+        const allTasks = allTasksRaw.map(normalizeTask);
+        
+        // Tách tasks theo status cho calendar (chỉ hiển thị PENDING và IN_PROGRESS)
+        const calendarTasks = allTasks
+          .filter(t => {
+            const s = String(t.status || "").toUpperCase();
+            return s === "PENDING" || s === "IN_PROGRESS";
+          })
+          .map(taskToDisplay);
+        
         setTasks(calendarTasks);
-        const all = [...p, ...doing, ...done, ...cancelled].map(taskToDisplay);
-        setTasksAll(all);
+        setTasksAll(allTasks.map(taskToDisplay));
       } catch (e) {
         toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
       }
@@ -185,44 +213,22 @@ export default function TechnicianCalendar() {
   // Click item trên lịch hoặc danh sách → luôn mở Drawer
   const onClickTask = async (task) => {
     try {
-      const full = await getTechnicianTaskById(task.id);
-      setDetailTask(full || task);
-      // fetch order by ID if exists
-      const oid = (full || task)?.orderId;
-      setOrderDetail(null);
-      if (oid) viewOrderDetail(oid);
+      const full = await getTaskById(task.id);
+      if (full) {
+        const normalized = normalizeTask(full);
+        setDetailTask(normalized);
+        // fetch order by ID if exists
+        const oid = normalized?.orderId;
+        setOrderDetail(null);
+        if (oid) viewOrderDetail(oid);
+      } else {
+        setDetailTask(task);
+      }
       setDrawerOpen(true);
     } catch {
       toast.error("Không tải được chi tiết task");
-    }
-  };
-
-  const updateStatus = async (status) => {
-    if (!detailTask?.taskId && !detailTask?.id) return;
-    const id = detailTask.taskId || detailTask.id;
-    try {
-      const updated = await updateTechnicianTaskStatus(id, status);
-      setDetailTask(updated || detailTask);
-
-      const display = taskToDisplay(updated || detailTask);
-
-      // Update calendar list (only PENDING/IN_PROGRESS)
-      setTasks((prev) => {
-        const keep = [TECH_TASK_STATUS.PENDING, TECH_TASK_STATUS.IN_PROGRESS].includes(
-          String(display.status || '').toUpperCase()
-        );
-        const exists = prev.some((t) => t.id === id);
-        if (keep) {
-          return exists ? prev.map((t) => (t.id === id ? { ...t, ...display } : t)) : [...prev, display];
-        }
-        return prev.filter((t) => t.id !== id);
-      });
-
-      // Update All list
-      setTasksAll((prev) => (prev.some((t) => t.id === id) ? prev.map((t) => (t.id === id ? { ...t, ...display } : t)) : [display, ...prev]));
-      toast.success("Đã cập nhật trạng thái");
-    } catch (e) {
-      toast.error(e?.response?.data?.message || e?.message || "Cập nhật trạng thái thất bại");
+      setDetailTask(task); // Fallback to display task
+      setDrawerOpen(true);
     }
   };
 
@@ -255,6 +261,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Mã đơn hàng">{t.orderId || "—"}</Descriptions.Item>
             <Descriptions.Item label="Số lượng">{t.quantity ?? "—"}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị theo đơn">
@@ -267,17 +274,19 @@ export default function TechnicianCalendar() {
             <Descriptions.Item label="Địa điểm">{t.location || "—"}</Descriptions.Item>
           </Descriptions>
           <Divider />
-          <Space>
-            <Button
-              type="primary"
-              onClick={() => navigate(`/technician/tasks/qc/:taskId`, { state: { task: t } })}
-            >
-              Thực hiện QC
-            </Button>
-            <Button onClick={() => updateStatus(TECH_TASK_STATUS.IN_PROGRESS)}>Bắt đầu</Button>
-            <Button onClick={() => updateStatus(TECH_TASK_STATUS.COMPLETED)} type="dashed">Hoàn thành</Button>
-            <Button danger onClick={() => updateStatus('CANCELLED')}>Hủy</Button>
-            
+          <Space wrap>
+            {isPreRentalQC(t) && String(t.status || "").toUpperCase() !== "COMPLETED" && (
+              <Button
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => {
+                  const taskId = t.taskId || t.id;
+                  navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+                }}
+              >
+                Tạo QC Report
+              </Button>
+            )}
           </Space>
         </>
       );
@@ -289,6 +298,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Mã đơn">{t.orderId}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị">{t.device}</Descriptions.Item>
             <Descriptions.Item label="Khu vực">{t.location}</Descriptions.Item>
@@ -344,6 +354,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị">{t.device}</Descriptions.Item>
             <Descriptions.Item label="Category">{t.category}</Descriptions.Item>
             <Descriptions.Item label="Địa điểm">{t.location}</Descriptions.Item>
@@ -373,6 +384,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Mã đơn">{t.orderId}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị">{t.device}</Descriptions.Item>
             <Descriptions.Item label="Khách hàng">
@@ -394,13 +406,6 @@ export default function TechnicianCalendar() {
           <Text type="secondary">
             *Xác nhận đã giao xong bằng app ký nhận/ảnh biên bản nếu cần (tích hợp sau).
           </Text>
-          <Divider />
-          <Space>
-            <Button onClick={() => updateStatus(TECH_TASK_STATUS.IN_PROGRESS)}>Bắt đầu</Button>
-            <Button onClick={() => updateStatus(TECH_TASK_STATUS.COMPLETED)} type="primary">Đánh dấu hoàn thành</Button>
-            <Button danger onClick={() => updateStatus('CANCELLED')}>Hủy</Button>
-      
-          </Space>
         </>
       );
     }
@@ -411,6 +416,7 @@ export default function TechnicianCalendar() {
         {header}
         <Divider />
         <Descriptions bordered size="small" column={1}>
+          <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái">
             {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
@@ -474,11 +480,19 @@ export default function TechnicianCalendar() {
           )}
         {/* duplicate order detail block removed */}
         <Divider />
-        <Space>
-          <Button onClick={() => updateStatus(TECH_TASK_STATUS.IN_PROGRESS)}>Bắt đầu</Button>
-          <Button onClick={() => updateStatus(TECH_TASK_STATUS.COMPLETED)} type="primary">Hoàn thành</Button>
-          <Button danger onClick={() => updateStatus('CANCELLED')}>Hủy</Button>
-         
+        <Space wrap>
+          {isPreRentalQC(t) && String(t.status || "").toUpperCase() !== "COMPLETED" && (
+            <Button
+              type="primary"
+              icon={<FileTextOutlined />}
+              onClick={() => {
+                const taskId = t.taskId || t.id;
+                navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+              }}
+            >
+              Tạo QC Report
+            </Button>
+          )}
         </Space>
       </>
     );

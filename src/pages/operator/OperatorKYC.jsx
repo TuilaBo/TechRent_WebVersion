@@ -2,29 +2,31 @@
 import React, { useEffect, useState } from "react";
 import { Table, Tag, Space, Button, Drawer, Descriptions, Image, Typography, message, Divider, Form, Select, Input, DatePicker, Modal } from "antd";
 import { IdcardOutlined } from "@ant-design/icons";
-import { listPendingKycs, updateKycStatus, normalizeKycItem, listKycStatuses } from "../../lib/kycApi";
+import { listAllKycs, updateKycStatus, normalizeKycItem, listKycStatuses } from "../../lib/kycApi";
 import { listActiveStaff } from "../../lib/staffManage";
 import dayjs from "dayjs";
 
 const { Title } = Typography;
 
-// Map màu trạng thái KYC
+// Map màu trạng thái KYC (tiếng Việt)
 const kycTag = (s) => {
   const v = String(s || "").toUpperCase();
-  if (v.includes("VERIFIED")) return <Tag color="green">VERIFIED</Tag>;
-  if (v.includes("REJECT")) return <Tag color="red">REJECTED</Tag>;
-  if (v.includes("PENDING") || v.includes("SUBMITTED")) return <Tag color="gold">PENDING</Tag>;
-  if (v.includes("EXPIRED")) return <Tag>EXPIRED</Tag>;
-  return <Tag>{v || "NOT_STARTED"}</Tag>;
+  if (v.includes("VERIFIED") || v.includes("APPROVED")) return <Tag color="green">Đã duyệt</Tag>;
+  if (v.includes("REJECT") || v.includes("DENIED")) return <Tag color="red">Đã từ chối</Tag>;
+  if (v.includes("PENDING") || v.includes("SUBMITTED")) return <Tag color="gold">Chờ duyệt</Tag>;
+  if (v.includes("EXPIRED")) return <Tag color="default">Hết hạn</Tag>;
+  if (v.includes("NOT_STARTED") || v === "") return <Tag color="default">Chưa bắt đầu</Tag>;
+  return <Tag color="default">{v || "Không xác định"}</Tag>;
 };
 
 export default function AdminKyc() {
   const [data, setData] = useState([]);
+  const [allData, setAllData] = useState([]); // Lưu tất cả data để filter
   const [cur, setCur] = useState(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
-  // giữ lại nếu cần cho tương lai; hiện tại không dùng trực tiếp
+  const [statusFilter, setStatusFilter] = useState(""); // Filter theo trạng thái
   const [, setStatusOptions] = useState([]);
   const [operatorOptions, setOperatorOptions] = useState([]);
   const [form] = Form.useForm();
@@ -35,16 +37,18 @@ export default function AdminKyc() {
   const load = async () => {
     setLoading(true);
     try {
-      const rows = await listPendingKycs();
+      const rows = await listAllKycs();
       const mapped = (Array.isArray(rows) ? rows : []).map(normalizeKycItem);
       // sort newest submissions first
       mapped.sort((a, b) => {
-        const ta = new Date(a?.createdAt || a?.submittedAt || 0).getTime();
-        const tb = new Date(b?.createdAt || b?.submittedAt || 0).getTime();
+        const ta = new Date(a?.createdAt || a?.submittedAt || a?.verifiedAt || 0).getTime();
+        const tb = new Date(b?.createdAt || b?.submittedAt || b?.verifiedAt || 0).getTime();
         if (tb !== ta) return tb - ta;
         return (b?.customerId || 0) - (a?.customerId || 0);
       });
-      setData(mapped);
+      setAllData(mapped);
+      applyFilter(mapped, statusFilter);
+      
       const sts = await listKycStatuses();
       setStatusOptions((Array.isArray(sts) ? sts : []).map((s) => ({ label: s.label ?? s.value, value: s.value })));
 
@@ -61,8 +65,29 @@ export default function AdminKyc() {
     }
   };
 
+  const applyFilter = (kycs, filter) => {
+    if (!filter || filter === "") {
+      setData(kycs);
+      return;
+    }
+    const filtered = kycs.filter((k) => {
+      const status = String(k.kycStatus || "").toUpperCase();
+      const filterUpper = String(filter).toUpperCase();
+      return status === filterUpper || status.includes(filterUpper);
+    });
+    setData(filtered);
+  };
+
+  useEffect(() => {
+    if (allData.length > 0) {
+      applyFilter(allData, statusFilter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const approveKyc = async () => {
@@ -110,9 +135,16 @@ export default function AdminKyc() {
     }
   };
 
+  // Kiểm tra xem KYC có đang chờ duyệt không
+  const isPendingKyc = (status) => {
+    const s = String(status || "").toUpperCase();
+    return s === "PENDING" || s === "SUBMITTED" || s.includes("PENDING");
+  };
+
   const columns = [
     { title: "Customer ID", dataIndex: "customerId", width: 120 },
     { title: "Khách hàng", dataIndex: "fullName" },
+    { title: "Email", dataIndex: "email", width: 200, ellipsis: true },
     { title: "Trạng thái", dataIndex: "kycStatus", width: 160, render: kycTag },
     {
       title: "Thao tác",
@@ -128,14 +160,17 @@ export default function AdminKyc() {
           >
             Xem
           </Button>
-          <Button
-            onClick={() => {
-              setCur(r);
-              setUpdateOpen(true);
-            }}
-          >
-            Xem xét
-          </Button>
+          {isPendingKyc(r.kycStatus) && (
+            <Button
+              type="primary"
+              onClick={() => {
+                setCur(r);
+                setUpdateOpen(true);
+              }}
+            >
+              Xem xét
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -143,7 +178,22 @@ export default function AdminKyc() {
 
   return (
     <>
-      <Title level={3}>Duyệt KYC (đang chờ)</Title>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <Title level={3} style={{ margin: 0 }}>Quản lý KYC</Title>
+        <Select
+          placeholder="Lọc theo trạng thái"
+          allowClear
+          value={statusFilter || undefined}
+          onChange={(value) => setStatusFilter(value || "")}
+          style={{ width: 200 }}
+          options={[
+            { label: "Tất cả", value: "" },
+            { label: "Chờ duyệt", value: "PENDING" },
+            { label: "Đã duyệt", value: "VERIFIED" },
+            { label: "Đã từ chối", value: "REJECTED" },
+          ]}
+        />
+      </div>
 
       <Table
         rowKey={(r) => r.customerId}
@@ -169,8 +219,14 @@ export default function AdminKyc() {
               <Descriptions.Item label="Trạng thái" span={1}>
                 {kycTag(cur.kycStatus)}
               </Descriptions.Item>
+              <Descriptions.Item label="Email">{cur.email || "—"}</Descriptions.Item>
               <Descriptions.Item label="Customer ID">{cur.customerId}</Descriptions.Item>
-              <Descriptions.Item label="Verified At">{cur.verifiedAt || "—"}</Descriptions.Item>
+              <Descriptions.Item label="Ngày xác thực">{cur.verifiedAt || "—"}</Descriptions.Item>
+              {cur.rejectionReason && (
+                <Descriptions.Item label="Lý do từ chối" span={2}>
+                  {cur.rejectionReason}
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Divider />
@@ -203,7 +259,22 @@ export default function AdminKyc() {
             <Divider />
             <Space>
               <Button onClick={() => setOpen(false)}>Đóng</Button>
-              <Button type="primary" onClick={() => { setUpdateOpen(true); form.setFieldsValue({ status: cur.kycStatus, rejectionReason: cur.rejectionReason || undefined, verifiedAt: dayjs(), verifiedBy: cur.verifiedBy ?? (operatorOptions?.[0]?.value ?? null) }); }}>Cập nhật trạng thái</Button>
+              {isPendingKyc(cur.kycStatus) && (
+                <Button 
+                  type="primary" 
+                  onClick={() => { 
+                    setUpdateOpen(true); 
+                    form.setFieldsValue({ 
+                      status: cur.kycStatus, 
+                      rejectionReason: cur.rejectionReason || undefined, 
+                      verifiedAt: dayjs(), 
+                      verifiedBy: cur.verifiedBy ?? (operatorOptions?.[0]?.value ?? null) 
+                    }); 
+                  }}
+                >
+                  Xem xét (Duyệt/Từ chối)
+                </Button>
+              )}
             </Space>
           </>
         )}

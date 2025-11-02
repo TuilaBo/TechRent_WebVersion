@@ -82,18 +82,60 @@ export async function listPendingKycs() {
   return Array.isArray(payload) ? payload : [];
 }
 
+/**
+ * Lấy tất cả KYC của tất cả customers
+ * Sử dụng listCustomers và fetch KYC cho từng customer
+ */
+export async function listAllKycs() {
+  try {
+    // Import động để tránh circular dependency
+    const { listCustomers } = await import("./customerApi");
+    const customers = await listCustomers();
+    
+    // Fetch KYC cho từng customer song song
+    const kycPromises = customers.map(async (customer) => {
+      try {
+        const kycData = await getKycByCustomerId(customer.customerId ?? customer.id);
+        if (kycData) {
+          return {
+            ...kycData,
+            customerId: customer.customerId ?? customer.id,
+            fullName: customer.fullName ?? customer.name ?? "Chưa cập nhật",
+            email: customer.email ?? "",
+          };
+        }
+        return null;
+      } catch {
+        // Nếu không có KYC hoặc lỗi, trả về null (sẽ filter sau)
+        return null;
+      }
+    });
+    
+    const kycs = await Promise.all(kycPromises);
+    // Lọc bỏ những customer không có KYC
+    return kycs.filter((kyc) => kyc !== null);
+  } catch (e) {
+    console.error("Error listing all KYCs:", e);
+    return [];
+  }
+}
+
 /** Optional helper */
 export function normalizeKycItem(raw = {}) {
   return {
     customerId: raw.customerId,
     fullName: raw.fullName ?? raw.name ?? "Chưa cập nhật",
-    kycStatus: raw.kycStatus,
+    email: raw.email ?? "",
+    kycStatus: raw.kycStatus ?? raw.status,
     verifiedAt: raw.verifiedAt,
     verifiedBy: raw.verifiedBy,
     rejectionReason: raw.rejectionReason,
-    frontUrl: raw.frontCCCDUrl,
-    backUrl: raw.backCCCDUrl,
+    frontUrl: raw.frontCCCDUrl ?? raw.frontUrl,
+    backUrl: raw.backCCCDUrl ?? raw.backUrl,
     selfieUrl: raw.selfieUrl,
+    createdAt: raw.createdAt,
+    submittedAt: raw.submittedAt,
+    updatedAt: raw.updatedAt,
   };
 }
 

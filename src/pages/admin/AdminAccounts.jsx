@@ -34,6 +34,9 @@ import {
   normalizeCustomer,
 } from "../../lib/customerApi";
 
+// ---- KYC APIs ----
+import { getKycByCustomerId } from "../../lib/kycApi";
+
 // ---- STAFF APIs (mới) ----
 import {
   listStaff,
@@ -62,6 +65,26 @@ const statusTag = (s) =>
   ) : (
     <Tag>{String(s)}</Tag>
   );
+
+const kycStatusTag = (status) => {
+  if (!status) {
+    return <Tag color="default">Chưa có</Tag>;
+  }
+  const upperStatus = String(status).toUpperCase();
+  switch (upperStatus) {
+    case "PENDING":
+    case "SUBMITTED":
+      return <Tag color="gold">Chờ duyệt</Tag>;
+    case "APPROVED":
+    case "VERIFIED":
+      return <Tag color="green">Đã duyệt</Tag>;
+    case "REJECTED":
+    case "DENIED":
+      return <Tag color="red">Từ chối</Tag>;
+    default:
+      return <Tag>{String(status)}</Tag>;
+  }
+};
 
 export default function AdminAccounts() {
   /* ======================= STAFF (API) ======================= */
@@ -246,13 +269,36 @@ export default function AdminAccounts() {
       setCustLoading(true);
       const list = await listCustomers();
       const mapped = list.map(normalizeCustomer);
-      mapped.sort((a, b) => {
+      
+      // Fetch KYC status cho từng customer (song song)
+      const customersWithKyc = await Promise.all(
+        mapped.map(async (customer) => {
+          try {
+            const kycData = await getKycByCustomerId(customer.id);
+            return {
+              ...customer,
+              kycStatus: kycData?.kycStatus || kycData?.status || null,
+              kycData: kycData || null,
+            };
+          } catch (e) {
+            // Nếu không có KYC hoặc lỗi, để null
+            console.warn(`KYC not found for customer ${customer.id}:`, e?.message);
+            return {
+              ...customer,
+              kycStatus: null,
+              kycData: null,
+            };
+          }
+        })
+      );
+      
+      customersWithKyc.sort((a, b) => {
         const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
         const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
         if (tb !== ta) return tb - ta;
         return (b?.id || 0) - (a?.id || 0);
       });
-      setCustomers(mapped);
+      setCustomers(customersWithKyc);
     } catch (e) {
       toast.error(
         e?.response?.data?.message || e?.message || "Không tải được danh sách khách hàng"
@@ -270,7 +316,23 @@ export default function AdminAccounts() {
     try {
       setCustLoading(true);
       const detail = await fetchCustomerById(row.id);
-      setViewing(normalizeCustomer(detail));
+      const normalizedDetail = normalizeCustomer(detail);
+      
+      // Fetch KYC nếu có (có thể dùng từ row.kycData hoặc fetch lại)
+      let kycInfo = row.kycData || null;
+      if (!kycInfo) {
+        try {
+          kycInfo = await getKycByCustomerId(row.id);
+        } catch (e) {
+          console.warn(`KYC not found for customer ${row.id}:`, e?.message);
+        }
+      }
+      
+      setViewing({
+        ...normalizedDetail,
+        kycStatus: kycInfo?.kycStatus || kycInfo?.status || null,
+        kycData: kycInfo,
+      });
       setOpenCustView(true);
     } catch {
       toast.error("Không tải được chi tiết khách hàng");
@@ -332,6 +394,12 @@ export default function AdminAccounts() {
       dataIndex: "isActive",
       width: 130,
       render: (v) => statusTag(v ? "active" : "inactive"),
+    },
+    {
+      title: "KYC Status",
+      dataIndex: "kycStatus",
+      width: 140,
+      render: (status) => kycStatusTag(status),
     },
     {
       title: "Thao tác",
@@ -550,6 +618,28 @@ export default function AdminAccounts() {
               <Descriptions.Item label="Trạng thái">
                 {statusTag(viewing.isActive ? "active" : "inactive")}
               </Descriptions.Item>
+              <Descriptions.Item label="Trạng thái KYC">
+                {kycStatusTag(viewing.kycStatus)}
+              </Descriptions.Item>
+              {viewing.kycData && (
+                <>
+                  {viewing.kycData.rejectionReason && (
+                    <Descriptions.Item label="Lý do từ chối">
+                      {viewing.kycData.rejectionReason}
+                    </Descriptions.Item>
+                  )}
+                  {viewing.kycData.verifiedAt && (
+                    <Descriptions.Item label="Ngày xác thực">
+                      {new Date(viewing.kycData.verifiedAt).toLocaleString("vi-VN")}
+                    </Descriptions.Item>
+                  )}
+                  {viewing.kycData.verifiedBy && (
+                    <Descriptions.Item label="Xác thực bởi">
+                      Staff ID: {viewing.kycData.verifiedBy}
+                    </Descriptions.Item>
+                  )}
+                </>
+              )}
               <Descriptions.Item label="Ngân hàng">{viewing.bankName || "—"}</Descriptions.Item>
               <Descriptions.Item label="Số TK">{viewing.bankAccountNumber || "—"}</Descriptions.Item>
               <Descriptions.Item label="Chủ TK">{viewing.bankAccountHolder || "—"}</Descriptions.Item>

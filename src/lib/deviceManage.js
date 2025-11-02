@@ -63,6 +63,10 @@ export async function listDevices() {
   const { data } = await api.get("/api/devices");
   return data?.data ?? data ?? [];
 }
+export async function getDevicesByModelId(deviceModelId) {
+  const { data } = await api.get(`/api/devices/model/${Number(deviceModelId)}`);
+  return data?.data ?? data ?? [];
+}
 export async function createDevice(payload) {
   const { data } = await api.post("/api/devices", payload);
   return data?.data ?? data;

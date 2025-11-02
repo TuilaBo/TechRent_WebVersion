@@ -64,6 +64,7 @@ export function normalizeModel(m = {}) {
     // ⚠️ THÊM 2 DÒNG NÀY
     depositPercent: Number(m.depositPercent ?? m.deposit_percentage ?? m.depositRate ?? 0),
     deviceValue:    Number(m.deviceValue ?? m.assetValue ?? 0),
+    amountAvailable: Number(m.amountAvailable ?? 0),
 
     description: m.description ?? "",
     specifications: m.specifications ?? "",

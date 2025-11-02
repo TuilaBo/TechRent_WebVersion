@@ -155,7 +155,7 @@ export default function Checkout() {
       startDate: toISOStartOfDay(startDate),
       endDate: toISOEndOfDay(endDate),
       shippingAddress: (shippingAddress || ""),
-      customerId,
+      // customerId được lấy tự động từ token xác thực, không cần gửi trong payload
       orderDetails: items.map((x) => ({
         deviceModelId: x.id,
         quantity: Number(x.qty) || 1,

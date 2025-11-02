@@ -131,6 +131,13 @@ export default function RentalList() {
     const id = item.deviceModelId ?? item.id;
     if (addingMap[id]) return;
 
+    // Kiểm tra số lượng còn lại
+    const available = item.amountAvailable || 0;
+    if (available === 0) {
+      toast.error("Thiết bị không còn đủ để thuê");
+      return;
+    }
+
     if (!isAuthenticated) {
       toast((t) => (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -251,17 +258,31 @@ export default function RentalList() {
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>{name}</h3>
           <p style={{ color: "#666", fontSize: 14, margin: 0 }}>{brand}</p>
+          <p style={{ color: "#667085", fontSize: 13, margin: "4px 0 0 0" }}>
+            Còn lại: <b style={{ color: (item.amountAvailable || 0) > 0 ? "#52c41a" : "#ff4d4f" }}>
+              {item.amountAvailable || 0}
+            </b> thiết bị
+          </p>
         </div>
 
         <div style={{ padding: "0 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}>
-            {formatMoney(price)}/ngày
-          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}>
+              {formatMoney(price)}/ngày
+            </span>
+          </div>
           <Button
-            style={{ background: "#000", color: "#fff", border: "none", borderRadius: 4, padding: "8px 16px" }}
+            style={{ 
+              background: (item.amountAvailable || 0) > 0 ? "#000" : "#ccc", 
+              color: "#fff", 
+              border: "none", 
+              borderRadius: 4, 
+              padding: "8px 16px" 
+            }}
             icon={<ShoppingCartOutlined />}
             loading={!!addingMap[id]}
-            disabled={!!addingMap[id]}
+            disabled={!!addingMap[id] || (item.amountAvailable || 0) === 0}
+            title={(item.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
             onClick={(e) => onAdd(e, item)}
           >
             {addingMap[id] ? "Đang thêm..." : "Thuê ngay"}

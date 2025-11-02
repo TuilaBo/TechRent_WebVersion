@@ -64,6 +64,13 @@ export default function ProductCard() {
   const handleAdd = async (e, it) => {
     e.stopPropagation();
 
+    // Kiểm tra số lượng còn lại
+    const available = it.amountAvailable || 0;
+    if (available === 0) {
+      toast.error("Thiết bị không còn đủ để thuê");
+      return;
+    }
+
     if (!isAuthenticated) {
       toast((t) => (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -275,6 +282,11 @@ export default function ProductCard() {
                 <p style={{ color: "#666", fontSize: 14, margin: 0 }}>
                   Thương hiệu: <b style={{ color: "#111" }}>{it.brand || "—"}</b>
                 </p>
+                <p style={{ color: "#667085", fontSize: 13, margin: "4px 0 0 0" }}>
+                  Còn lại: <b style={{ color: it.amountAvailable > 0 ? "#52c41a" : "#ff4d4f" }}>
+                    {it.amountAvailable || 0}
+                  </b> thiết bị
+                </p>
               </div>
 
               <div
@@ -285,14 +297,16 @@ export default function ProductCard() {
                   justifyContent: "space-between",
                 }}
               >
-                <span
-                  style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}
-                >
-                  {fmtVND(it.pricePerDay)}/ngày
-                </span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span
+                    style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}
+                  >
+                    {fmtVND(it.pricePerDay)}/ngày
+                  </span>
+                </div>
                 <Button
                   style={{
-                    background: "#000",
+                    background: (it.amountAvailable || 0) > 0 ? "#000" : "#ccc",
                     color: "#fff",
                     border: "none",
                     borderRadius: 4,
@@ -300,7 +314,8 @@ export default function ProductCard() {
                   }}
                   icon={<ShoppingCartOutlined />}
                   loading={!!addingMap[it.id]}
-                  disabled={!!addingMap[it.id]}
+                  disabled={!!addingMap[it.id] || (it.amountAvailable || 0) === 0}
+                  title={(it.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
                   onClick={(e) => handleAdd(e, it)}
                 >
                   {addingMap[it.id] ? "Đang thêm..." : "Thuê ngay"}

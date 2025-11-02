@@ -9,20 +9,20 @@ const unwrap = (res) => res?.data?.data ?? res?.data ?? null;
 /** Convert BE payload -> FE shape (optional but handy) */
 export function normalizeTechnicianTask(raw = {}) {
   return {
-    taskId: raw.taskId,
+    taskId: raw.taskId ?? raw.id,
     taskCategoryId: raw.taskCategoryId,
-    taskCategoryName: raw.taskCategoryName,
-    orderId: raw.orderId,
-    assignedStaffId: raw.assignedStaffId,
-    assignedStaffName: raw.assignedStaffName,
-    assignedStaffRole: raw.assignedStaffRole,
-    type: raw.type,
-    description: raw.description,
-    plannedStart: raw.plannedStart,
-    plannedEnd: raw.plannedEnd,
-    status: raw.status,            // "PENDING" | "IN_PROGRESS" | "COMPLETED"
-    createdAt: raw.createdAt,
-    completedAt: raw.completedAt,
+    taskCategoryName: raw.taskCategoryName ?? "",
+    orderId: raw.orderId ?? null,
+    assignedStaffId: raw.assignedStaffId ?? null,
+    assignedStaffName: raw.assignedStaffName ?? "",
+    assignedStaffRole: raw.assignedStaffRole ?? "",
+    type: raw.type ?? "",
+    description: raw.description ?? "",
+    plannedStart: raw.plannedStart ?? null,
+    plannedEnd: raw.plannedEnd ?? null,
+    status: raw.status ?? null,            // "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+    createdAt: raw.createdAt ?? null,
+    completedAt: raw.completedAt ?? null,
   };
 }
 
@@ -57,14 +57,16 @@ export async function listTechnicianTasks(status = TECH_TASK_STATUS.PENDING) {
   const { data } = await api.get("/api/technician/tasks", {
     params: { status },
   });
-  const payload = unwrap(data);
+  // Response structure: { status, message, details, code, data: [...] }
+  const payload = data?.data ?? unwrap(data) ?? [];
   return Array.isArray(payload) ? payload.map(normalizeTechnicianTask) : [];
 }
 
 /** GET /api/technician/tasks/{taskId} */
 export async function getTechnicianTaskById(taskId) {
   const { data } = await api.get(`/api/technician/tasks/${Number(taskId)}`);
-  const payload = unwrap(data);
+  // Response structure: { status, message, details, code, data: {...} }
+  const payload = data?.data ?? unwrap(data) ?? null;
   return payload ? normalizeTechnicianTask(payload) : null;
 }
 
@@ -75,6 +77,7 @@ export async function updateTechnicianTaskStatus(taskId, status) {
     null,
     { params: { status } }
   );
-  const payload = unwrap(data);
+  // Response structure: { status, message, details, code, data: {...} }
+  const payload = data?.data ?? unwrap(data) ?? null;
   return payload ? normalizeTechnicianTask(payload) : null;
 }

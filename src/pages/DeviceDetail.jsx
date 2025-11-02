@@ -96,7 +96,9 @@ export default function DeviceDetail() {
           try {
             const b = await getBrandById(nm.brandId);
             nm.brand = b?.brandName ?? b?.name ?? nm.brand;
-          } catch {}
+          } catch {
+            // Ignore: brand fetch failed, use existing value
+          }
         }
         setItem(nm);
       } catch (e) {
@@ -106,6 +108,19 @@ export default function DeviceDetail() {
       }
     })();
   }, [id]);
+
+  // Tự động điều chỉnh số lượng khi amountAvailable thay đổi
+  useEffect(() => {
+    if (item?.amountAvailable !== undefined) {
+      const available = item.amountAvailable || 0;
+      if (available > 0 && qty > available) {
+        setQty(available);
+      } else if (available === 0) {
+        setQty(1); // Giữ ở 1 nhưng sẽ bị disable
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.amountAvailable]);
 
   const perDaySubtotal = useMemo(
     () => Math.round((item?.pricePerDay || 0) * qty),
@@ -135,6 +150,18 @@ export default function DeviceDetail() {
 
   const handleAddToCart = async () => {
     if (adding) return;
+
+    // Kiểm tra số lượng còn lại
+    const available = item?.amountAvailable || 0;
+    if (available === 0) {
+      toast.error("Thiết bị không còn đủ để thuê");
+      return;
+    }
+    if (qty > available) {
+      toast.error(`Chỉ còn ${available} thiết bị có sẵn. Vui lòng chọn số lượng không quá ${available}.`);
+      setQty(available);
+      return;
+    }
 
     if (!isAuthenticated) {
       toast((t) => (
@@ -205,7 +232,9 @@ export default function DeviceDetail() {
         try {
           const count = getCartCount();
           window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
-        } catch {}
+        } catch {
+          // Ignore: cart count update failed
+        }
       } else {
         toast.error(result.error || "Không thể thêm vào giỏ hàng");
       }
@@ -284,6 +313,11 @@ export default function DeviceDetail() {
                 <Text style={{ color: "#475467", fontSize: 16 }}>
                   Thương hiệu: <b style={{ color: "#101828" }}>{item.brand || "—"}</b>
                 </Text>
+                <Text style={{ color: "#667085", fontSize: 14, marginTop: 8, display: "block" }}>
+                  Số lượng còn lại: <b style={{ color: item.amountAvailable > 0 ? "#52c41a" : "#ff4d4f" }}>
+                    {item.amountAvailable || 0}
+                  </b> thiết bị
+                </Text>
               </div>
 
               <Divider className="my-6" style={{ borderColor: "#EAECF0" }} />
@@ -325,23 +359,42 @@ export default function DeviceDetail() {
                     onClick={() => setQty((q) => Math.max(1, q - 1))}
                     icon={<MinusOutlined />}
                     style={{ height: 48, width: 48, borderRadius: "12px 0 0 12px", borderColor: "#D0D5DD" }}
-                    disabled={adding}
+                    disabled={adding || (item.amountAvailable || 0) === 0}
                   />
                   <InputNumber
                     min={1}
+                    max={item.amountAvailable || 0}
                     value={qty}
-                    onChange={(v) => setQty(v || 1)}
+                    onChange={(v) => {
+                      const max = item.amountAvailable || 0;
+                      if (max > 0) {
+                        setQty(Math.min(Math.max(1, v || 1), max));
+                      }
+                    }}
                     style={{ width: 104, height: 48, textAlign: "center", fontSize: 18, borderRadius: 0, borderColor: "#D0D5DD" }}
-                    disabled={adding}
+                    disabled={adding || (item.amountAvailable || 0) === 0}
                   />
                   <Button
                     size="large"
-                    onClick={() => setQty((q) => q + 1)}
+                    onClick={() => {
+                      const max = item.amountAvailable || 0;
+                      setQty((q) => Math.min(q + 1, max));
+                    }}
                     icon={<PlusOutlined />}
                     style={{ height: 48, width: 48, borderRadius: "0 12px 12px 0", borderColor: "#D0D5DD" }}
-                    disabled={adding}
+                    disabled={adding || (item.amountAvailable || 0) === 0 || qty >= (item.amountAvailable || 0)}
                   />
                 </Space.Compact>
+                {(item.amountAvailable || 0) === 0 && (
+                  <Text type="danger" style={{ display: "block", marginTop: 8, fontSize: 13 }}>
+                     Thiết bị đã hết hàng
+                  </Text>
+                )}
+                {(item.amountAvailable || 0) > 0 && qty > (item.amountAvailable || 0) && (
+                  <Text type="warning" style={{ display: "block", marginTop: 8, fontSize: 13 }}>
+                     Chỉ còn {item.amountAvailable} thiết bị
+                  </Text>
+                )}
               </div>
 
               {/* Thêm giỏ */}
@@ -352,10 +405,18 @@ export default function DeviceDetail() {
                 className="w-full btn-primary"
                 onClick={handleAddToCart}
                 loading={adding}
-                disabled={adding}
-                style={{ background: "#101828", border: "none", borderRadius: 12, height: 52, fontSize: 16, fontWeight: 500 }}
+                disabled={adding || (item.amountAvailable || 0) === 0 || qty > (item.amountAvailable || 0)}
+                title={(item.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
+                style={{ 
+                  background: (item.amountAvailable || 0) > 0 && qty <= (item.amountAvailable || 0) ? "#101828" : "#ccc", 
+                  border: "none", 
+                  borderRadius: 12, 
+                  height: 52, 
+                  fontSize: 16, 
+                  fontWeight: 500 
+                }}
               >
-                {adding ? "Đang thêm..." : "Thêm vào giỏ"}
+                {adding ? "Đang thêm..." : (item.amountAvailable || 0) === 0 ? "Hết hàng" : "Thêm vào giỏ"}
               </Button>
 
               {/* Subtotal */}

@@ -121,21 +121,30 @@ export default function OperatorTasks() {
 
   const submit = async (vals) => {
     try {
-      const payload = {
-        taskCategoryId: vals.taskCategoryId,
-        orderId: vals.orderId ? Number(vals.orderId) : undefined,
-        assignedStaffId: vals.assignedStaffId ? Number(vals.assignedStaffId) : undefined,
-        type: vals.type?.trim() || "",
-        description: vals.description?.trim() || "",
-        plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
-        plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).toISOString() : undefined,
-      };
-
       if (editing) {
-        await updateTask(editing.taskId || editing.id, payload);
+        // Khi update: không gửi orderId vì backend không cho phép thay đổi
+        const updatePayload = {
+          taskCategoryId: vals.taskCategoryId,
+          assignedStaffId: vals.assignedStaffId ? Number(vals.assignedStaffId) : undefined,
+          type: vals.type?.trim() || "",
+          description: vals.description?.trim() || "",
+          plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
+          plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).toISOString() : undefined,
+        };
+        await updateTask(editing.taskId || editing.id, updatePayload);
         toast.success("Đã cập nhật task.");
       } else {
-        await createTask(payload);
+        // Khi tạo mới: có thể gửi orderId
+        const createPayload = {
+          taskCategoryId: vals.taskCategoryId,
+          orderId: vals.orderId ? Number(vals.orderId) : undefined,
+          assignedStaffId: vals.assignedStaffId ? Number(vals.assignedStaffId) : undefined,
+          type: vals.type?.trim() || "",
+          description: vals.description?.trim() || "",
+          plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
+          plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).toISOString() : undefined,
+        };
+        await createTask(createPayload);
         toast.success("Đã tạo task.");
       }
 
@@ -333,8 +342,13 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item label="Mã đơn hàng" name="orderId">
+          <Form.Item 
+            label="Mã đơn hàng" 
+            name="orderId"
+            tooltip={editing ? "Không thể thay đổi mã đơn hàng sau khi tạo task" : undefined}
+          >
             <Select
+              disabled={!!editing}
               allowClear
               placeholder="Chọn mã đơn (tuỳ chọn)"
               showSearch
