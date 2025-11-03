@@ -264,7 +264,7 @@ export default function DeviceDetail() {
   }
 
   const isAvailable = (item.amountAvailable || 0) > 0;
-  const isLowStock = isAvailable && item.amountAvailable <= 5;
+  const isLowStock = isAvailable && (item.amountAvailable || 0) < 2;
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#fafafa" }}>

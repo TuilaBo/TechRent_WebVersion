@@ -161,6 +161,31 @@ export default function TechnicianQcDetail() {
   const [checklistDone, setChecklistDone] = useState([]);
   const [phase, setPhase] = useState("PRE_RENTAL");
   const [result, setResult] = useState("READY_FOR_SHIPPING");
+
+  // Allowed results per phase
+  const resultOptions = useMemo(() => {
+    const p = String(phase || "").toUpperCase();
+    if (p === "POST_RENTAL") {
+      return [
+        { label: "READY_FOR_RE_STOCK", value: "READY_FOR_RE_STOCK" },
+        { label: "POST_RENTAL_FAILED", value: "POST_RENTAL_FAILED" },
+      ];
+    }
+    // default: PRE_RENTAL
+    return [
+      { label: "READY_FOR_SHIPPING", value: "READY_FOR_SHIPPING" },
+      { label: "PRE_RENTAL_FAILED", value: "PRE_RENTAL_FAILED" },
+    ];
+  }, [phase]);
+
+  // Ensure current result is valid when phase changes
+  useEffect(() => {
+    const allowed = new Set(resultOptions.map((o) => o.value));
+    if (!allowed.has(String(result))) {
+      // set a sensible default for the chosen phase
+      setResult(resultOptions[0]?.value || "");
+    }
+  }, [phase, resultOptions]);
   const [findings, setFindings] = useState("");
   const [accessorySnapShotUrl, setAccessorySnapShotUrl] = useState("");
 
@@ -557,13 +582,7 @@ export default function TechnicianQcDetail() {
                   value={result}
                   onChange={setResult}
                   style={{ width: "100%" }}
-                  options={[
-                    { label: "READY_FOR_SHIPPING", value: "READY_FOR_SHIPPING" },
-                    { label: "NEEDS_REPAIR", value: "NEEDS_REPAIR" },
-                    { label: "DAMAGED", value: "DAMAGED" },
-                    { label: "PASSED", value: "PASSED" },
-                    { label: "FAILED", value: "FAILED" },
-                  ]}
+                  options={resultOptions}
                 />
               </div>
             </Col>

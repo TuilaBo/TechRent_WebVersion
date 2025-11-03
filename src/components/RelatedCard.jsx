@@ -145,7 +145,7 @@ export default function RelatedCard({ categoryId, excludeId }) {
                   Hết hàng
                 </div>
               )}
-              {(it.amountAvailable || 0) > 0 && (it.amountAvailable || 0) <= 3 && (
+              {(it.amountAvailable || 0) === 1 && (
                 <div style={{
                   position: "absolute",
                   top: 12,
@@ -205,7 +205,7 @@ export default function RelatedCard({ categoryId, excludeId }) {
               </h3>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                 <span style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>Còn lại:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: (it.amountAvailable || 0) > 3 ? "#52c41a" : (it.amountAvailable || 0) > 0 ? "#faad14" : "#ff4d4f" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: (it.amountAvailable || 0) > 1 ? "#52c41a" : (it.amountAvailable || 0) > 0 ? "#faad14" : "#ff4d4f" }}>
                   {it.amountAvailable || 0}
                 </span>
               </div>

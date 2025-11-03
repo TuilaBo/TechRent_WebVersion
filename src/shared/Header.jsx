@@ -94,37 +94,13 @@ export default function AppHeader() {
     navigate("/login");
   };
 
-  const userMenu = (
-    <Menu
-      className="user-dropdown-menu"
-      items={[
-        { 
-          key: "1", 
-          icon: <UserOutlined />,
-          label: <Link to="/profile">Tài khoản</Link> 
-        },
-        { 
-          key: "2", 
-          icon: <ShoppingCartOutlined />,
-          label: <Link to="/orders">Đơn thuê</Link> 
-        },
-        { 
-          key: "4", 
-          icon: <BellOutlined />,
-          label: <Link to="/chat">Live chat</Link> 
-        },
-        { 
-          type: 'divider'
-        },
-        { 
-          key: "3", 
-          icon: <span style={{ fontSize: 14 }}>🚪</span>,
-          label: <span onClick={handleLogout}>Đăng xuất</span>,
-          danger: true
-        },
-      ]}
-    />
-  );
+  const userMenuItems = [
+    { key: "1", icon: <UserOutlined />, label: <Link to="/profile">Tài khoản</Link> },
+    { key: "2", icon: <ShoppingCartOutlined />, label: <Link to="/orders">Đơn thuê</Link> },
+    { key: "4", icon: <BellOutlined />, label: <Link to="/chat">Live chat</Link> },
+    { type: 'divider' },
+    { key: "3", icon: <span style={{ fontSize: 14 }}>🚪</span>, label: <span onClick={handleLogout}>Đăng xuất</span>, danger: true },
+  ];
 
   const selectedNavKey = React.useMemo(() => {
     const path = location.pathname || "/";
@@ -269,14 +245,15 @@ export default function AppHeader() {
         .login-link-btn {
           background: #000;
           color: #fff;
-          border-radius: 24px;
-          padding: 12px 28px;
+          border-radius: 10px;
+          padding: 8px 18px;
           font-weight: 700;
-          font-size: 15px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+          font-size: 13px;
+          line-height: 1.1;
+          box-shadow: 0 1px 6px rgba(0,0,0,0.12);
           display: inline-block;
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-          border: 2px solid #000;
+          transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+          border: 1px solid #000;
         }
         .login-link-btn:hover {
           background: #fff;
@@ -341,20 +318,7 @@ export default function AppHeader() {
           color: inherit !important;
         }
         
-        /* Dropdown overlay animation */
-        .ant-dropdown {
-          animation: dropdown-slide-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        @keyframes dropdown-slide-in {
-          from {
-            opacity: 0;
-            transform: translateY(-8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
+        /* note: use default AntD motion to avoid double-animate flicker */
       `}</style>
 
       <Row align="middle" justify="space-between" style={{ height: 64 }}>
@@ -430,10 +394,10 @@ export default function AppHeader() {
                 </Link>
 
                 <Dropdown 
-                  overlay={userMenu} 
+                  menu={{ items: userMenuItems }}
                   trigger={["click"]}
                   placement="bottomRight"
-                  overlayClassName="user-dropdown-overlay"
+                  overlayClassName="user-dropdown-menu"
                 >
                   <div className="header-icon" role="button" aria-label="Account menu" title={user?.username || "Tài khoản"}>
                     <UserOutlined style={{ fontSize: 20, color: "#000" }} />

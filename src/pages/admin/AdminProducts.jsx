@@ -60,6 +60,8 @@ const statusTag = (s) => {
   switch (String(s).toUpperCase()) {
     case "AVAILABLE":
       return <Tag color="green">Có sẵn</Tag>;
+    case "PRE_RENTAL_QC":
+      return <Tag color="gold">PRE_RENTAL_QC</Tag>;
     case "RENTED":
       return <Tag color="blue">Đang thuê</Tag>;
     case "MAINTENANCE":
@@ -577,6 +579,8 @@ export default function AdminProducts() {
     const [editing, setEditing] = useState(null);
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
+    const [filterStatus, setFilterStatus] = useState(); // 'AVAILABLE' | 'RENTED' | 'MAINTENANCE' | 'BROKEN'
+    const [filterModelId, setFilterModelId] = useState(); // deviceModelId
 
     const cols = [
       {
@@ -654,6 +658,17 @@ export default function AdminProducts() {
       },
     ];
 
+    const filteredDevices = useMemo(() => {
+      let rows = Array.isArray(devices) ? devices.slice() : [];
+      if (filterStatus) {
+        rows = rows.filter((d) => String(d.status || '').toUpperCase() === String(filterStatus).toUpperCase());
+      }
+      if (filterModelId) {
+        rows = rows.filter((d) => String(d.deviceModelId || '') === String(filterModelId));
+      }
+      return rows;
+    }, [devices, filterStatus, filterModelId]);
+
     const submit = async (v) => {
       try {
         const payload = {
@@ -683,7 +698,7 @@ export default function AdminProducts() {
     return (
       <>
         {contextHolder}
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12 }} wrap>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -695,11 +710,32 @@ export default function AdminProducts() {
           >
             Thêm thiết bị
           </Button>
+          <Select
+            allowClear
+            placeholder="Lọc theo trạng thái"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            style={{ minWidth: 180 }}
+            options={[
+              { label: 'Có sẵn', value: 'AVAILABLE' },
+              { label: 'PRE_RENTAL_QC', value: 'PRE_RENTAL_QC' },
+            ]}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="Lọc theo mẫu thiết bị"
+            value={filterModelId}
+            onChange={setFilterModelId}
+            style={{ minWidth: 220 }}
+            options={modelOptions}
+          />
         </Space>
         <Table
           rowKey={(r) => r.deviceId ?? r.id}
           columns={cols}
-          dataSource={devices}
+          dataSource={filteredDevices}
           loading={loading}
           pagination={{ pageSize: 8 }}
         />
@@ -735,9 +771,7 @@ export default function AdminProducts() {
               <Select
                 options={[
                   { label: "Có sẵn", value: "AVAILABLE" },
-                  { label: "Đang thuê", value: "RENTED" },
-                  { label: "Bảo trì", value: "MAINTENANCE" },
-                  { label: "Hỏng", value: "BROKEN" },
+                  { label: "PRE_RENTAL_QC", value: "PRE_RENTAL_QC" },
                 ]}
               />
             </Form.Item>

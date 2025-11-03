@@ -271,7 +271,7 @@ export default function RentalList() {
               Hết hàng
             </div>
           )}
-          {available > 0 && available <= 3 && (
+          {available === 1 && (
             <div style={{
               position: "absolute",
               top: 12,
@@ -336,7 +336,7 @@ export default function RentalList() {
             <span style={{ 
               fontSize: 14,
               fontWeight: 700,
-              color: available > 3 ? "#52c41a" : available > 0 ? "#faad14" : "#ff4d4f",
+              color: available > 1 ? "#52c41a" : available > 0 ? "#faad14" : "#ff4d4f",
             }}>
               {available}
             </span>
