@@ -1,5 +1,6 @@
 // src/App.jsx
 import { Routes, Route } from "react-router-dom";
+import { ConfigProvider, theme as antdTheme } from "antd";
 import LayoutRoot from "./layout/LayoutRoot.jsx";
 
 import Home from "./pages/Home.jsx";
@@ -16,6 +17,7 @@ import NotificationsPage from "./pages/notificaiton/NotificationsPage.jsx";
 import OtpVerify from "./pages/auth/OtpVerify.jsx";
 import RentalList from "./pages/RentalList.jsx";
 import FindProduct from "./components/FindProduct.jsx";
+import CustomerLiveChat from "./pages/Customer/CustomerLiveChat.jsx";
 
 import AdminShell from "./pages/admin/AdminShell.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
@@ -40,14 +42,31 @@ import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
 
 import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
-
-
+import SupportChat from "./pages/CST/SupportChat.jsx";
 import RequireRole from "./routes/RequireRole.jsx";
 export default function App() {
   return (
     <>
-     
-      <Routes>
+      <ConfigProvider
+        theme={{
+          algorithm: antdTheme.defaultAlgorithm,
+          token: {
+            colorPrimary: "#1677ff",
+            borderRadius: 10,
+            colorBgLayout: "#f7f9fb",
+            fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+          },
+          components: {
+            Button: { borderRadius: 8 },
+            Card: { borderRadiusLG: 12 },
+            Modal: { borderRadiusLG: 12 },
+            Table: { borderRadius: 8 },
+            Input: { borderRadius: 8 },
+            Select: { borderRadius: 8 },
+          },
+        }}
+      >
+        <Routes>
         {/* ✅ Chỉ chứa <Route> hoặc <React.Fragment> */}
         <Route path="/" element={<LayoutRoot />}>
           <Route index element={<Home />} />
@@ -63,6 +82,9 @@ export default function App() {
           <Route path="verify-otp" element={<OtpVerify />} />
           <Route path="category/:id" element={<RentalList />} />
           <Route path="search" element={<FindProduct />} />
+          <Route path="chat" element={<CustomerLiveChat />} />
+          {/* Alias để tránh 404 khi truy cập /customer/chat */}
+          <Route path="customer/chat" element={<CustomerLiveChat />} />
         </Route>
 
         <Route
@@ -110,15 +132,23 @@ export default function App() {
           <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
         </Route>
 
-        <Route path="/support" element={<SupportShell />}>
+        <Route
+          path="/support"
+          element={
+            <RequireRole role="CUSTOMER_SUPPORT_STAFF">
+              <SupportShell />
+            </RequireRole>
+          }
+        >
           <Route index element={<SupportDesk />} />
           <Route path="desk" element={<SupportDesk />} />
-          <Route path="chats" element={<div>Live Chats (sắp có)</div>} />
+          <Route path="chats" element={<SupportChat />} />
           <Route path="settings" element={<div>Settings (sắp có)</div>} />
         </Route>
 
         <Route path="*" element={<NotFound />} />
-      </Routes>
+        </Routes>
+      </ConfigProvider>
     </>
   );
 }

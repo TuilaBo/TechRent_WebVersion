@@ -7,7 +7,7 @@ import {
   BellOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 import { getCartCount } from "../lib/cartUtils";
@@ -24,9 +24,10 @@ const navItems = [
 
 export default function AppHeader() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, user, logout } = useAuth();
   const [cartCount, setCartCount] = useState(0);
-  const [bump, setBump] = useState(false); // <-- NEW
+  const [bump, setBump] = useState(false);
 
   const [hidden, setHidden] = useState(false);
   const lastYRef = useRef(typeof window !== 'undefined' ? window.scrollY : 0);
@@ -66,7 +67,6 @@ export default function AppHeader() {
       const lastY = lastYRef.current || 0;
       const headerH = headerRef.current?.offsetHeight || 0;
 
-      // cập nhật biến chiều cao để phần hero bù trừ đúng
       document.documentElement.style.setProperty("--stacked-header", `${headerH}px`);
 
       const delta = currentY - lastY;
@@ -96,24 +96,42 @@ export default function AppHeader() {
 
   const userMenu = (
     <Menu
+      className="user-dropdown-menu"
       items={[
-        { key: "1", label: <Link to="/profile">Tài khoản</Link> },
-        { key: "2", label: <Link to="/orders">Đơn thuê</Link> },
-        { key: "3", label: <span onClick={handleLogout}>Đăng xuất</span> },
+        { 
+          key: "1", 
+          icon: <UserOutlined />,
+          label: <Link to="/profile">Tài khoản</Link> 
+        },
+        { 
+          key: "2", 
+          icon: <ShoppingCartOutlined />,
+          label: <Link to="/orders">Đơn thuê</Link> 
+        },
+        { 
+          key: "4", 
+          icon: <BellOutlined />,
+          label: <Link to="/chat">Live chat</Link> 
+        },
+        { 
+          type: 'divider'
+        },
+        { 
+          key: "3", 
+          icon: <span style={{ fontSize: 14 }}>🚪</span>,
+          label: <span onClick={handleLogout}>Đăng xuất</span>,
+          danger: true
+        },
       ]}
     />
   );
 
-  const searchInputMobileStyle = {
-    borderRadius: 50,
-    background: "#fff",
-    border: "2px solid rgba(0,0,0,0.25)",
-    padding: "6px 12px",
-    width: 200,
-    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-    transition: "all 0.3s ease",
-    fontWeight: 600,
-  };
+  const selectedNavKey = React.useMemo(() => {
+    const path = location.pathname || "/";
+    if (path === "/") return "home";
+    const found = navItems.find((n) => path.startsWith(n.link) && n.link !== "/");
+    return found?.key || "home";
+  }, [location.pathname]);
 
   return (
     <Header
@@ -123,13 +141,14 @@ export default function AppHeader() {
         top: 0,
         zIndex: 1000,
         width: "100%",
-        background: "#fff",
-        backdropFilter: "blur(10px)",
-        padding: "0 24px",
-        boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
-        borderBottom: "1px solid rgba(0,0,0,0.08)",
+        background: "rgba(255, 255, 255, 0.85)",
+        backdropFilter: "blur(16px) saturate(180%)",
+        WebkitBackdropFilter: "blur(16px) saturate(180%)",
+        padding: "0 32px",
+        boxShadow: hidden ? "none" : "0 1px 0 rgba(0,0,0,0.05), 0 2px 16px rgba(0,0,0,0.08)",
+        borderBottom: "1px solid rgba(0,0,0,0.06)",
         transform: hidden ? "translateY(-100%)" : "translateY(0)",
-        transition: "transform .25s ease",
+        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
       }}
     >
       {/* CSS animation cho badge/cart */}
@@ -142,30 +161,213 @@ export default function AppHeader() {
           100% { transform: scale(1); }
         }
         .cart-badge-bump { animation: cart-bump .5s ease; }
-        .icon-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
-        .ping { position: absolute; width: 8px; height: 8px; border-radius: 9999px; background: #000; top: -2px; right: -2px; opacity: 0.65; animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) 1 forwards; }
-        @keyframes ping { 0% { transform: scale(1); opacity: .8; } 70% { transform: scale(2.2); opacity: .28; } 100% { transform: scale(2.8); opacity: 0; } }
-        .nav-link { color: #141414 !important; font-weight: 600; background: none !important; transition: color .16s linear; }
-        .nav-link .nav-underline { position: absolute; bottom: -4px; left: 0; width: var(--underline-width, 0); height: 2px; background: #000; border-radius: 8px; transition: width 0.27s cubic-bezier(.82,-0.01,.43,.98); }
-        .nav-link:hover, .nav-link:focus { color: #000 !important; }
-        .nav-link:focus .nav-underline, .nav-link:hover .nav-underline { width: 100% !important; }
-        .login-btn { background: #000 !important; color: #fff !important; border-radius: 999px; padding: 11px 26px !important; font-weight: 700; font-size: 17px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border: none; min-width: 120px; transition: all .18s cubic-bezier(.6,-0.04,.43,.99); }
-        .login-btn:hover, .login-btn:focus { background: #fff !important; color: #000 !important; border: 2px solid #000; }
-        .search-input { border-radius: 33px !important; border: 2px solid #e3e3e3 !important; background: #fff !important; font-weight: 600; box-shadow: none !important; padding: 8px 18px !important; transition: border-color .18s; }
-        .search-input:focus { border: 2.2px solid #000 !important; box-shadow: 0px 1px 7px rgba(20,20,20,.09); }
+        .icon-wrap { 
+          position: relative; 
+          display: inline-flex; 
+          align-items: center; 
+          justify-content: center;
+          transition: transform 0.2s ease;
+        }
+        .icon-wrap:hover {
+          transform: scale(1.1);
+        }
+        .ping { 
+          position: absolute; 
+          width: 8px; 
+          height: 8px; 
+          border-radius: 9999px; 
+          background: #000; 
+          top: -2px; 
+          right: -2px; 
+          opacity: 0.65; 
+          animation: ping 1.2s cubic-bezier(0, 0, 0.2, 1) 1 forwards; 
+        }
+        @keyframes ping { 
+          0% { transform: scale(1); opacity: .8; } 
+          70% { transform: scale(2.2); opacity: .28; } 
+          100% { transform: scale(2.8); opacity: 0; } 
+        }
+        
+        /* Navigation styles */
+        .ant-menu-horizontal {
+          border-bottom: none !important;
+          background: transparent !important;
+          line-height: 62px;
+        }
+        .ant-menu-item {
+          padding: 0 20px !important;
+          font-weight: 600 !important;
+          color: #444 !important;
+          border-bottom: 2px solid transparent !important;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          margin: 0 4px !important;
+        }
+        .ant-menu-item:hover {
+          color: #000 !important;
+          border-bottom-color: #000 !important;
+        }
+        .ant-menu-item-selected {
+          color: #000 !important;
+          border-bottom-color: #000 !important;
+          background: transparent !important;
+        }
+        .ant-menu-item::after {
+          display: none !important;
+        }
+        
+        /* Search input styles */
+        .search-input { 
+          border-radius: 24px !important; 
+          border: 1.5px solid #e5e5e5 !important; 
+          background: rgba(255, 255, 255, 0.9) !important; 
+          font-weight: 500 !important;
+          font-size: 14px !important;
+          box-shadow: none !important; 
+          padding: 10px 20px !important; 
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .search-input:hover {
+          border-color: #bbb !important;
+          background: #fff !important;
+        }
+        .search-input:focus { 
+          border: 1.5px solid #000 !important; 
+          box-shadow: 0 2px 12px rgba(0,0,0,0.08) !important;
+          background: #fff !important;
+        }
+        .search-input .ant-input {
+          font-weight: 500 !important;
+        }
+        
+        /* Header icon styles */
+        .header-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          cursor: pointer;
+        }
+        .header-icon:hover {
+          background: rgba(0, 0, 0, 0.05);
+        }
+        .header-icon:active {
+          transform: scale(0.95);
+        }
+        
+        /* Badge styles */
+        .ant-badge-count {
+          background: #000 !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+          font-weight: 600 !important;
+          font-size: 11px !important;
+        }
+        
+        /* Login button styles */
+        .login-link-btn {
+          background: #000;
+          color: #fff;
+          border-radius: 24px;
+          padding: 12px 28px;
+          font-weight: 700;
+          font-size: 15px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+          display: inline-block;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          border: 2px solid #000;
+        }
+        .login-link-btn:hover {
+          background: #fff;
+          color: #000;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        }
+        .login-link-btn:active {
+          transform: translateY(0);
+        }
+        
+        /* Logo animation */
+        .logo-text {
+          background: linear-gradient(135deg, #000 0%, #333 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          position: relative;
+          display: inline-block;
+          transition: all 0.3s ease;
+        }
+        .logo-text:hover {
+          transform: scale(1.02);
+        }
+        
+        /* Dropdown menu styles */
+        .user-dropdown-menu {
+          border-radius: 12px !important;
+          padding: 6px !important;
+          box-shadow: 0 6px 24px rgba(0,0,0,0.12) !important;
+          border: 1px solid rgba(0,0,0,0.08) !important;
+          min-width: 180px !important;
+        }
+        .user-dropdown-menu .ant-dropdown-menu-item {
+          border-radius: 8px !important;
+          padding: 10px 14px !important;
+          margin: 2px 0 !important;
+          font-weight: 500 !important;
+          font-size: 14px !important;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .user-dropdown-menu .ant-dropdown-menu-item:hover {
+          background: rgba(0,0,0,0.06) !important;
+          transform: translateX(3px);
+        }
+        .user-dropdown-menu .ant-dropdown-menu-item-danger {
+          color: #ff4d4f !important;
+        }
+        .user-dropdown-menu .ant-dropdown-menu-item-danger:hover {
+          background: rgba(255,77,79,0.08) !important;
+          color: #ff4d4f !important;
+        }
+        .user-dropdown-menu .ant-dropdown-menu-item-icon {
+          font-size: 14px !important;
+          margin-right: 10px !important;
+        }
+        .user-dropdown-menu .ant-dropdown-menu-item-divider {
+          margin: 6px 0 !important;
+          background: rgba(0,0,0,0.06) !important;
+        }
+        .user-dropdown-menu a {
+          color: inherit !important;
+        }
+        
+        /* Dropdown overlay animation */
+        .ant-dropdown {
+          animation: dropdown-slide-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes dropdown-slide-in {
+          from {
+            opacity: 0;
+            transform: translateY(-8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
       `}</style>
 
-      <Row align="middle" justify="space-between" style={{ height: 56 }}>
-        <Col>
+      <Row align="middle" justify="space-between" style={{ height: 64 }}>
+        <Col flex="none">
           <Link
             to="/"
+            className="logo-text"
             style={{
-              fontSize: 24,
-              fontWeight: 800,
+              fontSize: 26,
+              fontWeight: 900,
               color: "#000",
-              letterSpacing: 1,
-              fontFamily:
-                "'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              letterSpacing: 0.5,
+              fontFamily: "'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               textDecoration: "none",
             }}
           >
@@ -176,18 +378,7 @@ export default function AppHeader() {
         {!isAuthenticated ? (
           <Col>
             <Link to="/login" aria-label="Đăng nhập">
-              <div
-                style={{
-                  background: "#000",
-                  color: "#fff",
-                  borderRadius: 12,
-                  padding: "10px 20px",
-                  fontWeight: 600,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                  display: "inline-block",
-                  lineHeight: 1,
-                }}
-              >
+              <div className="login-link-btn">
                 Đăng nhập
               </div>
             </Link>
@@ -195,42 +386,26 @@ export default function AppHeader() {
         ) : (
           <>
             <Col flex="auto" className="hidden md:block">
-              <Space size="large" style={{ marginLeft: 40 }}>
-                {navItems.map((item) => (
-                  <Link
-                    key={item.key}
-                    to={item.link}
-                    style={{
-                      color: "rgba(0,0,0,0.85)",
-                      fontWeight: 500,
-                      fontSize: 15,
-                      position: "relative",
-                      textDecoration: "none",
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginLeft: 32 }}>
+                <Menu
+                  mode="horizontal"
+                  selectedKeys={[selectedNavKey]}
+                  items={navItems.map((n) => ({ key: n.key, label: <Link to={n.link}>{n.label}</Link> }))}
+                  style={{ flex: 1, minWidth: 360, borderBottom: "none" }}
+                />
+                <div style={{ maxWidth: 360, width: "100%" }}>
+                  <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="Tìm sản phẩm, danh mục…"
+                    className="search-input"
+                    onPressEnter={(e) => {
+                      const q = e.currentTarget.value?.trim();
+                      if (q) navigate(`/search?q=${encodeURIComponent(q)}`);
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = "#000";
-                      e.currentTarget.style.setProperty("--underline-width", "100%");
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = "rgba(0,0,0,0.85)";
-                      e.currentTarget.style.setProperty("--underline-width", "0");
-                    }}
-                  >
-                    {item.label}
-                    <span
-                      style={{
-                        position: "absolute",
-                        bottom: -4,
-                        left: 0,
-                        width: "var(--underline-width, 0)",
-                        height: 2,
-                        backgroundColor: "rgba(0,0,0,0.6)",
-                        transition: "width .25s ease",
-                      }}
-                    />
-                  </Link>
-                ))}
-              </Space>
+                  />
+                </div>
+              </div>
             </Col>
 
             <Col>
@@ -254,7 +429,12 @@ export default function AppHeader() {
                   </span>
                 </Link>
 
-                <Dropdown overlay={userMenu} trigger={["click"]}>
+                <Dropdown 
+                  overlay={userMenu} 
+                  trigger={["click"]}
+                  placement="bottomRight"
+                  overlayClassName="user-dropdown-overlay"
+                >
                   <div className="header-icon" role="button" aria-label="Account menu" title={user?.username || "Tài khoản"}>
                     <UserOutlined style={{ fontSize: 20, color: "#000" }} />
                   </div>

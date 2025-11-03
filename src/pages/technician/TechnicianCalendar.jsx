@@ -1,8 +1,6 @@
 // src/pages/technician/TechnicianCalendar.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  Calendar,
-  Badge,
   Card,
   List,
   Tag,
@@ -14,11 +12,10 @@ import {
   Typography,
   Divider,
   message,
-  Tabs,
   Select,
+  Table,
 } from "antd";
 import {
-  PlusOutlined,
   EnvironmentOutlined,
   PhoneOutlined,
   InboxOutlined,
@@ -95,15 +92,14 @@ const isPreRentalQC = (task) => {
 };
 
 export default function TechnicianCalendar() {
-  const [tasks, setTasks] = useState([]);
   const [tasksAll, setTasksAll] = useState([]);
-  const [value, setValue] = useState(dayjs()); // ngày đang xem
   const [detailTask, setDetailTask] = useState(null); // task được click (đầy đủ từ API detail)
   const [drawerOpen, setDrawerOpen] = useState(false);
   const navigate = useNavigate();
   const [orderDetail, setOrderDetail] = useState(null);
   const [customerDetail, setCustomerDetail] = useState(null);
   const [filterStatus, setFilterStatus] = useState("ALL");
+  const [loading, setLoading] = useState(false);
 
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
@@ -148,70 +144,21 @@ export default function TechnicianCalendar() {
   useEffect(() => {
     (async () => {
       try {
-        // Lấy tất cả tasks - backend sẽ tự động filter theo technician đang đăng nhập
+        setLoading(true);
         const allTasksRaw = await listTasks();
         const allTasks = allTasksRaw.map(normalizeTask);
-        
-        // Tách tasks theo status cho calendar (chỉ hiển thị PENDING và IN_PROGRESS)
-        const calendarTasks = allTasks
-          .filter(t => {
-            const s = String(t.status || "").toUpperCase();
-            return s === "PENDING" || s === "IN_PROGRESS";
-          })
-          .map(taskToDisplay);
-        
-        setTasks(calendarTasks);
-        setTasksAll(allTasks.map(taskToDisplay));
+        const display = allTasks.map(taskToDisplay);
+        setTasksAll(display);
       } catch (e) {
         toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
 
-  // filter theo ngày chọn
-  const selectedDate = value.format("YYYY-MM-DD");
-  const dayTasks = useMemo(
-    () =>
-      tasks
-        .filter((t) => dayjs(t.date).format("YYYY-MM-DD") === selectedDate)
-        .sort((a, b) => dayjs(a.date) - dayjs(b.date)),
-    [tasks, selectedDate]
-  );
-
-  /** ---- Render lịch theo ngày ---- */
-  const dateCellRender = (date) => {
-    const items = tasks.filter((t) => dayjs(t.date).isSame(date, "day"));
-    if (!items.length) return null;
-    return (
-      <ul style={{ paddingLeft: 12 }}>
-        {items.slice(0, 3).map((t) => (
-          <li key={t.id} style={{ cursor: "pointer" }} onClick={() => onClickTask(t)}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Badge color={TYPES[t.type]?.color} />
-              <span style={{ fontWeight: 600 }}>
-                {t.taskCategoryName || TYPES[t.type]?.label || t.type}
-              </span>
-              {t.status && (() => {
-                const { bg, text } = getTechnicianStatusColor(t.status);
-                return (
-                  <Tag style={{ marginLeft: 4, backgroundColor: bg, color: text, border: 'none' }}>
-                    {fmtStatus(t.status)}
-                  </Tag>
-                );
-              })()}
-            </div>
-            <div style={{ marginLeft: 18, color: "#555" }}>
-              {dayjs(t.date).format("HH:mm")} – {t.title}
-            </div>
-          </li>
-        ))}
-        {items.length > 3 && <Tag style={{ marginTop: 4 }}>+{items.length - 3}</Tag>}
-      </ul>
-    );
-  };
-
-  // Click item trên lịch hoặc danh sách → luôn mở Drawer
-  const onClickTask = async (task) => {
+  // Click item trên bảng → mở Drawer
+  const onClickTask = useCallback(async (task) => {
     try {
       const full = await getTaskById(task.id);
       if (full) {
@@ -230,7 +177,90 @@ export default function TechnicianCalendar() {
       setDetailTask(task); // Fallback to display task
       setDrawerOpen(true);
     }
-  };
+  }, []);
+
+  // Table columns
+  const columns = useMemo(
+    () => [
+      {
+        title: "Mã nhiệm vụ",
+        dataIndex: "id",
+        key: "id",
+        render: (v, r) => r.id || r.taskId || "—",
+        width: 120,
+      },
+      {
+        title: "Loại",
+        dataIndex: "taskCategoryName",
+        key: "category",
+        render: (_, r) => r.taskCategoryName || TYPES[r.type]?.label || r.type,
+      },
+      {
+        title: "Tiêu đề",
+        dataIndex: "title",
+        key: "title",
+        ellipsis: true,
+      },
+      {
+        title: "Mã đơn hàng",
+        dataIndex: "orderId",
+        key: "orderId",
+        width: 130,
+      },
+      {
+        title: "Bắt đầu",
+        dataIndex: "date",
+        key: "start",
+        render: (d) => (d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—"),
+        width: 180,
+        sorter: (a, b) => dayjs(a.date) - dayjs(b.date),
+        defaultSortOrder: "descend",
+      },
+      {
+        title: "Trạng thái",
+        dataIndex: "status",
+        key: "status",
+        width: 140,
+        render: (s) => {
+          const { bg, text } = getTechnicianStatusColor(s);
+          return <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(s)}</Tag>;
+        },
+        filters: [
+          { text: "PENDING", value: "PENDING" },
+          { text: "IN_PROGRESS", value: "IN_PROGRESS" },
+          { text: "COMPLETED", value: "COMPLETED" },
+          { text: "CANCELLED", value: "CANCELLED" },
+        ],
+        onFilter: (value, record) => String(record.status).toUpperCase() === String(value).toUpperCase(),
+      },
+      {
+        title: "Thao tác",
+        key: "actions",
+        width: 220,
+        render: (_, r) => (
+          <Space>
+            <Button size="small" onClick={() => onClickTask(r)}>Xem</Button>
+            {isPreRentalQC(r) && String(r.status || "").toUpperCase() !== "COMPLETED" && (
+              <Button
+                size="small"
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => {
+                  const taskId = r.taskId || r.id;
+                  navigate(`/technician/tasks/qc/${taskId}`, { state: { task: r } });
+                }}
+              >
+                Tạo QC Report
+              </Button>
+            )}
+          </Space>
+        ),
+      },
+    ],
+    [navigate, onClickTask]
+  );
+
+  
 
   // HANDOVER_CHECK: upload ảnh bằng chứng (UI only)
   const evidenceProps = {
@@ -500,95 +530,35 @@ export default function TechnicianCalendar() {
 
   return (
     <>
-      <Title level={3}>Lịch công việc kỹ thuật</Title>
+      <Title level={3}>Danh sách công việc kỹ thuật</Title>
 
-      <Tabs
-        defaultActiveKey="calendar"
-        items={[
-          {
-            key: "calendar",
-            label: "Lịch",
-            children: (
-              <>
-                <Card>
-                  <Calendar
-                    value={value}
-                    onSelect={setValue}
-                    onPanelChange={setValue}
-                    dateCellRender={dateCellRender}
-                  />
-                </Card>
+      <Space style={{ marginBottom: 12 }}>
+        <span>Lọc trạng thái:</span>
+        <Select
+          style={{ width: 200 }}
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={[
+            { label: "Tất cả", value: "ALL" },
+            { label: "PENDING", value: TECH_TASK_STATUS.PENDING },
+            { label: "IN_PROGRESS", value: TECH_TASK_STATUS.IN_PROGRESS },
+            { label: "COMPLETED", value: TECH_TASK_STATUS.COMPLETED },
+            { label: "CANCELLED", value: "CANCELLED" },
+          ]}
+        />
+      </Space>
 
-                <Card className="mt-4" title={`Công việc ngày ${value.format("DD/MM/YYYY")}`}>
-                  <List
-                    dataSource={dayTasks}
-                    locale={{ emptyText: "Không có công việc trong ngày" }}
-                    renderItem={(t) => (
-                      <List.Item onClick={() => onClickTask(t)} style={{ cursor: "pointer" }}>
-                        <List.Item.Meta
-                          title={
-                            <Space>
-                              <Tag color={TYPES[t.type]?.color}>{TYPES[t.type]?.label}</Tag>
-                              <Text strong>{t.title}</Text>
-                            </Space>
-                          }
-                          description={`${dayjs(t.date).format("HH:mm")} • ${t.device} • ${t.location}`}
-                        />
-                      </List.Item>
-                    )}
-                  />
-                </Card>
-              </>
-            ),
-          },
-          {
-            key: "all",
-            label: "Tất cả",
-            children: (
-              <>
-                <Space style={{ marginBottom: 12 }}>
-                  <span>Lọc trạng thái:</span>
-                  <Select
-                    style={{ width: 200 }}
-                    value={filterStatus}
-                    onChange={setFilterStatus}
-                    options={[
-                      { label: "Tất cả", value: "ALL" },
-                      { label: "PENDING", value: TECH_TASK_STATUS.PENDING },
-                      { label: "IN_PROGRESS", value: TECH_TASK_STATUS.IN_PROGRESS },
-                      { label: "COMPLETED", value: TECH_TASK_STATUS.COMPLETED },
-                      { label: "CANCELLED", value: "CANCELLED" },
-                    ]}
-                  />
-                </Space>
-                <Card>
-                  <List
-                    dataSource={tasksAll.filter((t) =>
-                      filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase()
-                    ).sort((a, b) => dayjs(b.date) - dayjs(a.date))}
-                    renderItem={(t) => (
-                      <List.Item onClick={() => onClickTask(t)} style={{ cursor: "pointer" }}>
-                        <List.Item.Meta
-                          title={
-                            <Space>
-                              <Tag color={TYPES[t.type]?.color}>{TYPES[t.type]?.label}</Tag>
-                              <Text strong>{t.title}</Text>
-                              {(() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
-                                <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
-                              ); })()}
-                            </Space>
-                          }
-                          description={`${dayjs(t.date).format("DD/MM/YYYY HH:mm")} • ${t.device} • ${t.location}`}
-                        />
-                      </List.Item>
-                    )}
-                  />
-                </Card>
-              </>
-            ),
-          },
-        ]}
-      />
+      <Card>
+        <Table
+          rowKey={(r) => r.id || r.taskId}
+          loading={loading}
+          columns={columns}
+          dataSource={tasksAll
+            .filter((t) => (filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase()))
+            .sort((a, b) => dayjs(b.date) - dayjs(a.date))}
+          pagination={{ pageSize: 10, showSizeChanger: true }}
+        />
+      </Card>
 
       <Drawer
         title={detailTask ? detailTask.title : "Chi tiết công việc"}

@@ -15,6 +15,7 @@ import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signC
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -58,22 +59,22 @@ function diffDays(startIso, endIso) {
 async function mapOrderFromApi(order) {
   // ID số cho BE
   const backendId =
-    order?.id ??
-    order?.rentalOrderId ??
-    order?.orderId ??
-    order?.rentalId ??
+    order?.id ||
+    order?.rentalOrderId ||
+    order?.orderId ||
+    order?.rentalId ||
     null;
 
   // Mã hiển thị cho UI
   const displayId =
-    order?.rentalOrderCode ??
-    order?.orderCode ??
-    order?.code ??
+    order?.rentalOrderCode ||
+    order?.orderCode ||
+    order?.code ||
     (backendId != null ? String(backendId) : "—");
 
   // Map items từ orderDetails -> lấy thêm tên/ảnh và các thông tin giá cọc
   const items = await Promise.all(
-    (order?.orderDetails ?? []).map(async (detail) => {
+    (order?.orderDetails || []).map(async (detail) => {
       try {
         const model = detail?.deviceModelId
           ? await getDeviceModelById(detail.deviceModelId)
@@ -819,9 +820,7 @@ export default function MyOrders() {
 
           <div className="flex-1 min-h-0 overflow-auto pb-3">
             {data.length === 0 ? (
-              <div className="h-full flex items-center justify-center">
-                <Empty description="Chưa có đơn nào" />
-              </div>
+              <AnimatedEmpty description="Chưa có đơn nào" />
             ) : (
               <Table
                 rowKey="id"            // id là Long cho BE

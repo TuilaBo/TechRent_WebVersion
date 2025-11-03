@@ -28,7 +28,7 @@ export default function LoginForm() {
       case "TECHNICIAN":
         navigate("/technician", { replace: true });
         break;
-      case "SUPPORT":
+      case "CUSTOMER_SUPPORT_STAFF":
         navigate("/support", { replace: true });
         break;
       default:

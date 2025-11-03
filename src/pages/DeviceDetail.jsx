@@ -3,9 +3,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Row, Col, Card, Typography, Breadcrumb, Space, Divider,
-  InputNumber, Button, Image, Tabs, Skeleton, Carousel
+  InputNumber, Button, Image, Tabs, Skeleton, Carousel, Tag
 } from "antd";
-import { ShoppingCartOutlined, MinusOutlined, PlusOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
+import { 
+  ShoppingCartOutlined, MinusOutlined, PlusOutlined, LeftOutlined, 
+  RightOutlined, CheckCircleFilled, CloseCircleFilled, FireOutlined,
+  SafetyOutlined
+} from "@ant-design/icons";
 import toast from "react-hot-toast";
 
 import { useAuth } from "../context/AuthContext";
@@ -23,7 +27,6 @@ const looksLikeJSON = (s) => {
   return (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
 };
 
-// Flatten object to key/value pairs for readable list
 const flattenEntries = (val, prefix = "") => {
   const out = [];
   const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
@@ -44,7 +47,6 @@ const flattenEntries = (val, prefix = "") => {
   return out;
 };
 
-// Render specs as text list (no JSON block)
 const renderSpecsText = (specs) => {
   if (!specs) return "Chưa có thông số.";
   try {
@@ -52,7 +54,6 @@ const renderSpecsText = (specs) => {
       ? JSON.parse(specs)
       : specs;
 
-    // Nếu sau khi parse vẫn là string thì hiển thị như text
     if (typeof parsed === "string") {
       return <span style={{ whiteSpace: "pre-line" }}>{parsed}</span>;
     }
@@ -61,16 +62,28 @@ const renderSpecsText = (specs) => {
     if (!entries.length) return "Chưa có thông số.";
 
     return (
-      <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+      <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", lineHeight: 1.8 }}>
         {entries.map(([k, v], idx) => (
-          <li key={idx}>
-            <b>{String(k).replace(/\.$/, "")}</b>: {String(v)}
+          <li key={idx} style={{ 
+            padding: "10px 16px", 
+            background: idx % 2 === 0 ? "#fafafa" : "transparent",
+            borderRadius: 6,
+            marginBottom: 2,
+            transition: "all 0.2s"
+          }}
+          className="spec-item"
+          >
+            <span style={{ color: "#666", fontSize: 14, fontWeight: 500 }}>
+              {String(k).replace(/\.$/, "")}
+            </span>
+            <span style={{ float: "right", color: "#111", fontSize: 14, fontWeight: 600 }}>
+              {String(v)}
+            </span>
           </li>
         ))}
       </ul>
     );
   } catch {
-    // Không parse được => hiển thị thuần
     return <span style={{ whiteSpace: "pre-line" }}>{String(specs)}</span>;
   }
 };
@@ -91,13 +104,12 @@ export default function DeviceDetail() {
         setLoading(true);
         const raw = await getDeviceModelById(id);
         const nm = normalizeModel(raw);
-        // fill brand by brandId if missing
         if (!nm.brand && nm.brandId) {
           try {
             const b = await getBrandById(nm.brandId);
             nm.brand = b?.brandName ?? b?.name ?? nm.brand;
           } catch {
-            // Ignore: brand fetch failed, use existing value
+            // Ignore
           }
         }
         setItem(nm);
@@ -109,17 +121,15 @@ export default function DeviceDetail() {
     })();
   }, [id]);
 
-  // Tự động điều chỉnh số lượng khi amountAvailable thay đổi
   useEffect(() => {
     if (item?.amountAvailable !== undefined) {
       const available = item.amountAvailable || 0;
       if (available > 0 && qty > available) {
         setQty(available);
       } else if (available === 0) {
-        setQty(1); // Giữ ở 1 nhưng sẽ bị disable
+        setQty(1);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.amountAvailable]);
 
   const perDaySubtotal = useMemo(
@@ -133,12 +143,11 @@ export default function DeviceDetail() {
     return value > 0 && depositPercent > 0 ? Math.round(value * depositPercent) : null;
   }, [item, depositPercent]);
 
-  // Chuẩn hoá mô tả/thông số (nếu BE để specs trong description)
   const displayDesc =
     item?.specifications
       ? (item?.description || "")
       : looksLikeJSON(item?.description)
-      ? "" // description là JSON => coi là specs, mô tả để trống
+      ? ""
       : (item?.description || "");
 
   const displaySpecs =
@@ -151,7 +160,6 @@ export default function DeviceDetail() {
   const handleAddToCart = async () => {
     if (adding) return;
 
-    // Kiểm tra số lượng còn lại
     const available = item?.amountAvailable || 0;
     if (available === 0) {
       toast.error("Thiết bị không còn đủ để thuê");
@@ -233,7 +241,7 @@ export default function DeviceDetail() {
           const count = getCartCount();
           window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
         } catch {
-          // Ignore: cart count update failed
+          // Ignore
         }
       } else {
         toast.error(result.error || "Không thể thêm vào giỏ hàng");
@@ -247,7 +255,7 @@ export default function DeviceDetail() {
 
   if (loading || !item) {
     return (
-      <div className="min-h-screen" style={{ backgroundColor: "#F9FAFB" }}>
+      <div className="min-h-screen" style={{ backgroundColor: "#fafafa" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Skeleton active paragraph={{ rows: 12 }} />
         </div>
@@ -255,9 +263,11 @@ export default function DeviceDetail() {
     );
   }
 
-  return (
-    <div className="min-h-screen" style={{ backgroundColor: "#F9FAFB" }}>
+  const isAvailable = (item.amountAvailable || 0) > 0;
+  const isLowStock = isAvailable && item.amountAvailable <= 5;
 
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: "#fafafa" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb
           items={[
@@ -266,13 +276,18 @@ export default function DeviceDetail() {
             { title: item.name },
           ]}
           className="mb-6"
-          style={{ fontSize: 16 }}
+          style={{ fontSize: 15 }}
         />
 
-        <Row gutter={[32, 32]}>
-          {/* Gallery trái - Sử dụng Carousel cho hình ảnh */}
+        <Row gutter={[24, 24]}>
+          {/* Gallery */}
           <Col xs={24} lg={14}>
-            <Card bordered={false} className="rounded-2xl shadow-lg overflow-hidden" bodyStyle={{ padding: 0 }}>
+            <Card 
+              bordered={false} 
+              className="rounded-xl shadow-sm overflow-hidden product-card"
+              bodyStyle={{ padding: 0 }}
+              style={{ background: "#fff", border: "1px solid #e5e7eb" }}
+            >
               <Carousel
                 arrows
                 prevArrow={<LeftOutlined />}
@@ -288,78 +303,201 @@ export default function DeviceDetail() {
                       src={src || "https://placehold.co/1200x900?text=No+Image"}
                       alt={`${item.name} ${idx + 1}`}
                       width="100%"
-                      height={500}
-                      style={{ objectFit: "cover", borderRadius: "16px 16px 0 0" }}
+                      height={480}
+                      style={{ objectFit: "cover" }}
                       placeholder
                     />
                   </div>
                 ))}
               </Carousel>
+              
+              {isLowStock && (
+                <div style={{
+                  position: "absolute",
+                  top: 16,
+                  left: 16,
+                  zIndex: 10
+                }}>
+                  <Tag 
+                    icon={<FireOutlined />}
+                    color="error"
+                    style={{ 
+                      fontSize: 13, 
+                      padding: "6px 12px",
+                      fontWeight: 600
+                    }}
+                  >
+                    Sắp hết hàng
+                  </Tag>
+                </div>
+              )}
             </Card>
           </Col>
 
-          {/* Panel phải - Sticky, với shadow mượt hơn */}
+          {/* Info Panel */}
           <Col xs={24} lg={10}>
             <Card
               bordered={false}
-              className="rounded-2xl shadow-lg"
-              style={{ position: "sticky", top: 32, background: "#FFFFFF" }}
-              bodyStyle={{ padding: 32 }}
+              className="rounded-xl shadow-sm info-card"
+              style={{ 
+                position: "sticky", 
+                top: 24,
+                background: "#fff",
+                border: "1px solid #e5e7eb"
+              }}
+              bodyStyle={{ padding: 28 }}
             >
-              <div className="mb-6">
-                <Title level={2} style={{ marginBottom: 8, fontFamily: "'Inter', sans-serif", color: "#101828", fontWeight: 600 }}>
+              <div className="mb-5">
+                <Title level={2} style={{ 
+                  marginBottom: 8, 
+                  fontFamily: "'Inter', sans-serif", 
+                  color: "#111",
+                  fontWeight: 700,
+                  fontSize: 26,
+                  lineHeight: 1.3
+                }}>
                   {item.name}
                 </Title>
-                <Text style={{ color: "#475467", fontSize: 16 }}>
-                  Thương hiệu: <b style={{ color: "#101828" }}>{item.brand || "—"}</b>
-                </Text>
-                <Text style={{ color: "#667085", fontSize: 14, marginTop: 8, display: "block" }}>
-                  Số lượng còn lại: <b style={{ color: item.amountAvailable > 0 ? "#52c41a" : "#ff4d4f" }}>
-                    {item.amountAvailable || 0}
-                  </b> thiết bị
-                </Text>
+                
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <Text style={{ color: "#666", fontSize: 14 }}>Thương hiệu:</Text>
+                  <Tag style={{ 
+                    fontSize: 13, 
+                    padding: "4px 10px",
+                    fontWeight: 600,
+                    border: "1px solid #e5e7eb",
+                    background: "#fafafa"
+                  }}>
+                    {item.brand || "—"}
+                  </Tag>
+                </div>
+
+                <div style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  background: isAvailable ? "#f0fdf4" : "#fef2f2",
+                  border: `1px solid ${isAvailable ? "#86efac" : "#fecaca"}`,
+                  borderRadius: 8
+                }}>
+                  {isAvailable ? (
+                    <CheckCircleFilled style={{ color: "#16a34a", fontSize: 14 }} />
+                  ) : (
+                    <CloseCircleFilled style={{ color: "#dc2626", fontSize: 14 }} />
+                  )}
+                  <Text style={{ 
+                    color: isAvailable ? "#15803d" : "#991b1b", 
+                    fontSize: 13, 
+                    fontWeight: 600, 
+                    margin: 0 
+                  }}>
+                    {isAvailable 
+                      ? `Còn ${item.amountAvailable} thiết bị` 
+                      : "Hết hàng"}
+                  </Text>
+                </div>
               </div>
 
-              <Divider className="my-6" style={{ borderColor: "#EAECF0" }} />
+              <Divider style={{ margin: "20px 0", borderColor: "#e5e7eb" }} />
 
-              {/* Giá / ngày */}
+              {/* Price */}
               <div className="mb-4">
-                <Text className="block text-base mb-1" style={{ color: "#667085", fontWeight: 500 }}>Giá / ngày</Text>
-                <Title level={3} style={{ margin: 0, fontFamily: "'Inter', sans-serif", color: "#101828" }}>
+                <Text className="block mb-2" style={{ 
+                  color: "#666", 
+                  fontWeight: 500,
+                  fontSize: 13,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px"
+                }}>
+                  Giá thuê / ngày
+                </Text>
+                <Title level={3} style={{ 
+                  margin: 0, 
+                  fontFamily: "'Inter', sans-serif",
+                  color: "#111",
+                  fontWeight: 700,
+                  fontSize: 32
+                }}>
                   {fmtVND(item.pricePerDay)}
                 </Title>
               </div>
 
-              {/* Tiền cọc + giải thích theo giá trị máy */}
+              {/* Deposit */}
               {depositAmount !== null && (
-                <div className="mb-6">
-                  <Text className="block text-base mb-1" style={{ color: "#667085", fontWeight: 500 }}>Tiền cọc</Text>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <Title level={4} style={{ margin: 0, fontFamily: "'Inter', sans-serif", color: "#101828" }}>
-                      {fmtVND(depositAmount)}
-                    </Title>
-                    <Text style={{ color: "#667085" }}>
-                      ({Math.round(depositPercent * 100)}%)
+                <div className="mb-5" style={{
+                  background: "#fffbeb",
+                  padding: "14px",
+                  borderRadius: 10,
+                  border: "1px solid #fde68a"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                    <SafetyOutlined style={{ color: "#d97706", fontSize: 16 }} />
+                    <Text style={{ 
+                      color: "#92400e", 
+                      fontWeight: 600,
+                      fontSize: 13,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.3px"
+                    }}>
+                      Tiền cọc
                     </Text>
                   </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <Title level={4} style={{ 
+                      margin: 0, 
+                      color: "#b45309",
+                      fontWeight: 700,
+                      fontSize: 22
+                    }}>
+                      {fmtVND(depositAmount)}
+                    </Title>
+                    <Tag style={{ 
+                      fontWeight: 600, 
+                      fontSize: 12,
+                      background: "#fed7aa",
+                      border: "none",
+                      color: "#92400e"
+                    }}>
+                      {Math.round(depositPercent * 100)}%
+                    </Tag>
+                  </div>
                   {Number(item?.deviceValue || 0) > 0 && (
-                    <Text type="secondary" style={{ display: "block", marginTop: 6 }}>
-                      Công thức: Giá trị máy {fmtVND(item.deviceValue)} × {Math.round(depositPercent * 100)}% = {fmtVND(depositAmount)}
+                    <Text type="secondary" style={{ 
+                      display: "block", 
+                      marginTop: 6,
+                      fontSize: 12,
+                      color: "#78716c"
+                    }}>
+                      Giá trị máy {fmtVND(item.deviceValue)} × {Math.round(depositPercent * 100)}%
                     </Text>
                   )}
                 </div>
               )}
 
-              {/* Số lượng */}
-              <div className="mb-6">
-                <Text strong className="block mb-2 text-lg" style={{ color: "#101828", fontWeight: 600 }}>Số lượng</Text>
-                <Space.Compact style={{ width: 200 }}>
+              {/* Quantity */}
+              <div className="mb-5">
+                <Text strong className="block mb-2" style={{ 
+                  color: "#111", 
+                  fontWeight: 600,
+                  fontSize: 14
+                }}>
+                  Số lượng
+                </Text>
+                <Space.Compact style={{ width: "100%" }}>
                   <Button
-                    size="large"
+                    size="middle"
                     onClick={() => setQty((q) => Math.max(1, q - 1))}
                     icon={<MinusOutlined />}
-                    style={{ height: 48, width: 48, borderRadius: "12px 0 0 12px", borderColor: "#D0D5DD" }}
-                    disabled={adding || (item.amountAvailable || 0) === 0}
+                    style={{ 
+                      height: 40, 
+                      width: 40, 
+                      borderRadius: "8px 0 0 8px",
+                      borderColor: "#d1d5db",
+                      transition: "all 0.2s"
+                    }}
+                    className="qty-btn"
+                    disabled={adding || !isAvailable}
                   />
                   <InputNumber
                     min={1}
@@ -371,98 +509,139 @@ export default function DeviceDetail() {
                         setQty(Math.min(Math.max(1, v || 1), max));
                       }
                     }}
-                    style={{ width: 104, height: 48, textAlign: "center", fontSize: 18, borderRadius: 0, borderColor: "#D0D5DD" }}
-                    disabled={adding || (item.amountAvailable || 0) === 0}
+                    style={{ 
+                      flex: 1,
+                      height: 40, 
+                      textAlign: "center", 
+                      fontSize: 16,
+                      fontWeight: 600,
+                      borderRadius: 0,
+                      borderColor: "#d1d5db",
+                      borderLeft: "none",
+                      borderRight: "none"
+                    }}
+                    disabled={adding || !isAvailable}
                   />
                   <Button
-                    size="large"
+                    size="middle"
                     onClick={() => {
                       const max = item.amountAvailable || 0;
                       setQty((q) => Math.min(q + 1, max));
                     }}
                     icon={<PlusOutlined />}
-                    style={{ height: 48, width: 48, borderRadius: "0 12px 12px 0", borderColor: "#D0D5DD" }}
-                    disabled={adding || (item.amountAvailable || 0) === 0 || qty >= (item.amountAvailable || 0)}
+                    style={{ 
+                      height: 40, 
+                      width: 40, 
+                      borderRadius: "0 8px 8px 0",
+                      borderColor: "#d1d5db",
+                      transition: "all 0.2s"
+                    }}
+                    className="qty-btn"
+                    disabled={adding || !isAvailable || qty >= (item.amountAvailable || 0)}
                   />
                 </Space.Compact>
-                {(item.amountAvailable || 0) === 0 && (
-                  <Text type="danger" style={{ display: "block", marginTop: 8, fontSize: 13 }}>
-                     Thiết bị đã hết hàng
-                  </Text>
-                )}
-                {(item.amountAvailable || 0) > 0 && qty > (item.amountAvailable || 0) && (
-                  <Text type="warning" style={{ display: "block", marginTop: 8, fontSize: 13 }}>
-                     Chỉ còn {item.amountAvailable} thiết bị
+                {!isAvailable && (
+                  <Text type="danger" style={{ 
+                    display: "block", 
+                    marginTop: 8, 
+                    fontSize: 13,
+                    fontWeight: 500
+                  }}>
+                    ⚠️ Thiết bị đã hết hàng
                   </Text>
                 )}
               </div>
 
-              {/* Thêm giỏ */}
+              {/* Add to cart */}
               <Button
                 type="primary"
                 size="large"
-                icon={<ShoppingCartOutlined />}
-                className="w-full btn-primary"
+                icon={adding ? null : <ShoppingCartOutlined style={{ fontSize: 16 }} />}
+                className="w-full add-to-cart-btn"
                 onClick={handleAddToCart}
                 loading={adding}
-                disabled={adding || (item.amountAvailable || 0) === 0 || qty > (item.amountAvailable || 0)}
-                title={(item.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
+                disabled={adding || !isAvailable || qty > (item.amountAvailable || 0)}
                 style={{ 
-                  background: (item.amountAvailable || 0) > 0 && qty <= (item.amountAvailable || 0) ? "#101828" : "#ccc", 
+                  background: isAvailable && qty <= (item.amountAvailable || 0) ? "#111" : "#d1d5db",
                   border: "none", 
-                  borderRadius: 12, 
-                  height: 52, 
-                  fontSize: 16, 
-                  fontWeight: 500 
+                  borderRadius: 10, 
+                  height: 44, 
+                  fontSize: 15, 
+                  fontWeight: 600,
+                  transition: "all 0.2s"
                 }}
               >
-                {adding ? "Đang thêm..." : (item.amountAvailable || 0) === 0 ? "Hết hàng" : "Thêm vào giỏ"}
+                {adding ? "Đang thêm..." : !isAvailable ? "Hết hàng" : "Thêm vào giỏ"}
               </Button>
 
               {/* Subtotal */}
-              <div className="mt-4 text-center">
-                <Text style={{ color: "#667085" }}>Tạm tính / ngày: </Text>
-                <Text strong style={{ color: "#101828", fontSize: 16 }}>{fmtVND(perDaySubtotal)}</Text>
+              <div style={{
+                marginTop: 16,
+                padding: "12px",
+                background: "#fafafa",
+                borderRadius: 8,
+                textAlign: "center",
+                border: "1px solid #e5e7eb"
+              }}>
+                <Text style={{ color: "#666", fontSize: 14 }}>Tạm tính / ngày: </Text>
+                <Text strong style={{ 
+                  color: "#111", 
+                  fontSize: 16,
+                  fontWeight: 700
+                }}>
+                  {fmtVND(perDaySubtotal)}
+                </Text>
               </div>
             </Card>
           </Col>
         </Row>
 
-        {/* Tabs dưới - Với padding lớn hơn */}
-        <Row gutter={[32, 32]} className="mt-12">
+        {/* Tabs */}
+        <Row gutter={[24, 24]} className="mt-10">
           <Col xs={24} lg={14}>
-            <Card bordered={false} className="rounded-2xl shadow-lg" bodyStyle={{ padding: 32, background: "#FFFFFF" }}>
+            <Card 
+              bordered={false} 
+              className="rounded-xl shadow-sm"
+              bodyStyle={{ padding: 28, background: "#fff" }}
+              style={{ border: "1px solid #e5e7eb" }}
+            >
               <Tabs
                 defaultActiveKey="desc"
                 size="large"
                 items={[
                   {
                     key: "desc",
-                    label: "Mô tả",
+                    label: <span style={{ fontSize: 15, fontWeight: 600 }}>Mô tả</span>,
                     children: (
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-line", fontSize: 16, lineHeight: 1.8, color: "#344054" }}>
+                      <Paragraph style={{ 
+                        marginBottom: 0, 
+                        whiteSpace: "pre-line", 
+                        fontSize: 15, 
+                        lineHeight: 1.7, 
+                        color: "#374151"
+                      }}>
                         {displayDesc || "Chưa có mô tả."}
                       </Paragraph>
                     ),
                   },
                   {
                     key: "spec",
-                    label: "Thông số",
+                    label: <span style={{ fontSize: 15, fontWeight: 600 }}>Thông số</span>,
                     children: (
-                      <Paragraph style={{ marginBottom: 0, fontSize: 16, lineHeight: 1.8, color: "#344054" }}>
+                      <div style={{ marginBottom: 0 }}>
                         {renderSpecsText(displaySpecs)}
-                      </Paragraph>
+                      </div>
                     ),
                   },
                 ]}
-                tabBarStyle={{ marginBottom: 24 }}
+                tabBarStyle={{ marginBottom: 20 }}
               />
             </Card>
           </Col>
         </Row>
       </div>
 
-      {/* Sản phẩm liên quan */}
+      {/* Related products */}
       {item?.categoryId && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <RelatedCard categoryId={item.categoryId} excludeId={item.id} />
@@ -471,52 +650,111 @@ export default function DeviceDetail() {
 
       <style>{`
         .product-carousel .ant-carousel .slick-arrow {
-          color: #667085;
-          font-size: 24px;
-          background: rgba(255, 255, 255, 0.8);
+          color: #666;
+          font-size: 20px;
+          background: rgba(255, 255, 255, 0.9);
           border-radius: 50%;
-          padding: 8px;
-          transition: all 0.3s;
+          width: 36px;
+          height: 36px;
+          display: flex !important;
+          align-items: center;
+          justify-content: center;
+          z-index: 10;
+          transition: all 0.2s;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
         .product-carousel .ant-carousel .slick-arrow:hover {
-          color: #101828;
-          background: #FFFFFF;
+          color: #111;
+          background: #fff;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        .product-carousel .ant-carousel .slick-dots {
+          bottom: 16px;
         }
         .product-carousel .ant-carousel .slick-dots li button {
-          background: #D0D5DD;
-          height: 4px;
+          background: rgba(0, 0, 0, 0.2);
+          height: 3px;
           border-radius: 2px;
+          transition: all 0.3s;
         }
         .product-carousel .ant-carousel .slick-dots li.slick-active button {
-          background: #101828;
+          background: #111;
+          width: 24px;
         }
         .carousel-item {
           display: flex !important;
           justify-content: center;
           align-items: center;
-          height: 500px;
+          height: 480px;
           overflow: hidden;
+          background: #fafafa;
         }
-        .btn-primary:hover, .btn-primary:focus {
-          background: #0A1120 !important;
+        .add-to-cart-btn:hover:not(:disabled) {
+          background: #000 !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .add-to-cart-btn:active:not(:disabled) {
+          transform: translateY(0);
+        }
+        .qty-btn:hover:not(:disabled) {
+          border-color: #111 !important;
+          color: #111 !important;
+          background: #fafafa !important;
+        }
+        .ant-tabs-tab {
+          padding: 10px 0;
+          transition: all 0.2s;
         }
         .ant-tabs-tab-btn {
-          color: #667085 !important;
-          font-weight: 500;
-          font-size: 16px;
+          color: #666 !important;
+          transition: all 0.2s;
+        }
+        .ant-tabs-tab:hover .ant-tabs-tab-btn {
+          color: #111 !important;
         }
         .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
-          color: #101828 !important;
-          font-weight: 600;
+          color: #111 !important;
+          font-weight: 700;
         }
         .ant-tabs-ink-bar {
-          background: #101828 !important;
+          background: #111 !important;
+          height: 2px !important;
         }
-        .ant-card {
-          transition: box-shadow 0.3s;
+        .product-card, .info-card {
+          transition: all 0.2s;
         }
-        .ant-card:hover {
-          box-shadow: 0 4px 20px rgba(16, 24, 40, 0.1) !important;
+        .product-card:hover {
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+        }
+        .info-card:hover {
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+        }
+        .spec-item:hover {
+          background: #f3f4f6 !important;
+        }
+        .ant-input-number:focus,
+        .ant-input-number-focused {
+          border-color: #111 !important;
+          box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05) !important;
+        }
+        .ant-breadcrumb a {
+          color: #666;
+          transition: color 0.2s;
+        }
+        .ant-breadcrumb a:hover {
+          color: #111;
+        }
+        
+        @media (max-width: 768px) {
+          .carousel-item {
+            height: 300px;
+          }
+          .product-carousel .ant-carousel .slick-arrow {
+            width: 32px;
+            height: 32px;
+            font-size: 16px;
+          }
         }
       `}</style>
     </div>

@@ -15,19 +15,22 @@ import {
   Pagination,
   Skeleton,
   Alert,
+  Tag,
 } from "antd";
 import {
   AppstoreOutlined,
   BarsOutlined,
   ShoppingCartOutlined,
+  FilterOutlined,
+  ClearOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { useAuth } from "../context/AuthContext"; // <-- thêm
+import { useAuth } from "../context/AuthContext";
 import { fetchCategoryById } from "../lib/categoryApi";
 import { getDeviceModels, normalizeModel } from "../lib/deviceModelsApi";
 import { getBrandById } from "../lib/deviceManage";
-import { addToCart, getCartCount } from "../lib/cartUtils"; // <-- thêm
+import { addToCart, getCartCount } from "../lib/cartUtils";
 
 const { Title, Text } = Typography;
 
@@ -42,18 +45,16 @@ const PRICE_BUCKETS = [
 export default function RentalList() {
   const { id: categoryId } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth(); // <-- thêm
+  const { isAuthenticated } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [category, setCategory] = useState(null);
   const [models, setModels] = useState([]);
 
-  // anti-spam theo item id
-  const [addingMap, setAddingMap] = useState({}); // { [id]: boolean }
-  const [justAdded, setJustAdded] = useState({}); // hiệu ứng pulse card
+  const [addingMap, setAddingMap] = useState({});
+  const [justAdded, setJustAdded] = useState({});
 
-  // Filters
   const [selectedBrands, setSelectedBrands] = useState([]);
   const [priceKey, setPriceKey] = useState(null);
   const [layout, setLayout] = useState("grid");
@@ -70,10 +71,8 @@ export default function RentalList() {
       try {
         const cat = await fetchCategoryById(categoryId);
         setCategory(cat ?? null);
-        // lấy tất cả rồi lọc FE theo categoryId
         const all = await getDeviceModels();
         const normalized = (Array.isArray(all) ? all : []).map(normalizeModel);
-        // enrich brand names where available by brandId
         const enriched = await Promise.all(
           normalized.map(async (m) => {
             if (!m.brand && m.brandId) {
@@ -119,19 +118,22 @@ export default function RentalList() {
 
   const paged = useMemo(() => {
     const start = (page - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
+    const sorted = [...filtered].sort((a, b) => {
+      const avA = Number(a?.amountAvailable || 0) > 0 ? 1 : 0;
+      const avB = Number(b?.amountAvailable || 0) > 0 ? 1 : 0;
+      return avB - avA; // còn hàng trước
+    });
+    return sorted.slice(start, start + pageSize);
   }, [filtered, page]);
 
   const formatMoney = (n) =>
     Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 
-  // Thêm vào giỏ với chặn spam + yêu cầu đăng nhập + toast 2 nút
   const onAdd = async (e, item) => {
     e.stopPropagation();
     const id = item.deviceModelId ?? item.id;
     if (addingMap[id]) return;
 
-    // Kiểm tra số lượng còn lại
     const available = item.amountAvailable || 0;
     if (available === 0) {
       toast.error("Thiết bị không còn đủ để thuê");
@@ -145,13 +147,13 @@ export default function RentalList() {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => { toast.dismiss(t.id); navigate("/login"); }}
-              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #111827", background: "#111827", color: "#fff", cursor: "pointer" }}
+              style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#000", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: 14 }}
             >
               Đăng nhập
             </button>
             <button
               onClick={() => toast.dismiss(t.id)}
-              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", color: "#111827", cursor: "pointer" }}
+              style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#000", cursor: "pointer", fontWeight: 500, fontSize: 14 }}
             >
               Để sau
             </button>
@@ -165,7 +167,6 @@ export default function RentalList() {
       setAddingMap((m) => ({ ...m, [id]: true }));
       const result = await addToCart(id, 1);
       if (result.success) {
-        // hiệu ứng pulse card
         setJustAdded((s) => ({ ...s, [id]: true }));
         setTimeout(() => {
           setJustAdded((s) => {
@@ -174,30 +175,30 @@ export default function RentalList() {
           });
         }, 700);
 
-        // toast + 2 lựa chọn
         const name = item.deviceName ?? item.name ?? "Thiết bị";
         const price = item.pricePerDay ?? item.dailyPrice ?? 0;
         toast.success((t) => (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div><b>{name}</b> đã thêm vào giỏ • <b>{formatMoney(price)}/ngày</b></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 14 }}>
+              <b>{name}</b> đã thêm vào giỏ • <b>{formatMoney(price)}/ngày</b>
+            </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => { toast.dismiss(t.id); navigate("/cart"); }}
-                style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #111827", background: "#111827", color: "#fff", cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#000", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: 14 }}
               >
                 Xem giỏ hàng
               </button>
               <button
                 onClick={() => { toast.dismiss(t.id); navigate(`/devices/${id}`); }}
-                style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", color: "#111827", cursor: "pointer" }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#fff", color: "#000", cursor: "pointer", fontWeight: 500, fontSize: 14 }}
               >
                 Xem chi tiết
               </button>
             </div>
           </div>
-        ), { duration: 2500 });
+        ), { duration: 3000 });
 
-        // cho header biết để bump badge
         try {
           const count = getCartCount();
           window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
@@ -214,13 +215,13 @@ export default function RentalList() {
     }
   };
 
-  // Card Grid
   const GridCard = ({ item }) => {
     const id = item.deviceModelId ?? item.id;
     const price = item.pricePerDay ?? item.dailyPrice ?? 0;
     const name = item.deviceName ?? item.name ?? "Thiết bị";
     const brand = item.brand ?? item.manufacturer ?? "";
     const image = item.imageURL ?? item.imageUrl ?? item.image ?? "";
+    const available = item.amountAvailable || 0;
 
     const gotoDetail = () => navigate(`/devices/${id}`);
 
@@ -234,58 +235,148 @@ export default function RentalList() {
         className={justAdded[id] ? "added" : ""}
         style={{
           width: "100%",
-          maxWidth: 300,
+          maxWidth: 320,
           background: "#fff",
-          borderRadius: 8,
+          borderRadius: 16,
           overflow: "hidden",
-          boxShadow: "0 2px 8px rgba(0,0,0,.05)",
-          transition: "all .3s ease",
+          boxShadow: "0 2px 12px rgba(0,0,0,.06)",
+          transition: "all .3s cubic-bezier(0.4, 0, 0.2, 1)",
           cursor: "pointer",
           display: "flex",
           flexDirection: "column",
-          minHeight: 350,
+          minHeight: 380,
           margin: "0 auto",
+          border: "1px solid rgba(0,0,0,.05)",
         }}
       >
-        <div style={{ height: 200, overflow: "hidden" }}>
+        <div style={{ position: "relative", height: 220, overflow: "hidden", background: "#f5f5f5" }}>
           <img
             alt={name}
             src={image || "https://placehold.co/800x600?text=No+Image"}
-            style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform .3s ease" }}
+            style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform .4s ease" }}
           />
+          {available === 0 && (
+            <div style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              background: "rgba(255,77,79,0.95)",
+              color: "#fff",
+              padding: "6px 14px",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 700,
+              backdropFilter: "blur(4px)",
+            }}>
+              Hết hàng
+            </div>
+          )}
+          {available > 0 && available <= 3 && (
+            <div style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              background: "rgba(250,173,20,0.95)",
+              color: "#fff",
+              padding: "6px 14px",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 700,
+              backdropFilter: "blur(4px)",
+            }}>
+              Sắp hết
+            </div>
+          )}
         </div>
 
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: "#333", margin: 0 }}>{name}</h3>
-          <p style={{ color: "#666", fontSize: 14, margin: 0 }}>{brand}</p>
-          <p style={{ color: "#667085", fontSize: 13, margin: "4px 0 0 0" }}>
-            Còn lại: <b style={{ color: (item.amountAvailable || 0) > 0 ? "#52c41a" : "#ff4d4f" }}>
-              {item.amountAvailable || 0}
-            </b> thiết bị
-          </p>
-        </div>
-
-        <div style={{ padding: "0 16px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}>
-              {formatMoney(price)}/ngày
+        <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+          {brand && (
+            <div style={{ marginBottom: 2 }}>
+              <Tag 
+                style={{ 
+                  border: "none", 
+                  background: "rgba(0,0,0,0.05)", 
+                  color: "#666",
+                  fontSize: 11,
+                  padding: "2px 10px",
+                  borderRadius: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {brand}
+              </Tag>
+            </div>
+          )}
+          <h3 style={{ 
+            fontSize: 17, 
+            fontWeight: 700, 
+            color: "#1a1a1a", 
+            margin: 0,
+            lineHeight: 1.3,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}>
+            {name}
+          </h3>
+          <div style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 6,
+            marginTop: 4,
+          }}>
+            <span style={{ 
+              fontSize: 13, 
+              color: "#888",
+              fontWeight: 500,
+            }}>
+              Còn lại:
+            </span>
+            <span style={{ 
+              fontSize: 14,
+              fontWeight: 700,
+              color: available > 3 ? "#52c41a" : available > 0 ? "#faad14" : "#ff4d4f",
+            }}>
+              {available}
             </span>
           </div>
+        </div>
+
+        <div style={{ 
+          padding: "0 18px 18px", 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "space-between",
+          gap: 12,
+        }}>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontSize: 12, color: "#888", fontWeight: 500 }}>Giá thuê</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: "#000", lineHeight: 1.2 }}>
+              {formatMoney(price)}
+            </span>
+            <span style={{ fontSize: 11, color: "#999", fontWeight: 500 }}>/ngày</span>
+          </div>
           <Button
+            type="primary"
+            size="large"
             style={{ 
-              background: (item.amountAvailable || 0) > 0 ? "#000" : "#ccc", 
+              background: available > 0 ? "#000" : "#d9d9d9", 
+              borderColor: available > 0 ? "#000" : "#d9d9d9",
               color: "#fff", 
-              border: "none", 
-              borderRadius: 4, 
-              padding: "8px 16px" 
+              borderRadius: 12,
+              fontWeight: 700,
+              fontSize: 14,
+              height: 44,
+              padding: "0 20px",
+              boxShadow: available > 0 ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
             }}
             icon={<ShoppingCartOutlined />}
             loading={!!addingMap[id]}
-            disabled={!!addingMap[id] || (item.amountAvailable || 0) === 0}
-            title={(item.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
+            disabled={!!addingMap[id] || available === 0}
             onClick={(e) => onAdd(e, item)}
           >
-            {addingMap[id] ? "Đang thêm..." : "Thuê ngay"}
+            {addingMap[id] ? "Đang thêm" : "Thuê ngay"}
           </Button>
         </div>
       </div>
@@ -294,14 +385,14 @@ export default function RentalList() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Skeleton active paragraph={{ rows: 10 }} />
       </div>
     );
   }
   if (err) {
     return (
-      <div className="max-w-7xl mx_auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Alert type="error" message={err} showIcon />
       </div>
     );
@@ -310,51 +401,137 @@ export default function RentalList() {
   const title = category?.name ?? category?.categoryName ?? "Danh mục";
 
   return (
-    <div className="min-h-screen" style={{ background: "#FAFAFA" }}>
-      {/* toast hiển thị qua Toaster global */}
+    <div className="min-h-screen" style={{ background: "linear-gradient(180deg, #fafafa 0%, #fff 100%)" }}>
+      <style>{`
+        [data-card]:hover { 
+          transform: translateY(-6px); 
+          box-shadow: 0 8px 24px rgba(0,0,0,0.12); 
+          border-color: rgba(0,0,0,0.1);
+        }
+        [data-card]:hover img { transform: scale(1.08); }
+        [data-card]:focus { outline: 2px solid #000; outline-offset: 2px; }
+        [data-card]:active { transform: translateY(-2px); }
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        .added { animation: card-pulse 700ms cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes card-pulse {
+          0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
+          50%  { box-shadow: 0 0 0 8px rgba(0,0,0,0.1); transform: scale(1.02); }
+          100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
+        }
+
+        .filter-card {
+          border-radius: 16px !important;
+          border: 1px solid rgba(0,0,0,0.06) !important;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.04) !important;
+        }
+
+        .filter-section {
+          padding: 16px 0;
+        }
+
+        .ant-radio-wrapper, .ant-checkbox-wrapper {
+          font-weight: 500 !important;
+          color: #333 !important;
+          padding: 8px 0;
+          transition: all 0.2s ease;
+        }
+
+        .ant-radio-wrapper:hover, .ant-checkbox-wrapper:hover {
+          color: #000 !important;
+        }
+
+        .header-bar {
+          background: #fff;
+          border: 1px solid rgba(0,0,0,0.06);
+          border-radius: 16px;
+          padding: 18px 24px;
+          margin-bottom: 24px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+        }
+
+        .filter-btn {
+          border-radius: 10px !important;
+          font-weight: 600 !important;
+          height: 42px !important;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .filter-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+        }
+
+        .ant-pagination-item {
+          border-radius: 8px !important;
+          font-weight: 600 !important;
+        }
+
+        .ant-pagination-item-active {
+          background: #000 !important;
+          border-color: #000 !important;
+        }
+
+        .ant-pagination-item-active a {
+          color: #fff !important;
+        }
+      `}</style>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Row gutter={[24, 24]}>
           {/* Sidebar */}
           <Col xs={24} md={8} lg={6} xl={5}>
-            <Card bordered bodyStyle={{ padding: 16 }} style={{ borderColor: "#E5E7EB", background: "#fff" }}>
-              <Title level={5} style={{ marginTop: 0 }}>Bộ lọc</Title>
+            <Card className="filter-card" bodyStyle={{ padding: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                <FilterOutlined style={{ fontSize: 20 }} />
+                <Title level={4} style={{ margin: 0, fontWeight: 700 }}>Bộ lọc</Title>
+              </div>
 
-              <div>
-                <Text strong>GIÁ SẢN PHẨM –</Text>
-                <div style={{ marginTop: 8 }}>
+              <div className="filter-section">
+                <Text strong style={{ fontSize: 15, color: "#1a1a1a", fontWeight: 700 }}>Giá thuê</Text>
+                <div style={{ marginTop: 12 }}>
                   <Radio.Group value={priceKey} onChange={(e) => { setPriceKey(e.target.value); setPage(1); }}>
-                    <Space direction="vertical">
+                    <Space direction="vertical" style={{ width: "100%" }}>
                       {PRICE_BUCKETS.map((b) => <Radio key={b.key} value={b.key}>{b.label}</Radio>)}
                     </Space>
                   </Radio.Group>
                 </div>
               </div>
 
-              <Divider />
+              <Divider style={{ margin: "20px 0" }} />
 
-              <div>
-                <Text strong>Brand</Text>
-                <div style={{ marginTop: 8 }}>
+              <div className="filter-section">
+                <Text strong style={{ fontSize: 15, color: "#1a1a1a", fontWeight: 700 }}>Thương hiệu</Text>
+                <div style={{ marginTop: 12 }}>
                   <Checkbox.Group
                     value={selectedBrands}
                     onChange={(vals) => { setSelectedBrands(vals || []); setPage(1); }}
                   >
-                    <Space direction="vertical">
+                    <Space direction="vertical" style={{ width: "100%" }}>
                       {BRANDS.map((b) => <Checkbox key={b} value={b}>{b}</Checkbox>)}
                     </Space>
                   </Checkbox.Group>
                 </div>
               </div>
 
-              <Divider />
+              <Divider style={{ margin: "20px 0" }} />
 
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <Button type="primary" block style={{ background: "#111827", borderColor: "#111827" }} onClick={() => setPage(1)}>
-                  Áp dụng
+              <Space direction="vertical" style={{ width: "100%", gap: 10 }}>
+                <Button 
+                  type="primary" 
+                  block 
+                  className="filter-btn"
+                  style={{ background: "#000", borderColor: "#000" }} 
+                  onClick={() => setPage(1)}
+                >
+                  Áp dụng bộ lọc
                 </Button>
-                <Button block onClick={() => { setSelectedBrands([]); setPriceKey(null); setPage(1); }}>
-                  Xoá tất cả
+                <Button 
+                  block 
+                  className="filter-btn"
+                  icon={<ClearOutlined />}
+                  onClick={() => { setSelectedBrands([]); setPriceKey(null); setPage(1); }}
+                >
+                  Xóa bộ lọc
                 </Button>
               </Space>
             </Card>
@@ -362,48 +539,80 @@ export default function RentalList() {
 
           {/* Content */}
           <Col xs={24} md={16} lg={18} xl={19}>
-            <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 12, marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <Title level={4} style={{ margin: 0 }}>{title}</Title>
-                <Space>
-                  <Badge count={filtered.length} color="#111827" />
-                  <Radio.Group value={layout} onChange={(e) => setLayout(e.target.value)} optionType="button">
-                    <Tooltip title="Lưới"><Radio.Button value="grid"><AppstoreOutlined /></Radio.Button></Tooltip>
-                    <Tooltip title="Danh sách"><Radio.Button value="list"><BarsOutlined /></Radio.Button></Tooltip>
+            <div className="header-bar">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+                <div>
+                  <Title level={3} style={{ margin: 0, fontWeight: 800 }}>{title}</Title>
+                  <Text style={{ color: "#666", fontSize: 14, fontWeight: 500 }}>
+                    {filtered.length} sản phẩm
+                  </Text>
+                </div>
+                <Space size={12}>
+                  <Badge 
+                    count={filtered.length} 
+                    style={{ 
+                      background: "#000", 
+                      fontWeight: 700,
+                      fontSize: 13,
+                      padding: "0 10px",
+                      height: 24,
+                      lineHeight: "24px",
+                    }} 
+                  />
+                  <Radio.Group 
+                    value={layout} 
+                    onChange={(e) => setLayout(e.target.value)} 
+                    optionType="button"
+                    buttonStyle="solid"
+                  >
+                    <Tooltip title="Lưới">
+                      <Radio.Button value="grid"><AppstoreOutlined /></Radio.Button>
+                    </Tooltip>
+                    <Tooltip title="Danh sách">
+                      <Radio.Button value="list"><BarsOutlined /></Radio.Button>
+                    </Tooltip>
                   </Radio.Group>
                 </Space>
               </div>
             </div>
 
-            {/* Grid */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                gap: 20,
-                justifyItems: "center",
-              }}
-            >
-              {paged.map((item) => <GridCard key={item.deviceModelId ?? item.id} item={item} />)}
-            </div>
+            {paged.length === 0 ? (
+              <div style={{ 
+                textAlign: "center", 
+                padding: "60px 20px",
+                background: "#fff",
+                borderRadius: 16,
+                border: "1px solid rgba(0,0,0,0.06)",
+              }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
+                <Title level={4} style={{ color: "#666" }}>Không tìm thấy sản phẩm nào</Title>
+                <Text style={{ color: "#999" }}>Thử điều chỉnh bộ lọc của bạn</Text>
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                    gap: 24,
+                    justifyItems: "center",
+                  }}
+                >
+                  {paged.map((item) => <GridCard key={item.deviceModelId ?? item.id} item={item} />)}
+                </div>
 
-            <style>{`
-              [data-card]:hover { transform: translateY(-4px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-              [data-card]:hover img { transform: scale(1.05); }
-              [data-card]:focus { outline: 2px solid #1890ff; }
-
-              /* pulse khi add */
-              .added { animation: card-pulse 600ms ease; }
-              @keyframes card-pulse {
-                0%   { box-shadow: 0 0 0 rgba(17,24,39,0.00); transform: scale(1); }
-                40%  { box-shadow: 0 0 0 6px rgba(17,24,39,0.10); transform: scale(1.01); }
-                100% { box-shadow: 0 0 0 rgba(17,24,39,0.00); transform: scale(1); }
-              }
-            `}</style>
-
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
-              <Pagination current={page} onChange={setPage} total={filtered.length} pageSize={pageSize} showSizeChanger={false} />
-            </div>
+                <div style={{ display: "flex", justifyContent: "center", marginTop: 32 }}>
+                  <Pagination 
+                    current={page} 
+                    onChange={setPage} 
+                    total={filtered.length} 
+                    pageSize={pageSize} 
+                    showSizeChanger={false}
+                    showTotal={(total, range) => `${range[0]}-${range[1]} của ${total} sản phẩm`}
+                  />
+                </div>
+              </>
+            )}
           </Col>
         </Row>
       </div>

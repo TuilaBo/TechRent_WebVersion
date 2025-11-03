@@ -1,7 +1,7 @@
 // src/components/ProductCard.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Skeleton, Empty } from "antd";
+import { Button, Skeleton, Empty, Tag } from "antd";
 import { ShoppingCartOutlined } from "@ant-design/icons";
 import toast from "react-hot-toast"; // <-- chỉ giữ toast API
 import { useAuth } from "../context/AuthContext";
@@ -175,7 +175,9 @@ export default function ProductCard() {
           window.dispatchEvent(
             new CustomEvent("cart:updated", { detail: { count } })
           );
-        } catch {}
+        } catch {
+          // ignore
+        }
       } else {
         toast.error(result.error || "Không thể thêm vào giỏ hàng");
       }
@@ -221,12 +223,17 @@ export default function ProductCard() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-            columnGap: 20,
-            rowGap: 40,
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: 20,
           }}
         >
-          {items.map((it) => (
+          {([...items]
+            .sort((a, b) => {
+              const avA = Number(a?.amountAvailable || 0) > 0 ? 1 : 0;
+              const avB = Number(b?.amountAvailable || 0) > 0 ? 1 : 0;
+              return avB - avA; // còn hàng trước, hết hàng sau
+            }))
+            .map((it) => (
             <div
               key={it.id}
               onClick={() => goDetail(it.id)}
@@ -237,17 +244,18 @@ export default function ProductCard() {
               className={justAdded[it.id] ? "added" : ""}
               style={{
                 background: "#fff",
-                borderRadius: 8,
+                borderRadius: 12,
                 overflow: "hidden",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-                transition: "all .3s ease",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                transition: "all .25s cubic-bezier(0.4, 0, 0.2, 1)",
                 cursor: "pointer",
                 display: "flex",
                 flexDirection: "column",
-                minHeight: 350,
+                minHeight: 340,
+                border: "1px solid rgba(0,0,0,.05)",
               }}
             >
-              <div style={{ height: 200, overflow: "hidden" }}>
+              <div style={{ position: "relative", height: 180, overflow: "hidden", background: "#f5f5f5" }}>
                 <img
                   alt={it.name}
                   src={it.image || "https://placehold.co/800x600?text=No+Image"}
@@ -258,59 +266,118 @@ export default function ProductCard() {
                     transition: "transform .3s ease",
                   }}
                 />
+                {((it.amountAvailable || 0) === 0) && (
+                  <div style={{
+                    position: "absolute",
+                    top: 12,
+                    right: 12,
+                    background: "rgba(255,77,79,0.95)",
+                    color: "#fff",
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    backdropFilter: "blur(4px)",
+                  }}>
+                    Hết hàng
+                  </div>
+                )}
+                {((it.amountAvailable || 0) > 0 && (it.amountAvailable || 0) <= 3) && (
+                  <div style={{
+                    position: "absolute",
+                    top: 12,
+                    right: 12,
+                    background: "rgba(250,173,20,0.95)",
+                    color: "#fff",
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    backdropFilter: "blur(4px)",
+                  }}>
+                    Sắp hết
+                  </div>
+                )}
               </div>
 
               <div
                 style={{
-                  padding: 16,
+                  padding: "12px 14px",
                   display: "flex",
                   flexDirection: "column",
                   gap: 4,
                   flex: 1,
                 }}
               >
+                {it.brand && (
+                  <div style={{ marginBottom: 2 }}>
+                    <Tag 
+                      style={{ 
+                        border: "none", 
+                        background: "rgba(0,0,0,0.05)", 
+                        color: "#666",
+                        fontSize: 11,
+                        padding: "2px 10px",
+                        borderRadius: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {it.brand}
+                    </Tag>
+                  </div>
+                )}
                 <h3
                   style={{
                     fontSize: 16,
-                    fontWeight: 600,
-                    color: "#333",
+                    fontWeight: 700,
+                    color: "#1a1a1a",
                     margin: 0,
+                    lineHeight: 1.3,
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
                   }}
                 >
                   {it.name}
                 </h3>
-                <p style={{ color: "#666", fontSize: 14, margin: 0 }}>
-                  Thương hiệu: <b style={{ color: "#111" }}>{it.brand || "—"}</b>
-                </p>
-                <p style={{ color: "#667085", fontSize: 13, margin: "4px 0 0 0" }}>
-                  Còn lại: <b style={{ color: it.amountAvailable > 0 ? "#52c41a" : "#ff4d4f" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>Còn lại:</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: (it.amountAvailable || 0) > 3 ? "#52c41a" : (it.amountAvailable || 0) > 0 ? "#faad14" : "#ff4d4f" }}>
                     {it.amountAvailable || 0}
-                  </b> thiết bị
-                </p>
+                  </span>
+                </div>
               </div>
 
               <div
                 style={{
-                  padding: "0 16px 16px",
+                  padding: "0 14px 14px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  gap: 12,
                 }}
               >
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span
-                    style={{ fontSize: 16, fontWeight: "bold", color: "#333" }}
-                  >
-                    {fmtVND(it.pricePerDay)}/ngày
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 12, color: "#888", fontWeight: 500 }}>Giá thuê</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "#000", lineHeight: 1.2 }}>
+                    {fmtVND(it.pricePerDay)}
                   </span>
+                  <span style={{ fontSize: 11, color: "#999", fontWeight: 500 }}>/ngày</span>
                 </div>
                 <Button
-                  style={{
-                    background: (it.amountAvailable || 0) > 0 ? "#000" : "#ccc",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 4,
-                    padding: "8px 16px",
+                  type="primary"
+                  size="middle"
+                  style={{ 
+                    background: (it.amountAvailable || 0) > 0 ? "#000" : "#d9d9d9",
+                    borderColor: (it.amountAvailable || 0) > 0 ? "#000" : "#d9d9d9",
+                    color: "#fff", 
+                    borderRadius: 10,
+                    fontWeight: 700,
+                    fontSize: 13,
+                    height: 40,
+                    padding: "0 16px",
+                    boxShadow: (it.amountAvailable || 0) > 0 ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
                   }}
                   icon={<ShoppingCartOutlined />}
                   loading={!!addingMap[it.id]}
@@ -318,7 +385,7 @@ export default function ProductCard() {
                   title={(it.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
                   onClick={(e) => handleAdd(e, it)}
                 >
-                  {addingMap[it.id] ? "Đang thêm..." : "Thuê ngay"}
+                  {addingMap[it.id] ? "Đang thêm" : "Thuê ngay"}
                 </Button>
               </div>
             </div>
@@ -327,18 +394,21 @@ export default function ProductCard() {
       )}
 
       <style>{`
-        [data-card]:hover { transform: translateY(-4px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
-        [data-card]:hover img { transform: scale(1.05); }
-        [data-card]:focus { outline: 2px solid #1890ff; }
-        @media (min-width: 1200px) {
-          div[style*="grid-template-columns"] { grid-template-columns: repeat(4, 1fr); }
+        [data-card]:hover { 
+          transform: translateY(-6px); 
+          box-shadow: 0 8px 24px rgba(0,0,0,0.12); 
+          border-color: rgba(0,0,0,0.1);
         }
+        [data-card]:hover img { transform: scale(1.08); }
+        [data-card]:focus { outline: 2px solid #000; outline-offset: 2px; }
+        [data-card]:active { transform: translateY(-2px); }
+
         /* pulse khi add */
-        .added { animation: card-pulse 600ms ease; }
+        .added { animation: card-pulse 700ms cubic-bezier(0.4, 0, 0.2, 1); }
         @keyframes card-pulse {
-          0%   { box-shadow: 0 0 0 rgba(17,24,39,0.00); transform: scale(1); }
-          40%  { box-shadow: 0 0 0 6px rgba(17,24,39,0.10); transform: scale(1.01); }
-          100% { box-shadow: 0 0 0 rgba(17,24,39,0.00); transform: scale(1); }
+          0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
+          50%  { box-shadow: 0 0 0 8px rgba(0,0,0,0.1); transform: scale(1.02); }
+          100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
         }
       `}</style>
     </div>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Layout, Menu, Input, Space, Badge, Button, Avatar, Tooltip } from "antd";
+import { Layout, Menu, Input, Space, Badge, Button, Avatar, Tooltip, Dropdown } from "antd";
 import {
   CustomerServiceOutlined,
   MessageOutlined,
@@ -10,13 +10,16 @@ import {
   BellOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useAuthStore } from "../../store/authStore";
 
 const { Header, Sider, Content } = Layout;
 
 export default function SupportShell() {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
 
   // map URL -> key menu
   const selectedKey = useMemo(() => {
@@ -100,7 +103,19 @@ export default function SupportShell() {
             <Badge dot>
               <Button icon={<BellOutlined />} />
             </Badge>
-            <Avatar src="https://i.pravatar.cc/120?img=13" />
+            <Dropdown
+              overlay={
+                <Menu
+                  items={[
+                    { key: "profile", label: <Link to="/profile">Tài khoản</Link> },
+                    { key: "logout", label: <span onClick={() => { logout(); navigate("/login"); }}>Đăng xuất</span> },
+                  ]}
+                />
+              }
+              trigger={["click"]}
+            >
+              <Avatar src="https://i.pravatar.cc/120?img=13" style={{ cursor: "pointer" }} />
+            </Dropdown>
           </Space>
         </Header>
 
