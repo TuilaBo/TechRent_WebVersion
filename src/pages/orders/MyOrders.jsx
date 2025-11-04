@@ -79,21 +79,31 @@ async function mapOrderFromApi(order) {
         const model = detail?.deviceModelId
           ? await getDeviceModelById(detail.deviceModelId)
           : null;
+        const deviceValue = Number(detail?.deviceValue ?? model?.deviceValue ?? 0);
+        const depositPercent = Number(detail?.depositPercent ?? model?.depositPercent ?? 0);
+        const depositAmountPerUnit = Number(detail?.depositAmountPerUnit ?? (deviceValue * depositPercent));
         return {
           name: model?.deviceName || model?.name || detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
           qty: detail?.quantity ?? 1,
           image: model?.imageURL || model?.imageUrl || detail?.imageUrl || "",
           pricePerDay: Number(detail?.pricePerDay ?? model?.pricePerDay ?? 0),
-          depositAmountPerUnit: Number(detail?.depositAmountPerUnit ?? 0),
+          depositAmountPerUnit,
+          deviceValue,
+          depositPercent,
           deviceModelId: detail?.deviceModelId ?? model?.id ?? null,
         };
       } catch {
+        const deviceValue = Number(detail?.deviceValue ?? 0);
+        const depositPercent = Number(detail?.depositPercent ?? 0);
+        const depositAmountPerUnit = Number(detail?.depositAmountPerUnit ?? (deviceValue * depositPercent));
         return {
           name: detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
           qty: detail?.quantity ?? 1,
           image: "",
           pricePerDay: Number(detail?.pricePerDay ?? 0),
-          depositAmountPerUnit: Number(detail?.depositAmountPerUnit ?? 0),
+          depositAmountPerUnit,
+          deviceValue,
+          depositPercent,
           deviceModelId: detail?.deviceModelId ?? null,
         };
       }
@@ -735,13 +745,38 @@ export default function MyOrders() {
       sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0),
     },
     {
+      title: "Đơn giá sản phẩm",
+      key: "pricePerDay",
+      align: "right",
+      width: 150,
+      render: (_, r) => {
+        const totalPricePerDay = (r.items || []).reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+        return <Text>{formatVND(totalPricePerDay)}/ngày</Text>;
+      },
+      sorter: (a, b) => {
+        const aPrice = (a.items || []).reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+        const bPrice = (b.items || []).reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+        return aPrice - bPrice;
+      },
+    },
+    {
       title: "Tổng tiền",
-      dataIndex: "total",
       key: "total",
       align: "right",
       width: 120,
-      render: (v) => <Text strong>{formatVND(v)}</Text>,
-      sorter: (a, b) => (a.total ?? 0) - (b.total ?? 0),
+      render: (_, r) => {
+        const totalPricePerDay = (r.items || []).reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+        const days = Number(r.days || 1);
+        const calculatedTotal = totalPricePerDay * days;
+        return <Text strong>{formatVND(calculatedTotal)}</Text>;
+      },
+      sorter: (a, b) => {
+        const aPricePerDay = (a.items || []).reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+        const bPricePerDay = (b.items || []).reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+        const aDays = Number(a.days || 1);
+        const bDays = Number(b.days || 1);
+        return (aPricePerDay * aDays) - (bPricePerDay * bDays);
+      },
     },
     {
       title: "Trạng thái",
@@ -892,10 +927,49 @@ export default function MyOrders() {
                           
 
                             <Descriptions.Item label="Tổng tiền cọc (ước tính)">
-                              <Text strong>{formatVND(depositTotal)}</Text>
+                              <Space direction="vertical" size={0}>
+                                <Text strong>{formatVND(depositTotal)}</Text>
+                                {(() => {
+                                  const totalDeviceValue = items.reduce((sum, it) => sum + Number(it.deviceValue || 0) * Number(it.qty || 1), 0);
+                                  // Tính tổng cọc thực tế từ từng item để so sánh
+                                  const calculatedDeposit = items.reduce((sum, it) => {
+                                    const deviceValue = Number(it.deviceValue || 0);
+                                    const depositPercent = Number(it.depositPercent || 0);
+                                    const itemDeposit = deviceValue * depositPercent * Number(it.qty || 1);
+                                    return sum + itemDeposit;
+                                  }, 0);
+                                  
+                                  // Nếu có ít nhất 1 item có deviceValue và depositPercent
+                                  const hasValidData = items.some(it => Number(it.deviceValue || 0) > 0 && Number(it.depositPercent || 0) > 0);
+                                  
+                                  if (hasValidData && totalDeviceValue > 0) {
+                                    // Tính % cọc trung bình có trọng số
+                                    const effectivePercent = calculatedDeposit > 0 && totalDeviceValue > 0 
+                                      ? (calculatedDeposit / totalDeviceValue) * 100 
+                                      : 0;
+                                    
+                                    if (effectivePercent > 0) {
+                                      return (
+                                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                                          = Giá trị sản phẩm ({formatVND(totalDeviceValue)}) × {effectivePercent.toFixed(1)}%
+                                        </Text>
+                                      );
+                                    }
+                                  }
+                                  return null;
+                                })()}
+                              </Space>
                             </Descriptions.Item>
-                            <Descriptions.Item label="Tiền Cọc đã hoàn">{formatVND(current.depositAmountReleased || 0)}</Descriptions.Item>
-                            <Descriptions.Item label="Tiền Cọc đã trả" span={2}>{formatVND(current.depositAmountUsed || 0)}</Descriptions.Item>
+                            {(current.depositAmountReleased && Number(current.depositAmountReleased) > 0) && (
+                              <Descriptions.Item label="Tiền Cọc đã hoàn">
+                                {formatVND(current.depositAmountReleased)}
+                              </Descriptions.Item>
+                            )}
+                            {(current.depositAmountUsed && Number(current.depositAmountUsed) > 0) && (
+                              <Descriptions.Item label="Tiền Cọc đã trả" span={2}>
+                                {formatVND(current.depositAmountUsed)}
+                              </Descriptions.Item>
+                            )}
 
                             {current.orderStatus === "cancelled" && (
                               <Descriptions.Item label="Lý do hủy" span={2}>

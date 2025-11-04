@@ -144,11 +144,12 @@ export default function DeviceDetail() {
   }, [item, depositPercent]);
 
   const displayDesc =
-    item?.specifications
+    item?.deviceDescription ||
+    (item?.specifications
       ? (item?.description || "")
       : looksLikeJSON(item?.description)
       ? ""
-      : (item?.description || "");
+      : (item?.description || ""));
 
   const displaySpecs =
     item?.specifications

@@ -42,18 +42,44 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pt-32 md:pt-40">
-      <section className="px-4 pb-10">
-        <div className="mx-auto w-full" style={{ maxWidth: 420 }}>
-          <Card bordered={false} className="shadow-md" bodyStyle={{ padding: 24 }}>
-            <Typography.Title level={3} style={{ marginBottom: 4 }}>
-              Đăng ký
-            </Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-              Tạo tài khoản để bắt đầu thuê thiết bị.
-            </Typography.Paragraph>
+    <div style={{ 
+      minHeight: "100vh", 
+      background: "linear-gradient(135deg, #fafafa 0%, #e5e7eb 100%)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    }}>
+      <style>{`
+        .login-card { 
+          border-radius: 24px !important;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.15) !important;
+          border: none !important;
+          overflow: hidden;
+          backdrop-filter: blur(10px);
+          max-width: 360px; width: 100%;
+        }
+        .login-input { 
+          border-radius: 12px !important;
+          border: 2px solid #e5e7eb !important;
+          padding: 9px 12px !important;
+          font-size: 13px !important;
+        }
+        .login-btn { height: 44px !important; border-radius: 12px !important; font-weight: 600 !important; font-size: 14px !important; }
+        .login-btn-primary { background: linear-gradient(135deg, #111111 0%, #374151 100%) !important; border: 1px solid #111111 !important; color: #ffffff !important; }
+        .login-link { color: #111111; font-weight: 600; }
+      `}</style>
+      <Card bordered={false} className="login-card" bodyStyle={{ padding: "28px 24px" }}>
+        <div style={{ textAlign: "center", marginBottom: 8 }}>
+          <div style={{ color: "#111", fontWeight: 800, fontSize: 22, marginBottom: 8 }}>TECHRENT</div>
+          <Typography.Title level={3} style={{ marginBottom: 4, fontSize: 22 }}>
+            Đăng ký
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 0, color: "#6b7280", fontSize: 14 }}>
+            Tạo tài khoản để bắt đầu thuê thiết bị.
+          </Typography.Paragraph>
 
-            {error && <Alert type="error" message={error} showIcon className="mb-3" />}
+          {error && <Alert type="error" message={error} showIcon className="mb-3" />}
 
             <Form
               form={form}
@@ -67,7 +93,7 @@ export default function RegisterForm() {
                 name="username"
                 rules={[{ required: true, message: "Vui lòng nhập tên đăng nhập!" }]}
               >
-                <Input prefix={<UserOutlined />} placeholder="Vui lòng nhập tên đăng nhập" />
+                <Input className="login-input" prefix={<UserOutlined style={{ color: '#9ca3af' }} />} placeholder="Vui lòng nhập tên đăng nhập" />
               </Form.Item>
 
               <Form.Item
@@ -78,7 +104,7 @@ export default function RegisterForm() {
                   { type: "email", message: "Email không hợp lệ!" },
                 ]}
               >
-                <Input prefix={<MailOutlined />} placeholder="you@example.com" />
+                <Input className="login-input" prefix={<MailOutlined style={{ color: '#9ca3af' }} />} placeholder="you@example.com" />
               </Form.Item>
 
               <Form.Item
@@ -99,7 +125,8 @@ export default function RegisterForm() {
                 ]}
               >
                 <Input
-                  prefix={<PhoneOutlined />}
+                  className="login-input"
+                  prefix={<PhoneOutlined style={{ color: '#9ca3af' }} />}
                   addonBefore={<span style={{ width: 44, display: "inline-block", textAlign: "center" }}>+84</span>}
                   placeholder="9 số (vd: 912345678)"
                   inputMode="numeric"
@@ -116,7 +143,7 @@ export default function RegisterForm() {
                 ]}
                 hasFeedback
               >
-                <Input.Password prefix={<LockOutlined />} placeholder="••••••••" />
+                <Input.Password className="login-input" prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="••••••••" />
               </Form.Item>
 
               <Form.Item
@@ -134,7 +161,7 @@ export default function RegisterForm() {
                   }),
                 ]}
               >
-                <Input.Password prefix={<LockOutlined />} placeholder="••••••••" />
+                <Input.Password className="login-input" prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="••••••••" />
               </Form.Item>
 
               <Form.Item
@@ -159,18 +186,17 @@ export default function RegisterForm() {
                 block
                 size="large"
                 loading={loading}
-                style={{ background: "#000", color: "#fff", border: "none", borderRadius: 4, fontWeight: 500 }}
+                className="login-btn login-btn-primary"
               >
                 Đăng ký
               </Button>
 
-              <div className="mt-4 text-sm text-center">
-                Đã có tài khoản? <Link to="/login">Đăng nhập</Link>
+              <div style={{ marginTop: 16, textAlign: 'center', fontSize: 13, color: '#6b7280' }}>
+                Đã có tài khoản? <Link to="/login" className="login-link">Đăng nhập</Link>
               </div>
             </Form>
-          </Card>
         </div>
-      </section>
+      </Card>
     </div>
   );
 }

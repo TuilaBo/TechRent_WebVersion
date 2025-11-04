@@ -49,8 +49,8 @@ export default function OperatorTasks() {
       const sortedTasks = (Array.isArray(tasksRes) ? tasksRes : []).slice().sort((a, b) => {
         const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
         const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
-        if (tb !== ta) return tb - ta;
-        return (b?.taskId || b?.id || 0) - (a?.taskId || a?.id || 0);
+        if (tb !== ta) return ta - tb; // oldest first
+        return (a?.taskId || a?.id || 0) - (b?.taskId || b?.id || 0);
       });
       setData(sortedTasks);
       setCategories(catsRes.map(normalizeTaskCategory));

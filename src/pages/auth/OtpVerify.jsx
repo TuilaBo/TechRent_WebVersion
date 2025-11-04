@@ -1,6 +1,6 @@
 // src/pages/auth/OtpVerify.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Typography, message, Alert } from "antd";
+import { Button, Typography, Alert } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import toast from "react-hot-toast";
@@ -32,7 +32,7 @@ export default function OtpVerify() {
   const handleChange = (i, v) => {
     clearError();
     const char = v.replace(/\D/g, "").slice(-1);
-    setValues((prev) => { const c = [...prev]; c[i] = char || ""; return c; });
+    setValues((list) => { const c = [...list]; c[i] = char || ""; return c; });
     if (char && i < DIGITS - 1) focusAt(i + 1);
   };
 
@@ -41,7 +41,7 @@ export default function OtpVerify() {
     if (!text) return;
     e.preventDefault();
     const spread = text.split("");
-    setValues((prev) => spread.concat(Array(DIGITS).fill("")).slice(0, DIGITS));
+    setValues(() => spread.concat(Array(DIGITS).fill("")).slice(0, DIGITS));
     focusAt(Math.min(spread.length - 1, DIGITS - 1));
   };
 
@@ -71,41 +71,67 @@ export default function OtpVerify() {
   const boxStyle = { width: 44, height: 44, borderRadius: 8, border: "1px solid #E5E7EB", textAlign: "center", fontSize: 18 };
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#FAFAFA", padding: 16 }}>
-      <div style={{ width: 360, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, boxShadow: "0 1px 2px rgba(0,0,0,0.04)", padding: 24, textAlign: "center" }}>
-        <Title level={4} style={{ marginBottom: 4 }}>Xác minh email</Title>
-        <Text type="secondary" style={{ display: "block", marginBottom: 16 }}>
-          {email ? <>Mã OTP đã gửi tới <span style={{ color: "#111827" }}>{email}</span></> : <>Không tìm thấy email. Hãy quay lại đăng ký.</>}
-        </Text>
+    <div style={{ 
+      minHeight: "100vh", 
+      background: "linear-gradient(135deg, #fafafa 0%, #e5e7eb 100%)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    }}>
+      <style>{`
+        .login-card { 
+          border-radius: 24px !important;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.15) !important;
+          border: none !important;
+          overflow: hidden;
+          backdrop-filter: blur(10px);
+          max-width: 400px; width: 100%;
+        }
+        .login-input { 
+          border-radius: 12px !important;
+          border: 2px solid #e5e7eb !important;
+        }
+        .login-btn { height: 48px !important; border-radius: 12px !important; font-weight: 600 !important; font-size: 15px !important; }
+        .login-btn-primary { background: linear-gradient(135deg, #111111 0%, #374151 100%) !important; border: 1px solid #111111 !important; color: #ffffff !important; }
+      `}</style>
+      <div className="login-card" style={{ background: "#fff" }}>
+        <div style={{ padding: "28px 24px", textAlign: "center" }}>
+          <div style={{ color: "#111", fontWeight: 800, fontSize: 22, marginBottom: 8 }}>TECHRENT</div>
+          <Title level={4} style={{ marginBottom: 4, fontSize: 22 }}>Xác minh email</Title>
+          <Text type="secondary" style={{ display: "block", marginBottom: 16, color: "#6b7280", fontSize: 14 }}>
+            {email ? <>Mã OTP đã gửi tới <span style={{ color: "#111827" }}>{email}</span></> : <>Không tìm thấy email. Hãy quay lại đăng ký.</>}
+          </Text>
 
-        {error && <Alert type="error" message={error} showIcon className="mb-3" />}
+          {error && <Alert type="error" message={error} showIcon className="mb-3" />}
 
-        <div onPaste={handlePaste} style={{ display: "flex", gap: 8, justifyContent: "center", margin: "0 auto 16px" }}>
-          {values.map((val, i) => (
-            <input key={i} ref={(el) => (inputsRef.current[i] = el)} value={val}
-              inputMode="numeric" maxLength={1} onChange={(e) => handleChange(i, e.target.value)}
-              style={boxStyle} />
-          ))}
-        </div>
+          <div onPaste={handlePaste} style={{ display: "flex", gap: 8, justifyContent: "center", margin: "0 auto 16px" }}>
+            {values.map((val, i) => (
+              <input key={i} ref={(el) => (inputsRef.current[i] = el)} value={val}
+                inputMode="numeric" maxLength={1} onChange={(e) => handleChange(i, e.target.value)}
+                style={boxStyle} />
+            ))}
+          </div>
 
-        <Button type="primary" block size="large" disabled={!canSubmit || loading} loading={loading} onClick={submit}
-          style={{ background: "#111827", borderColor: "#111827", marginBottom: 8 }}>
-          Xác minh
-        </Button>
+          <Button type="primary" block size="large" disabled={!canSubmit || loading} loading={loading} onClick={submit}
+            className="login-btn login-btn-primary" style={{ marginBottom: 8 }}>
+            Xác minh
+          </Button>
 
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-          <span>Gửi lại mã sau: <strong>00:{String(seconds).padStart(2, "0")}</strong></span>
-          {seconds === 0 ? (
-            <button onClick={resend} style={{ background: "transparent", border: 0, textDecoration: "underline", cursor: "pointer" }}>
-              Gửi lại mã
-            </button>
-          ) : (
-            <span style={{ opacity: 0.6 }}>Gửi lại mã</span>
-          )}
-        </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+            <span>Gửi lại mã sau: <strong>00:{String(seconds).padStart(2, "0")}</strong></span>
+            {seconds === 0 ? (
+              <button onClick={resend} style={{ background: "transparent", border: 0, textDecoration: "underline", cursor: "pointer" }}>
+                Gửi lại mã
+              </button>
+            ) : (
+              <span style={{ opacity: 0.6 }}>Gửi lại mã</span>
+            )}
+          </div>
 
-        <div style={{ marginTop: 8, fontSize: 12 }}>
-          <Link to="/register">Đổi email</Link>
+          <div style={{ marginTop: 8, fontSize: 12 }}>
+            <Link to="/register" className="login-link">Đổi email</Link>
+          </div>
         </div>
       </div>
     </div>

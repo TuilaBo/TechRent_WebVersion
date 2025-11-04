@@ -214,7 +214,7 @@ export default function TechnicianCalendar() {
         render: (d) => (d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—"),
         width: 180,
         sorter: (a, b) => dayjs(a.date) - dayjs(b.date),
-        defaultSortOrder: "descend",
+        defaultSortOrder: "ascend",
       },
       {
         title: "Trạng thái",
@@ -555,7 +555,7 @@ export default function TechnicianCalendar() {
           columns={columns}
           dataSource={tasksAll
             .filter((t) => (filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase()))
-            .sort((a, b) => dayjs(b.date) - dayjs(a.date))}
+            .sort((a, b) => dayjs(a.date) - dayjs(b.date))}
           pagination={{ pageSize: 10, showSizeChanger: true }}
         />
       </Card>

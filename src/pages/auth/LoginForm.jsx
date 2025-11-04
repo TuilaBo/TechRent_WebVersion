@@ -1,4 +1,4 @@
-import { Form, Input, Button, Typography, Card, Alert } from "antd";
+import { Form, Input, Button, Typography, Card, Alert, Checkbox } from "antd";
 import { MailOutlined, LockOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { FcGoogle } from "react-icons/fc";
@@ -10,9 +10,8 @@ export default function LoginForm() {
   const navigate = useNavigate();
   const { login, fetchMe, user, role, loading, error, clearError, bootstrapped } = useAuth();
 
-  // Nếu đã đăng nhập sẵn → tự điều hướng theo role
   useEffect(() => {
-    if (!bootstrapped) return;       // đợi boot xong để khỏi nháy
+    if (!bootstrapped) return;
     if (!user) return;
     redirectByRole(role);
   }, [bootstrapped, user, role]);
@@ -43,7 +42,6 @@ export default function LoginForm() {
         usernameOrEmail: values.email,
         password: values.password,
       });
-      // đảm bảo đã có user/role mới điều hướng
       const me = await fetchMe();
       toast.success("Đăng nhập thành công!");
       redirectByRole(me?.role || role);
@@ -53,82 +51,209 @@ export default function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pt-32 md:pt-40">
-      <section className="px-4 pb-10">
-        <div className="mx-auto w-full" style={{ maxWidth: 420 }}>
-          <Card bordered={false} className="shadow-md" bodyStyle={{ padding: 24 }}>
-            <Typography.Title level={3} style={{ marginBottom: 4 }}>
-              Đăng nhập
-            </Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-              Tiếp tục thuê thiết bị một cách nhanh chóng.
-            </Typography.Paragraph>
+    <div style={{ 
+      minHeight: "100vh", 
+      background: "linear-gradient(135deg, #fafafa 0%, #e5e7eb 100%)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "20px",
+    }}>
+      <style>{`
+        .login-card {
+          border-radius: 24px !important;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.15) !important;
+          border: none !important;
+          overflow: hidden;
+          backdrop-filter: blur(10px);
+          max-width: 360px;
+          width: 100%;
+        }
 
-            {error && (
-              <Alert type="error" message={error} showIcon className="mb-3" />
-            )}
+        .login-input {
+          border-radius: 12px !important;
+          border: 2px solid #e5e7eb !important;
+          padding: 9px 12px !important;
+          font-size: 13px !important;
+          transition: all 0.3s ease !important;
+        }
 
-            <Form
-              layout="vertical"
-              onFinish={onFinish}
-              requiredMark={false}
-              onChange={clearError}
-            >
-              <Form.Item label="Email hoặc tên đăng nhập" name="email">
-                <Input prefix={<MailOutlined />} placeholder="you@example.com" />
-              </Form.Item>
+        .login-input:hover {
+          border-color: #9ca3af !important;
+        }
 
-              <Form.Item
-                label="Mật khẩu"
-                name="password"
-                rules={[{ required: true, message: "Vui lòng nhập mật khẩu!" }]}
-              >
-                <Input.Password prefix={<LockOutlined />} placeholder="••••••••" />
-              </Form.Item>
+        .login-input:focus {
+          border-color: #111111 !important;
+          box-shadow: 0 0 0 3px rgba(17,17,17,0.08) !important;
+        }
 
-              <div className="flex items-center justify-between mb-2">
-                <Form.Item name="remember" valuePropName="checked" noStyle initialValue />
-                <Link to="/forgot-password">Quên mật khẩu?</Link>
-              </div>
+        .login-btn {
+          height: 44px !important;
+          border-radius: 12px !important;
+          font-weight: 600 !important;
+          font-size: 14px !important;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
 
-              <Button
-                htmlType="submit"
-                block
-                size="large"
-                loading={loading}
-                style={{
-                  background: "#000",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "4px",
-                  fontWeight: 500,
-                  transition: "background 0.3s ease",
-                }}
-                onMouseEnter={(e) => (e.target.style.background = "#333")}
-                onMouseLeave={(e) => (e.target.style.background = "#000")}
-              >
-                Đăng nhập
-              </Button>
+        .login-btn-primary {
+          background: linear-gradient(135deg, #111111 0%, #374151 100%) !important;
+          border: 1px solid #111111 !important;
+          color: #ffffff !important;
+        }
 
-              <div className="my-4 text-center text-xs text-slate-400">HOẶC</div>
+        .login-btn-primary:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 20px rgba(17,17,17,0.25) !important;
+        }
 
-              <Button
-                block
-                size="large"
-                className="flex items-center justify-center gap-2 !h-11 border-slate-300 hover:border-sky-400 hover:text-sky-600 transition"
-                onClick={() => alert("Implement Google OAuth")}
-                disabled={loading}
-              >
-                <FcGoogle size={20} /> Tiếp tục với Google
-              </Button>
+        .login-btn-google {
+          border: 2px solid #e5e7eb !important;
+          color: #111827 !important;
+          background: #ffffff !important;
+        }
 
-              <div className="mt-4 text-sm text-center">
-                Chưa có tài khoản? <Link to="/register">Đăng ký</Link>
-              </div>
-            </Form>
-          </Card>
+        .login-btn-google:hover {
+          border-color: #111111 !important;
+          color: #111111 !important;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+        }
+
+        .login-link {
+          color: #111111;
+          font-weight: 600;
+          transition: color 0.2s ease;
+        }
+
+        .login-link:hover {
+          color: #374151;
+          text-decoration: underline;
+        }
+
+        .logo-text {
+          color: #111111;
+          font-weight: 800;
+          font-size: 22px;
+          text-align: center;
+          margin-bottom: 8px;
+        }
+      `}</style>
+
+      <Card className="login-card" bodyStyle={{ padding: "28px 24px" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div className="logo-text">TECHRENT</div>
+          <Typography.Title level={3} style={{ marginBottom: 8, fontWeight: 700, fontSize: 22 }}>
+            Chào mừng trở lại
+          </Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 14, color: "#6b7280" }}>
+            Đăng nhập để tiếp tục thuê thiết bị
+          </Typography.Text>
         </div>
-      </section>
+
+        {error && (
+          <Alert 
+            type="error" 
+            message={error} 
+            showIcon 
+            style={{ marginBottom: 24, borderRadius: 12 }}
+          />
+        )}
+
+        <Form
+          layout="vertical"
+          onFinish={onFinish}
+          requiredMark={false}
+          onChange={clearError}
+        >
+          <Form.Item 
+            label={<span style={{ fontWeight: 600, color: "#374151" }}>Email hoặc tên đăng nhập</span>}
+            name="email"
+            rules={[{ required: true, message: "Vui lòng nhập email hoặc tên đăng nhập!" }]}
+          >
+            <Input 
+              className="login-input"
+              prefix={<MailOutlined style={{ color: "#9ca3af" }} />} 
+              placeholder="you@example.com" 
+            />
+          </Form.Item>
+
+          <Form.Item
+            label={<span style={{ fontWeight: 600, color: "#374151" }}>Mật khẩu</span>}
+            name="password"
+            rules={[{ required: true, message: "Vui lòng nhập mật khẩu!" }]}
+          >
+            <Input.Password 
+              className="login-input"
+              prefix={<LockOutlined style={{ color: "#9ca3af" }} />} 
+              placeholder="••••••••" 
+            />
+          </Form.Item>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+            <Form.Item name="remember" valuePropName="checked" noStyle>
+              <Checkbox style={{ fontWeight: 500 }}>Ghi nhớ đăng nhập</Checkbox>
+            </Form.Item>
+            <Link to="/forgot-password" className="login-link" style={{ fontSize: 14 }}>
+              Quên mật khẩu?
+            </Link>
+          </div>
+
+          <Button
+            htmlType="submit"
+            block
+            className="login-btn login-btn-primary"
+            loading={loading}
+          >
+            Đăng nhập
+          </Button>
+
+          <div style={{ 
+            margin: "24px 0", 
+            textAlign: "center", 
+            position: "relative",
+            color: "#9ca3af",
+            fontWeight: 600,
+            fontSize: 13,
+          }}>
+            <div style={{
+              position: "absolute",
+              top: "50%",
+              left: 0,
+              right: 0,
+              height: 1,
+              background: "#e5e7eb",
+              zIndex: 0,
+            }}></div>
+            <span style={{ 
+              background: "#fff", 
+              padding: "0 16px", 
+              position: "relative", 
+              zIndex: 1 
+            }}>
+              HOẶC
+            </span>
+          </div>
+
+          <Button
+            block
+            className="login-btn login-btn-google"
+            onClick={() => alert("Implement Google OAuth")}
+            disabled={loading}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+              <FcGoogle size={22} />
+              <span style={{ fontWeight: 600 }}>Tiếp tục với Google</span>
+            </div>
+          </Button>
+
+          <div style={{ marginTop: 24, textAlign: "center", fontSize: 15, color: "#6b7280" }}>
+            Chưa có tài khoản?{" "}
+            <Link to="/register" className="login-link">
+              Đăng ký ngay
+            </Link>
+          </div>
+        </Form>
+      </Card>
     </div>
   );
 }

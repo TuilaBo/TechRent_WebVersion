@@ -15,7 +15,7 @@ import {
 
 const { Title, Text } = Typography;
 
-export default function CustomerLiveChat() {
+export default function CustomerLiveChat({ embed = false }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [customer, setCustomer] = useState(null);
@@ -189,27 +189,30 @@ export default function CustomerLiveChat() {
     }
   }, [rows]);
 
-  return (
-    <div style={{ maxWidth: 840, margin: "0 auto", padding: 16 }}>
-      <Space align="center" style={{ marginBottom: 12 }}>
-        <CustomerServiceOutlined />
-        <Title level={4} style={{ margin: 0 }}>Hỗ trợ trực tuyến</Title>
-        <Button icon={<ReloadOutlined />} onClick={onManualRefresh} size="small">Làm mới</Button>
-      </Space>
+  const HeaderBar = (
+    <div style={{ padding: 12, borderBottom: "1px solid #f0f0f0" }}>
+      <Text type="secondary">
+        {customer?.fullName || customer?.name || "Khách hàng"}
+        {conversationId ? ` • Conversation #${conversationId}` : ""}
+      </Text>
+    </div>
+  );
 
-      <Card bodyStyle={{ padding: 0 }}>
-        <div style={{ height: 520, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: 12, borderBottom: "1px solid #f0f0f0" }}>
-            <Text type="secondary">
-              {customer?.fullName || customer?.name || "Khách hàng"}
-              {conversationId ? ` • Conversation #${conversationId}` : ""}
-            </Text>
-          </div>
+  const Body = (
+    <div style={{ display: "flex", flexDirection: "column", height: embed ? "100%" : 520 }}>
+      {!embed && (
+        <div style={{ padding: 12, borderBottom: "1px solid #f0f0f0" }}>
+          <Text type="secondary">
+            {customer?.fullName || customer?.name || "Khách hàng"}
+            {conversationId ? ` • Conversation #${conversationId}` : ""}
+          </Text>
+        </div>
+      )}
 
-          <div
-            ref={scrollContainerRef}
-            style={{ flex: 1, overflow: "auto", padding: 12 }}
-          >
+      <div
+        ref={scrollContainerRef}
+        style={{ flex: 1, overflow: "auto", padding: 12 }}
+      >
             {loading ? (
               <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center" }}>
                 <Spin />
@@ -261,27 +264,44 @@ export default function CustomerLiveChat() {
                 <div ref={bottomRef} />
               </>
             )}
-          </div>
+      </div>
 
-          <div style={{ padding: 12, borderTop: "1px solid #f0f0f0", display: "flex", gap: 8 }}>
-            <Input.TextArea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Nhập tin nhắn..."
-              autoSize={{ minRows: 1, maxRows: 4 }}
-              onPressEnter={(e) => {
-                if (!e.shiftKey) {
-                  e.preventDefault();
-                  onSend();
-                }
-              }}
-            />
-            <Button type="primary" icon={<SendOutlined />} onClick={onSend} loading={sending} disabled={!input.trim()}>
-              Gửi
-            </Button>
-          </div>
-        </div>
-      </Card>
+      <div style={{ padding: 12, borderTop: "1px solid #f0f0f0", display: "flex", gap: 8 }}>
+        <Input.TextArea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Nhập tin nhắn..."
+          autoSize={{ minRows: 1, maxRows: 4 }}
+          onPressEnter={(e) => {
+            if (!e.shiftKey) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+        />
+        <Button type="primary" icon={<SendOutlined />} onClick={onSend} loading={sending} disabled={!input.trim()}>
+          Gửi
+        </Button>
+      </div>
+    </div>
+  );
+
+  if (embed) {
+    return (
+      <div style={{ height: "100%" }}>
+        {Body}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 840, margin: "0 auto", padding: 16 }}>
+      <Space align="center" style={{ marginBottom: 12 }}>
+        <CustomerServiceOutlined />
+        <Title level={4} style={{ margin: 0 }}>Hỗ trợ trực tuyến</Title>
+        <Button icon={<ReloadOutlined />} onClick={onManualRefresh} size="small">Làm mới</Button>
+      </Space>
+      <Card bodyStyle={{ padding: 0 }}>{Body}</Card>
     </div>
   );
 }

@@ -97,9 +97,8 @@ export default function AppHeader() {
   const userMenuItems = [
     { key: "1", icon: <UserOutlined />, label: <Link to="/profile">Tài khoản</Link> },
     { key: "2", icon: <ShoppingCartOutlined />, label: <Link to="/orders">Đơn thuê</Link> },
-    { key: "4", icon: <BellOutlined />, label: <Link to="/chat">Live chat</Link> },
     { type: 'divider' },
-    { key: "3", icon: <span style={{ fontSize: 14 }}>🚪</span>, label: <span onClick={handleLogout}>Đăng xuất</span>, danger: true },
+    { key: "3", label: <span onClick={handleLogout}>Đăng xuất</span>, danger: true },
   ];
 
   const selectedNavKey = React.useMemo(() => {

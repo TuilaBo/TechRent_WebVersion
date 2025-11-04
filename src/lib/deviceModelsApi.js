@@ -66,7 +66,8 @@ export function normalizeModel(m = {}) {
     deviceValue:    Number(m.deviceValue ?? m.assetValue ?? 0),
     amountAvailable: Number(m.amountAvailable ?? 0),
 
-    description: m.description ?? "",
+    description: m.deviceDescription ?? m.description ?? "",
+    deviceDescription: m.deviceDescription ?? "",
     specifications: m.specifications ?? "",
     categoryId: m.deviceCategoryId ?? m.categoryId ?? null,
     active: Boolean(m.active ?? true),

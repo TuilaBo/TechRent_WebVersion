@@ -18,6 +18,7 @@ import {
   Select,
   Modal,
   Popconfirm,
+  Avatar,
 } from "antd";
 import { Link } from "react-router-dom";
 import {
@@ -36,6 +37,7 @@ import {
   PlusOutlined,
   DeleteOutlined,
   BankOutlined,
+  InfoCircleOutlined,
 } from "@ant-design/icons";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
@@ -73,7 +75,6 @@ export default function CustomerProfile() {
   const [kycStatus, setKycStatus] = useState("");
   const [kycRejectionReason, setKycRejectionReason] = useState("");
 
-  // addresses & banks
   const [addresses, setAddresses] = useState([]);
   const [banks, setBanks] = useState([]);
   const [addressModalVisible, setAddressModalVisible] = useState(false);
@@ -83,7 +84,6 @@ export default function CustomerProfile() {
   const [addressLoading, setAddressLoading] = useState(false);
   const [bankLoading, setBankLoading] = useState(false);
 
-  // HCM location (for modal)
   const [districts, setDistricts] = useState([]);
   const [modalDistrictCode, setModalDistrictCode] = useState(null);
   const [modalWardOptions, setModalWardOptions] = useState([]);
@@ -99,7 +99,6 @@ export default function CustomerProfile() {
       setLoading(true);
       setErr(null);
       try {
-        // profile
         const c = await fetchMyCustomerProfile();
         const normalized = normalizeCustomer(c);
         normalized.customerID = c?.customerId ?? c?.id ?? "-";
@@ -119,7 +118,6 @@ export default function CustomerProfile() {
         setAddresses(normalized.shippingAddresses || []);
         setBanks(normalized.bankInformations || []);
 
-        // KYC
         try {
           const kyc = await getMyKyc();
           const ks = String(
@@ -127,9 +125,8 @@ export default function CustomerProfile() {
           ).toLowerCase();
           setKycStatus(ks);
           setKycRejectionReason(kyc?.rejectionReason || "");
-        } catch {}
+        } catch { /* ignore */ }
 
-        // preselect first items
         const firstAddress = normalized.shippingAddresses?.[0];
         const firstBank = normalized.bankInformations?.[0];
         infoForm.setFieldsValue({
@@ -139,7 +136,6 @@ export default function CustomerProfile() {
           selectedBankId: firstBank?.bankInformationId || null,
         });
 
-        // districts for modal
         const ds = await fetchDistrictsHCM();
         if (!mounted) return;
         setDistricts(ds);
@@ -220,7 +216,6 @@ export default function CustomerProfile() {
     }
   };
 
-  // address modal submit
   const handleAddressSubmit = async (values) => {
     try {
       setAddressLoading(true);
@@ -352,7 +347,6 @@ export default function CustomerProfile() {
     setBankModalVisible(true);
   };
 
-  // password mock
   const calcStrength = (v = "") => {
     let s = 0;
     if (v.length >= 8) s += 25;
@@ -362,6 +356,7 @@ export default function CustomerProfile() {
     if (/[^A-Za-z0-9]/.test(v)) s += 15;
     return Math.min(s, 100);
   };
+
   const onChangePassword = async () => {
     try {
       setSubmittingPw(true);
@@ -374,30 +369,29 @@ export default function CustomerProfile() {
     }
   };
 
-  // === KycBanner with tone (NEW) ===
   const KycBanner = ({ tone = "info", icon, title, desc, cta }) => {
     const TONES = {
       success: {
-        bg: "#ECFDF5",
-        border: "#A7F3D0",
+        bg: "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)",
+        border: "#10B981",
         title: "#065F46",
         desc: "#047857",
       },
       warning: {
-        bg: "#FFFBEB",
-        border: "#FDE68A",
+        bg: "linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)",
+        border: "#F59E0B",
         title: "#92400E",
         desc: "#B45309",
       },
       error: {
-        bg: "#FEF2F2",
-        border: "#FCA5A5",
+        bg: "linear-gradient(135deg, #FEF2F2 0%, #FEE2E2 100%)",
+        border: "#EF4444",
         title: "#7F1D1D",
         desc: "#B91C1C",
       },
       info: {
-        bg: "#F9FAFB",
-        border: "#E5E7EB",
+        bg: "linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%)",
+        border: "#6B7280",
         title: "#111827",
         desc: "#6B7280",
       },
@@ -408,28 +402,27 @@ export default function CustomerProfile() {
       <div
         style={{
           background: c.bg,
-          border: `1px solid ${c.border}`,
-          borderRadius: 12,
-          padding: 16,
+          border: `2px solid ${c.border}`,
+          borderRadius: 16,
+          padding: 20,
         }}
       >
-        <Space align="start">
-          {icon}
-          <div>
-            <Text strong style={{ color: c.title }}>
+        <Space align="start" size={16}>
+          <div style={{ fontSize: 28 }}>{icon}</div>
+          <div style={{ flex: 1 }}>
+            <Text strong style={{ color: c.title, fontSize: 16, display: "block", marginBottom: 6 }}>
               {title}
             </Text>
-            <Paragraph style={{ margin: "4px 0 0 0", color: c.desc }}>
+            <Paragraph style={{ margin: 0, color: c.desc, fontSize: 14 }}>
               {desc}
             </Paragraph>
-            {cta}
+            {cta && <div style={{ marginTop: 12 }}>{cta}</div>}
           </div>
         </Space>
       </div>
     );
   };
 
-  // === KYC block (UPDATED) ===
   const kycBlock = useMemo(() => {
     const statusRaw = kycStatus || customer?.kycStatus || "";
     const s = String(statusRaw).toLowerCase();
@@ -447,14 +440,9 @@ export default function CustomerProfile() {
       return (
         <KycBanner
           tone="success"
-          icon={
-            <CheckCircleTwoTone
-              twoToneColor="#10B981"
-              style={{ fontSize: 20 }}
-            />
-          }
+          icon={<CheckCircleTwoTone twoToneColor="#10B981" />}
           title="Đã xác thực KYC"
-          desc="Tài khoản của bạn đã được xác minh."
+          desc="Tài khoản của bạn đã được xác minh. Bạn có thể thuê các thiết bị giá trị cao."
         />
       );
     }
@@ -464,25 +452,25 @@ export default function CustomerProfile() {
         <div>
           <KycBanner
             tone="error"
-            icon={
-              <ExclamationCircleTwoTone
-                twoToneColor="#EF4444"
-                style={{ fontSize: 20 }}
-              />
-            }
+            icon={<ExclamationCircleTwoTone twoToneColor="#EF4444" />}
             title="KYC đã bị từ chối"
-            desc="Vui lòng xem lý do từ chối và xác thực lại KYC."
+            desc="Vui lòng xem lý do từ chối bên dưới và xác thực lại KYC."
             cta={
-              <div style={{ marginTop: 10 }}>
-                <Button
-                  type="primary"
-                  style={{ background: "#111827", borderColor: "#111827" }}
-                >
-                  <Link to="/kyc" style={{ color: "#fff" }}>
-                    Xác thực lại
-                  </Link>
-                </Button>
-              </div>
+              <Button
+                type="primary"
+                size="large"
+                style={{ 
+                  background: "#000", 
+                  borderColor: "#000",
+                  borderRadius: 10,
+                  fontWeight: 600,
+                  height: 44,
+                }}
+              >
+                <Link to="/kyc" style={{ color: "#fff" }}>
+                  Xác thực lại
+                </Link>
+              </Button>
             }
           />
           {kycRejectionReason && (
@@ -491,7 +479,7 @@ export default function CustomerProfile() {
               description={kycRejectionReason}
               type="error"
               showIcon
-              style={{ marginTop: 12 }}
+              style={{ marginTop: 16, borderRadius: 12 }}
             />
           )}
         </div>
@@ -502,13 +490,9 @@ export default function CustomerProfile() {
       return (
         <KycBanner
           tone="warning"
-          icon={
-            <SafetyCertificateOutlined
-              style={{ fontSize: 20, color: "#B45309" }}
-            />
-          }
-          title="Yêu cầu KYC đang duyệt"
-          desc="Chúng tôi sẽ phản hồi sớm nhất."
+          icon={<SafetyCertificateOutlined style={{ fontSize: 28, color: "#F59E0B" }} />}
+          title="Yêu cầu KYC đang được xử lý"
+          desc="Chúng tôi đang xem xét yêu cầu của bạn và sẽ phản hồi sớm nhất có thể."
         />
       );
     }
@@ -516,25 +500,25 @@ export default function CustomerProfile() {
     return (
       <KycBanner
         tone="info"
-        icon={
-          <ExclamationCircleTwoTone
-            twoToneColor="#faad14"
-            style={{ fontSize: 20 }}
-          />
-        }
+        icon={<ExclamationCircleTwoTone twoToneColor="#faad14" />}
         title="Chưa xác thực KYC"
-        desc="Bạn cần hoàn tất xác minh danh tính để thuê thiết bị giá trị cao."
+        desc="Bạn cần hoàn tất xác minh danh tính để có thể thuê các thiết bị giá trị cao và nhận nhiều ưu đãi hơn."
         cta={
-          <div style={{ marginTop: 10 }}>
-            <Button
-              type="primary"
-              style={{ background: "#111827", borderColor: "#111827" }}
-            >
-              <Link to="/kyc" style={{ color: "#fff" }}>
-                Xác thực ngay
-              </Link>
-            </Button>
-          </div>
+          <Button
+            type="primary"
+            size="large"
+            style={{ 
+              background: "#000", 
+              borderColor: "#000",
+              borderRadius: 10,
+              fontWeight: 600,
+              height: 44,
+            }}
+          >
+            <Link to="/kyc" style={{ color: "#fff" }}>
+              Xác thực ngay
+            </Link>
+          </Button>
         }
       />
     );
@@ -542,53 +526,216 @@ export default function CustomerProfile() {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Skeleton active paragraph={{ rows: 6 }} />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Skeleton active paragraph={{ rows: 8 }} />
       </div>
     );
   }
   if (err) {
     return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Alert type="error" message={err} showIcon />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Alert type="error" message={err} showIcon style={{ borderRadius: 12 }} />
       </div>
     );
   }
   if (!customer) return null;
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Row gutter={[16, 16]}>
+    <div className="min-h-screen" style={{ background: "linear-gradient(180deg, #fafafa 0%, #fff 100%)" }}>
+      <style>{`
+        .profile-card {
+          border-radius: 20px !important;
+          border: 1px solid rgba(0,0,0,0.06) !important;
+          box-shadow: 0 2px 16px rgba(0,0,0,0.06) !important;
+          overflow: hidden;
+        }
+        
+        .profile-card .ant-card-head {
+          background: linear-gradient(135deg, #fafafa 0%, #fff 100%);
+          border-bottom: 1px solid rgba(0,0,0,0.06);
+          padding: 20px 24px;
+        }
+        
+        .profile-card .ant-card-head-title {
+          font-size: 18px;
+          font-weight: 700;
+          color: #000;
+        }
+
+        .profile-tabs .ant-tabs-ink-bar { 
+          background: #000; 
+          height: 3px;
+          border-radius: 3px 3px 0 0;
+        }
+        
+        .profile-tabs .ant-tabs-tab { 
+          padding: 16px 0;
+          font-weight: 600;
+          font-size: 15px;
+        }
+        
+        .profile-tabs .ant-tabs-tab-btn { 
+          color: #6B7280; 
+        }
+        
+        .profile-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { 
+          color: #000; 
+        }
+
+        .profile-tabs .ant-tabs-tab:hover .ant-tabs-tab-btn {
+          color: #000;
+        }
+
+        .ant-descriptions-item-label {
+          font-weight: 600 !important;
+          color: #6B7280 !important;
+        }
+
+        .ant-descriptions-item-content {
+          font-weight: 500 !important;
+          color: #1a1a1a !important;
+        }
+
+        .ant-form-item-label > label {
+          font-weight: 600 !important;
+          color: #1a1a1a !important;
+        }
+
+        .ant-input, .ant-input-password, .ant-select-selector {
+          border-radius: 10px !important;
+          border: 1.5px solid #e5e7eb !important;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .ant-input:hover, .ant-input-password:hover, .ant-select:hover .ant-select-selector {
+          border-color: #9ca3af !important;
+        }
+
+        .ant-input:focus, .ant-input-password:focus, .ant-select-focused .ant-select-selector {
+          border-color: #000 !important;
+          box-shadow: 0 0 0 2px rgba(0,0,0,0.05) !important;
+        }
+
+        .ant-input-affix-wrapper {
+          border-radius: 10px !important;
+          border: 1.5px solid #e5e7eb !important;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .ant-input-affix-wrapper:hover {
+          border-color: #9ca3af !important;
+        }
+
+        .ant-input-affix-wrapper-focused {
+          border-color: #000 !important;
+          box-shadow: 0 0 0 2px rgba(0,0,0,0.05) !important;
+        }
+
+        .ant-input-password-icon {
+          color: #9ca3af !important;
+        }
+
+        .ant-input-password-icon:hover {
+          color: #000 !important;
+        }
+
+        .ant-form-item-has-error .ant-input,
+        .ant-form-item-has-error .ant-input-affix-wrapper,
+        .ant-form-item-has-error .ant-select-selector {
+          border-color: #ef4444 !important;
+        }
+
+        .ant-form-item-has-error .ant-input:focus,
+        .ant-form-item-has-error .ant-input-affix-wrapper-focused,
+        .ant-form-item-has-error .ant-select-focused .ant-select-selector {
+          border-color: #ef4444 !important;
+          box-shadow: 0 0 0 2px rgba(239,68,68,0.1) !important;
+        }
+
+        .profile-btn {
+          border-radius: 10px !important;
+          font-weight: 600 !important;
+          height: 42px !important;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .profile-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+        }
+
+        .user-avatar {
+          background: linear-gradient(135deg, #000 0%, #333 100%);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        }
+
+        .info-card {
+          background: rgba(0,0,0,0.02);
+          border: 1px solid rgba(0,0,0,0.06);
+          border-radius: 12px;
+          padding: 16px;
+        }
+
+        .ant-modal-content {
+          border-radius: 16px !important;
+        }
+
+        .ant-modal-header {
+          border-radius: 16px 16px 0 0 !important;
+          border-bottom: 1px solid rgba(0,0,0,0.06) !important;
+        }
+
+        .ant-modal-title {
+          font-weight: 700 !important;
+          font-size: 18px !important;
+        }
+      `}</style>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header Section */}
+        <div style={{ 
+          background: "#fff", 
+          borderRadius: 20, 
+          padding: 32,
+          marginBottom: 24,
+          border: "1px solid rgba(0,0,0,0.06)",
+          boxShadow: "0 2px 16px rgba(0,0,0,0.06)",
+        }}>
+          <Space size={20} align="center">
+            <Avatar 
+              size={80} 
+              icon={<UserOutlined />}
+              className="user-avatar"
+            />
+            <div>
+              <Title level={2} style={{ margin: 0, fontWeight: 800, color: "#000" }}>
+                {customer.fullName || "Người dùng"}
+              </Title>
+              <Text style={{ fontSize: 15, color: "#666", fontWeight: 500 }}>
+                {customer.email}
+              </Text>
+            </div>
+          </Space>
+        </div>
+
+        <Row gutter={[24, 24]}>
           <Col xs={24} lg={14}>
-            <Card
-              className="rounded-xl"
-              title={
-                <Space>
-                  <UserOutlined />
-                  <span style={{ color: "#111827", fontWeight: 600 }}>
-                    Hồ sơ của bạn
-                  </span>
-                </Space>
-              }
-              bodyStyle={{ padding: 18 }}
-            >
+            <Card className="profile-card" bodyStyle={{ padding: 24 }}>
               <Descriptions
                 column={1}
                 size="middle"
                 colon
-                labelStyle={{ width: 160, color: "#6B7280" }}
-                contentStyle={{ color: "#111827" }}
+                labelStyle={{ width: 180 }}
                 items={[
                   {
                     key: "email",
-                    label: "Email",
-                    children: (
+                    label: (
                       <Space>
                         <MailOutlined />
-                        <Text>{customer.email}</Text>
+                        <span>Email</span>
                       </Space>
                     ),
+                    children: <Text>{customer.email}</Text>,
                   },
                   {
                     key: "created",
@@ -597,57 +744,59 @@ export default function CustomerProfile() {
                   },
                   {
                     key: "addr",
-                    label: "Địa chỉ giao hàng",
-                    children: (
+                    label: (
                       <Space>
                         <HomeOutlined />
-                        <Text>
-                          {(() => {
-                            const selectedAddrId =
-                              infoForm.getFieldValue("selectedAddressId");
-                            const selectedAddr = addresses.find(
-                              (a) =>
-                                a.shippingAddressId === selectedAddrId
-                            );
-                            return (
-                              selectedAddr?.address ||
-                              customer.shippingAddress ||
-                              "Chưa cập nhật"
-                            );
-                          })()}
-                        </Text>
+                        <span>Địa chỉ giao hàng</span>
                       </Space>
+                    ),
+                    children: (
+                      <Text>
+                        {(() => {
+                          const selectedAddrId =
+                            infoForm.getFieldValue("selectedAddressId");
+                          const selectedAddr = addresses.find(
+                            (a) => a.shippingAddressId === selectedAddrId
+                          );
+                          return (
+                            selectedAddr?.address ||
+                            customer.shippingAddress ||
+                            "Chưa cập nhật"
+                          );
+                        })()}
+                      </Text>
                     ),
                   },
                   {
                     key: "bank",
-                    label: "Tài khoản ngân hàng",
-                    children: (
+                    label: (
                       <Space>
                         <BankOutlined />
-                        <Text>
-                          {(() => {
-                            const selectedBankId =
-                              infoForm.getFieldValue("selectedBankId");
-                            const selectedBank = banks.find(
-                              (b) =>
-                                b.bankInformationId === selectedBankId
-                            );
-                            return selectedBank
-                              ? `${selectedBank.bankName} - ${selectedBank.bankHolder} - ${selectedBank.cardNumber}`
-                              : customer.bankName
-                              ? `${customer.bankName} - ${customer.bankAccountHolder} - ${customer.bankAccountNumber}`
-                              : "Chưa cập nhật";
-                          })()}
-                        </Text>
+                        <span>Ngân hàng</span>
                       </Space>
+                    ),
+                    children: (
+                      <Text>
+                        {(() => {
+                          const selectedBankId =
+                            infoForm.getFieldValue("selectedBankId");
+                          const selectedBank = banks.find(
+                            (b) => b.bankInformationId === selectedBankId
+                          );
+                          return selectedBank
+                            ? `${selectedBank.bankName} - ${selectedBank.bankHolder}`
+                            : customer.bankName
+                            ? `${customer.bankName} - ${customer.bankAccountHolder}`
+                            : "Chưa cập nhật";
+                        })()}
+                      </Text>
                     ),
                   },
                 ]}
               />
             </Card>
 
-            <Card className="rounded-xl mt-3" bodyStyle={{ padding: 0 }}>
+            <Card className="profile-card" style={{ marginTop: 24 }} bodyStyle={{ padding: 0 }}>
               <Tabs
                 className="profile-tabs"
                 defaultActiveKey="info"
@@ -661,7 +810,7 @@ export default function CustomerProfile() {
                       </Space>
                     ),
                     children: (
-                      <div style={{ padding: 18 }}>
+                      <div style={{ padding: 24 }}>
                         <Form
                           form={infoForm}
                           layout="vertical"
@@ -678,10 +827,7 @@ export default function CustomerProfile() {
                               },
                             ]}
                           >
-                            <Input
-                              prefix={<UserOutlined />}
-                              placeholder="Họ và tên"
-                            />
+                            <Input placeholder="Họ và tên" />
                           </Form.Item>
 
                           <Form.Item
@@ -698,13 +844,9 @@ export default function CustomerProfile() {
                               },
                             ]}
                           >
-                            <Input
-                              prefix={<PhoneOutlined />}
-                              placeholder="09xx xxx xxx"
-                            />
+                            <Input placeholder="09xx xxx xxx" />
                           </Form.Item>
 
-                          {/* Select địa chỉ */}
                           <Form.Item
                             label="Địa chỉ giao hàng"
                             name="selectedAddressId"
@@ -787,7 +929,6 @@ export default function CustomerProfile() {
                             />
                           </Form.Item>
 
-                          {/* Select ngân hàng */}
                           <Form.Item
                             label="Tài khoản ngân hàng"
                             name="selectedBankId"
@@ -870,20 +1011,22 @@ export default function CustomerProfile() {
                             />
                           </Form.Item>
 
-                          <Space>
+                          <Space size={12}>
                             <Button
                               type="primary"
                               htmlType="submit"
                               loading={saving}
+                              className="profile-btn"
                               style={{
-                                background: "#111827",
-                                borderColor: "#111827",
+                                background: "#000",
+                                borderColor: "#000",
                               }}
                             >
                               Lưu thay đổi
                             </Button>
                             <Button
                               htmlType="button"
+                              className="profile-btn"
                               onClick={() => infoForm.resetFields()}
                             >
                               Hủy
@@ -902,7 +1045,7 @@ export default function CustomerProfile() {
                       </Space>
                     ),
                     children: (
-                      <div style={{ padding: 18 }}>
+                      <div style={{ padding: 24 }}>
                         <Form
                           form={pwForm}
                           layout="vertical"
@@ -920,11 +1063,8 @@ export default function CustomerProfile() {
                             ]}
                           >
                             <Input.Password
-                              prefix={<LockOutlined />}
                               placeholder="Mật khẩu hiện tại"
-                              iconRender={(v) =>
-                                v ? <EyeTwoTone /> : <EyeInvisibleOutlined />
-                              }
+                              iconRender={(v) => (v ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
                             />
                           </Form.Item>
 
@@ -940,11 +1080,8 @@ export default function CustomerProfile() {
                             ]}
                           >
                             <Input.Password
-                              prefix={<LockOutlined />}
                               placeholder="Mật khẩu mới"
-                              iconRender={(v) =>
-                                v ? <EyeTwoTone /> : <EyeInvisibleOutlined />
-                              }
+                              iconRender={(v) => (v ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
                               onChange={(e) => {
                                 const s = calcStrength(e.target.value);
                                 pwForm.setFields([
@@ -963,19 +1100,21 @@ export default function CustomerProfile() {
                                 pwForm.getFieldValue("_pwStrength") || 0;
                               const text =
                                 s >= 80 ? "Mạnh" : s >= 50 ? "Khá" : "Yếu";
+                              const color = s >= 80 ? "#10B981" : s >= 50 ? "#F59E0B" : "#EF4444";
                               return (
                                 <div
-                                  style={{ marginTop: -8, marginBottom: 12 }}
+                                  style={{ marginTop: -8, marginBottom: 16 }}
                                 >
                                   <Progress
                                     percent={s}
                                     size="small"
                                     showInfo={false}
-                                    strokeColor="#111827"
+                                    strokeColor={color}
                                     trailColor="#E5E7EB"
+                                    style={{ marginBottom: 8 }}
                                   />
-                                  <Text type="secondary">
-                                    Độ mạnh mật khẩu: {text}
+                                  <Text style={{ fontSize: 13, color: "#6B7280", fontWeight: 500 }}>
+                                    Độ mạnh mật khẩu: <span style={{ color, fontWeight: 600 }}>{text}</span>
                                   </Text>
                                 </div>
                               );
@@ -1005,27 +1144,28 @@ export default function CustomerProfile() {
                             ]}
                           >
                             <Input.Password
-                              prefix={<LockOutlined />}
                               placeholder="Nhập lại mật khẩu mới"
-                              iconRender={(v) =>
-                                v ? <EyeTwoTone /> : <EyeInvisibleOutlined />
-                              }
+                              iconRender={(v) => (v ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
                             />
                           </Form.Item>
 
-                          <Space>
+                          <Space size={12}>
                             <Button
                               type="primary"
                               htmlType="submit"
                               loading={submittingPw}
+                              className="profile-btn"
                               style={{
-                                background: "#111827",
-                                borderColor: "#111827",
+                                background: "#000",
+                                borderColor: "#000",
                               }}
                             >
                               Cập nhật mật khẩu
                             </Button>
-                            <Button onClick={() => pwForm.resetFields()}>
+                            <Button 
+                              className="profile-btn"
+                              onClick={() => pwForm.resetFields()}
+                            >
                               Làm mới
                             </Button>
                           </Space>
@@ -1038,33 +1178,39 @@ export default function CustomerProfile() {
             </Card>
           </Col>
 
-          {/* RIGHT */}
           <Col xs={24} lg={10}>
             <Card
-              className="rounded-xl"
+              className="profile-card"
               title={
                 <Space>
                   <SafetyCertificateOutlined />
-                  <span style={{ color: "#111827", fontWeight: 600 }}>
-                    Trạng thái KYC
-                  </span>
+                  <span>Trạng thái KYC</span>
                 </Space>
               }
-              bodyStyle={{ padding: 18 }}
+              bodyStyle={{ padding: 24 }}
             >
               {kycBlock}
             </Card>
 
-            <Card className="rounded-xl mt-3" bodyStyle={{ padding: 18 }}>
-              <Title level={5} style={{ marginTop: 0, color: "#111827" }}>
-                Ghi chú
-              </Title>
-              <Paragraph style={{ color: "#6B7280", marginBottom: 0 }}>
-                • Thông tin hồ sơ dùng để xuất hợp đồng và giao/thu hồi thiết
-                bị.
-                <br />• Nếu bạn thay đổi địa chỉ nhận hàng, vui lòng cập nhật
-                trước khi đặt đơn mới.
-              </Paragraph>
+            <Card className="profile-card" style={{ marginTop: 24 }} bodyStyle={{ padding: 24 }}>
+              <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                <Space>
+                  <InfoCircleOutlined style={{ fontSize: 18, color: "#6B7280" }} />
+                  <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                    Ghi chú quan trọng
+                  </Title>
+                </Space>
+                <div className="info-card">
+                  <Paragraph style={{ color: "#4B5563", marginBottom: 12, fontSize: 14, lineHeight: 1.6 }}>
+                    <strong>📋 Thông tin hồ sơ</strong><br />
+                    Thông tin này sẽ được sử dụng để xuất hợp đồng thuê và giao/thu hồi thiết bị.
+                  </Paragraph>
+                  <Paragraph style={{ color: "#4B5563", marginBottom: 0, fontSize: 14, lineHeight: 1.6 }}>
+                    <strong>📍 Địa chỉ giao hàng</strong><br />
+                    Nếu bạn thay đổi địa chỉ nhận hàng, vui lòng cập nhật trước khi đặt đơn mới.
+                  </Paragraph>
+                </div>
+              </Space>
             </Card>
           </Col>
         </Row>
@@ -1138,11 +1284,12 @@ export default function CustomerProfile() {
               { required: true, message: "Vui lòng nhập số nhà, tên đường" },
             ]}
           >
-            <Input prefix={<HomeOutlined />} placeholder="VD: 12 Nguyễn Trãi" />
+            <Input placeholder="VD: 12 Nguyễn Trãi" />
           </Form.Item>
 
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
             <Button
+              className="profile-btn"
               onClick={() => {
                 setAddressModalVisible(false);
                 setEditingAddress(null);
@@ -1157,7 +1304,8 @@ export default function CustomerProfile() {
               type="primary"
               htmlType="submit"
               loading={addressLoading}
-              style={{ background: "#111827", borderColor: "#111827" }}
+              className="profile-btn"
+              style={{ background: "#000", borderColor: "#000" }}
             >
               {editingAddress ? "Cập nhật" : "Thêm"}
             </Button>
@@ -1190,7 +1338,7 @@ export default function CustomerProfile() {
           <Form.Item
             label="Tên ngân hàng"
             name="bankName"
-            rules={[{ required: true, message: "Vui lòng nhập tên ngân hàng" }]}
+            rules={[{ required: true, message: "Vui lòng chọn ngân hàng" }]}
           >
             <Select
               options={BANKS}
@@ -1223,6 +1371,7 @@ export default function CustomerProfile() {
 
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
             <Button
+              className="profile-btn"
               onClick={() => {
                 setBankModalVisible(false);
                 setEditingBank(null);
@@ -1235,19 +1384,14 @@ export default function CustomerProfile() {
               type="primary"
               htmlType="submit"
               loading={bankLoading}
-              style={{ background: "#111827", borderColor: "#111827" }}
+              className="profile-btn"
+              style={{ background: "#000", borderColor: "#000" }}
             >
               {editingBank ? "Cập nhật" : "Thêm"}
             </Button>
           </Space>
         </Form>
       </Modal>
-
-      <style>{`
-        .profile-tabs .ant-tabs-ink-bar { background: #111827; }
-        .profile-tabs .ant-tabs-tab-btn { color: #6B7280; }
-        .profile-tabs .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { color: #111827; }
-      `}</style>
     </div>
   );
 }
