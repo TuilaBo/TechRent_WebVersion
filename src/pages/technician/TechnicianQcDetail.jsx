@@ -12,6 +12,7 @@ import { getTaskById, normalizeTask } from "../../lib/taskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { createQcReport } from "../../lib/qcReportApi";
 import { getDevicesByModelId } from "../../lib/deviceManage";
+import { getDeviceModelById } from "../../lib/deviceModelsApi";
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -58,6 +59,8 @@ export default function TechnicianQcDetail() {
   const [loadingDevices, setLoadingDevices] = useState(false);
   // Map: orderDetailId -> danh sách devices (để lấy serialNumbers)
   const [devicesByOrderDetail, setDevicesByOrderDetail] = useState({});
+  // Map: deviceModelId -> device model name
+  const [modelNameById, setModelNameById] = useState({});
   
   // Fetch task and order details
   useEffect(() => {
@@ -105,6 +108,7 @@ export default function TechnicianQcDetail() {
       try {
         setLoadingDevices(true);
         const devicesMap = {};
+        const namesMap = {};
 
         // Fetch devices for each orderDetail concurrently
         const fetchPromises = order.orderDetails.map(async (orderDetail) => {
@@ -117,23 +121,29 @@ export default function TechnicianQcDetail() {
           }
 
           try {
-            const devices = await getDevicesByModelId(deviceModelId);
-            return { orderDetailId, devices: Array.isArray(devices) ? devices : [] };
+            const [devices, model] = await Promise.all([
+              getDevicesByModelId(deviceModelId).catch(() => []),
+              getDeviceModelById(deviceModelId).catch(() => null),
+            ]);
+            const name = model?.deviceName || model?.name || null;
+            return { orderDetailId, devices: Array.isArray(devices) ? devices : [], deviceModelId, name };
           } catch (e) {
             console.error(`Lỗi khi fetch devices cho modelId ${deviceModelId}:`, e);
             toast.error(`Không thể tải devices cho model ${deviceModelId}`);
-            return { orderDetailId, devices: [] };
+            return { orderDetailId, devices: [], deviceModelId, name: null };
           }
         });
 
         const results = await Promise.all(fetchPromises);
         
         // Build devicesMap
-        results.forEach(({ orderDetailId, devices }) => {
+        results.forEach(({ orderDetailId, devices, deviceModelId, name }) => {
           devicesMap[orderDetailId] = devices;
+          if (deviceModelId != null && name) namesMap[deviceModelId] = name;
         });
 
         setDevicesByOrderDetail(devicesMap);
+        setModelNameById((prev) => ({ ...prev, ...namesMap }));
       } catch (e) {
         console.error("Lỗi khi fetch devices:", e);
         toast.error("Không thể tải danh sách thiết bị từ kho");
@@ -162,19 +172,19 @@ export default function TechnicianQcDetail() {
   const [phase, setPhase] = useState("PRE_RENTAL");
   const [result, setResult] = useState("READY_FOR_SHIPPING");
 
-  // Allowed results per phase
+  // Allowed results per phase (labels in Vietnamese, values giữ nguyên để gửi API)
   const resultOptions = useMemo(() => {
     const p = String(phase || "").toUpperCase();
     if (p === "POST_RENTAL") {
       return [
-        { label: "READY_FOR_RE_STOCK", value: "READY_FOR_RE_STOCK" },
-        { label: "POST_RENTAL_FAILED", value: "POST_RENTAL_FAILED" },
+        { label: "Sẵn sàng nhập kho", value: "READY_FOR_RE_STOCK" },
+        { label: "QC sau thuê thất bại", value: "POST_RENTAL_FAILED" },
       ];
     }
     // default: PRE_RENTAL
     return [
-      { label: "READY_FOR_SHIPPING", value: "READY_FOR_SHIPPING" },
-      { label: "PRE_RENTAL_FAILED", value: "PRE_RENTAL_FAILED" },
+      { label: "Sẵn sàng giao hàng", value: "READY_FOR_SHIPPING" },
+      { label: "QC trước thuê thất bại", value: "PRE_RENTAL_FAILED" },
     ];
   }, [phase]);
 
@@ -495,7 +505,7 @@ export default function TechnicianQcDetail() {
                   >
                     <div style={{ marginBottom: 8 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        Device Model ID: {deviceModelId} • Quantity: {quantity}
+                        Device Model: {modelNameById[deviceModelId] || `#${deviceModelId}`} • Quantity: {quantity}
                       </Text>
                       <div style={{ marginTop: 4 }}>
                         {loadingDevices ? (
@@ -567,10 +577,14 @@ export default function TechnicianQcDetail() {
                   onChange={setPhase}
                   style={{ width: "100%" }}
                   options={[
-                    { label: "PRE_RENTAL", value: "PRE_RENTAL" },
-                    { label: "POST_RENTAL", value: "POST_RENTAL" },
+                    { label: "Trước thuê (PRE_RENTAL)", value: "PRE_RENTAL" },
+                    { label: "Sau thuê (POST_RENTAL)", value: "POST_RENTAL" },
                   ]}
+                  disabled
                 />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Phase được xác định bởi hệ thống và không thể chỉnh sửa.
+                </Text>
               </div>
             </Col>
             <Col xs={24} md={12}>

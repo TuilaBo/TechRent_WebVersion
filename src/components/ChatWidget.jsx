@@ -21,16 +21,40 @@ export default function ChatWidget() {
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+
   const pollRef = useRef(null);
   const scrollRef = useRef(null);
+  const bottomRef = useRef(null);
+  const lastMsgIdRef = useRef(null);
+
+  // NEW: đo chiều cao composer để chèn padding dưới cho vùng list
+  const composerRef = useRef(null);
+  const [composerH, setComposerH] = useState(0);
 
   const conversationId = conversation?.conversationId || conversation?.id;
   const customerId = customer?.customerId || customer?.id;
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (behavior = "auto") => {
+    if (bottomRef.current) {
+      try {
+        bottomRef.current.scrollIntoView({ behavior, block: "end" });
+        return;
+      } catch {}
+    }
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
+
+  // đo composer height theo thời gian thực
+  useEffect(() => {
+    if (!composerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect?.height ?? 0;
+      setComposerH(h);
+    });
+    ro.observe(composerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -38,8 +62,10 @@ export default function ChatWidget() {
         setLoading(true);
         const me = await fetchMyCustomerProfile();
         setCustomer(me || null);
+
         const conv = await getOrCreateConversationByCustomerId(me?.customerId ?? me?.id);
         setConversation(conv || null);
+
         if (conv?.conversationId || conv?.id) {
           const res = await getMessagesByConversation(conv.conversationId ?? conv.id, 0, 50);
           const content = res?.content ?? res ?? [];
@@ -50,17 +76,17 @@ export default function ChatWidget() {
               )
             : [];
           setMessages(sorted);
+          const last = sorted.at(-1);
+          lastMsgIdRef.current = last ? last.messageId || last.id : null;
         }
       } catch (e) {
         toast.error(e?.response?.data?.message || e?.message || "Không tải được chat");
       } finally {
         setLoading(false);
-        setTimeout(scrollToBottom, 0);
+        setTimeout(() => scrollToBottom("auto"), 0);
       }
     })();
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => pollRef.current && clearInterval(pollRef.current);
   }, []);
 
   useEffect(() => {
@@ -76,10 +102,7 @@ export default function ChatWidget() {
             )
           : [];
         setMessages(sorted);
-        setTimeout(scrollToBottom, 0);
-      } catch {
-        /* ignore polling error */
-      }
+      } catch {}
     }, 8000);
     return () => pollRef.current && clearInterval(pollRef.current);
   }, [conversationId]);
@@ -96,7 +119,6 @@ export default function ChatWidget() {
           )
         : [];
       setMessages(sorted);
-      setTimeout(scrollToBottom, 0);
     } catch {
       toast.error("Không tải được tin nhắn");
     }
@@ -108,12 +130,7 @@ export default function ChatWidget() {
     if (!conversationId || !customerId) return;
     try {
       setSending(true);
-      await sendChatMessage({
-        conversationId,
-        senderType: "CUSTOMER",
-        senderId: customerId,
-        content,
-      });
+      await sendChatMessage({ conversationId, senderType: "CUSTOMER", senderId: customerId, content });
       setInput("");
       await refresh();
     } catch (e) {
@@ -133,8 +150,24 @@ export default function ChatWidget() {
     }));
   }, [messages]);
 
+  // Auto scroll khi có message mới thực sự
+  useEffect(() => {
+    if (!rows.length) return;
+    const last = rows[rows.length - 1];
+    const lastId = last?.id ?? null;
+    if (lastId && lastId !== lastMsgIdRef.current) {
+      lastMsgIdRef.current = lastId;
+      requestAnimationFrame(() => scrollToBottom("smooth"));
+    }
+  }, [rows]);
+
+  // Nếu composer đổi cao → cập nhật padding + giữ đáy
+  useEffect(() => {
+    // khi chiều cao composer thay đổi, đảm bảo không che tin cuối
+    requestAnimationFrame(() => scrollToBottom("auto"));
+  }, [composerH]);
+
   return (
-    // Quan trọng: flex:1 + minHeight:0 để vùng list cuộn đúng, không đẩy input ra ngoài
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div
         style={{
@@ -153,8 +186,17 @@ export default function ChatWidget() {
         </Button>
       </div>
 
-      {/* Vùng danh sách tin nhắn co giãn, có scroll */}
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: 12, minHeight: 0 }}>
+      {/* Vùng danh sách — thêm paddingBottom theo composerH để không bị che */}
+      <div
+        ref={scrollRef}
+        style={{
+          flex: 1,
+          overflow: "auto",
+          padding: 12,
+          paddingBottom: 12 + Math.ceil(composerH), // quan trọng
+          minHeight: 0,
+        }}
+      >
         {loading ? (
           <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center" }}>
             <Spin />
@@ -201,15 +243,19 @@ export default function ChatWidget() {
             )}
           />
         )}
+        {/* Sentinel — có scroll-margin-bottom để nhảy tới còn chừa khoảng trống */}
+        <div ref={bottomRef} style={{ height: 1, scrollMarginBottom: Math.ceil(composerH) + 8 }} />
       </div>
 
-      {/* Thanh nhập + nút Gửi luôn hiển thị */}
+      {/* Composer */}
       <div
+        ref={composerRef}
         style={{
           padding: 12,
           borderTop: "1px solid #f0f0f0",
           display: "flex",
           gap: 8,
+          background: "#fff",
         }}
       >
         <Input.TextArea
@@ -224,13 +270,7 @@ export default function ChatWidget() {
             }
           }}
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={onSend}
-          loading={sending}
-          disabled={!input.trim()}
-        >
+        <Button type="primary" icon={<SendOutlined />} onClick={onSend} loading={sending} disabled={!input.trim()}>
           Gửi
         </Button>
       </div>
