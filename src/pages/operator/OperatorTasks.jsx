@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import {
   Table, Button, Space, Tag, Modal, Form, Input,
-  DatePicker, Select, Typography, Spin, InputNumber, Popconfirm,
+  DatePicker, Select, Typography, Spin, InputNumber, Popconfirm, Tooltip,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -171,103 +171,130 @@ export default function OperatorTasks() {
   };
 
   const columns = [
-    { title: "Task ID", dataIndex: "taskId", width: 80, sorter: (a, b) => a.taskId - b.taskId },
+    { 
+      title: "ID", 
+      dataIndex: "taskId", 
+      width: 70, 
+      sorter: (a, b) => a.taskId - b.taskId,
+      render: (v) => <strong>#{v}</strong>,
+    },
     {
       title: "Loại công việc",
       dataIndex: "taskCategoryName",
       key: "taskCategoryName",
-      width: 150,
+      width: 130,
+      ellipsis: true,
     },
     {
       title: "Mô tả",
       dataIndex: "description",
       key: "description",
-      ellipsis: true,
+      width: 200,
+      ellipsis: { showTitle: false },
+      render: (text) => (
+        <Tooltip title={text} placement="topLeft">
+          <span>{text || "-"}</span>
+        </Tooltip>
+      ),
     },
     {
       title: "Loại",
       dataIndex: "type",
       key: "type",
-      width: 120,
+      width: 100,
+      ellipsis: true,
     },
     {
       title: "Người phụ trách",
-      dataIndex: "assignedStaffName",
-      key: "assignedStaffName",
+      key: "assignee",
       width: 150,
-      render: (name) => name || "-",
-    },
-    {
-      title: "Vai trò",
-      dataIndex: "assignedStaffRole",
-      key: "assignedStaffRole",
-      width: 120,
-      render: (role) => <Tag color="geekblue">{role || "-"}</Tag>,
-    },
-    {
-      title: "Mã đơn",
-      dataIndex: "orderId",
-      key: "orderId",
-      width: 140,
-      render: (id) => (
-        id ? (
-          <Space>
-            <span>#{id}</span>
-            <Button size="small" onClick={async () => {
-              if (!orderMap[id]) {
-                try {
-                  const o = await getRentalOrderById(id);
-                  setOrderMap((m) => ({ ...m, [id]: o }));
-                  setOrderViewing(o);
-                } catch {
-                  toast.error("Không tải được đơn hàng");
-                  return;
-                }
-              } else {
-                setOrderViewing(orderMap[id]);
-              }
-              setOrderModalOpen(true);
-            }}>Xem</Button>
-          </Space>
-        ) : ("-")
-      ),
-    },
-    {
-      title: "TT đơn",
-      dataIndex: "orderId",
-      key: "orderStatus",
-      width: 130,
-      render: (id) => {
-        const st = orderMap[id]?.status || orderMap[id]?.orderStatus || null;
-        if (!id) return "-";
-        if (!st) return <Tag>—</Tag>;
-        const s = String(st).toUpperCase();
-        if (s.includes("PENDING")) return <Tag color="orange">PENDING</Tag>;
-        if (s.includes("CONFIRM")) return <Tag color="blue">CONFIRMED</Tag>;
-        if (s.includes("CANCEL")) return <Tag color="red">CANCELLED</Tag>;
-        if (s.includes("DONE") || s.includes("COMPLETE")) return <Tag color="green">COMPLETED</Tag>;
-        return <Tag>{st}</Tag>;
+      render: (_, r) => {
+        const name = r.assignedStaffName;
+        const role = r.assignedStaffRole;
+        if (!name && !role) return "-";
+        return (
+          <div>
+            <div>{name || "-"}</div>
+            {role && <Tag color="geekblue" style={{ marginTop: 4 }}>{role}</Tag>}
+          </div>
+        );
       },
     },
     {
-      title: "Bắt đầu",
-      dataIndex: "plannedStart",
-      key: "plannedStart",
-      width: 170,
-      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY HH:mm") : "-"),
+      title: "Đơn hàng",
+      key: "order",
+      width: 140,
+      render: (_, r) => {
+        const id = r.orderId;
+        const st = id ? (orderMap[id]?.status || orderMap[id]?.orderStatus || null) : null;
+        if (!id) return "-";
+        return (
+          <Space direction="vertical" size="small">
+            <Space>
+              <span>#{id}</span>
+              <Button 
+                size="small" 
+                type="link"
+                style={{ padding: 0, height: 'auto' }}
+                onClick={async () => {
+                  if (!orderMap[id]) {
+                    try {
+                      const o = await getRentalOrderById(id);
+                      setOrderMap((m) => ({ ...m, [id]: o }));
+                      setOrderViewing(o);
+                    } catch {
+                      toast.error("Không tải được đơn hàng");
+                      return;
+                    }
+                  } else {
+                    setOrderViewing(orderMap[id]);
+                  }
+                  setOrderModalOpen(true);
+                }}
+              >
+                Xem
+              </Button>
+            </Space>
+            {st && (
+              <Tag 
+                color={
+                  String(st).toUpperCase().includes("PENDING") ? "orange" :
+                  String(st).toUpperCase().includes("CONFIRM") ? "blue" :
+                  String(st).toUpperCase().includes("CANCEL") ? "red" :
+                  String(st).toUpperCase().includes("DONE") || String(st).toUpperCase().includes("COMPLETE") ? "green" : "default"
+                }
+                style={{ margin: 0 }}
+              >
+                {String(st).toUpperCase().includes("PENDING") ? "PENDING" :
+                 String(st).toUpperCase().includes("CONFIRM") ? "CONFIRMED" :
+                 String(st).toUpperCase().includes("CANCEL") ? "CANCELLED" :
+                 String(st).toUpperCase().includes("DONE") || String(st).toUpperCase().includes("COMPLETE") ? "COMPLETED" : st}
+              </Tag>
+            )}
+          </Space>
+        );
+      },
     },
     {
-      title: "Kết thúc",
-      dataIndex: "plannedEnd",
-      key: "plannedEnd",
-      width: 170,
-      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY HH:mm") : "-"),
+      title: "Thời gian",
+      key: "timeRange",
+      width: 200,
+      render: (_, r) => {
+        const start = r.plannedStart ? dayjs(r.plannedStart).format("DD/MM/YYYY HH:mm") : "-";
+        const end = r.plannedEnd ? dayjs(r.plannedEnd).format("DD/MM/YYYY HH:mm") : "-";
+        return (
+          <div style={{ fontSize: "12px", lineHeight: "1.5" }}>
+            <div><strong>Bắt đầu:</strong> {start}</div>
+            <div><strong>Kết thúc:</strong> {end}</div>
+          </div>
+        );
+      },
     },
     {
       title: "Trạng thái",
       dataIndex: "status",
       key: "status",
-      width: 130,
+      width: 120,
       filters: [
         { text: "Chờ thực hiện", value: "PENDING" },
         { text: "Đang thực hiện", value: "IN_PROGRESS" },
@@ -280,19 +307,19 @@ export default function OperatorTasks() {
       title: "Ngày tạo",
       dataIndex: "createdAt",
       key: "createdAt",
-      width: 170,
-      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY HH:mm") : "-"),
+      width: 140,
+      render: (date) => (date ? dayjs(date).format("DD/MM/YYYY") : "-"),
     },
     {
       title: "Thao tác",
       key: "actions",
       fixed: "right",
-      width: 160,
+      width: 100,
       render: (_, r) => (
-        <Space>
-          <Button icon={<EditOutlined />} onClick={() => openEdit(r)} />
+        <Space size="small">
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
           <Popconfirm title="Xóa task này?" onConfirm={() => remove(r)}>
-            <Button danger icon={<DeleteOutlined />} />
+            <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),
@@ -315,7 +342,7 @@ export default function OperatorTasks() {
           columns={columns}
           dataSource={data}
           pagination={{ pageSize: 10 }}
-          scroll={{ x: 1500 }}
+          scroll={{ x: 1200 }}
         />
       </Spin>
 
@@ -366,10 +393,15 @@ export default function OperatorTasks() {
               placeholder="Chọn nhân viên (tuỳ chọn)"
               showSearch
               optionFilterProp="label"
-              options={staffs.map((s) => ({
-                label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
-                value: s.staffId ?? s.id,
-              }))}
+              options={staffs
+                .filter((s) => {
+                  const role = String(s.staffRole || s.role || "").toUpperCase();
+                  return role === "TECHNICIAN";
+                })
+                .map((s) => ({
+                  label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
+                  value: s.staffId ?? s.id,
+                }))}
             />
           </Form.Item>
 

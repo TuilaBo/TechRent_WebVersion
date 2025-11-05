@@ -18,6 +18,8 @@ import OtpVerify from "./pages/auth/OtpVerify.jsx";
 import RentalList from "./pages/RentalList.jsx";
 import FindProduct from "./components/FindProduct.jsx";
 import CustomerLiveChat from "./pages/Customer/CustomerLiveChat.jsx";
+import ReturnPage from "./pages/payment/ReturnPage.jsx";
+import CancelPage from "./pages/payment/CancelPage.jsx";
 
 import AdminShell from "./pages/admin/AdminShell.jsx";
 import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
@@ -85,6 +87,11 @@ export default function App() {
           <Route path="chat" element={<CustomerLiveChat />} />
           {/* Alias để tránh 404 khi truy cập /customer/chat */}
           <Route path="customer/chat" element={<CustomerLiveChat />} />
+          <Route path="payment/return" element={<ReturnPage />} />
+          <Route path="payment/cancel" element={<CancelPage />} />
+          {/* Route cho PayOS redirect về /cancel thay vì /payment/cancel */}
+          <Route path="cancel" element={<CancelPage />} />
+          <Route path="return" element={<ReturnPage />} />
         </Route>
 
         <Route

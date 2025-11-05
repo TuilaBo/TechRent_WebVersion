@@ -9,7 +9,7 @@ import {
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
-import toast from "react-hot-toast";                     // <-- dùng toast
+import toast from "react-hot-toast";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
   getCartFromStorage, saveCartToStorage,
@@ -19,9 +19,40 @@ import { getMyKyc } from "../../lib/kycApi";
 
 const { Title, Text } = Typography;
 
-const fmtVND = (n) => Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
+const fmtVND = (n) =>
+  Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
 const disabledPast = (cur) => cur && cur < dayjs().startOf("day");
 const CART_DATES_STORAGE_KEY = "techrent-cart-dates";
+
+/* ===== Helpers: persist/read rental dates ===== */
+function persistCartDates(startDate, endDate) {
+  if (!startDate || !endDate) return;
+  const payload = {
+    startDate: dayjs(startDate).format("YYYY-MM-DD"),
+    endDate: dayjs(endDate).format("YYYY-MM-DD"),
+  };
+  try {
+    localStorage.setItem(CART_DATES_STORAGE_KEY, JSON.stringify(payload));
+    // backup session để hạn chế mất dữ liệu khi tab riêng tư
+    sessionStorage.setItem(CART_DATES_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage errors (quota/unsupported)
+  }
+}
+
+function readCartDates() {
+  try {
+    const fromLocal = localStorage.getItem(CART_DATES_STORAGE_KEY);
+    const fromSession = sessionStorage.getItem(CART_DATES_STORAGE_KEY);
+    const raw = fromLocal || fromSession;
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d?.startDate || !d?.endDate) return null;
+    return { start: dayjs(d.startDate), end: dayjs(d.endDate) };
+  } catch {
+    return null;
+  }
+}
 
 const createCartItem = (model, qty = 1) => ({
   id: model.id,
@@ -44,23 +75,27 @@ export default function CartPage() {
   const [kycStatus, setKycStatus] = useState("");
   const [kycLoading, setKycLoading] = useState(true);
 
-  // Dates
-  const [startDate, setStartDate] = useState(dayjs().add(1, "day"));
-  const [endDate, setEndDate] = useState(dayjs().add(6, "day"));
+  // Dates (init from storage to avoid reset)
+  const initialDates = (() => {
+    const stored = readCartDates();
+    if (stored?.start && stored?.end) return stored;
+    return { start: dayjs().add(1, "day"), end: dayjs().add(6, "day") };
+  })();
+  const [startDate, setStartDate] = useState(initialDates.start);
+  const [endDate, setEndDate] = useState(initialDates.end);
 
   useEffect(() => {
     const loadCart = async () => {
       try {
         setLoading(true);
+
+        // 1) đọc ngày đã lưu (nếu có)
+        const stored = readCartDates();
+        if (stored?.start) setStartDate(stored.start);
+        if (stored?.end) setEndDate(stored.end);
+
+        // 2) load items
         const cartItems = getCartFromStorage();
-
-        const savedDates = localStorage.getItem(CART_DATES_STORAGE_KEY);
-        if (savedDates) {
-          const d = JSON.parse(savedDates);
-          if (d.startDate) setStartDate(dayjs(d.startDate));
-          if (d.endDate) setEndDate(dayjs(d.endDate));
-        }
-
         if (!Array.isArray(cartItems) || cartItems.length === 0) {
           setItems([]);
           return;
@@ -119,17 +154,26 @@ export default function CartPage() {
     if (!loading) saveCartToStorage(items);
   }, [items, loading]);
 
-  // Persist dates
+  // Persist dates tự động + đảm bảo khi rời trang
   useEffect(() => {
-    if (startDate && endDate) {
-      localStorage.setItem(
-        CART_DATES_STORAGE_KEY,
-        JSON.stringify({
-          startDate: startDate.format("YYYY-MM-DD"),
-          endDate: endDate.format("YYYY-MM-DD"),
-        })
-      );
-    }
+    if (startDate && endDate) persistCartDates(startDate, endDate);
+
+    const onBeforeUnload = () => {
+      if (startDate && endDate) persistCartDates(startDate, endDate);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (startDate && endDate) persistCartDates(startDate, endDate);
+      }
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload); // <-- đúng tên
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [startDate, endDate]);
 
   const days = useMemo(() => {
@@ -144,9 +188,7 @@ export default function CartPage() {
       items.map((it) => {
         const qty = Number(it.qty || 1);
         const subtotal = Number(it.dailyPrice || 0) * days * qty;
-        const deposit = Math.round(
-          Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty
-        );
+        const deposit = Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty;
         return {
           id: it.id,
           name: it.name,
@@ -171,7 +213,9 @@ export default function CartPage() {
 
   const updateItem = (id, patch) => {
     const idStr = String(id);
-    const updated = items.map((it) => (String(it.id) === idStr ? { ...it, ...patch } : it));
+    const updated = items.map((it) =>
+      String(it.id) === idStr ? { ...it, ...patch } : it
+    );
     setItems(updated);
     if (patch.qty !== undefined) updateCartItemQuantity(id, patch.qty);
   };
@@ -188,11 +232,19 @@ export default function CartPage() {
     if (!s || s === "unverified") return "unverified";
     if (s.includes("verified") || s.includes("approved")) return "verified";
     if (s.includes("reject") || s.includes("denied")) return "rejected";
-    if (s.includes("pending") || s.includes("submit") || s.includes("review")) return "pending";
+    if (s.includes("pending") || s.includes("submit") || s.includes("review"))
+      return "pending";
     return "unverified";
   }, [kycStatus]);
 
+  const goShopping = () => {
+    persistCartDates(startDate, endDate); // lưu chắc
+    navigate("/");
+  };
+
   const checkout = () => {
+    persistCartDates(startDate, endDate); // lưu chắc
+
     if (!items.length) {
       toast("Giỏ hàng đang trống.", { icon: "🛒" });
       return;
@@ -203,15 +255,10 @@ export default function CartPage() {
       return;
     }
 
-    // Nếu chưa verified -> toast và dừng
     if (kycBucket !== "verified") {
-      const msg =
-        kycBucket === "rejected"
-          ? "KYC của bạn bị từ chối. Vui lòng xác thực lại trước khi tạo đơn."
-          : kycBucket === "pending"
-          ? "KYC của bạn đang được duyệt. Vui lòng chờ hoàn tất."
-          : "Bạn chưa đủ điều kiện KYC để tạo đơn.";
-      toast.error(msg, { duration: 3000 });
+      // Điều hướng sang KYC, sau khi xong quay lại checkout
+      toast("Vui lòng hoàn tất KYC trước khi đặt đơn.", { icon: "🪪" });
+      navigate(`/kyc?return=${encodeURIComponent("/checkout")}`);
       return;
     }
 
@@ -222,7 +269,10 @@ export default function CartPage() {
     return (
       <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-          <Breadcrumb items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]} className="mb-4" />
+          <Breadcrumb
+            items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]}
+            className="mb-4"
+          />
           <Title level={3}>Giỏ hàng</Title>
           <Skeleton active paragraph={{ rows: 8 }} />
         </div>
@@ -233,7 +283,10 @@ export default function CartPage() {
   return (
     <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-        <Breadcrumb items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]} className="mb-4" />
+        <Breadcrumb
+          items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]}
+          className="mb-4"
+        />
         <Title level={3} style={{ color: "#111827", marginBottom: 16 }}>
           Giỏ hàng
         </Title>
@@ -241,7 +294,12 @@ export default function CartPage() {
         <Row gutter={[24, 24]}>
           {/* LEFT: Items */}
           <Col xs={24} lg={9}>
-            <Card bordered className="rounded-xl" bodyStyle={{ padding: 16 }} title={<Text strong>Sản phẩm trong giỏ</Text>}>
+            <Card
+              bordered
+              className="rounded-xl"
+              bodyStyle={{ padding: 16 }}
+              title={<Text strong>Sản phẩm trong giỏ</Text>}
+            >
               {items.length === 0 ? (
                 <Empty description="Chưa có sản phẩm" />
               ) : (
@@ -249,7 +307,12 @@ export default function CartPage() {
                   const percent = Math.round(Number(it.depositPercent || 0) * 100);
                   const line = lineTotals.find((x) => x.id === it.id);
                   return (
-                    <Card key={it.id} bordered style={{ marginBottom: 12, borderColor: "#E5E7EB" }} bodyStyle={{ padding: 12 }}>
+                    <Card
+                      key={it.id}
+                      bordered
+                      style={{ marginBottom: 12, borderColor: "#E5E7EB" }}
+                      bodyStyle={{ padding: 12 }}
+                    >
                       <div
                         style={{
                           display: "grid",
@@ -281,14 +344,27 @@ export default function CartPage() {
                           </Text>
                         </div>
 
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "flex-end",
+                            gap: 8,
+                          }}
+                        >
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <Tooltip title="Xóa">
-                              <Button type="text" icon={<DeleteOutlined />} onClick={() => removeItemHandler(it.id)} />
+                              <Button
+                                type="text"
+                                icon={<DeleteOutlined />}
+                                onClick={() => removeItemHandler(it.id)}
+                              />
                             </Tooltip>
                           </div>
                           <Space.Compact>
-                            <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>–</Button>
+                            <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>
+                              –
+                            </Button>
                             <InputNumber
                               min={1}
                               value={it.qty}
@@ -308,13 +384,23 @@ export default function CartPage() {
 
           {/* MIDDLE: Dates */}
           <Col xs={24} lg={8}>
-            <Card bordered className="rounded-xl" bodyStyle={{ padding: 16 }} title={<Text strong>Thời gian thuê</Text>}>
+            <Card
+              bordered
+              className="rounded-xl"
+              bodyStyle={{ padding: 16 }}
+              title={<Text strong>Thời gian thuê</Text>}
+            >
               <Space direction="vertical" size={12} style={{ width: "100%" }}>
                 <div>
-                  <Text type="secondary" className="block">Ngày bắt đầu</Text>
+                  <Text type="secondary" className="block">
+                    Ngày bắt đầu
+                  </Text>
                   <DatePicker
                     value={startDate}
-                    onChange={setStartDate}
+                    onChange={(v) => {
+                      setStartDate(v);
+                      persistCartDates(v, endDate); // lưu ngay
+                    }}
                     style={{ width: "100%" }}
                     format="YYYY-MM-DD"
                     disabledDate={disabledPast}
@@ -322,20 +408,29 @@ export default function CartPage() {
                   />
                 </div>
                 <div>
-                  <Text type="secondary" className="block">Ngày kết thúc</Text>
+                  <Text type="secondary" className="block">
+                    Ngày kết thúc
+                  </Text>
                   <DatePicker
                     value={endDate}
-                    onChange={setEndDate}
+                    onChange={(v) => {
+                      setEndDate(v);
+                      persistCartDates(startDate, v); // lưu ngay
+                    }}
                     style={{ width: "100%" }}
                     format="YYYY-MM-DD"
                     disabledDate={(cur) =>
-                      disabledPast(cur) || (startDate && cur.startOf("day").diff(startDate.startOf("day"), "day") <= 0)
+                      disabledPast(cur) ||
+                      (startDate &&
+                        cur.startOf("day").diff(startDate.startOf("day"), "day") <= 0)
                     }
                     suffixIcon={<CalendarOutlined />}
                   />
                 </div>
                 <div>
-                  <Text type="secondary" className="block">Số ngày</Text>
+                  <Text type="secondary" className="block">
+                    Số ngày
+                  </Text>
                   <div
                     style={{
                       width: "100%",
@@ -358,12 +453,22 @@ export default function CartPage() {
 
           {/* RIGHT: Summary */}
           <Col xs={24} lg={7}>
-            <Card bordered className="rounded-xl" bodyStyle={{ padding: 16 }} title={<Text strong>Tóm tắt đơn hàng</Text>}>
+            <Card
+              bordered
+              className="rounded-xl"
+              bodyStyle={{ padding: 16 }}
+              title={<Text strong>Tóm tắt đơn hàng</Text>}
+            >
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
                 {lineTotals.map((ln) => (
                   <div
                     key={ln.id}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#111827" }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      color: "#111827",
+                    }}
                   >
                     <Text type="secondary" style={{ maxWidth: 220 }}>
                       {ln.name} ({days} ngày)
@@ -415,7 +520,7 @@ export default function CartPage() {
                 block
                 icon={<ArrowLeftOutlined />}
                 style={{ marginTop: 8, color: "#6B7280" }}
-                onClick={() => navigate("/")}
+                onClick={goShopping}
               >
                 Tiếp tục mua sắm
               </Button>

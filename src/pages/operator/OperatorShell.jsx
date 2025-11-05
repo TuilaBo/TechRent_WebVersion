@@ -57,7 +57,6 @@ export default function OperatorShell() {
           items={[
             { key: "dashboard", icon: <DashboardOutlined />, label: "Tổng quan", onClick: () => nav("/operator") },
             { key: "orders", icon: <ProfileOutlined />, label: "Quản lý đơn", onClick: () => nav("/operator/orders") },
-            { key: "contracts", icon: <FileTextOutlined />, label: "Hợp đồng", onClick: () => nav("/operator/contracts") },
             { key: "tasks", icon: <ContainerOutlined />, label: "Nhiệm vụ", onClick: () => nav("/operator/tasks") },
             { key: "kyc", icon: <ProfileOutlined />, label: "KYC", onClick: () => nav("/operator/kyc") },
           ]}

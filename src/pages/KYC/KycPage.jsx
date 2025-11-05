@@ -26,6 +26,7 @@ import {
   ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import toast from "react-hot-toast";
+import { useNavigate, useLocation } from "react-router-dom";
 import { uploadKycDocumentsBatch, getMyKyc } from "../../lib/kycApi";
 
 const { Title, Text } = Typography;
@@ -33,6 +34,10 @@ const { Option } = Select;
 const { Dragger } = Upload;
 
 export default function KycPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const search = new URLSearchParams(location.search || "");
+  const returnTo = search.get("return") || "/checkout";
   const [step, setStep] = useState(0);
 
   // Chỉ để hiển thị UI upload (không upload lên server)
@@ -73,6 +78,14 @@ export default function KycPage() {
     };
     checkKycStatus();
   }, []);
+
+  // Auto navigate to return page if already approved and has return target
+  useEffect(() => {
+    if (kycStatus === "APPROVED" && returnTo) {
+      const t = setTimeout(() => navigate(returnTo), 800);
+      return () => clearTimeout(t);
+    }
+  }, [kycStatus, returnTo, navigate]);
 
   /**
    * Panel upload: Ảnh fill-full khung, cao mặc định 260px.
@@ -155,13 +168,20 @@ export default function KycPage() {
               title="KYC đã được phê duyệt"
               subTitle="Tài khoản của bạn đã được xác minh thành công!"
               extra={
-                <Button 
-                  type="primary" 
-                  onClick={() => (window.location.href = "/")}
-                  style={{ background: "#000", borderColor: "#000", color: "#fff" }}
-                >
-                  Về trang chủ
-                </Button>
+                <Space>
+                  <Button 
+                    onClick={() => (window.location.href = "/")}
+                  >
+                    Về trang chủ
+                  </Button>
+                  <Button 
+                    type="primary" 
+                    onClick={() => navigate(returnTo)}
+                    style={{ background: "#000", borderColor: "#000", color: "#fff" }}
+                  >
+                    Tiếp tục đặt đơn
+                  </Button>
+                </Space>
               }
             />
           </Card>
@@ -309,6 +329,8 @@ export default function KycPage() {
                           setDone(true);
                           // Reset KYC status to check again after upload
                           setKycStatus(null);
+                          // Sau khi gửi KYC thành công, điều hướng quay lại trang checkout
+                          setTimeout(() => navigate(returnTo), 800);
                         } catch (e) {
                           toast.error(e?.response?.data?.message || e?.message || "Gửi ảnh KYC thất bại");
                         } finally {

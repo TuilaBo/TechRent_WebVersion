@@ -37,6 +37,7 @@ import {
 } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById } from "../../lib/customerApi";
 import { createContractFromOrder, getMyContracts, normalizeContract, listContractsByCustomer, listContractsByOrder, getContractById, sendContractForSignature } from "../../lib/contractApi";
+import { getKycByCustomerId } from "../../lib/kycApi";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -47,6 +48,12 @@ const statusTag = (s) => {
       return <Tag color="gold">Đang chờ</Tag>;
     case "CONFIRMED":
       return <Tag color="green">Đã xác nhận</Tag>;
+    case "PROCESSING":
+      return <Tag color="purple">Đang xử lý</Tag>;
+    case "DELIVERY_C":
+    case "DELIVERY_CONFIRMED":
+    case "READY_FOR_DELIVERY":
+      return <Tag color="cyan">Sẵn sàng giao hàng</Tag>;
     case "CANCELLED":
     case "CANCELED":
       return <Tag color="red">Đã hủy</Tag>;
@@ -54,6 +61,48 @@ const statusTag = (s) => {
       return <Tag color="blue">Hoàn tất</Tag>;
     default:
       return <Tag>{s}</Tag>;
+  }
+};
+
+const kycStatusTag = (status) => {
+  if (!status) return <Tag color="default">Chưa có KYC</Tag>;
+  
+  const s = String(status).toUpperCase();
+  switch (s) {
+    case "APPROVED":
+    case "VERIFIED":
+      return <Tag color="green">Đã duyệt KYC</Tag>;
+    case "PENDING":
+    case "SUBMITTED":
+      return <Tag color="orange">Đang chờ duyệt KYC</Tag>;
+    case "REJECTED":
+    case "REJECT":
+      return <Tag color="red">KYC bị từ chối</Tag>;
+    case "INCOMPLETE":
+      return <Tag color="gold">KYC chưa hoàn tất</Tag>;
+    default:
+      return <Tag>{status}</Tag>;
+  }
+};
+
+const paymentStatusTag = (paymentStatus, orderStatus) => {
+  // Nếu order status là "delivery_confirmed" thì hiển thị payment status là "paid"
+  const displayPaymentStatus = String(orderStatus).toUpperCase() === "DELIVERY_CONFIRMED" 
+    ? "paid" 
+    : (paymentStatus || "unpaid"); // Mặc định là "unpaid" nếu không có payment status
+  
+  const s = String(displayPaymentStatus || "unpaid").toUpperCase();
+  switch (s) {
+    case "PAID":
+      return <Tag color="green">Đã thanh toán</Tag>;
+    case "UNPAID":
+      return <Tag color="volcano">Chưa thanh toán</Tag>;
+    case "PARTIAL":
+      return <Tag color="purple">Thanh toán một phần</Tag>;
+    case "REFUNDED":
+      return <Tag color="geekblue">Đã hoàn tiền</Tag>;
+    default:
+      return <Tag color="volcano">Chưa thanh toán</Tag>; // Mặc định hiển thị "Chưa thanh toán"
   }
 };
 
@@ -68,6 +117,7 @@ export default function OperatorOrders() {
   const [detail, setDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [customer, setCustomer] = useState(null);
+  const [kycInfo, setKycInfo] = useState(null);
   const [orderContracts, setOrderContracts] = useState([]);
   const [contractsLoading, setContractsLoading] = useState(false);
   const [contractDetail, setContractDetail] = useState(null);
@@ -122,6 +172,13 @@ export default function OperatorOrders() {
   };
 
   const doCreateContract = async (r) => {
+    // Kiểm tra trạng thái đơn hàng trước khi tạo hợp đồng
+    const orderStatus = String(r.orderStatus || r.order?.orderStatus || "").toUpperCase();
+    if (orderStatus !== "PROCESSING") {
+      message.error(`Chỉ có thể tạo hợp đồng khi đơn hàng ở trạng thái "Đang xử lý" (PROCESSING). Trạng thái hiện tại: ${r.orderStatus || "—"}`);
+      return;
+    }
+    
     try {
       const response = await createContractFromOrder(r.orderId);
       const contract = response?.data || response;
@@ -164,12 +221,23 @@ export default function OperatorOrders() {
           const c = await fetchCustomerById(d.customerId);
           console.log("Raw customer data:", c);
           setCustomer(c || null);
+          
+          // Fetch KYC info for customer
+          try {
+            const kyc = await getKycByCustomerId(d.customerId);
+            setKycInfo(kyc || null);
+          } catch (e) {
+            console.error("Error fetching KYC:", e);
+            setKycInfo(null);
+          }
         } catch (e) {
           console.error("Error fetching customer:", e);
           setCustomer(null);
+          setKycInfo(null);
         }
       } else {
         setCustomer(null);
+        setKycInfo(null);
       }
       
       // Fetch contracts for this order using customer ID
@@ -215,6 +283,7 @@ export default function OperatorOrders() {
   const onView = (r) => {
     setOpen(true);
     setDetail(null);
+    setKycInfo(null);
     viewDetail(r.orderId);
   };
 
@@ -279,7 +348,7 @@ export default function OperatorOrders() {
   }, [rows, kw, range]);
 
   // ====== Columns ======
-  const columnsDef = ({ onDelete, onView, onCreateContract }) => [
+  const columnsDef = ({ onDelete, onView }) => [
     {
       title: "Mã đơn",
       dataIndex: "orderId",
@@ -332,28 +401,32 @@ export default function OperatorOrders() {
       filters: [
         { text: "Đang chờ", value: "PENDING" },
         { text: "Đã xác nhận", value: "CONFIRMED" },
+        { text: "Đang xử lý", value: "PROCESSING" },
+        { text: "Sẵn sàng giao hàng", value: "DELIVERY_C" },
         { text: "Đã hủy", value: "CANCELLED" },
         { text: "Hoàn tất", value: "COMPLETED" },
       ],
-      onFilter: (val, r) => String(r.orderStatus).toUpperCase() === String(val).toUpperCase(),
+      onFilter: (val, r) => {
+        const orderStatus = String(r.orderStatus).toUpperCase();
+        const filterVal = String(val).toUpperCase();
+        // Xử lý các trạng thái delivery
+        if (filterVal === "DELIVERY_C") {
+          return orderStatus === "DELIVERY_C" || 
+                 orderStatus === "DELIVERY_CONFIRMED" || 
+                 orderStatus === "READY_FOR_DELIVERY";
+        }
+        return orderStatus === filterVal;
+      },
     },
     {
       title: "Thao tác",
       fixed: "right",
-      width: 320,
+      width: 150,
       render: (_, r) => {
         return (
           <Space>
             <Button icon={<EyeOutlined />} onClick={() => onView(r)}>
               Xem
-            </Button>
-
-              <Button
-              icon={<FileTextOutlined />} 
-              onClick={() => onCreateContract(r)}
-              title="Tạo hợp đồng"
-            >
-              Tạo hợp đồng
             </Button>
 
             <Popconfirm
@@ -432,7 +505,6 @@ export default function OperatorOrders() {
           columns={columnsDef({
             onDelete: doDelete,
             onView,
-            onCreateContract: doCreateContract,
           })}
           dataSource={filtered}
           pagination={{ pageSize: 10, showSizeChanger: false }}
@@ -445,7 +517,10 @@ export default function OperatorOrders() {
         title={detail ? `Đơn thuê #${detail.orderId}` : "Chi tiết đơn"}
         open={open}
         width={800}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+          setKycInfo(null);
+        }}
         extra={detail && <Space></Space>}
       >
         {loadingDetail ? (
@@ -455,6 +530,9 @@ export default function OperatorOrders() {
             <Descriptions bordered size="middle" column={2}>
               <Descriptions.Item label="Mã đơn">#{detail.orderId}</Descriptions.Item>
               <Descriptions.Item label="Trạng thái">{statusTag(detail.orderStatus)}</Descriptions.Item>
+              <Descriptions.Item label="Thanh toán">
+                {paymentStatusTag(detail.paymentStatus, detail.orderStatus)}
+              </Descriptions.Item>
 
               <Descriptions.Item label="Khách hàng">
                 {detail.customerId ? (
@@ -471,6 +549,10 @@ export default function OperatorOrders() {
                         {customer.phoneNumber}
                       </div>
                     )}
+                    <div style={{ marginTop: 8 }}>
+                      <Text strong style={{ marginRight: 8 }}>KYC Status:</Text>
+                      {kycStatusTag(kycInfo?.kycStatus || kycInfo?.status)}
+                    </div>
                   </div>
                 ) : (
                   "—"
@@ -496,13 +578,18 @@ export default function OperatorOrders() {
                 value={fmtVND(detail.depositAmount)}
               />
               <Statistic
+                title="Tổng tiền"
+                value={fmtVND((detail.totalPrice || 0) + (detail.depositAmount || 0))}
+                valueStyle={{ color: '#1890ff', fontWeight: 'bold' }}
+              />
+              {/* <Statistic
                 title="Cọc đã giữ"
                 value={fmtVND(detail.depositAmountHeld)}
               />
               <Statistic
                 title="Cọc đã dùng"
                 value={fmtVND(detail.depositAmountUsed)}
-              />
+              /> */}
               <Statistic
                 title="Cọc hoàn lại"
                 value={fmtVND(detail.depositAmountRefunded)}
@@ -618,13 +705,16 @@ export default function OperatorOrders() {
             <Divider />
 
             <Space>
+              {/* Chỉ cho phép tạo hợp đồng khi trạng thái đơn là "processing" */}
+              {String(detail.orderStatus).toUpperCase() === "PROCESSING" && (
                 <Button
-                icon={<FileTextOutlined />} 
-                onClick={() => doCreateContract(detail)}
-                title="Tạo hợp đồng"
-              >
-                Tạo hợp đồng
-              </Button>
+                  icon={<FileTextOutlined />} 
+                  onClick={() => doCreateContract(detail)}
+                  title="Tạo hợp đồng"
+                >
+                  Tạo hợp đồng
+                </Button>
+              )}
               
               <Popconfirm
                 title="Huỷ đơn?"

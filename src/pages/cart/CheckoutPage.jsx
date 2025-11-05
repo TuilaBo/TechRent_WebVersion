@@ -30,8 +30,23 @@ export default function Checkout() {
   const [placing, setPlacing] = useState(false);
 
   const [items, setItems] = useState([]);
-  const [startDate, setStartDate] = useState(dayjs().add(1, "day"));
-  const [endDate, setEndDate] = useState(dayjs().add(6, "day"));
+  // Init dates from storage immediately to avoid overwriting with defaults
+  const initialDates = (() => {
+    try {
+      const raw = localStorage.getItem(CART_DATES_STORAGE_KEY) || sessionStorage.getItem(CART_DATES_STORAGE_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d?.startDate && d?.endDate) {
+          return { start: dayjs(d.startDate), end: dayjs(d.endDate) };
+        }
+      }
+    } catch {
+      // ignore storage parsing errors
+    }
+    return { start: dayjs().add(1, "day"), end: dayjs().add(6, "day") };
+  })();
+  const [startDate, _setStartDate] = useState(initialDates.start);
+  const [endDate, _setEndDate] = useState(initialDates.end);
 
   // Customer info
   const [customerId, setCustomerId] = useState(null);
@@ -68,13 +83,7 @@ export default function Checkout() {
           // ignore prefill errors
         }
 
-        // load ngày lưu tạm (nếu có)
-        const savedDates = localStorage.getItem(CART_DATES_STORAGE_KEY);
-        if (savedDates) {
-          const d = JSON.parse(savedDates);
-          if (d.startDate) setStartDate(dayjs(d.startDate));
-          if (d.endDate) setEndDate(dayjs(d.endDate));
-        }
+        // dates đã init từ storage ở bước khởi tạo state (tránh ghi đè)
 
         // load giỏ hàng
         const cart = getCartFromStorage();
@@ -114,14 +123,26 @@ export default function Checkout() {
     return Math.max(1, diff || 1);
   }, [startDate, endDate]);
 
+  // Persist dates so that CartPage can restore when user navigates back
+  useEffect(() => {
+    if (startDate && endDate) {
+      localStorage.setItem(
+        CART_DATES_STORAGE_KEY,
+        JSON.stringify({
+          startDate: startDate.format("YYYY-MM-DD"),
+          endDate: endDate.format("YYYY-MM-DD"),
+        })
+      );
+    }
+  }, [startDate, endDate]);
+
   // Tính tiền
   const lineTotals = useMemo(() => {
     return items.map((it) => {
       const qty = Number(it.qty || 1);
       const subtotal = Number(it.pricePerDay || 0) * days * qty;
-      const deposit = Math.round(
-        Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty
-      );
+      // Không làm tròn để đồng bộ với số liệu từ backend (orderDetails)
+      const deposit = Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty;
       return {
         id: it.id,
         name: it.name,
@@ -330,9 +351,40 @@ export default function Checkout() {
               bordered
               className="rounded-xl"
               bodyStyle={{ padding: 16 }}
-              title={<Text strong>Tóm tắt thanh toán</Text>}
+              title={<Text strong>Tóm tắt đơn hàng</Text>}
             >
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <Text type="secondary">Ngày bắt đầu</Text>
+                    <Text>{startDate?.format("YYYY-MM-DD")}</Text>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <Text type="secondary">Ngày kết thúc</Text>
+                    <Text>{endDate?.format("YYYY-MM-DD")}</Text>
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <Text type="secondary">Số ngày</Text>
+                  <Text>{days} ngày</Text>
+                </div>
+
+                <Divider />
+
+                {lineTotals.map((ln) => (
+                  <div
+                    key={ln.id}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#111827" }}
+                  >
+                    <Text type="secondary" style={{ maxWidth: 260 }}>
+                      {ln.name} ({days} ngày)
+                    </Text>
+                    <Text>{fmtVND(ln.subtotal)}</Text>
+                  </div>
+                ))}
+
+                <Divider />
+
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <Text type="secondary">Tiền hàng</Text>
                   <Text>{fmtVND(subtotal)}</Text>
@@ -341,14 +393,16 @@ export default function Checkout() {
                   <Text type="secondary">Tiền cọc (theo % × giá trị máy)</Text>
                   <Text>{fmtVND(deposit)}</Text>
                 </div>
-                <Divider style={{ margin: "12px 0" }} />
+
+                <Divider />
+
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <Text strong>Tổng cộng</Text>
                   <Title level={4} style={{ margin: 0 }}>{fmtVND(grandTotal)}</Title>
                 </div>
 
                 <Paragraph type="secondary" style={{ marginTop: 8 }}>
-                  *Tiền cọc tính theo tỷ lệ cọc của từng mẫu nhân với <strong>giá trị thiết bị</strong> và không phụ thuộc số ngày thuê.
+                  *Tiền cọc được tính theo tỉ lệ cọc của từng mẫu nhân với giá trị thiết bị.
                 </Paragraph>
 
                 <Button

@@ -8,6 +8,7 @@ import {
   Button,
   Divider,
   Tag,
+  Input,
 } from "antd";
 import {
   FacebookOutlined,
@@ -134,7 +135,7 @@ export default function FooterBar() {
           </Col>
 
           {/* Contact */}
-          <Col xs={24} md={8}>
+          <Col xs={24} md={6}>
             <Title level={5} style={{ color: "#fff" }}>
               Liên hệ
             </Title>
@@ -161,6 +162,18 @@ export default function FooterBar() {
               </Space>
             </Space>
           </Col>
+
+          {/* Newsletter */}
+          <Col xs={24} md={6}>
+            <Title level={5} style={{ color: "#fff" }}>Nhận tin khuyến mãi</Title>
+            <Text style={{ color: "rgba(255,255,255,0.75)" }}>
+              Nhập email để nhận ưu đãi và cập nhật sản phẩm mới.
+            </Text>
+            <Space style={{ marginTop: 12 }}>
+              <Input placeholder="Email của bạn" style={{ width: 220, background: "#0f172a", borderColor: "#1f2937", color: "#fff" }} />
+              <Button type="primary" style={{ background: "#2F6BF2", borderColor: "#2F6BF2" }}>Đăng ký</Button>
+            </Space>
+          </Col>
         </Row>
 
         <Divider style={{ borderColor: "rgba(255,255,255,0.10)" }} />
@@ -175,6 +188,7 @@ export default function FooterBar() {
               <Space size="middle" wrap>
                 <div style={pmBadgeStyle}>PayOs</div>
                 <div style={pmBadgeStyle}>Momo</div>
+                <div style={pmBadgeStyle}>VNPAY</div>
               </Space>
             </Space>
           </Col>
@@ -192,6 +206,21 @@ export default function FooterBar() {
         </Row>
 
         {/* Bottom bar */}
+        <Divider style={{ borderColor: "rgba(255,255,255,0.08)", marginTop: 24 }} />
+        <Row align="middle" justify="space-between">
+          <Col>
+            <Text style={{ color: "rgba(255,255,255,0.6)" }}>
+              © {new Date().getFullYear()} TechRent. All rights reserved.
+            </Text>
+          </Col>
+          <Col>
+            <Space size={16}>
+              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>Điều khoản</Link>
+              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>Bảo mật</Link>
+              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>Cookies</Link>
+            </Space>
+          </Col>
+        </Row>
       </div>
     </Footer>
   );

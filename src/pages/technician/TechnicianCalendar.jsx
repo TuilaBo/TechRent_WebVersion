@@ -20,6 +20,7 @@ import {
   PhoneOutlined,
   InboxOutlined,
   FileTextOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
@@ -141,21 +142,23 @@ export default function TechnicianCalendar() {
   };
 
   // Load all tasks từ /api/staff/tasks (backend tự filter theo technician từ token)
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const allTasksRaw = await listTasks();
-        const allTasks = allTasksRaw.map(normalizeTask);
-        const display = allTasks.map(taskToDisplay);
-        setTasksAll(display);
-      } catch (e) {
-        toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const loadTasks = useCallback(async () => {
+    try {
+      setLoading(true);
+      const allTasksRaw = await listTasks();
+      const allTasks = allTasksRaw.map(normalizeTask);
+      const display = allTasks.map(taskToDisplay);
+      setTasksAll(display);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
 
   // Click item trên bảng → mở Drawer
   const onClickTask = useCallback(async (task) => {
@@ -530,7 +533,12 @@ export default function TechnicianCalendar() {
 
   return (
     <>
-      <Title level={3}>Danh sách công việc kỹ thuật</Title>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <Title level={3} style={{ margin: 0 }}>Danh sách công việc kỹ thuật</Title>
+        <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={loading}>
+          Tải lại
+        </Button>
+      </div>
 
       <Space style={{ marginBottom: 12 }}>
         <span>Lọc trạng thái:</span>

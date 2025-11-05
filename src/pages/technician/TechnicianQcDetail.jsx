@@ -126,7 +126,14 @@ export default function TechnicianQcDetail() {
               getDeviceModelById(deviceModelId).catch(() => null),
             ]);
             const name = model?.deviceName || model?.name || null;
-            return { orderDetailId, devices: Array.isArray(devices) ? devices : [], deviceModelId, name };
+            // Chỉ lấy devices có status là "AVAILABLE"
+            const availableDevices = Array.isArray(devices) 
+              ? devices.filter(device => {
+                  const status = String(device.status || device.deviceStatus || device.state || "").toUpperCase();
+                  return status === "AVAILABLE";
+                })
+              : [];
+            return { orderDetailId, devices: availableDevices, deviceModelId, name };
           } catch (e) {
             console.error(`Lỗi khi fetch devices cho modelId ${deviceModelId}:`, e);
             toast.error(`Không thể tải devices cho model ${deviceModelId}`);
@@ -430,7 +437,6 @@ export default function TechnicianQcDetail() {
           <Descriptions.Item label="Task ID">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Type">{task.type || "—"}</Descriptions.Item>
           <Descriptions.Item label="Mô tả">{task.description || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái">
             <Tag color={task.status === "PENDING" ? "orange" : task.status === "IN_PROGRESS" ? "blue" : "green"}>

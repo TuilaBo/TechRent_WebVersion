@@ -599,7 +599,7 @@ export default function AdminProducts() {
       },
       { title: "Serial", dataIndex: "serialNumber" },
       {
-        title: "Ngày mua",
+        title: "Ngày nhập kho",
         dataIndex: "acquireAt",
         width: 160,
         render: (v) => (v ? dayjs(v).format("YYYY-MM-DD") : "-"),
@@ -610,7 +610,6 @@ export default function AdminProducts() {
         width: 140,
         render: statusTag,
       },
-      { title: "Vị trí kệ", dataIndex: "shelfCode", width: 110 },
       {
         title: "Thao tác",
         width: 170,
@@ -625,7 +624,6 @@ export default function AdminProducts() {
                   serialNumber: r.serialNumber,
                   acquireAt: r.acquireAt ? dayjs(r.acquireAt) : null,
                   status: r.status ?? "AVAILABLE",
-                  shelfCode: r.shelfCode ?? "",
                 });
                 setOpen(true);
               }}
@@ -676,7 +674,6 @@ export default function AdminProducts() {
           serialNumber: v.serialNumber,
           acquireAt: v.acquireAt ? v.acquireAt.toDate().toISOString() : null,
           status: v.status ?? "AVAILABLE",
-          shelfCode: v.shelfCode ?? null,
         };
         if (editing) {
           const id = editing.deviceId ?? editing.id;
@@ -760,7 +757,7 @@ export default function AdminProducts() {
             >
               <Input />
             </Form.Item>
-            <Form.Item name="acquireAt" label="Ngày mua">
+            <Form.Item name="acquireAt" label="Ngày nhập kho">
               <DatePicker style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item
@@ -774,9 +771,6 @@ export default function AdminProducts() {
                   { label: "PRE_RENTAL_QC", value: "PRE_RENTAL_QC" },
                 ]}
               />
-            </Form.Item>
-            <Form.Item name="shelfCode" label="Mã kệ">
-              <Input />
             </Form.Item>
           </Form>
         </Modal>
