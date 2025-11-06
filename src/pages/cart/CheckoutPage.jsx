@@ -238,20 +238,34 @@ export default function Checkout() {
             <Card
               bordered
               className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Thông tin nhận hàng</Text>}
+              bodyStyle={{ padding: 20 }}
+              title={<Text strong style={{ fontSize: 16 }}>Thông tin nhận hàng</Text>}
             >
               <Form layout="vertical">
-                <Form.Item label="Họ và tên">
-                  <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Họ và tên" />
+                <Form.Item label={<Text strong>Họ và tên</Text>}>
+                  <Input 
+                    value={fullName} 
+                    onChange={(e) => setFullName(e.target.value)} 
+                    placeholder="Nhập họ và tên"
+                    size="large"
+                  />
                 </Form.Item>
-                <Form.Item label="Số điện thoại">
-                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09xx xxx xxx" />
+                <Form.Item label={<Text strong>Số điện thoại</Text>}>
+                  <Input 
+                    value={phone} 
+                    onChange={(e) => setPhone(e.target.value)} 
+                    placeholder="09xx xxx xxx"
+                    size="large"
+                  />
                 </Form.Item>
-                <Form.Item label="Email">
-                  <Input value={email} disabled />
+                <Form.Item label={<Text strong>Email</Text>}>
+                  <Input 
+                    value={email} 
+                    disabled 
+                    size="large"
+                  />
                 </Form.Item>
-                <Form.Item label="Địa chỉ giao hàng">
+                <Form.Item label={<Text strong>Địa chỉ giao hàng</Text>}>
                   <Select
                     placeholder="Chọn địa chỉ giao hàng"
                     value={selectedAddressId}
@@ -265,11 +279,12 @@ export default function Checkout() {
                       label: addr.address,
                     }))}
                     notFoundContent="Chưa có địa chỉ giao hàng. Vui lòng cập nhật trong hồ sơ."
+                    size="large"
                   />
                   {selectedAddressId && (
-                    <div style={{ marginTop: 8, padding: 12, background: "#F5F7FA", borderRadius: 6 }}>
-                      <Text type="secondary" style={{ fontSize: 13 }}>
-                        {shippingAddresses.find(a => a.shippingAddressId === selectedAddressId)?.address}
+                    <div style={{ marginTop: 12, padding: 12, background: "#F9FAFB", borderRadius: 8, border: "1px solid #E5E7EB" }}>
+                      <Text style={{ fontSize: 14, color: "#111827" }}>
+                        📍 {shippingAddresses.find(a => a.shippingAddressId === selectedAddressId)?.address}
                       </Text>
                     </div>
                   )}
@@ -279,18 +294,19 @@ export default function Checkout() {
                     <Button
                       type="link"
                       onClick={() => navigate("/profile")}
-                      style={{ padding: 0 }}
+                      style={{ padding: 0, height: "auto" }}
                     >
                       Quản lý địa chỉ trong hồ sơ →
                     </Button>
                   </Form.Item>
                 )}
-                <Form.Item label="Ghi chú thêm (tuỳ chọn)">
+                <Form.Item label={<Text strong>Ghi chú thêm (tuỳ chọn)</Text>}>
                   <Input.TextArea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     autoSize={{ minRows: 3, maxRows: 6 }}
                     placeholder="VD: Giao trước 9h, gọi mình trước khi tới…"
+                    size="large"
                   />
                 </Form.Item>
               </Form>
@@ -299,10 +315,10 @@ export default function Checkout() {
             <Card
               bordered
               className="rounded-xl mt-3"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Sản phẩm</Text>}
+              bodyStyle={{ padding: 20 }}
+              title={<Text strong style={{ fontSize: 16 }}>Sản phẩm ({items.length})</Text>}
             >
-              <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              <Space direction="vertical" size={16} style={{ width: "100%" }}>
                 {lineTotals.map((ln) => {
                   const item = items.find((i) => i.id === ln.id) || {};
                   const percent = Math.round(Number(item.depositPercent || 0) * 100);
@@ -310,32 +326,51 @@ export default function Checkout() {
                     <div
                       key={ln.id}
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "64px 1fr auto",
-                        gap: 12,
-                        alignItems: "center",
+                        display: "flex",
+                        gap: 16,
+                        alignItems: "flex-start",
+                        padding: 16,
+                        background: "#F9FAFB",
+                        borderRadius: 10,
+                        border: "1px solid #E5E7EB",
                       }}
                     >
                       <div
                         style={{
-                          width: 64,
-                          height: 64,
+                          width: 80,
+                          height: 80,
+                          flexShrink: 0,
                           borderRadius: 10,
                           background: `url(${item.image}) center/cover no-repeat`,
+                          border: "1px solid #E5E7EB",
                         }}
                       />
-                      <div>
-                        <Text strong style={{ display: "block" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Text strong style={{ display: "block", fontSize: 15, color: "#111827", marginBottom: 6 }}>
                           {ln.name}
                         </Text>
-                        <Text type="secondary">
-                          SL: {ln.qty} • {days} ngày • Cọc {percent}%
-                        </Text>
+                        <div style={{ marginBottom: 4 }}>
+                          <Text style={{ fontSize: 14, color: "#111827" }}>
+                            Số lượng: <strong>{ln.qty}</strong> • Thời gian: <strong>{days} ngày</strong>
+                          </Text>
+                        </div>
+                        <div style={{ marginBottom: 4 }}>
+                          <Text type="secondary" style={{ fontSize: 13 }}>
+                            Giá thuê: {fmtVND(ln.pricePerDay)}/ngày
+                          </Text>
+                        </div>
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 13 }}>
+                            Tiền cọc ({percent}%): <strong style={{ color: "#111827" }}>{fmtVND(ln.deposit)}</strong>
+                          </Text>
+                        </div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <Text strong style={{ display: "block" }}>{fmtVND(ln.subtotal)}</Text>
-                        <Text type="secondary" style={{ display: "block" }}>
-                          Cọc: {fmtVND(ln.deposit)}
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <Text strong style={{ display: "block", fontSize: 16, color: "#111827" }}>
+                          {fmtVND(ln.subtotal)}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                          Tiền thuê
                         </Text>
                       </div>
                     </div>
@@ -350,60 +385,99 @@ export default function Checkout() {
             <Card
               bordered
               className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Tóm tắt đơn hàng</Text>}
+              bodyStyle={{ padding: 20 }}
+              title={<Text strong style={{ fontSize: 16 }}>Tóm tắt đơn hàng</Text>}
             >
               <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ 
+                  padding: 12, 
+                  background: "#F9FAFB", 
+                  borderRadius: 10,
+                  border: "1px solid #E5E7EB"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Ngày bắt đầu thuê</Text>
+                    <Text strong style={{ fontSize: 14, color: "#111827" }}>{startDate?.format("DD/MM/YYYY")}</Text>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Ngày kết thúc thuê</Text>
+                    <Text strong style={{ fontSize: 14, color: "#111827" }}>{endDate?.format("DD/MM/YYYY")}</Text>
+                  </div>
+                  <Divider style={{ margin: "8px 0" }} />
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <Text type="secondary">Ngày bắt đầu</Text>
-                    <Text>{startDate?.format("YYYY-MM-DD")}</Text>
+                    <Text style={{ fontSize: 15, color: "#111827" }}>Tổng số ngày</Text>
+                    <Text strong style={{ fontSize: 16, color: "#111827" }}>{days} ngày</Text>
+                  </div>
+                </div>
+
+                <Divider />
+
+                {lineTotals.map((ln) => {
+                  return (
+                    <div
+                      key={ln.id}
+                      style={{ 
+                        paddingBottom: 8,
+                        borderBottom: "1px solid #F3F4F6"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <Text style={{ color: "#111827", fontSize: 14, flex: 1 }}>
+                          {ln.name}
+                        </Text>
+                        <Text strong style={{ fontSize: 14, color: "#111827", marginLeft: 12 }}>
+                          {fmtVND(ln.subtotal)}
+                        </Text>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                          {ln.qty} × {days} ngày
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                          Cọc: {fmtVND(ln.deposit)}
+                        </Text>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <Divider />
+
+                <div style={{ padding: "6px 0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Tiền thuê thiết bị</Text>
+                    <Text strong style={{ fontSize: 15, color: "#111827" }}>{fmtVND(subtotal)}</Text>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <Text type="secondary">Ngày kết thúc</Text>
-                    <Text>{endDate?.format("YYYY-MM-DD")}</Text>
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Tiền cọc</Text>
+                    <Text strong style={{ fontSize: 15, color: "#111827" }}>{fmtVND(deposit)}</Text>
                   </div>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <Text type="secondary">Số ngày</Text>
-                  <Text>{days} ngày</Text>
-                </div>
 
                 <Divider />
 
-                {lineTotals.map((ln) => (
-                  <div
-                    key={ln.id}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", color: "#111827" }}
-                  >
-                    <Text type="secondary" style={{ maxWidth: 260 }}>
-                      {ln.name} ({days} ngày)
-                    </Text>
-                    <Text>{fmtVND(ln.subtotal)}</Text>
-                  </div>
-                ))}
-
-                <Divider />
-
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <Text type="secondary">Tiền hàng</Text>
-                  <Text>{fmtVND(subtotal)}</Text>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <Text type="secondary">Tiền cọc (theo % × giá trị máy)</Text>
-                  <Text>{fmtVND(deposit)}</Text>
+                <div style={{ 
+                  display: "flex", 
+                  justifyContent: "space-between",
+                  padding: "8px 0"
+                }}>
+                  <Text strong style={{ fontSize: 16, color: "#111827" }}>Tổng cộng</Text>
+                  <Title level={4} style={{ margin: 0, fontSize: 20, color: "#111827" }}>
+                    {fmtVND(grandTotal)}
+                  </Title>
                 </div>
 
-                <Divider />
-
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <Text strong>Tổng cộng</Text>
-                  <Title level={4} style={{ margin: 0 }}>{fmtVND(grandTotal)}</Title>
+                <div style={{ 
+                  background: "#F9FAFB", 
+                  padding: 10, 
+                  borderRadius: 8,
+                  border: "1px solid #E5E7EB",
+                  marginTop: 6
+                }}>
+                  <Text style={{ fontSize: 13, lineHeight: 1.6, color: "#6B7280" }}>
+                    💡 Tiền cọc được hoàn trả sau khi bạn trả thiết bị trong tình trạng tốt
+                  </Text>
                 </div>
-
-                <Paragraph type="secondary" style={{ marginTop: 8 }}>
-                  *Tiền cọc được tính theo tỉ lệ cọc của từng mẫu nhân với giá trị thiết bị.
-                </Paragraph>
 
                 <Button
                   type="primary"
@@ -412,12 +486,26 @@ export default function Checkout() {
                   block
                   onClick={placeOrder}
                   loading={placing}
-                  style={{ background: "#111827", borderColor: "#111827" }}
+                  style={{ 
+                    background: "#111827", 
+                    borderColor: "#111827",
+                    height: 48,
+                    fontSize: 16,
+                    fontWeight: 500,
+                    marginTop: 10
+                  }}
                 >
                   Đặt đơn thuê
                 </Button>
 
-                <Button icon={<ShoppingCartOutlined />} block onClick={() => navigate("/cart")} disabled={placing}>
+                <Button 
+                  icon={<ShoppingCartOutlined />} 
+                  block 
+                  onClick={() => navigate("/cart")} 
+                  disabled={placing}
+                  size="large"
+                  style={{ height: 44 }}
+                >
                   Quay lại giỏ hàng
                 </Button>
               </Space>

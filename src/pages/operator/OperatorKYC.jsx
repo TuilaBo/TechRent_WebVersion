@@ -135,10 +135,10 @@ export default function AdminKyc() {
     }
   };
 
-  // Kiểm tra xem KYC có đang chờ duyệt không
-  const isPendingKyc = (status) => {
+  // Chỉ cho phép duyệt/từ chối khi trạng thái là SUBMITTED (đã nộp)
+  const isActionableKyc = (status) => {
     const s = String(status || "").toUpperCase();
-    return s === "PENDING" || s === "SUBMITTED" || s.includes("PENDING");
+    return s === "SUBMITTED" || s.includes("SUBMITTED");
   };
 
   const columns = [
@@ -160,7 +160,7 @@ export default function AdminKyc() {
           >
             Xem
           </Button>
-          {isPendingKyc(r.kycStatus) && (
+          {isActionableKyc(r.kycStatus) && (
             <Button
               type="primary"
               onClick={() => {
@@ -259,7 +259,7 @@ export default function AdminKyc() {
             <Divider />
             <Space>
               <Button onClick={() => setOpen(false)}>Đóng</Button>
-              {isPendingKyc(cur.kycStatus) && (
+              {isActionableKyc(cur.kycStatus) && (
                 <Button 
                   type="primary" 
                   onClick={() => { 

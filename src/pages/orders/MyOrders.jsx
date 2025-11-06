@@ -14,8 +14,8 @@ import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract } from "../../lib/contractApi";
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
 import { createPayment } from "../../lib/Payment";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+// import jsPDF from "jspdf";
+// import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
 
 const { Title, Text } = Typography;
@@ -50,13 +50,13 @@ function formatDateTime(iso) {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
   });
 }
-function formatDescription(desc) {
-  if (!desc || typeof desc !== "string") return desc;
-  let out = desc;
-  out = out.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
-  out = out.replace(/\s*\(\s*\)/g, "");
-  return out;
-}
+// function formatDescription(desc) {
+//   if (!desc || typeof desc !== "string") return desc;
+//   let out = desc;
+//   out = out.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
+//   out = out.replace(/\s*\(\s*\)/g, "");
+//   return out;
+// }
 function sanitizeContractHtml(html = "") {
   if (!html || typeof html !== "string") return html;
   return html.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
@@ -169,7 +169,7 @@ export default function MyOrders() {
   const [contractDetailOpen, setContractDetailOpen] = useState(false);
   const [loadingContractDetail, setLoadingContractDetail] = useState(false);
   const [contractCustomer, setContractCustomer] = useState(null);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
+  const [pdfPreviewUrl] = useState("");
   const [signingContract, setSigningContract] = useState(false);
   const [signModalOpen, setSignModalOpen] = useState(false);
   const [currentContractId, setCurrentContractId] = useState(null);
@@ -606,8 +606,8 @@ export default function MyOrders() {
   };
 
   // (giữ nguyên previewContractPDF & generateContractPDF — rút gọn ở đây để tập trung phần thanh toán)
-  const previewContractPDF = async () => {};
-  const generateContractPDF = async () => {};
+  // const previewContractPDF = async () => {};
+  // const generateContractPDF = async () => {};
 
   const columns = [
     {
@@ -680,6 +680,28 @@ export default function MyOrders() {
         const aDep = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
         const bDep = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
         return aDep - bDep;
+      },
+    },
+    // Tổng thanh toán = Tổng tiền thuê (BE) + Tổng tiền cọc (tính)
+    {
+      title: "Tổng thanh toán",
+      key: "grandTotal",
+      align: "right",
+      width: 160,
+      render: (_, r) => {
+        const depositTotal = (r.items || []).reduce(
+          (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1),
+          0
+        );
+        const rentalTotal = Number(r.total || 0);
+        return <Text strong>{formatVND(rentalTotal + depositTotal)}</Text>;
+      },
+      sorter: (a, b) => {
+        const depA = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+        const depB = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+        const grandA = Number(a.total || 0) + depA;
+        const grandB = Number(b.total || 0) + depB;
+        return grandA - grandB;
       },
     },
     {
@@ -840,10 +862,11 @@ export default function MyOrders() {
                     <Descriptions bordered column={2} size="middle" className="mb-4">
                       <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
                       <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
-                      <Descriptions.Item label="Thời gian thuê" span={2}>
-                        {current.startDate && current.endDate
-                                ? (<>{formatDateTime(current.startDate)} → {formatDateTime(current.endDate)} ({days} ngày)</>)
-                          : "—"}
+                      <Descriptions.Item label="Ngày bắt đầu thuê">
+                        {current.startDate ? formatDateTime(current.startDate) : "—"}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Ngày kết thúc thuê">
+                        {current.endDate ? formatDateTime(current.endDate) : "—"}
                       </Descriptions.Item>
 
                       <Descriptions.Item label="Trạng thái đơn">
@@ -902,9 +925,9 @@ export default function MyOrders() {
                 ),
               },
                               { title: "SL", dataIndex: "qty", width: 70, align: "center" },
-                              { title: "Đơn giá 1 SP", dataIndex: "pricePerDay", width: 130, align: "right", render: (v) => formatVND(v) },
-                              { title: "Số ngày", key: "days", width: 90, align: "center", render: () => days },
-                              { title: "Thành tiền thuê", key: "subtotal", width: 150, align: "right", render: (_, r) => {
+                              { title: "Đơn giá SP/ngày", dataIndex: "pricePerDay", width: 130, align: "right", render: (v) => formatVND(v) },
+                              { title: "Số ngày thuê", key: "days", width: 90, align: "center", render: () => days },
+                              { title: "Tổng tiền thuê", key: "subtotal", width: 150, align: "right", render: (_, r) => {
                                 // Theo yêu cầu: Đơn giá 1 SP × Số ngày (không nhân SL)
                                 return formatVND(Number(r.pricePerDay || 0) * Number(days || 1));
                               } },

@@ -171,7 +171,7 @@ export default function CartPage() {
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload); // <-- đúng tên
+      window.removeEventListener("beforeunload", onBeforeUnload);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [startDate, endDate]);
@@ -238,12 +238,12 @@ export default function CartPage() {
   }, [kycStatus]);
 
   const goShopping = () => {
-    persistCartDates(startDate, endDate); // lưu chắc
+    persistCartDates(startDate, endDate);
     navigate("/");
   };
 
   const checkout = () => {
-    persistCartDates(startDate, endDate); // lưu chắc
+    persistCartDates(startDate, endDate);
 
     if (!items.length) {
       toast("Giỏ hàng đang trống.", { icon: "🛒" });
@@ -256,7 +256,6 @@ export default function CartPage() {
     }
 
     if (kycBucket !== "verified") {
-      // Điều hướng sang KYC, sau khi xong quay lại checkout
       toast("Vui lòng hoàn tất KYC trước khi đặt đơn.", { icon: "🪪" });
       navigate(`/kyc?return=${encodeURIComponent("/checkout")}`);
       return;
@@ -311,68 +310,79 @@ export default function CartPage() {
                       key={it.id}
                       bordered
                       style={{ marginBottom: 12, borderColor: "#E5E7EB" }}
-                      bodyStyle={{ padding: 12 }}
+                      bodyStyle={{ padding: 16 }}
                     >
                       <div
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "64px 1fr auto",
-                          alignItems: "center",
-                          columnGap: 12,
+                          display: "flex",
+                          gap: 16,
+                          alignItems: "flex-start",
                         }}
                       >
                         <div
                           style={{
-                            width: 64,
-                            height: 64,
+                            width: 80,
+                            height: 80,
+                            flexShrink: 0,
                             backgroundImage: `url(${it.image})`,
                             backgroundSize: "cover",
                             backgroundPosition: "center",
                             borderRadius: 10,
+                            border: "1px solid #E5E7EB",
                           }}
                         />
-                        <div style={{ minWidth: 0 }}>
-                          <Text strong style={{ color: "#111827", display: "block" }}>
-                            {it.name}
-                          </Text>
-
-                          <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>
-                            {fmtVND(it.dailyPrice)} / ngày
-                          </Text>
-                          <Text type="secondary">
-                            Cọc {percent}%: {fmtVND(line?.deposit || 0)}
-                          </Text>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-end",
-                            gap: 8,
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <Tooltip title="Xóa">
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                            <Text strong style={{ color: "#111827", fontSize: 15 }}>
+                              {it.name}
+                            </Text>
+                            <Tooltip title="Xóa khỏi giỏ hàng">
                               <Button
                                 type="text"
+                                danger
+                                size="small"
                                 icon={<DeleteOutlined />}
                                 onClick={() => removeItemHandler(it.id)}
                               />
                             </Tooltip>
                           </div>
-                          <Space.Compact>
-                            <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>
-                              –
-                            </Button>
-                            <InputNumber
-                              min={1}
-                              value={it.qty}
-                              onChange={(v) => updateItem(it.id, { qty: v || 1 })}
-                              style={{ width: 72, textAlign: "center" }}
-                            />
-                            <Button onClick={() => updateItem(it.id, { qty: it.qty + 1 })}>+</Button>
-                          </Space.Compact>
+
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ marginBottom: 4 }}>
+                              <Text style={{ color: "#111827", fontSize: 14 }}>
+                                Giá thuê: <strong>{fmtVND(it.dailyPrice)}</strong> / ngày
+                              </Text>
+                            </div>
+                            <div style={{ marginBottom: 4 }}>
+                              <Text type="secondary" style={{ fontSize: 13 }}>
+                                Giá trị thiết bị: {fmtVND(it.deviceValue)}
+                              </Text>
+                            </div>
+                            <div>
+                              <Text type="secondary" style={{ fontSize: 13 }}>
+                                Tiền cọc ({percent}%): <strong style={{ color: "#111827" }}>{fmtVND(line?.deposit || 0)}</strong>
+                              </Text>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Space.Compact>
+                              <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>
+                                –
+                              </Button>
+                              <InputNumber
+                                min={1}
+                                value={it.qty}
+                                onChange={(v) => updateItem(it.id, { qty: v || 1 })}
+                                style={{ width: 60, textAlign: "center" }}
+                              />
+                              <Button onClick={() => updateItem(it.id, { qty: it.qty + 1 })}>+</Button>
+                            </Space.Compact>
+                            
+                            <Text strong style={{ color: "#111827", fontSize: 15 }}>
+                              {fmtVND(line?.subtotal || 0)}
+                            </Text>
+                          </div>
                         </div>
                       </div>
                     </Card>
@@ -399,7 +409,7 @@ export default function CartPage() {
                     value={startDate}
                     onChange={(v) => {
                       setStartDate(v);
-                      persistCartDates(v, endDate); // lưu ngay
+                      persistCartDates(v, endDate);
                     }}
                     style={{ width: "100%" }}
                     format="YYYY-MM-DD"
@@ -415,7 +425,7 @@ export default function CartPage() {
                     value={endDate}
                     onChange={(v) => {
                       setEndDate(v);
-                      persistCartDates(startDate, v); // lưu ngay
+                      persistCartDates(startDate, v);
                     }}
                     style={{ width: "100%" }}
                     format="YYYY-MM-DD"
@@ -459,21 +469,29 @@ export default function CartPage() {
               bodyStyle={{ padding: 16 }}
               title={<Text strong>Tóm tắt đơn hàng</Text>}
             >
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+              <Space direction="vertical" size={12} style={{ width: "100%" }}>
                 {lineTotals.map((ln) => (
                   <div
                     key={ln.id}
                     style={{
                       display: "flex",
-                      alignItems: "center",
+                      alignItems: "flex-start",
                       justifyContent: "space-between",
-                      color: "#111827",
+                      paddingBottom: 8,
+                      borderBottom: "1px solid #F3F4F6",
                     }}
                   >
-                    <Text type="secondary" style={{ maxWidth: 220 }}>
-                      {ln.name} ({days} ngày)
+                    <div style={{ flex: 1 }}>
+                      <Text style={{ color: "#111827", display: "block", fontSize: 14 }}>
+                        {ln.name}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 13 }}>
+                        {ln.qty} × {days} ngày
+                      </Text>
+                    </div>
+                    <Text strong style={{ color: "#111827", fontSize: 14, marginLeft: 12 }}>
+                      {fmtVND(ln.subtotal)}
                     </Text>
-                    <Text>{fmtVND(ln.subtotal)}</Text>
                   </div>
                 ))}
               </Space>
@@ -481,28 +499,36 @@ export default function CartPage() {
               <Divider />
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Text type="secondary">Tiền hàng</Text>
-                  <Text>{fmtVND(subtotal)}</Text>
+                <div className="flex items-center justify-between" style={{ padding: "8px 0" }}>
+                  <Text style={{ color: "#6B7280", fontSize: 14 }}>Tiền thuê thiết bị</Text>
+                  <Text strong style={{ color: "#111827", fontSize: 15 }}>{fmtVND(subtotal)}</Text>
                 </div>
-                <div className="flex items-center justify-between">
-                  <Text type="secondary">Tiền cọc (theo % × giá trị máy)</Text>
-                  <Text>{fmtVND(deposit)}</Text>
+                <div className="flex items-center justify-between" style={{ padding: "8px 0" }}>
+                  <Text style={{ color: "#6B7280", fontSize: 14 }}>Tiền cọc</Text>
+                  <Text strong style={{ color: "#111827", fontSize: 15 }}>{fmtVND(deposit)}</Text>
                 </div>
               </div>
 
               <Divider />
 
-              <div className="flex items-center justify-between">
-                <Text strong>Tổng cộng</Text>
-                <Title level={4} style={{ margin: 0, color: "#111827" }}>
+              <div className="flex items-center justify-between" style={{ padding: "12px 0" }}>
+                <Text strong style={{ fontSize: 16, color: "#111827" }}>Tổng cộng</Text>
+                <Title level={4} style={{ margin: 0, color: "#111827", fontSize: 20 }}>
                   {fmtVND(grandTotal)}
                 </Title>
               </div>
 
-              <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-                *Tiền cọc được tính theo tỉ lệ cọc của từng mẫu nhân với giá trị thiết bị.
-              </Text>
+              <div style={{ 
+                background: "#F9FAFB", 
+                padding: 12, 
+                borderRadius: 8, 
+                marginTop: 8,
+                border: "1px solid #E5E7EB"
+              }}>
+                <Text type="secondary" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  💡 Tiền cọc được hoàn trả sau khi bạn trả thiết bị trong tình trạng tốt
+                </Text>
+              </div>
 
               <Button
                 type="primary"
