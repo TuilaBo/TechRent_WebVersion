@@ -67,9 +67,35 @@ const taskToDisplay = (t) => ({
 const fmtStatus = (s) => {
   const v = String(s || "").toUpperCase();
   if (!v) return "";
-  if (v.includes("PENDING")) return "PENDING";
-  if (v.includes("IN_PROGRESS")) return "IN_PROGRESS";
-  if (v.includes("COMPLETED") || v.includes("DONE")) return "COMPLETED";
+  if (v.includes("PENDING")) return "Đang chờ thực hiện";
+  if (v.includes("COMPLETED") || v.includes("DONE")) return "Đã hoàn thành";
+  if (v.includes("IN_PROGRESS") || v.includes("INPROGRESS")) return "Đang thực hiện";
+  if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
+  if (v.includes("FAILED") || v.includes("FAIL")) return "Thất bại";
+  return v;
+};
+
+// Format thời gian nhất quán
+const fmtDateTime = (date) => {
+  if (!date) return "—";
+  return dayjs(date).format("DD/MM/YYYY HH:mm");
+};
+
+const fmtDate = (date) => {
+  if (!date) return "—";
+  return dayjs(date).format("DD/MM/YYYY");
+};
+
+// Dịch status đơn hàng
+const fmtOrderStatus = (s) => {
+  const v = String(s || "").toUpperCase();
+  if (!v) return "—";
+  if (v.includes("PENDING")) return "Chờ xử lý";
+  if (v.includes("PROCESSING")) return "Đang xử lý";
+  if (v.includes("COMPLETED") || v.includes("DONE")) return "Đã hoàn thành";
+  if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
+  if (v.includes("DELIVERED")) return "Đã giao";
+  if (v.includes("RETURNED")) return "Đã trả";
   return v;
 };
 
@@ -217,7 +243,6 @@ export default function TechnicianCalendar() {
         render: (d) => (d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—"),
         width: 180,
         sorter: (a, b) => dayjs(a.date) - dayjs(b.date),
-        defaultSortOrder: "ascend",
       },
       {
         title: "Trạng thái",
@@ -229,10 +254,8 @@ export default function TechnicianCalendar() {
           return <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(s)}</Tag>;
         },
         filters: [
-          { text: "PENDING", value: "PENDING" },
-          { text: "IN_PROGRESS", value: "IN_PROGRESS" },
-          { text: "COMPLETED", value: "COMPLETED" },
-          { text: "CANCELLED", value: "CANCELLED" },
+          { text: "Đang chờ thực hiện", value: "PENDING" },
+          { text: "Đã hoàn thành", value: "COMPLETED" },
         ],
         onFilter: (value, record) => String(record.status).toUpperCase() === String(value).toUpperCase(),
       },
@@ -281,7 +304,7 @@ export default function TechnicianCalendar() {
       <Space wrap size={8}>
         <Tag color={TYPES[t.type]?.color || "blue"}>{TYPES[t.type]?.label || t.taskCategoryName || t.type}</Tag>
         <Text type="secondary">
-          {dayjs(t.date).format("DD/MM/YYYY HH:mm")} • {t.location}
+          {fmtDateTime(t.date)} • {t.location || "—"}
         </Text>
         <Tag>{t.assignedBy === "admin" ? "Lịch Admin" : "Operator giao"}</Tag>
       </Space>
@@ -300,8 +323,8 @@ export default function TechnicianCalendar() {
             <Descriptions.Item label="Thiết bị theo đơn">
               {Array.isArray(t.devices) ? t.devices.join(", ") : t.device}
             </Descriptions.Item>
-            <Descriptions.Item label="Deadline">
-              {t.deadline ? dayjs(t.deadline).format("DD/MM/YYYY HH:mm") : "—"}
+            <Descriptions.Item label="Hạn chót">
+              {fmtDateTime(t.deadline)}
             </Descriptions.Item>
             <Descriptions.Item label="Category">{t.category || "—"}</Descriptions.Item>
             <Descriptions.Item label="Địa điểm">{t.location || "—"}</Descriptions.Item>
@@ -381,7 +404,7 @@ export default function TechnicianCalendar() {
     }
 
     if (t.type === "MAINTAIN") {
-      const next = dayjs(t.lastMaintainedAt).add(t.cycleDays || 30, "day");
+      const next = t.lastMaintainedAt ? dayjs(t.lastMaintainedAt).add(t.cycleDays || 30, "day") : null;
       return (
         <>
           {header}
@@ -392,15 +415,13 @@ export default function TechnicianCalendar() {
             <Descriptions.Item label="Category">{t.category}</Descriptions.Item>
             <Descriptions.Item label="Địa điểm">{t.location}</Descriptions.Item>
             <Descriptions.Item label="Lần bảo trì gần nhất">
-              {t.lastMaintainedAt
-                ? dayjs(t.lastMaintainedAt).format("DD/MM/YYYY HH:mm")
-                : "—"}
+              {fmtDateTime(t.lastMaintainedAt)}
             </Descriptions.Item>
             <Descriptions.Item label="Chu kỳ">
-              {t.cycleDays} ngày
+              {t.cycleDays ? `${t.cycleDays} ngày` : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Dự kiến lần kế tiếp">
-              {next.format("DD/MM/YYYY")}
+              {next ? fmtDate(next) : "—"}
             </Descriptions.Item>
           </Descriptions>
           <Divider />
@@ -430,8 +451,12 @@ export default function TechnicianCalendar() {
               </Space>
             </Descriptions.Item>
             <Descriptions.Item label="Thời gian giao">
-              {dayjs(t.deliveryWindow?.start).format("DD/MM/YYYY HH:mm")} →{" "}
-              {dayjs(t.deliveryWindow?.end).format("HH:mm")}
+              {t.deliveryWindow?.start ? (
+                <>
+                  {fmtDateTime(t.deliveryWindow.start)} →{" "}
+                  {t.deliveryWindow?.end ? dayjs(t.deliveryWindow.end).format("HH:mm") : "—"}
+                </>
+              ) : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Ghi chú">{t.note || "—"}</Descriptions.Item>
           </Descriptions>
@@ -464,7 +489,9 @@ export default function TechnicianCalendar() {
               <Divider />
               <Title level={5} style={{ marginTop: 0 }}>Chi tiết đơn #{orderDetail.orderId || orderDetail.id}</Title>
               <Descriptions bordered size="small" column={1}>
-                <Descriptions.Item label="Trạng thái">{orderDetail.status || orderDetail.orderStatus || "—"}</Descriptions.Item>
+                <Descriptions.Item label="Trạng thái">
+                  {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                </Descriptions.Item>
                 <Descriptions.Item label="Khách hàng">
                   {customerDetail ? (
                     <>
@@ -476,7 +503,9 @@ export default function TechnicianCalendar() {
                     orderDetail.customerId ?? "—"
                   )}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian">{orderDetail.startDate || "—"} → {orderDetail.endDate || "—"}</Descriptions.Item>
+                <Descriptions.Item label="Thời gian">
+                  {orderDetail.startDate ? fmtDate(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDate(orderDetail.endDate) : "—"}
+                </Descriptions.Item>
                 <Descriptions.Item label="Địa chỉ giao">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
               </Descriptions>
               {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
@@ -548,10 +577,8 @@ export default function TechnicianCalendar() {
           onChange={setFilterStatus}
           options={[
             { label: "Tất cả", value: "ALL" },
-            { label: "PENDING", value: TECH_TASK_STATUS.PENDING },
-            { label: "IN_PROGRESS", value: TECH_TASK_STATUS.IN_PROGRESS },
-            { label: "COMPLETED", value: TECH_TASK_STATUS.COMPLETED },
-            { label: "CANCELLED", value: "CANCELLED" },
+            { label: "Đang chờ thực hiện", value: TECH_TASK_STATUS.PENDING },
+            { label: "Đã hoàn thành", value: TECH_TASK_STATUS.COMPLETED },
           ]}
         />
       </Space>
@@ -563,7 +590,19 @@ export default function TechnicianCalendar() {
           columns={columns}
           dataSource={tasksAll
             .filter((t) => (filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase()))
-            .sort((a, b) => dayjs(a.date) - dayjs(b.date))}
+            .sort((a, b) => {
+              // Ưu tiên PENDING lên đầu
+              const aIsPending = String(a.status || "").toUpperCase().includes("PENDING");
+              const bIsPending = String(b.status || "").toUpperCase().includes("PENDING");
+              
+              if (aIsPending && !bIsPending) return -1;
+              if (!aIsPending && bIsPending) return 1;
+              
+              // Nếu cùng trạng thái (cả 2 PENDING hoặc cả 2 không PENDING), sort từ mới nhất đến cũ nhất
+              const aDate = a.date ? dayjs(a.date) : dayjs(0);
+              const bDate = b.date ? dayjs(b.date) : dayjs(0);
+              return bDate.valueOf() - aDate.valueOf(); // Descending: newest first
+            })}
           pagination={{ pageSize: 10, showSizeChanger: true }}
         />
       </Card>

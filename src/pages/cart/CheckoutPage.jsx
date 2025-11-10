@@ -351,7 +351,7 @@ export default function Checkout() {
                         </Text>
                         <div style={{ marginBottom: 4 }}>
                           <Text style={{ fontSize: 14, color: "#111827" }}>
-                            Số lượng: <strong>{ln.qty}</strong> • Thời gian: <strong>{days} ngày</strong>
+                            Số lượng: <strong>{ln.qty} thiết bị</strong> • Thời gian: <strong>{days} ngày</strong>
                           </Text>
                         </div>
                         <div style={{ marginBottom: 4 }}>
@@ -431,7 +431,7 @@ export default function Checkout() {
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <Text type="secondary" style={{ fontSize: 13 }}>
-                          {ln.qty} × {days} ngày
+                          {ln.qty} thiết bị × {days} ngày
                         </Text>
                         <Text type="secondary" style={{ fontSize: 13 }}>
                           Cọc: {fmtVND(ln.deposit)}
@@ -445,11 +445,11 @@ export default function Checkout() {
 
                 <div style={{ padding: "6px 0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Tiền thuê thiết bị</Text>
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Tổng tiền thuê thiết bị</Text>
                     <Text strong style={{ fontSize: 15, color: "#111827" }}>{fmtVND(subtotal)}</Text>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Tiền cọc</Text>
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>Tổng tiền cọc</Text>
                     <Text strong style={{ fontSize: 15, color: "#111827" }}>{fmtVND(deposit)}</Text>
                   </div>
                 </div>

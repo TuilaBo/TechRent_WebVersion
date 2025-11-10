@@ -6,7 +6,6 @@ import {
 } from "antd";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { InboxOutlined, ArrowLeftOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { getTaskById, normalizeTask } from "../../lib/taskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
@@ -15,35 +14,69 @@ import { getDevicesByModelId } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 
 const { Title, Text } = Typography;
+
+// --- Tiện ích dịch và tô màu trạng thái ---
+const translateStatus = (status) => {
+  const s = String(status || "").toUpperCase();
+  const map = {
+    // Task Status
+    "PENDING": "Đang chờ",
+    "IN_PROGRESS": "Đang xử lý",
+    "COMPLETED": "Hoàn thành",
+    "CANCELLED": "Đã hủy",
+    // QC Result
+    "READY_FOR_SHIPPING": "Sẵn sàng giao",
+    "PRE_RENTAL_FAILED": "QC trước thuê thất bại",
+    "READY_FOR_RE_STOCK": "Sẵn sàng nhập kho",
+    "POST_RENTAL_FAILED": "QC sau thuê thất bại",
+    // Order Status
+    "PENDING_PAYMENT": "Chờ thanh toán",
+    "PENDING_CONFIRMATION": "Chờ xác nhận",
+    "CONFIRMED": "Đã xác nhận",
+    "SHIPPED": "Đã giao hàng",
+    "DELIVERED": "Đã nhận hàng",
+    "RETURNED": "Đã trả hàng",
+    "AVAILABLE": "Có sẵn",
+    "PROCESSING": "Đang xử lý",
+  };
+  return map[s] || status;
+};
+
+const getStatusColor = (status) => {
+  const s = String(status || "").toUpperCase();
+  switch (s) {
+    case "PENDING":
+    case "PENDING_PAYMENT":
+    case "PENDING_CONFIRMATION":
+      return "orange";
+    case "IN_PROGRESS":
+    case "PROCESSING":
+      return "blue";
+    case "COMPLETED":
+    case "DELIVERED":
+    case "RETURNED":
+    case "READY_FOR_SHIPPING":
+    case "READY_FOR_RE_STOCK":
+      return "green";
+    case "CANCELLED":
+    case "PRE_RENTAL_FAILED":
+    case "POST_RENTAL_FAILED":
+      return "red";
+    default:
+      return "default";
+  }
+};
 const { Dragger } = Upload;
 
 /** Checklist mẫu theo category */
 const QC_CHECKLIST_BY_CATEGORY = {
-  "VR/AR": ["Vệ sinh ống kính", "Test tracking", "Kiểm tra pin", "Kiểm tra dây cáp", "Update firmware"],
-  "Console": ["Vệ sinh máy", "Test game demo", "Kiểm tra tay cầm", "Kiểm tra cổng HDMI", "Update hệ thống"],
-  "Camera": ["Kiểm tra cảm biến", "Test màn trập", "Kiểm tra pin + sạc", "Kiểm tra thẻ nhớ", "Vệ sinh ống kính"],
-  "Drone": ["Kiểm tra cánh quạt", "Test GPS", "Kiểm tra pin", "Hiệu chỉnh compa", "Test quay video"],
+  "VR/AR": ["Vệ sinh ống kính", "Kiểm tra theo dõi chuyển động (tracking)", "Kiểm tra pin", "Kiểm tra dây cáp", "Cập nhật phần mềm (firmware)"],
+  "Console": ["Vệ sinh máy", "Chạy thử game demo", "Kiểm tra tay cầm", "Kiểm tra cổng HDMI", "Cập nhật hệ thống"],
+  "Camera": ["Kiểm tra cảm biến", "Kiểm tra màn trập", "Kiểm tra pin & sạc", "Kiểm tra thẻ nhớ", "Vệ sinh ống kính"],
+  "Drone": ["Kiểm tra cánh quạt", "Kiểm tra GPS", "Kiểm tra pin", "Hiệu chỉnh la bàn (compass)", "Kiểm tra quay video"],
 };
 
-/** Fallback mock nếu vào trực tiếp */
-function mockFromId(id) {
-  return {
-    id,
-    type: "QC",
-    title: "QC – Meta Quest 3",
-    orderId: "TR-241001-023",
-    quantity: 2,
-    devices: ["Meta Quest 3 #A12", "Meta Quest 3 #B09"],
-    category: "VR/AR",
-    deadline: "2025-10-03 17:00",
-    location: "Kho A",
-    // Danh mục yêu cầu theo đơn (model + số lượng)
-    orderItems: [
-      { model: "Meta Quest 3", quantity: 2 },
-      { model: "Controller Touch Plus (L/R)", quantity: 2 },
-    ],
-  };
-}
+/**/
 
 export default function TechnicianQcDetail() {
   const nav = useNavigate();
@@ -75,7 +108,7 @@ export default function TechnicianQcDetail() {
         // Fetch task
         const taskData = await getTaskById(actualTaskId);
         if (!taskData) {
-          toast.error("Không tìm thấy task");
+          toast.error("Không tìm thấy công việc");
           nav(-1);
           return;
         }
@@ -184,14 +217,14 @@ export default function TechnicianQcDetail() {
     const p = String(phase || "").toUpperCase();
     if (p === "POST_RENTAL") {
       return [
-        { label: "Sẵn sàng nhập kho", value: "READY_FOR_RE_STOCK" },
-        { label: "QC sau thuê thất bại", value: "POST_RENTAL_FAILED" },
+        { label: "Đạt - Sẵn sàng nhập kho", value: "READY_FOR_RE_STOCK" },
+        { label: "Không đạt - QC sau thuê", value: "POST_RENTAL_FAILED" },
       ];
     }
     // default: PRE_RENTAL
     return [
-      { label: "Sẵn sàng giao hàng", value: "READY_FOR_SHIPPING" },
-      { label: "QC trước thuê thất bại", value: "PRE_RENTAL_FAILED" },
+      { label: "Đạt - Sẵn sàng giao hàng", value: "READY_FOR_SHIPPING" },
+      { label: "Không đạt - QC trước thuê", value: "PRE_RENTAL_FAILED" },
     ];
   }, [phase]);
 
@@ -202,9 +235,12 @@ export default function TechnicianQcDetail() {
       // set a sensible default for the chosen phase
       setResult(resultOptions[0]?.value || "");
     }
-  }, [phase, resultOptions]);
+  }, [phase, resultOptions, result]);
   const [findings, setFindings] = useState("");
-  const [accessorySnapShotUrl, setAccessorySnapShotUrl] = useState("");
+  const [description, setDescription] = useState("");
+  // Ảnh chụp phụ kiện: chọn 1 ảnh để upload kèm báo cáo
+  const [accessorySnapshotFile, setAccessorySnapshotFile] = useState(null);
+  const [accessorySnapshotPreview, setAccessorySnapshotPreview] = useState("");
 
   // Chọn thiết bị từ kho theo từng orderDetailId:
   // selectedDevicesByOrderDetail = { orderDetailId: ["SN-001", "SN-002"], ... }
@@ -327,17 +363,17 @@ export default function TechnicianQcDetail() {
         console.error("Missing details:", missingList);
         
         // Hiển thị message với danh sách rõ ràng
-        const errorMsg = `Bạn chưa chọn đủ thiết bị. ${missingList.join("; ")}`;
+        const errorMsg = `Vui lòng chọn đủ thiết bị: ${missingList.join("; ")}`;
         message.error(errorMsg, 6); // Hiển thị 6 giây
       } else {
-        message.error("Bạn chưa chọn đủ thiết bị từ kho theo từng order detail trong đơn.", 6);
+        message.error("Vui lòng chọn đủ số lượng thiết bị cho mỗi mục trong đơn hàng.", 6);
       }
       return;
     }
 
     if (!findings.trim()) {
       console.error("Validation failed: findings is empty");
-      message.error("Vui lòng nhập findings (phát hiện/quan sát)");
+      message.error("Vui lòng nhập Ghi chú/Phát hiện");
       return;
     }
 
@@ -368,8 +404,9 @@ export default function TechnicianQcDetail() {
         orderDetailSerialNumbers,
         phase: String(phase || "PRE_RENTAL").toUpperCase(),
         result: String(result || "READY_FOR_SHIPPING").toUpperCase(),
+        description: description.trim() || "",
         findings: findings.trim(),
-        accessorySnapShotUrl: accessorySnapShotUrl.trim() || "",
+        accessoryFile: accessorySnapshotFile || null,
       };
 
       console.log("QC report payload:", payload);
@@ -413,7 +450,7 @@ export default function TechnicianQcDetail() {
           Quay lại
         </Button>
         <Card>
-          <Text type="danger">Không tìm thấy task</Text>
+          <Text type="danger">Không tìm thấy công việc</Text>
         </Card>
       </div>
     );
@@ -428,25 +465,29 @@ export default function TechnicianQcDetail() {
         <Title level={3} style={{ margin: 0 }}>
           Chi tiết QC
         </Title>
-        <Tag color="blue">CHECK QC</Tag>
+        <Tag color="blue">KIỂM TRA QC</Tag>
       </Space>
 
       {/* Thông tin task và đơn hàng */}
       <Card title="Thông tin task & đơn hàng" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Task ID">{task.taskId || task.id}</Descriptions.Item>
+          <Descriptions.Item label="Mã Task">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
           <Descriptions.Item label="Mô tả">{task.description || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái">
-            <Tag color={task.status === "PENDING" ? "orange" : task.status === "IN_PROGRESS" ? "blue" : "green"}>
-              {task.status || "—"}
+            <Tag color={getStatusColor(task.status)}>
+              {translateStatus(task.status) || "—"}
             </Tag>
           </Descriptions.Item>
           {order && (
             <>
-              <Descriptions.Item label="Tổng số order details">{orderDetails.length}</Descriptions.Item>
-              <Descriptions.Item label="Trạng thái đơn">{order.status || order.orderStatus || "—"}</Descriptions.Item>
+              <Descriptions.Item label="Số loại sản phẩm">{orderDetails.length}</Descriptions.Item>
+              <Descriptions.Item label="Trạng thái đơn">
+                <Tag color={getStatusColor(order.status || order.orderStatus)}>
+                  {translateStatus(order.status || order.orderStatus) || "—"}
+                </Tag>
+              </Descriptions.Item>
             </>
           )}
         </Descriptions>
@@ -457,42 +498,36 @@ export default function TechnicianQcDetail() {
         <Card
           title={
             <Space>
-              Chọn serial numbers theo từng order detail
+              Chọn thiết bị từ kho
               <Button onClick={autoPick}>Gợi ý đủ số lượng</Button>
             </Space>
           }
           className="mb-3"
         >
           <Row gutter={[16, 16]}>
-            {orderDetails.map((orderDetail, index) => {
+            {orderDetails.map((orderDetail) => {
               const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
               const quantity = orderDetail.quantity || 1;
               const deviceModelId = orderDetail.deviceModelId;
-              
-              // Lấy devices từ API cho orderDetail này
+
               const devices = devicesByOrderDetail[orderDetailId] || [];
-              
-              // Extract serialNumbers từ devices
-              // Hỗ trợ nhiều tên field: serialNumber, serial, serialNo, deviceId, id
               const serialNumbersFromDevices = devices
                 .map(device => device.serialNumber || device.serial || device.serialNo || device.deviceId || device.id)
                 .filter(Boolean)
                 .map(String);
-              
-              // Fallback: lấy từ orderDetail nếu có, hoặc mock
+
               const serialNumbersFromOrder = orderDetail.serialNumbers || orderDetail.serialNumberList || [];
               const mockSerialNumbers = INVENTORY[orderDetailId] || INVENTORY.default || [];
-              
-              // Ưu tiên: devices từ API > từ orderDetail > mock
+
               const availableSerialNumbers = serialNumbersFromDevices.length > 0
                 ? serialNumbersFromDevices
                 : (serialNumbersFromOrder.length > 0 ? serialNumbersFromOrder : mockSerialNumbers);
-              
+
               const serialOptions = availableSerialNumbers.map((serial) => ({
                 label: String(serial),
                 value: String(serial),
               }));
-              
+
               const picked = selectedDevicesByOrderDetail[orderDetailId] || [];
               const ok = picked.length === quantity;
 
@@ -502,33 +537,33 @@ export default function TechnicianQcDetail() {
                     size="small"
                     title={
                       <Space>
-                        <Text strong>Order Detail #{orderDetailId}</Text>
+                        <Text strong>Chọn thiết bị </Text>
                         <Tag color={ok ? "green" : "gold"}>
-                          {picked.length}/{quantity} serial numbers
+                          {picked.length}/{quantity} thiết bị
                         </Tag>
                       </Space>
                     }
                   >
                     <div style={{ marginBottom: 8 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        Device Model: {modelNameById[deviceModelId] || `#${deviceModelId}`} • Quantity: {quantity}
+                        Model: {modelNameById[deviceModelId] || `#${deviceModelId}`} • Số lượng: {quantity}
                       </Text>
                       <div style={{ marginTop: 4 }}>
                         {loadingDevices ? (
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            <Spin size="small" style={{ marginRight: 4 }} /> Đang tải devices...
+                            <Spin size="small" style={{ marginRight: 4 }} /> Đang tải...
                           </Text>
                         ) : serialNumbersFromDevices.length > 0 ? (
                           <Text type="success" style={{ fontSize: 11 }}>
-                            ✓ {serialNumbersFromDevices.length} device(s) có sẵn từ kho
+                            ✓ {serialNumbersFromDevices.length} thiết bị có sẵn
                           </Text>
                         ) : serialNumbersFromOrder.length > 0 ? (
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            (Serial numbers từ đơn)
+                            (Số serial từ đơn hàng)
                           </Text>
                         ) : (
                           <Text type="warning" style={{ fontSize: 11 }}>
-                            ⚠ Không có devices trong kho cho model này
+                            ⚠ Không có thiết bị trong kho cho model này
                           </Text>
                         )}
                       </div>
@@ -536,9 +571,9 @@ export default function TechnicianQcDetail() {
                     <Select
                       mode="multiple"
                       placeholder={
-                        loadingDevices 
-                          ? "Đang tải devices..." 
-                          : `Chọn ${quantity} serial number(s)`
+                        loadingDevices
+                          ? "Đang tải..."
+                          : `Chọn ${quantity} số serial`
                       }
                       style={{ width: "100%" }}
                       value={picked.map(String)}
@@ -559,7 +594,7 @@ export default function TechnicianQcDetail() {
           </Row>
           {!isPickComplete() && (
             <div style={{ marginTop: 8 }}>
-              <Text type="warning">*Vui lòng chọn đủ số lượng serial numbers cho từng order detail.</Text>
+              <Text type="warning">*Vui lòng chọn đủ số lượng thiết bị cho mỗi loại sản phẩm.</Text>
             </div>
           )}
         </Card>
@@ -570,13 +605,13 @@ export default function TechnicianQcDetail() {
       )}
 
       {/* QC Report Form */}
-      <Card title="Thông tin QC Report" className="mb-3">
+      <Card title="Báo cáo Quality Control (QC)" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="large">
           <Row gutter={16}>
             <Col xs={24} md={12}>
               <div>
                 <Text strong style={{ display: "block", marginBottom: 8 }}>
-                  Phase <Text type="danger">*</Text>
+                  Giai đoạn <Text type="danger">*</Text>
                 </Text>
                 <Select
                   value={phase}
@@ -589,14 +624,14 @@ export default function TechnicianQcDetail() {
                   disabled
                 />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  Phase được xác định bởi hệ thống và không thể chỉnh sửa.
+                  Giai đoạn được xác định bởi hệ thống và không thể chỉnh sửa.
                 </Text>
               </div>
             </Col>
             <Col xs={24} md={12}>
               <div>
                 <Text strong style={{ display: "block", marginBottom: 8 }}>
-                  Result <Text type="danger">*</Text>
+                  Kết quả <Text type="danger">*</Text>
                 </Text>
                 <Select
                   value={result}
@@ -610,11 +645,23 @@ export default function TechnicianQcDetail() {
 
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Findings (Phát hiện/Quan sát) <Text type="danger">*</Text>
+              Mô tả
+            </Text>
+            <Input.TextArea
+              rows={3}
+              placeholder="Nhập mô tả về quá trình kiểm tra QC..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <Text strong style={{ display: "block", marginBottom: 8 }}>
+              Ghi chú/Phát hiện <Text type="danger">*</Text>
             </Text>
             <Input.TextArea
               rows={4}
-              placeholder="Nhập findings/phát hiện/quan sát trong quá trình QC..."
+              placeholder="Nhập ghi chú, phát hiện hoặc quan sát trong quá trình QC..."
               value={findings}
               onChange={(e) => setFindings(e.target.value)}
               required
@@ -623,13 +670,50 @@ export default function TechnicianQcDetail() {
 
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Accessory Snapshot URL
+              Ảnh chụp phụ kiện 
             </Text>
-            <Input
-              placeholder="URL ảnh phụ kiện (nếu có)"
-              value={accessorySnapShotUrl}
-              onChange={(e) => setAccessorySnapShotUrl(e.target.value)}
-            />
+            <Upload.Dragger
+              multiple={false}
+              accept=".jpg,.jpeg,.png,.webp"
+              beforeUpload={() => false}
+              showUploadList={false}
+              onChange={({ file }) => {
+                const f = file?.originFileObj || file;
+                if (f) {
+                  setAccessorySnapshotFile(f);
+                  const url = file.thumbUrl || file.url || (f ? URL.createObjectURL(f) : "");
+                  setAccessorySnapshotPreview(url);
+                } else {
+                  setAccessorySnapshotFile(null);
+                  setAccessorySnapshotPreview("");
+                }
+              }}
+            >
+              {accessorySnapshotPreview ? (
+                <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <img
+                    src={accessorySnapshotPreview}
+                    alt="accessory"
+                    style={{ maxHeight: 170, maxWidth: "100%", borderRadius: 8 }}
+                  />
+                </div>
+              ) : (
+                <>
+                  <p className="ant-upload-drag-icon">
+                    <InboxOutlined />
+                  </p>
+                  <p>Thả hoặc bấm để chọn 1 ảnh phụ kiện</p>
+                  <p style={{ color: "#888", fontSize: 12 }}>Hỗ trợ: JPG, PNG, WEBP</p>
+                </>
+              )}
+            </Upload.Dragger>
+            {accessorySnapshotPreview && (
+              <div style={{ marginTop: 8 }}>
+                <Button onClick={() => { setAccessorySnapshotFile(null); setAccessorySnapshotPreview(""); }}>
+                  Chọn lại ảnh
+                </Button>
+              </div>
+            )}
           </div>
         </Space>
       </Card>
@@ -659,21 +743,6 @@ export default function TechnicianQcDetail() {
           </Space>
         </Card>
       )}
-
-      {/* Media bằng chứng */}
-      <Card title="Ảnh/Video bằng chứng (UI)" className="mb-3">
-        <Dragger
-          beforeUpload={() => false}
-          multiple
-          accept=".jpg,.jpeg,.png,.webp,.mp4,.pdf"
-          onChange={() => message.success("Đã thêm file (UI).")}
-        >
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined />
-          </p>
-          <p>Kéo thả hoặc bấm để chọn</p>
-        </Dragger>
-      </Card>
 
       <Space>
         <Button onClick={() => nav(-1)}>Hủy</Button>

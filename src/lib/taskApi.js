@@ -13,14 +13,21 @@ async function safeDelete(url) {
 
 /** Chuẩn hoá 1 task để UI dùng ổn định */
 export function normalizeTask(raw = {}) {
+  const assignedStaffArr = Array.isArray(raw.assignedStaff) ? raw.assignedStaff : [];
   return {
     taskId: raw.taskId ?? raw.id ?? raw.taskID,
     taskCategoryId: raw.taskCategoryId ?? raw.categoryId,
     taskCategoryName: raw.taskCategoryName ?? "",
     orderId: raw.orderId,
+    // Back-compat các field đơn và cấu trúc mới nhiều người
     assignedStaffId: raw.assignedStaffId,
     assignedStaffName: raw.assignedStaffName ?? "",
     assignedStaffRole: raw.assignedStaffRole ?? "",
+    assignedStaff: assignedStaffArr.map((s) => ({
+      staffId: s.staffId ?? s.id ?? s.staffID,
+      staffName: s.staffName ?? s.name ?? s.username ?? "",
+      staffRole: s.staffRole ?? s.role ?? "",
+    })),
     type: raw.type ?? "",
     description: raw.description ?? "",
     plannedStart: raw.plannedStart ?? null,
@@ -67,7 +74,9 @@ export async function createTask(body) {
   const payload = {
     taskCategoryId: Number(body.taskCategoryId),
     ...(body.orderId !== undefined && body.orderId !== null && { orderId: Number(body.orderId) }),
-    ...(body.assignedStaffId !== undefined && body.assignedStaffId !== null && { assignedStaffId: Number(body.assignedStaffId) }),
+    ...(Array.isArray(body.assignedStaffIds) && body.assignedStaffIds.length > 0 && {
+      assignedStaffIds: body.assignedStaffIds.map((x) => Number(x)),
+    }),
     type: String(body.type || "").trim(),
     description: String(body.description || "").trim(),
     plannedStart: body.plannedStart ?? null, // ISO string
@@ -88,7 +97,11 @@ export async function updateTask(taskId, body) {
       taskCategoryId: Number(body.taskCategoryId),
     }),
     ...(body.orderId !== undefined && { orderId: Number(body.orderId) }),
-    ...(body.assignedStaffId !== undefined && {
+    ...(Array.isArray(body.assignedStaffIds) && {
+      assignedStaffIds: body.assignedStaffIds.map((x) => Number(x)),
+    }),
+    // Back-compat nếu BE vẫn chấp nhận 1 người (không gửi song song nếu đã có mảng)
+    ...(!Array.isArray(body.assignedStaffIds) && body.assignedStaffId !== undefined && {
       assignedStaffId: Number(body.assignedStaffId),
     }),
     ...(body.type !== undefined && { type: String(body.type || "").trim() }),

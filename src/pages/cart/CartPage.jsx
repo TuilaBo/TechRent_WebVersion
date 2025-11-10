@@ -232,7 +232,8 @@ export default function CartPage() {
     if (!s || s === "unverified") return "unverified";
     if (s.includes("verified") || s.includes("approved")) return "verified";
     if (s.includes("reject") || s.includes("denied")) return "rejected";
-    if (s.includes("pending") || s.includes("submit") || s.includes("review"))
+    // Cho phép pending, submitted, documents_submitted, review
+    if (s.includes("pending") || s.includes("submit") || s.includes("review") || s === "documents_submitted")
       return "pending";
     return "unverified";
   }, [kycStatus]);
@@ -255,7 +256,8 @@ export default function CartPage() {
       return;
     }
 
-    if (kycBucket !== "verified") {
+    // Cho phép đặt order khi KYC đã verified hoặc đang pending
+    if (!["verified", "pending"].includes(kycBucket)) {
       toast("Vui lòng hoàn tất KYC trước khi đặt đơn.", { icon: "🪪" });
       navigate(`/kyc?return=${encodeURIComponent("/checkout")}`);
       return;
@@ -486,7 +488,7 @@ export default function CartPage() {
                         {ln.name}
                       </Text>
                       <Text type="secondary" style={{ fontSize: 13 }}>
-                        {ln.qty} × {days} ngày
+                        {ln.qty} thiết bị × {days} ngày
                       </Text>
                     </div>
                     <Text strong style={{ color: "#111827", fontSize: 14, marginLeft: 12 }}>

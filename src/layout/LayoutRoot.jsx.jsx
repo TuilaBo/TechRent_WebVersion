@@ -30,18 +30,34 @@ export default function LayoutRoot() {
     const calc = () => {
       if (raf) cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const h1 = headerRef.current?.getBoundingClientRect().height || 0;
+        const h1 = headerRef.current?.getBoundingClientRect().height || 72;
         const total = isStacked(headerRef.current) ? h1 : 0;
         document.documentElement.style.setProperty("--header-height", `${h1}px`);
         document.documentElement.style.setProperty("--stacked-header", `${total}px`);
       });
     };
 
+    // Initial calculation
     calc();
+    
+    // Recalculate on resize
     window.addEventListener("resize", calc);
+    
+    // Also recalculate when header height changes (e.g., after render)
+    const observer = new MutationObserver(calc);
+    if (headerRef.current) {
+      observer.observe(headerRef.current, { 
+        childList: true, 
+        subtree: true, 
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      });
+    }
+    
     return () => {
       window.removeEventListener("resize", calc);
       if (raf) cancelAnimationFrame(raf);
+      observer.disconnect();
     };
   }, []);
 
@@ -79,7 +95,7 @@ export default function LayoutRoot() {
         <Header />
       </div>
 
-      <Content style={{ paddingTop: "var(--stacked-header, 0px)" }}>
+      <Content style={{ paddingTop: "calc(var(--stacked-header, 72px) + 16px)" }}>
         <div className="page-shell pt-0 pb-6">
           <Outlet />
         </div>

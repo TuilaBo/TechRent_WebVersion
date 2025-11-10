@@ -1,34 +1,40 @@
 // src/pages/orders/MyOrders.jsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Table, Tag, Typography, Input, DatePicker, Space, Button,
   Dropdown, Menu, Tooltip, message, Drawer, Descriptions,
-  Avatar, Tabs, Modal, Card, Row, Col, Divider, Form
+  Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps
 } from "antd";
 import {
   SearchOutlined, FilterOutlined, EyeOutlined,
-  ReloadOutlined, FilePdfOutlined, DownloadOutlined, ExpandOutlined, DollarOutlined
+  ReloadOutlined, FilePdfOutlined, DownloadOutlined, ExpandOutlined, DollarOutlined, PrinterOutlined
 } from "@ant-design/icons";
 import { listRentalOrders, getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
-import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract } from "../../lib/contractApi";
+import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract as signContractApi } from "../../lib/contractApi";
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
+import { connectCustomerNotifications } from "../../lib/notificationsSocket";
+import { getMyKyc } from "../../lib/kycApi";
 import { createPayment } from "../../lib/Payment";
-// import jsPDF from "jspdf";
-// import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
+/* =========================
+ * 0) CONSTS
+ * ========================= */
 const ORDER_STATUS_MAP = {
   pending:   { label: "Chờ xác nhận", color: "default" },
+  pending_kyc: { label: "Chờ xác thực thông tin", color: "orange" },
   confirmed: { label: "Đã xác nhận",  color: "blue"    },
   delivering:{ label: "Đang giao",    color: "cyan"    },
   active:    { label: "Đang thuê",    color: "gold"    },
   returned:  { label: "Đã trả",       color: "green"   },
   cancelled: { label: "Đã hủy",       color: "red"     },
-  processing:{ label: "Đang xử lý",   color: "purple"  }, // thêm nhãn hiển thị
+  processing:{ label: "Đang xử lý",   color: "purple"  },
   delivery_confirmed: { label: "Đã xác nhận giao hàng", color: "green" },
 };
 const PAYMENT_STATUS_MAP = {
@@ -37,30 +43,242 @@ const PAYMENT_STATUS_MAP = {
   refunded: { label: "Đã hoàn tiền",         color: "geekblue" },
   partial:  { label: "Thanh toán một phần",  color: "purple"   },
 };
+const CONTRACT_STATUS_MAP = {
+  draft: { label: "Nháp", color: "default" },
+  pending_signature: { label: "Chờ khách hàng ký", color: "gold" },
+  pending_admin_signature: { label: "Chờ ký (admin)", color: "orange" },
+  signed: { label: "Đã ký", color: "green" },
+  active: { label: "2 bên đã ký", color: "green" },
+  expired: { label: "Hết hạn", color: "red" },
+  cancelled: { label: "Đã hủy", color: "red" },
+};
+const CONTRACT_TYPE_LABELS = { RENTAL: "Hợp đồng thuê thiết bị" };
 
+/* =========================
+ * 1) UTILS
+ * ========================= */
 function formatVND(n = 0) {
-  try { return Number(n).toLocaleString("vi-VN", { style: "currency", currency: "VND" }); }
-  catch { return `${n}`; }
+  try {
+    const num = Number(n);
+    if (Number.isNaN(num)) return "0 VNĐ";
+    const rounded = Math.round(num);
+    const formatted = rounded.toLocaleString("vi-VN", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    });
+    return `${formatted} VNĐ`;
+  } catch {
+    return `${n} VNĐ`;
+  }
+}
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
 }
 function formatDateTime(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("vi-VN", {
-    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
   });
 }
-// function formatDescription(desc) {
-//   if (!desc || typeof desc !== "string") return desc;
-//   let out = desc;
-//   out = out.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
-//   out = out.replace(/\s*\(\s*\)/g, "");
-//   return out;
-// }
+
+/* ---------- helpers định dạng tiền & layout cho contentHtml ---------- */
+
+// Chuẩn hoá khoảng trắng HTML (&nbsp;) và dấu ":" lộn xộn
+function normalizeHtmlSpaces(html = "") {
+  if (!html) return html;
+  let out = html.replace(/&nbsp;/gi, " ");
+  out = out.replace(/\s*:\s*/g, ": ");
+  return out;
+}
+
+// chuyển "1,234.56" / "1.234,56" / "1.000" / "1000.00" -> số
+function parseAnyNumber(str = "") {
+  if (!str) return 0;
+  const s = String(str).trim();
+  if (!s) return 0;
+
+  if (s.includes(".") && s.includes(",")) {
+    const v = Number(s.replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(v) ? v : 0;
+  }
+  if (!s.includes(".") && s.includes(",")) {
+    const v = Number(s.replace(",", "."));
+    return Number.isFinite(v) ? v : 0;
+  }
+  if (s.includes(".") && !s.includes(",")) {
+    const parts = s.split(".");
+    if (parts.length > 2) {
+      const v = Number(s.replace(/\./g, ""));
+      return Number.isFinite(v) ? v : 0;
+    } else {
+      const afterDot = parts[1] || "";
+      if (afterDot.length <= 2) {
+        const v = Number(s);
+        return Number.isFinite(v) ? v : 0;
+      }
+      const v = Number(s.replace(/\./g, ""));
+      return Number.isFinite(v) ? v : 0;
+    }
+  }
+  const v = Number(s.replace(/,/g, ""));
+  return Number.isFinite(v) ? v : 0;
+}
+
+/** Format các template tiền trong HTML:
+ *  - Bắt được nhãn có thẻ HTML xen kẽ (</b>, <span>...) và khoảng trắng
+ *  - Ví dụ: "<b>Tổng tiền thuê</b>: 1000.00&nbsp;VNĐ" -> "Tổng tiền thuê: 1.000 VNĐ"
+ */
+function formatMoneyInHtml(html = "") {
+  if (!html) return html;
+  html = normalizeHtmlSpaces(html);
+
+  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`; // cho phép chèn tag/space giữa từ
+
+  const patterns = [
+    new RegExp(`(Tổng${SEP}tiền${SEP}thuê)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
+    new RegExp(`(Tổng${SEP}tiền${SEP}cọc)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
+    new RegExp(`(Tiền${SEP}cọc)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
+    new RegExp(`(Giá${SEP}\\/?${SEP}ngày)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
+    new RegExp(`(Tổng${SEP}tiền|Tổng${SEP}cộng)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
+    new RegExp(`(Giá)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
+  ];
+
+  for (const re of patterns) {
+    html = html.replace(re, (_, label, num) => {
+      const n = Math.round(parseAnyNumber(num));
+      return `${label}: ${n.toLocaleString("vi-VN")} VNĐ`;
+    });
+  }
+
+  // Các số lẻ có kèm đơn vị (không theo nhãn) — cũng cho phép chen thẻ
+  const unitPattern = new RegExp(`(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)\\b`, "gi");
+  html = html.replace(unitPattern, (_, num) => {
+    const n = Math.round(parseAnyNumber(num));
+    return `${n.toLocaleString("vi-VN")} VNĐ`;
+  });
+
+  return html;
+}
+
+// Format layout thiết bị + tổng tiền, và CHÈN "Tổng thanh toán"
+function formatEquipmentLayout(html = "") {
+  if (!html || typeof html !== "string") return html;
+
+  // 1) Mỗi thiết bị 1 dòng có bullet
+  html = html.replace(
+    /(?:^|\n|•\s*)?(\d+x\s+[^-]+?)\s*-\s*Giá\/ngày:([^-]+?)\s*-\s*Tiền cọc:([^•\n<]+?)(?=\s*\d+x|$|\n|Tổng)/gim,
+    '<div class="equipment-item">$1 - Giá/ngày:$2 - Tiền cọc:$3</div>'
+  );
+
+  // 2) Gom "Tổng tiền thuê" & "Tiền cọc" về cùng một dòng (nhiều cặp -> giữ NGUYÊN hết)
+  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
+  // a) Đang ở 2 dòng
+  html = html.replace(
+    new RegExp(`(Tổng${SEP}tiền${SEP}thuê:[^<\\n]+?)(?:\\s*<br\\s*\\/?>|\\n|\\s+)(Tiền${SEP}cọc:[^<\\n]+?)(?=\\s*<|$|\\n)`, "gi"),
+    '<div class="total-summary"><div class="total-rental">$1</div><div>$2</div></div>'
+  );
+  // b) Cùng dòng nhưng cách bởi space
+  html = html.replace(
+    new RegExp(`(Tổng${SEP}tiền${SEP}thuê:[^<\\n]+?)\\s+(Tiền${SEP}cọc:[^<\\n]+?)(?=\\s*<|$|\\n)`, "gi"),
+    '<div class="total-summary"><div class="total-rental">$1</div><div>$2</div></div>'
+  );
+
+  // 3) Tính & chèn "Tổng thanh toán" dựa trên CẶP CUỐI CÙNG
+  try {
+    // Lấy hết các số của "Tổng tiền thuê" & "Tiền cọc"
+    const rentReG = new RegExp(`Tổng${SEP}tiền${SEP}thuê${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(?:VNĐ|VND)`, "gi");
+    const depReG  = new RegExp(`Tiền${SEP}cọc${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(?:VNĐ|VND)`, "gi");
+
+    const rentMatches = [...html.matchAll(rentReG)];
+    const depMatches  = [...html.matchAll(depReG)];
+
+    if (rentMatches.length && depMatches.length) {
+      const lastRent = rentMatches[rentMatches.length - 1];
+      const lastDep  = depMatches[depMatches.length - 1];
+      const rent = Math.round(parseAnyNumber(lastRent[1]));
+      const dep  = Math.round(parseAnyNumber(lastDep[1]));
+      const grand = rent + dep;
+      const grandHtml = `<div class="grand-total">Tổng thanh toán: ${grand.toLocaleString("vi-VN")} VNĐ</div>`;
+
+      // Nếu đã có nhiều .total-summary ⇒ chèn SAU .total-summary CUỐI CÙNG
+      const lastSummaryRe = /<div class="total-summary">([\s\S]*?)<\/div>(?![\s\S]*<div class="total-summary">)/i;
+      if (lastSummaryRe.test(html)) {
+        html = html.replace(lastSummaryRe, (m) => `${m}\n${grandHtml}`);
+      } else {
+        // fallback: chèn sau vị trí "Tiền cọc:" CUỐI CÙNG
+        const insertPos = lastDep.index + lastDep[0].length;
+        html = html.slice(0, insertPos) + grandHtml + html.slice(insertPos);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return html;
+}
+
+function formatDatesInHtml(html = "") {
+  if (!html || typeof html !== "string") return html;
+  // Format ngày ISO với thời gian thành DD/MM/YYYY
+  // Pattern: 2025-11-09T00:00 hoặc 2025-11-10T23:59:59.999
+  const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
+  return html.replace(datePattern, (match) => {
+    try {
+      const d = new Date(match);
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleDateString("vi-VN", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+      }
+    } catch {
+      // ignore
+    }
+    return match;
+  });
+}
+
+function formatDateLabelsInHtml(html = "") {
+  if (!html || typeof html !== "string") return html;
+  // Thay thế label "Ngày bắt đầu" thành "Ngày bắt đầu thuê"
+  // Thay thế label "Ngày kết thúc" thành "Ngày kết thúc thuê"
+  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
+  html = html.replace(
+    new RegExp(`(Ngày${SEP}bắt${SEP}đầu)${SEP}:`, "gi"),
+    "Ngày bắt đầu thuê:"
+  );
+  html = html.replace(
+    new RegExp(`(Ngày${SEP}kết${SEP}thúc)${SEP}:`, "gi"),
+    "Ngày kết thúc thuê:"
+  );
+  return html;
+}
+
+// sạch noise + format tiền + format layout
 function sanitizeContractHtml(html = "") {
   if (!html || typeof html !== "string") return html;
-  return html.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
+  let out = html.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
+  out = formatDatesInHtml(out); // Format ngày trước
+  out = formatDateLabelsInHtml(out); // Format label ngày
+  out = formatMoneyInHtml(out);
+  out = formatEquipmentLayout(out);
+  return out;
 }
+
 function diffDays(startIso, endIso) {
   if (!startIso || !endIso) return 1;
   const s = new Date(startIso);
@@ -69,7 +287,166 @@ function diffDays(startIso, endIso) {
   return Math.max(1, days || 1);
 }
 
-/** Chuẩn hóa 1 order trả về từ API về model UI */
+/* =========================
+ * 2) CSS inlined cho PDF + Quốc hiệu
+ * ========================= */
+const GLOBAL_PRINT_CSS = `
+  <style>
+    h1,h2,h3 { margin: 8px 0 6px; font-weight: 700; }
+    h3 { font-size: 14px; text-transform: uppercase; }
+    p { margin: 6px 0; }
+    ol, ul { margin: 6px 0 6px 18px; padding: 0; }
+    li { margin: 3px 0; }
+    .kv { margin-bottom: 10px; }
+    .kv div { margin: 2px 0; }
+    /* Format thiết bị thuê - mỗi thiết bị 1 dòng */
+    .equipment-item { display: block; margin: 4px 0; }
+    .equipment-item::before { content: "• "; }
+    /* Format tổng tiền trên cùng 1 dòng */
+    .total-summary { display: flex; gap: 16px; margin: 8px 0; }
+    .total-summary > * { margin: 0; }
+    .total-rental { font-weight: 700; }
+    /* NEW: Tổng thanh toán */
+    .grand-total { margin: 6px 0 12px; font-weight: 700; }
+  </style>
+`;
+
+const NATIONAL_HEADER_HTML = `
+  <div style="text-align:center; margin-bottom:12px">
+    <div style="font-weight:700; font-size:14px; letter-spacing:.3px; text-transform:uppercase">
+      CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+    </div>
+    <div style="font-size:13px; margin-top:2px">
+      Độc lập – Tự do – Hạnh phúc
+    </div>
+    <div style="width:220px; height:0; border-top:1px solid #111; margin:6px auto 0"></div>
+  </div>
+`;
+
+/* =========================
+ * 3) Điều khoản mở rộng với list chuẩn
+ * ========================= */
+const EXTRA_CONTRACT_HTML = `
+<section>
+  <h3>Điều 1. Các thuật ngữ sử dụng trong hợp đồng</h3>
+  <ol>
+    <li><b>Bảo dưỡng và sửa chữa nhỏ</b>: Những sửa chữa không nằm trong định kỳ sửa chữa đã dự định theo thoả thuận hai Bên hoặc định kỳ phân bổ kế toán.</li>
+    <li><b>Hao mòn tự nhiên</b>: Sự giảm giá trị thiết bị một cách tự nhiên dù sử dụng đúng công suất và bảo quản đúng quy định.</li>
+    <li><b>Máy móc, thiết bị</b>: Là các máy móc, thiết bị được quy định tại Điều 2 của hợp đồng này.</li>
+    <li><b>QC (Quality Check)</b>: Kiểm tra thiết bị sau khi trả về.</li>
+    <li><b>BOM (Bill of Materials)</b>: Danh sách phụ kiện đi kèm.</li>
+    <li><b>PBS / QAE</b>: Khoảng thời gian chuẩn bị trước & kiểm tra sau thuê — đã được tính vào lịch thuê.</li>
+  </ol>
+
+  <h3>Điều 2. Mục đích, thời hạn thuê</h3>
+  <ol>
+    <li>Thiết bị chỉ dùng vào mục đích hợp pháp theo quy định pháp luật Việt Nam.</li>
+    <li>Gia hạn phải yêu cầu trước 48h; TechRent có quyền từ chối nếu lịch kín.</li>
+  </ol>
+
+  <h3>Điều 3. Thời gian, địa điểm chuyển giao máy móc, thiết bị</h3>
+  <ol>
+    <li>Bên B chuyển giao thiết bị cho Bên A tại địa điểm giao hàng vào thời gian đã xác định theo hợp đồng.</li>
+    <li>Bên A hoàn trả thiết bị cho Bên B đúng địa điểm và thời gian đã xác định trong hợp đồng.</li>
+    <li>Việc chuyển giao phải lập biên bản bàn giao, có xác nhận của đại diện hợp lệ hai bên.</li>
+    <li>Nếu Bên A không có mặt quá 15 phút tại thời điểm nhận hàng theo hợp đồng, Bên B có quyền huỷ đơn.</li>
+  </ol>
+
+  <h3>Điều 4. Thời hạn và phương thức thanh toán</h3>
+  <ol>
+    <li>Bên A thanh toán trong 03 (ba) ngày làm việc kể từ khi nhận hoá đơn của Bên B.</li>
+    <li>Phương thức thanh toán: Chuyển khoản ngân hàng.</li>
+  </ol>
+
+  <h3>Điều 5. Chậm trả và rủi ro</h3>
+  <ol>
+    <li>Khi Bên A chậm trả tài sản thuê, Bên B có quyền yêu cầu trả lại, thu tiền thuê thời gian chậm và yêu cầu phạt vi phạm theo chính sách.</li>
+    <li>Trong thời gian chậm trả, rủi ro đối với tài sản thuộc về Bên A.</li>
+  </ol>
+
+  <h3>Điều 6. Quyền và nghĩa vụ Bên A</h3>
+  <ol>
+    <li><b>Nghĩa vụ</b>:
+      <ul>
+        <li>Thanh toán đúng và đủ theo Điều 2 & Điều 5.</li>
+        <li>Hoàn trả thiết bị đúng thời gian, số lượng, tình trạng (trừ hao mòn tự nhiên).</li>
+        <li>Nếu cố tình làm hư hỏng: cùng khắc phục; nếu không được phải bồi thường chi phí sửa chữa có hoá đơn chứng từ.</li>
+        <li>Trường hợp mất mát do lỗi Bên A: bồi thường toàn bộ giá trị còn lại tại thời điểm mất.</li>
+        <li>Không cho thuê/mượn lại cho bên thứ ba nếu không có chấp thuận bằng văn bản của Bên B.</li>
+      </ul>
+    </li>
+    <li><b>Quyền</b>:
+      <ul>
+        <li>Yêu cầu Bên B sửa chữa/bảo dưỡng định kỳ; yêu cầu giảm giá nếu hư hỏng không do lỗi Bên A.</li>
+        <li>Đơn phương đình chỉ và yêu cầu bồi thường nếu:
+          <ul>
+            <li>Quá 03 ngày làm việc gia hạn mà Bên B vẫn chưa giao, trừ bất khả kháng.</li>
+            <li>Vi phạm nghiêm trọng quy định an ninh của Bên A khi giao nhận.</li>
+            <li>Giao thiết bị nguồn gốc không rõ ràng.</li>
+          </ul>
+        </li>
+        <li>Được ưu tiên tiếp tục thuê nếu sử dụng đúng mục đích, không gây mất mát/hư hại.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Điều 7. Quyền và nghĩa vụ Bên B</h3>
+  <ol>
+    <li><b>Nghĩa vụ</b>:
+      <ul>
+        <li>Giao đúng loại, số lượng, thời gian, địa điểm; bảo đảm thiết bị đạt tiêu chuẩn chất lượng.</li>
+        <li>Xuất biên bản bàn giao và hoá đơn theo thoả thuận.</li>
+        <li>Thực hiện lắp đặt (nếu có) dưới giám sát của Bên A.</li>
+        <li>Chịu trách nhiệm về quyền sở hữu thiết bị.</li>
+        <li>Bảo dưỡng định kỳ, sửa chữa hư hỏng không nhỏ.</li>
+        <li>Thông báo và phối hợp khắc phục khi phát hiện hư hại khi nhận lại.</li>
+        <li>Nếu không thể giao đúng hạn: thông báo bằng văn bản và gia hạn nhưng không quá 03 ngày làm việc.</li>
+        <li>Tuân thủ quy định an ninh của Bên A; gây thiệt hại phải bồi thường theo thoả thuận.</li>
+        <li>Nhắc nhở bằng văn bản nếu phát hiện Bên A dùng sai mục đích/công dụng.</li>
+      </ul>
+    </li>
+    <li><b>Quyền</b>:
+      <ul>
+        <li>Nhận đủ tiền thuê theo Điều 2 & Điều 5.</li>
+        <li>Nhận lại thiết bị đúng thời gian, số lượng, tình trạng (trừ hao mòn tự nhiên).</li>
+        <li>Gia hạn thời hạn giao thiết bị tối đa 03 ngày làm việc (có văn bản thông báo).</li>
+        <li>Yêu cầu Bên A sử dụng đúng mục đích và công dụng; yêu cầu bồi thường khi hư hỏng do lỗi Bên A.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Điều 8. Hiệu lực của hợp đồng</h3>
+  <ol>
+    <li>Hợp đồng có hiệu lực khi một trong các bên nhận được bản có ký tên & đóng dấu của cả hai bên.</li>
+    <li>Hợp đồng hết hiệu lực khi:
+      <ul>
+        <li>Hai bên hoàn tất nghĩa vụ;</li>
+        <li>Hai bên thoả thuận chấm dứt trước hạn;</li>
+        <li>Thiết bị thuê không còn.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Điều 9. Điều khoản chung</h3>
+  <ol>
+    <li>Hai bên cam kết thực hiện đúng hợp đồng; vướng mắc sẽ thương lượng trên tinh thần hợp tác cùng có lợi.</li>
+    <li>Tranh chấp không tự giải quyết được thì yêu cầu Toà án có thẩm quyền giải quyết; phán quyết có hiệu lực buộc thi hành.</li>
+    <li>Nếu muốn chấm dứt trước hạn phải thông báo trước 30 ngày; hoàn tất mọi nghĩa vụ thì hợp đồng tự thanh lý.</li>
+    <li>Hợp đồng lập 04 bản tiếng Việt, mỗi bên giữ 02 bản có giá trị pháp lý như nhau.</li>
+  </ol>
+</section>
+`;
+
+function augmentContractContent(detail) {
+  if (!detail) return detail;
+  const base = String(detail.contentHtml || "");
+  const mergedHtml = base + EXTRA_CONTRACT_HTML;
+  return { ...detail, contentHtml: mergedHtml };
+}
+
+/* =========================
+ * 4) MAP ORDER (chuẩn hoá từ BE)
+ * ========================= */
 async function mapOrderFromApi(order) {
   const backendId =
     order?.id || order?.rentalOrderId || order?.orderId || order?.rentalId || null;
@@ -81,12 +458,22 @@ async function mapOrderFromApi(order) {
   const items = await Promise.all(
     (order?.orderDetails || []).map(async (detail) => {
       try {
-        const model = detail?.deviceModelId ? await getDeviceModelById(detail.deviceModelId) : null;
+        const model = detail?.deviceModelId
+          ? await getDeviceModelById(detail.deviceModelId)
+          : null;
+
         const deviceValue = Number(detail?.deviceValue ?? model?.deviceValue ?? 0);
         const depositPercent = Number(detail?.depositPercent ?? model?.depositPercent ?? 0);
-        const depositAmountPerUnit = Number(detail?.depositAmountPerUnit ?? (deviceValue * depositPercent));
+        const depositAmountPerUnit = Number(
+          detail?.depositAmountPerUnit ?? deviceValue * depositPercent
+        );
+
         return {
-          name: model?.deviceName || model?.name || detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
+          name:
+            model?.deviceName ||
+            model?.name ||
+            detail?.deviceName ||
+            `Model ${detail?.deviceModelId ?? ""}`,
           qty: detail?.quantity ?? 1,
           image: model?.imageURL || model?.imageUrl || detail?.imageUrl || "",
           pricePerDay: Number(detail?.pricePerDay ?? model?.pricePerDay ?? 0),
@@ -98,7 +485,10 @@ async function mapOrderFromApi(order) {
       } catch {
         const deviceValue = Number(detail?.deviceValue ?? 0);
         const depositPercent = Number(detail?.depositPercent ?? 0);
-        const depositAmountPerUnit = Number(detail?.depositAmountPerUnit ?? (deviceValue * depositPercent));
+        const depositAmountPerUnit = Number(
+          detail?.depositAmountPerUnit ?? deviceValue * depositPercent
+        );
+
         return {
           name: detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
           qty: detail?.quantity ?? 1,
@@ -131,14 +521,11 @@ async function mapOrderFromApi(order) {
     displayId,
 
     createdAt: order?.createdAt ?? order?.created_date ?? null,
-    startDate,
-    endDate,
-    days: normalizedDays,
+    startDate, endDate, days: normalizedDays,
 
     items,
     total: order?.totalPrice ?? order?.total ?? 0,
 
-    // 🔽🔽🔽 CHUẨN HÓA STATUS VỀ LOWERCASE 🔽🔽🔽
     orderStatus: String(order?.orderStatus ?? "pending").toLowerCase(),
     paymentStatus: String(order?.paymentStatus ?? "unpaid").toLowerCase(),
 
@@ -151,6 +538,9 @@ async function mapOrderFromApi(order) {
   };
 }
 
+/* =========================
+ * 5) COMPONENT
+ * ========================= */
 export default function MyOrders() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState();
@@ -162,21 +552,50 @@ export default function MyOrders() {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [current, setCurrent] = useState(null);
+
   const [allContracts, setAllContracts] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [contractsLoading, setContractsLoading] = useState(false);
+
   const [contractDetail, setContractDetail] = useState(null);
   const [contractDetailOpen, setContractDetailOpen] = useState(false);
   const [loadingContractDetail, setLoadingContractDetail] = useState(false);
   const [contractCustomer, setContractCustomer] = useState(null);
-  const [pdfPreviewUrl] = useState("");
+
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
+
+  // PDF (FE render)
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState("");
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const printRef = useRef(null);
+  const notifSocketRef = useRef(null);
+  const pollingRef = useRef(null);
+  const wsConnectedRef = useRef(false);
+
+  // Signing
   const [signingContract, setSigningContract] = useState(false);
   const [signModalOpen, setSignModalOpen] = useState(false);
   const [currentContractId, setCurrentContractId] = useState(null);
   const [pinSent, setPinSent] = useState(false);
   const [signing, setSigning] = useState(false);
+
   const [customerProfile, setCustomerProfile] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
+
+  // Layout: Table tự cuộn theo viewport
+  const TABLE_TOP_BLOCK = 56 + 64 + 24;
+  const TABLE_BOTTOM_BLOCK = 72;
+  const tableScrollY = `calc(100vh - ${TABLE_TOP_BLOCK + TABLE_BOTTOM_BLOCK}px)`;
+
+  function revokeBlob(url) { try { if (url) URL.revokeObjectURL(url); } catch (e) { console.error("Error revoking blob:", e); } }
+  function clearContractPreviewState() {
+    revokeBlob(pdfBlobUrl);
+    setPdfBlobUrl("");
+    setPdfPreviewUrl("");
+    setContractDetail(null);
+    setContractCustomer(null);
+  }
 
   useEffect(() => {
     loadOrders();
@@ -189,6 +608,50 @@ export default function MyOrders() {
       const profile = await fetchMyCustomerProfile();
       const normalized = normalizeCustomer(profile || {});
       setCustomerProfile(normalized);
+      // Connect WS after profile ready
+      try { notifSocketRef.current?.disconnect(); } catch {}
+      try { clearInterval(pollingRef.current); } catch {}
+      pollingRef.current = null;
+      if (normalized?.id) {
+        notifSocketRef.current = connectCustomerNotifications({
+          endpoint: "/ws",
+          customerId: normalized.id,
+          onMessage: async (payload) => {
+            const lower = String(payload?.message || payload?.title || "").toLowerCase();
+            const typeRaw = String(payload?.type || payload?.notificationType || "").toLowerCase();
+            const isProcessing =
+              lower.includes("xử lý") ||
+              lower.includes("processing") ||
+              typeRaw === "approved";
+            if (isProcessing) {
+              const orderCode = payload?.orderCode || payload?.orderId || "";
+              message.success(
+                orderCode
+                  ? `Đơn ${orderCode} đã được xử lý. Vui lòng ký hợp đồng và thanh toán.`
+                  : "Đơn của bạn đã được xử lý. Vui lòng ký hợp đồng và thanh toán."
+              );
+              // Refresh list to reflect new status
+              try { await loadOrders(); } catch {}
+              try { await loadAllContracts(); } catch {}
+            }
+          },
+          onConnect: () => {
+            wsConnectedRef.current = true;
+            // stop polling if any
+            try { clearInterval(pollingRef.current); } catch {}
+            pollingRef.current = null;
+          },
+          onError: () => {
+            if (!pollingRef.current) startPollingProcessing();
+          },
+        });
+        // If WS not connected within 3s, start polling
+        setTimeout(() => {
+          if (!wsConnectedRef.current && !pollingRef.current) {
+            startPollingProcessing();
+          }
+        }, 3000);
+      }
     } catch (e) {
       console.error("Failed to load customer profile:", e);
     }
@@ -239,7 +702,41 @@ export default function MyOrders() {
     message.success("Đã tải lại danh sách đơn và hợp đồng.");
   };
 
-  // Kiểm tra xem đơn hàng có hợp đồng đã ký chưa
+  // ---------- Tracking bar helpers ----------
+  function computeOrderTracking(order, contracts) {
+    const status = String(order?.orderStatus || order?.status || "").toLowerCase();
+    const payment = String(order?.paymentStatus || "").toLowerCase();
+    const contract = (contracts || [])[0];
+    const contractStatus = String(contract?.status || "").toLowerCase();
+
+    const isCreated = true;
+    const isQcDone =
+      ["processing", "ready_for_delivery", "delivery_confirmed", "delivering", "active", "returned"].includes(status) ||
+      !!contract;
+    const isContractPending = contractStatus === "pending_signature";
+    const isPaid = payment === "paid";
+    const isReady =
+      ["ready_for_delivery", "delivery_confirmed"].includes(status) ||
+      (isPaid && (status === "processing" || status === "active" || status === "delivering"));
+
+    let current = 0;
+    if (isReady) current = 3;
+    else if (isContractPending || (!isPaid && (isQcDone || contract))) current = 2;
+    else if (isQcDone) current = 1;
+    else current = 0;
+
+    const steps = [
+      { title: "Tạo đơn hàng thành công" },
+      { title: "QC trước thuê thành công" },
+      { title: "Ký hợp đồng & Thanh toán" },
+      { title: "Sẵn sàng giao hàng" },
+    ];
+
+    steps[0].description = formatDateTime(order?.createdAt) || "";
+
+    return { current, steps };
+  }
+
   const hasSignedContract = (orderId) => {
     if (!orderId || !allContracts.length) return false;
     const orderContracts = allContracts.filter(c =>
@@ -247,8 +744,64 @@ export default function MyOrders() {
       (c.orderId === Number(orderId)) ||
       (String(c.orderId) === String(orderId))
     );
-    return orderContracts.some(c => String(c.status).toUpperCase() === "SIGNED");
+    return orderContracts.some(c => {
+      const status = String(c.status).toUpperCase();
+      return status === "SIGNED" || status === "ACTIVE";
+    });
   };
+  const handleDownloadContract = async (record) => {
+    try {
+      // 1) Có URL -> tải thẳng
+      if (record?.contractUrl) {
+        const a = document.createElement("a");
+        a.href = record.contractUrl;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.download = record.contractFileName || `contract-${record.id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+  
+      // 2) Không có URL -> fallback HTML→PDF
+      setPdfGenerating(true);
+  
+      // chuẩn bị dữ liệu KH & KYC
+      let customer = contractCustomer || customerProfile;
+      if (!customer) {
+        try {
+          const prof = await fetchMyCustomerProfile();
+          customer = normalizeCustomer(prof || {});
+          setCustomerProfile(customer);
+        } catch {}
+      }
+      let kyc = null;
+      try { kyc = await getMyKyc(); } catch {}
+  
+      // gộp điều khoản mở rộng rồi render HTML -> PDF
+      const detail = augmentContractContent(record);
+      if (printRef.current) {
+        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
+        const blob = await elementToPdfBlob(printRef.current);
+  
+        const a = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+    } catch (e) {
+      console.error("Download contract error:", e);
+      message.error("Không thể tạo/tải PDF.");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+  
 
   const showDetail = async (record) => {
     const idNum = Number(record?.id);
@@ -256,17 +809,19 @@ export default function MyOrders() {
       message.error("ID đơn hàng không hợp lệ để xem chi tiết.");
       return;
     }
+    clearContractPreviewState();
     setCurrent(record);
     setDetailOpen(true);
 
     try {
       const fullOrder = await getRentalOrderById(idNum);
       if (fullOrder) {
-        const mapped = await mapOrderFromApi(fullOrder);
+        const mapped = await Promise.all([mapOrderFromApi(fullOrder)]);
+        const merged = mapped[0];
         setCurrent(prev => ({
           ...prev,
-          ...mapped,
-          items: (mapped?.items?.length ? mapped.items : prev.items) ?? [],
+          ...merged,
+          items: (merged?.items?.length ? merged.items : prev.items) ?? [],
         }));
       }
       await loadOrderContracts(idNum);
@@ -289,31 +844,67 @@ export default function MyOrders() {
   const loadOrderContracts = async (orderId, contractsToFilter = null) => {
     try {
       setContractsLoading(true);
-      let contracts = contractsToFilter;
-      if (!contracts) {
+      let inScope = contractsToFilter;
+      if (!inScope) {
         if (allContracts.length === 0) await loadAllContracts();
-        contracts = allContracts;
+        inScope = allContracts;
       }
-      const orderContracts = contracts.filter(c =>
+      let orderContracts = (inScope || []).filter(c =>
         c.orderId === orderId ||
         c.orderId === Number(orderId) ||
         String(c.orderId) === String(orderId)
       );
+
+      const needDetail = orderContracts.some(c => !c.contractUrl);
+      if (needDetail) {
+        orderContracts = await Promise.all(orderContracts.map(async (c) => {
+          if (c.contractUrl) return c;
+          try {
+            const detail = await getContractById(c.id ?? c.contractId ?? c.contractID);
+            const normalizedDetail = normalizeContract(detail || {});
+            return { ...c, ...normalizedDetail };
+          } catch (err) {
+            console.error("Failed to fetch contract detail for preview:", err);
+            return c;
+          }
+        }));
+        setAllContracts(prev => {
+          const map = new Map((prev || []).map(x => [x.id, x]));
+          orderContracts.forEach(x => { if (x?.id != null) map.set(x.id, x); });
+          return Array.from(map.values());
+        });
+      }
+
       setContracts(orderContracts);
+
+      const primary = orderContracts[0];
+      const contractUrl = primary?.contractUrl || "";
+
+      setCurrent(prev => ({
+        ...(prev || {}),
+        contractUrl: contractUrl || "",
+        contractFileName: primary?.contractFileName || prev?.contractFileName,
+      }));
+
+      if (contractUrl) setPdfPreviewUrl(contractUrl);
+      else setPdfPreviewUrl("");
     } catch (e) {
       console.error("Failed to filter order contracts:", e);
       setContracts([]);
+      setPdfPreviewUrl("");
     } finally {
       setContractsLoading(false);
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const viewContractDetail = async (contractId) => {
     try {
       setLoadingContractDetail(true);
       const contract = await getContractById(contractId);
       const normalized = normalizeContract(contract);
       setContractDetail(normalized);
+      if (normalized?.contractUrl) setPdfPreviewUrl(normalized.contractUrl);
 
       if (customerProfile) setContractCustomer(customerProfile);
       else {
@@ -336,28 +927,22 @@ export default function MyOrders() {
   };
 
   const handleSignContract = async (contractId) => {
-    console.log('Starting contract signing for ID:', contractId);
-    if (!contractId) {
-      message.error('ID hợp đồng không hợp lệ');
-      return;
-    }
-    
-    // Đảm bảo customer profile đã được load
-    if (!customerProfile) {
+    if (!contractId) { message.error("ID hợp đồng không hợp lệ"); return; }
+    let profile = customerProfile;
+    if (!profile) {
       try {
-        await loadCustomerProfile();
+        const loaded = await fetchMyCustomerProfile();
+        profile = normalizeCustomer(loaded || {});
+        setCustomerProfile(profile);
       } catch {
-        message.error('Không thể tải thông tin khách hàng. Vui lòng thử lại.');
+        message.error("Không thể tải thông tin khách hàng.");
         return;
       }
     }
-    
-    // Kiểm tra email và fullName có tồn tại không
-    if (!customerProfile?.email) {
-      message.error('Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin.');
+    if (!profile?.email) {
+      message.error("Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin cá nhân.");
       return;
     }
-    
     setCurrentContractId(contractId);
     setSignModalOpen(true);
     setPinSent(false);
@@ -365,10 +950,9 @@ export default function MyOrders() {
 
   const sendPin = async () => {
     if (!currentContractId || !customerProfile?.email) {
-      message.error('Không tìm thấy email để gửi mã PIN.');
+      message.error("Không tìm thấy email để gửi mã PIN.");
       return;
     }
-    
     try {
       setSigningContract(true);
       await sendPinEmail(currentContractId, customerProfile.email);
@@ -381,11 +965,32 @@ export default function MyOrders() {
     }
   };
 
-  const handlePayment = async (order) => {
-    if (!order || !order.id) {
-      message.error("Không có thông tin đơn hàng để thanh toán.");
+  const handleSign = async (values) => {
+    if (!currentContractId) {
+      message.error("Không tìm thấy hợp đồng để ký.");
       return;
     }
+    try {
+      setSigning(true);
+      await signContractApi(currentContractId, {
+        pinCode: values.pinCode,
+        signatureMethod: "EMAIL_OTP",
+      });
+      message.success("Ký hợp đồng thành công!");
+      setSignModalOpen(false);
+      setCurrentContractId(null);
+      setPinSent(false);
+      await loadOrderContracts(current?.id);
+      await loadAllContracts();
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Không thể ký hợp đồng.");
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const handlePayment = async (order) => {
+    if (!order || !order.id) { message.error("Không có thông tin đơn hàng để thanh toán."); return; }
     try {
       setProcessingPayment(true);
       const items = order.items || [];
@@ -394,227 +999,316 @@ export default function MyOrders() {
       const totalPriceFromBE = Number(order.total ?? rentalTotalRecalc);
       const depositTotal = items.reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
       const totalAmount = totalPriceFromBE + depositTotal;
-      if (totalAmount <= 0) {
-        message.error("Số tiền thanh toán không hợp lệ.");
-        return;
-      }
+      if (totalAmount <= 0) { message.error("Số tiền thanh toán không hợp lệ."); return; }
+
       const baseUrl = window.location.origin;
       const orderIdParam = Number(order.id);
       const orderCodeParam = order.displayId || order.id;
       const returnUrl = `https://www.facebook.com/`;
       const cancelUrl = `${baseUrl}/payment/cancel?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
-      
-      // Validate URLs trước khi gửi
+
       if (!returnUrl || !cancelUrl || returnUrl === "string" || cancelUrl === "string") {
-        console.error("❌ Invalid URLs detected!");
-        console.error("returnUrl:", returnUrl);
-        console.error("cancelUrl:", cancelUrl);
-        message.error("Lỗi: URL redirect không hợp lệ. Vui lòng thử lại.");
-        return;
+        message.error("URL redirect không hợp lệ."); return;
       }
-      
+
       const payload = {
         orderId: orderIdParam,
         invoiceType: "RENT_PAYMENT",
         paymentMethod: "PAYOS",
         amount: totalAmount,
         description: `Thanh toán đơn hàng #${orderCodeParam}`,
-        returnUrl: returnUrl,
-        cancelUrl: cancelUrl,
+        returnUrl, cancelUrl,
       };
-      
-      // Validate payload trước khi gửi
-      if (payload.returnUrl === "string" || payload.cancelUrl === "string") {
-        console.error("❌ Payload contains 'string' placeholder!");
-        console.error("Full payload:", payload);
-        message.error("Lỗi: Payload không hợp lệ. Vui lòng thử lại.");
-        return;
-      }
-      
-      console.log("=== Payment Request Debug ===");
-      console.log("✅ Payment payload (validated):", JSON.stringify(payload, null, 2));
-      console.log("✅ Return URL:", returnUrl);
-      console.log("✅ Cancel URL:", cancelUrl);
-      console.log("✅ Base URL:", baseUrl);
-      console.log("✅ Order ID:", orderIdParam);
-      console.log("✅ Order Code:", orderCodeParam);
-      console.log("✅ Payload type check:");
-      console.log("  - returnUrl type:", typeof payload.returnUrl);
-      console.log("  - cancelUrl type:", typeof payload.cancelUrl);
-      console.log("  - returnUrl includes 'string':", payload.returnUrl.includes('string'));
-      console.log("  - cancelUrl includes 'string':", payload.cancelUrl.includes('string'));
-      console.log("=============================");
-      
+
       const result = await createPayment(payload);
-      console.log("📥 Payment API response:", result);
-      
-      // Kiểm tra xem backend có trả về cancelUrl không (nếu có)
-      if (result?.cancelUrl) {
-        console.warn("⚠️ Backend returned cancelUrl:", result.cancelUrl);
-        console.warn("⚠️ This might override the cancelUrl we sent!");
-      }
-      
-      if (result?.returnUrl) {
-        console.warn("⚠️ Backend returned returnUrl:", result.returnUrl);
-        console.warn("⚠️ This might override the returnUrl we sent!");
-      }
-      
       if (result?.checkoutUrl) {
-        // Lưu logs vào localStorage để có thể xem sau khi quay lại từ PayOS
-        const debugInfo = {
-          timestamp: new Date().toISOString(),
-          payload: payload,
-          returnUrl: returnUrl,
-          cancelUrl: cancelUrl,
-          apiResponse: result,
-          orderId: orderIdParam,
-          orderCode: orderCodeParam,
-        };
-        localStorage.setItem("paymentDebugInfo", JSON.stringify(debugInfo, null, 2));
-        
-        console.log("Redirecting to PayOS:", result.checkoutUrl);
-        console.log("💾 Debug info saved to localStorage. Check 'paymentDebugInfo' after redirect.");
-        
-        // Lưu orderId vào localStorage để có thể sử dụng sau khi redirect
         localStorage.setItem("pendingPaymentOrderId", String(orderIdParam));
         localStorage.setItem("pendingPaymentOrderCode", String(orderCodeParam));
-        // Redirect ngay lập tức
         window.location.href = result.checkoutUrl;
       } else {
         message.error("Không nhận được link thanh toán từ hệ thống.");
       }
     } catch (error) {
       console.error("Error creating payment:", error);
-      message.error(error?.response?.data?.message || error?.message || "Không thể tạo thanh toán. Vui lòng thử lại.");
+      message.error(error?.response?.data?.message || error?.message || "Không thể tạo thanh toán.");
     } finally {
       setProcessingPayment(false);
     }
   };
 
-  const handleSign = async (values) => {
-    if (!currentContractId) return;
-    
-    // Backend yêu cầu "string" literal cho digitalSignature
-    // Nhưng chúng ta hiển thị tên khách hàng trong UI cho user biết
-    const digitalSignature = "string"; // Backend chỉ chấp nhận giá trị này
-    
+  /* =========================
+   * 6) HTML → PDF
+   * ========================= */
+  function buildPrintableHtml(detail, customer, kyc) {
+    if (!detail) return "<div>Không có dữ liệu hợp đồng</div>";
+    const title = detail.title || "HỢP ĐỒNG";
+    const number = detail.number ? `Số: ${detail.number}` : "";
+    const customerName = customer?.fullName || customer?.name || `Khách hàng #${detail.customerId}`;
+    const customerEmail = customer?.email || "";
+    const customerPhone = customer?.phoneNumber || "";
+    const identificationCode = kyc?.identificationCode || "";
+    const contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    const termsBlock = detail.terms
+      ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
+      : "";
+
+    return `
+      <div style="
+        width:794px;margin:0 auto;background:#fff;color:#111;
+        font-family:Inter,Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;
+        padding:32px 40px;box-sizing:border-box;">
+        ${GLOBAL_PRINT_CSS}
+        ${NATIONAL_HEADER_HTML}
+
+        <div style="text-align:center;margin-bottom:12px">
+          <div style="font-size:22px;font-weight:700;letter-spacing:.5px">${title}</div>
+          <div style="color:#666">${number}</div>
+        </div>
+        <hr style="border:none;border-top:1px solid #e8e8e8;margin:12px 0 16px"/>
+
+        <section class="kv">
+          <div><b>Bên A (Bên cho thuê):</b> CÔNG TY TECHRENT</div>
+          <div><b>Bên B (Khách hàng):</b> ${customerName}</div>
+          ${identificationCode ? `<div><b>Số căn cước công dân:</b> ${identificationCode}</div>` : ""}
+          ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
+          ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
+        </section>
+
+        <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>
+
+        ${termsBlock ? `
+        <section style="page-break-inside:avoid;margin:10px 0 16px">
+          <h3>Điều khoản &amp; Điều kiện</h3>
+          ${termsBlock}
+        </section>` : ""}
+
+        <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN A</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                }
+                return "";
+              })()}
+            </div>
+            <div>
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
+                }
+                return "(Ký, ghi rõ họ tên)";
+              })()}
+            </div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN B</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "ACTIVE") {
+                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                }
+                return "";
+              })()}
+            </div>
+            <div>
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "ACTIVE") {
+                  return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                }
+                return "(Ký, ghi rõ họ tên)";
+              })()}
+            </div>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  async function elementToPdfBlob(el) {
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+    });
+
+    const pdf = new jsPDF("p", "pt", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const ratio = pageWidth / canvas.width;
+
+    const pageCanvas = document.createElement("canvas");
+    const ctx = pageCanvas.getContext("2d");
+
+    let renderedHeight = 0;
+    while (renderedHeight < canvas.height) {
+      const sliceHeight = Math.min(pageHeight / ratio, canvas.height - renderedHeight);
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceHeight;
+      ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+      ctx.drawImage(
+        canvas,
+        0, renderedHeight, canvas.width, sliceHeight,
+        0, 0, canvas.width, sliceHeight
+      );
+      const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+      if (renderedHeight > 0) pdf.addPage();
+      pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
+      renderedHeight += sliceHeight;
+    }
+    return pdf.output("blob");
+  }
+
+  async function previewContractAsPdf() {
+    if (!current?.id) return message.warning("Chưa chọn đơn.");
+    const rawDetail = contractDetail || (contracts[0] ? { ...contracts[0] } : null);
+    if (!rawDetail) return message.warning("Đơn này chưa có dữ liệu hợp đồng.");
+
     try {
-      setSigning(true);
-      const payload = {
-        digitalSignature: digitalSignature,
-        pinCode: values.pinCode,
-        signatureMethod: "EMAIL_OTP",
-        deviceInfo: "string", // Use "string" like the working example
-        ipAddress: "string" // Use "string" like the working example
-      };
-      
-      console.log('Sending sign contract payload:', payload);
-      console.log('Contract ID:', currentContractId);
-      console.log('Contract ID type:', typeof currentContractId);
-      console.log('Customer name (for display only):', customerProfile?.fullName);
-      
-      // Ensure contract ID is a number
-      const contractIdNum = Number(currentContractId);
-      console.log('Contract ID as number:', contractIdNum);
-      
-      // Payload với format chính xác mà backend yêu cầu
-      const testPayload = {
-        contractId: contractIdNum,
-        digitalSignature: "string", // Backend chỉ chấp nhận giá trị literal này
-        pinCode: values.pinCode,
-        signatureMethod: "EMAIL_OTP",
-        deviceInfo: "string",
-        ipAddress: "string"
-      };
-      
-      console.log('Test payload (exact working format):', testPayload);
-      
-      const result = await signContract(contractIdNum, testPayload);
-      console.log('Sign contract result:', result);
-      
-      // Lưu contractId trước khi reset để refresh
-      const signedContractId = contractIdNum;
-      const currentOrderId = current?.id;
-      
-      // Close modal first
-      setSignModalOpen(false);
-      setCurrentContractId(null);
-      setPinSent(false);
-      
-      // Show success message
-      message.success("Bạn đã ký hợp đồng thành công!");
-      
-      // Refresh contracts và order contracts để cập nhật trạng thái
-      // Load all contracts first to get fresh data
-      const freshContracts = await getMyContracts();
-      const normalizedContracts = Array.isArray(freshContracts) 
-        ? freshContracts.map(normalizeContract) 
-        : [];
-      
-      // Update all contracts state
-      setAllContracts(normalizedContracts);
-      
-      // Refresh order contracts nếu có order đang mở (sử dụng contracts mới)
-      if (currentOrderId) {
-        await loadOrderContracts(currentOrderId, normalizedContracts);
+      setPdfGenerating(true);
+      revokeBlob(pdfBlobUrl);
+
+      const detail = augmentContractContent(rawDetail);
+
+      let customer = contractCustomer || customerProfile;
+      let kyc = null;
+
+      try {
+        if (!customer) {
+          const customerData = await fetchMyCustomerProfile();
+          customer = normalizeCustomer(customerData || {});
+        }
+      } catch (e) {
+        console.error("Failed to fetch customer profile:", e);
       }
-      
-      // Refresh contract detail nếu đang mở
-      if (contractDetailOpen) {
-        await viewContractDetail(signedContractId);
+
+      try {
+        const kycData = await getMyKyc();
+        kyc = kycData || null;
+      } catch (e) {
+        console.error("Failed to fetch KYC data:", e);
+      }
+
+      if (printRef.current) {
+        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
+        const blob = await elementToPdfBlob(printRef.current);
+        const url = URL.createObjectURL(blob);
+        setPdfBlobUrl(url);
+        setPdfModalOpen(true);
       }
     } catch (e) {
-      console.error('Sign contract error:', e);
-      console.error('Error response:', e?.response?.data);
-      console.error('Error status:', e?.response?.status);
-      
-      // Close modal even on error
-      setSignModalOpen(false);
-      setCurrentContractId(null);
-      setPinSent(false);
-      
-      message.error(e?.response?.data?.message || e?.message || "Không ký được hợp đồng.");
+      console.error(e);
+      message.error("Không tạo được bản xem trước PDF.");
     } finally {
-      setSigning(false);
+      setPdfGenerating(false);
     }
-  };
+  }
 
-  const downloadContract = async (url, filename = "contract.pdf") => {
-    if (!url) return message.warning("Không có đường dẫn hợp đồng.");
+  async function downloadContractAsPdf() {
+    if (!current?.id) return message.warning("Chưa chọn đơn.");
+    const rawDetail = contractDetail || (contracts[0] ? { ...contracts[0] } : null);
+    if (!rawDetail) return message.warning("Đơn này chưa có dữ liệu hợp đồng.");
+
     try {
-      const res = await fetch(url, { mode: "cors" });
-      if (!res.ok) throw new Error("Fetch failed");
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(blobUrl);
-    } catch {
-      const a = document.createElement("a");
-      a.href = url;
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      setPdfGenerating(true);
+      revokeBlob(pdfBlobUrl);
+
+      const detail = augmentContractContent(rawDetail);
+
+      let customer = contractCustomer || customerProfile;
+      let kyc = null;
+
+      try {
+        if (!customer) {
+          const customerData = await fetchMyCustomerProfile();
+          customer = normalizeCustomer(customerData || {});
+        }
+      } catch (e) {
+        console.error("Failed to fetch customer profile:", e);
+      }
+
+      try {
+        const kycData = await getMyKyc();
+        kyc = kycData || null;
+      } catch (e) {
+        console.error("Failed to fetch KYC data:", e);
+      }
+
+      if (printRef.current) {
+        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
+        const blob = await elementToPdfBlob(printRef.current);
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        const name = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    } catch (e) {
+      console.error(e);
+      message.error("Không thể tạo/tải PDF.");
+    } finally {
+      setPdfGenerating(false);
     }
+  }
+
+  // Polling fallback: detect orders entering 'processing'
+  const seenProcessingRef = useRef(new Set());
+  const startPollingProcessing = () => {
+    const run = async () => {
+      try {
+        const res = await listRentalOrders();
+        const processing = (Array.isArray(res) ? res : []).filter((o) =>
+          String(o?.orderStatus || o?.status || "").toLowerCase() === "processing"
+        );
+        for (const o of processing) {
+          const id = o.orderId ?? o.id;
+          if (id == null) continue;
+          if (!seenProcessingRef.current.has(id)) {
+            seenProcessingRef.current.add(id);
+            message.success(`Đơn ${id} đã được xử lý. Vui lòng ký hợp đồng và thanh toán.`);
+            try { await loadOrders(); } catch {}
+            try { await loadAllContracts(); } catch {}
+          }
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[Polling] Load orders failed:", e?.message || e);
+      }
+    };
+    run();
+    pollingRef.current = setInterval(run, 20000);
   };
 
-  // (giữ nguyên previewContractPDF & generateContractPDF — rút gọn ở đây để tập trung phần thanh toán)
-  // const previewContractPDF = async () => {};
-  // const generateContractPDF = async () => {};
+  function printPdfUrl(url) {
+    if (!url) return message.warning("Không có tài liệu để in.");
+    const w = window.open(url, "_blank", "noopener");
+    if (w) {
+      const listener = () => {
+        try { w.focus(); w.print(); } catch (err) { console.error("Print window error:", err); }
+      };
+      setTimeout(listener, 800);
+    }
+  }
 
+  /* =========================
+   * 7) COLUMNS
+   * ========================= */
   const columns = [
     {
       title: "Mã đơn",
       dataIndex: "displayId",
       key: "displayId",
       width: 100,
+      fixed: "left",
       render: (v) => <Text strong>{v}</Text>,
       sorter: (a, b) => String(a.displayId).localeCompare(String(b.displayId)),
     },
@@ -627,10 +1321,11 @@ export default function MyOrders() {
         const extra = (r.items?.length ?? 0) > 1 ? ` +${r.items.length - 1} mục` : "";
         return (
           <Space size="middle">
-            <Avatar shape="square" size={64} src={first.image} style={{ borderRadius: 8 }} />
-            <div>
-              <Text strong style={{ fontSize: 16 }}>{first.name || "—"}</Text>
-              <br />
+            <Avatar shape="square" size={48} src={first.image} style={{ borderRadius: 8 }} />
+            <div style={{ maxWidth: 180 }}>
+              <Text strong style={{ display: "block" }} ellipsis={{ tooltip: first.name }}>
+                {first.name || "—"}
+              </Text>
               <Text type="secondary">SL: {first.qty ?? 1}{extra}</Text>
             </div>
           </Space>
@@ -641,20 +1336,12 @@ export default function MyOrders() {
       title: "Ngày tạo",
       dataIndex: "createdAt",
       key: "createdAt",
-      width: 140,
+      width: 150,
       render: (v) => formatDateTime(v),
       sorter: (a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0),
       defaultSortOrder: "descend",
     },
-    {
-      title: "Số ngày",
-      dataIndex: "days",
-      key: "days",
-      align: "center",
-      width: 80,
-      sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0),
-    },
-    // Tổng tiền thuê (từ BE: totalPrice)
+    { title: "Số ngày", dataIndex: "days", key: "days", align: "center", width: 90, sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0) },
     {
       title: "Tổng tiền thuê",
       key: "rentalTotal",
@@ -663,7 +1350,6 @@ export default function MyOrders() {
       render: (_, r) => <Text strong>{formatVND(Number(r.total || 0))}</Text>,
       sorter: (a, b) => Number(a.total || 0) - Number(b.total || 0),
     },
-    // Tổng tiền cọc (tính từ items)
     {
       title: "Tổng tiền cọc",
       key: "depositTotal",
@@ -671,8 +1357,7 @@ export default function MyOrders() {
       width: 140,
       render: (_, r) => {
         const depositTotal = (r.items || []).reduce(
-          (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1),
-          0
+          (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0
         );
         return <Text>{formatVND(depositTotal)}</Text>;
       },
@@ -682,33 +1367,26 @@ export default function MyOrders() {
         return aDep - bDep;
       },
     },
-    // Tổng thanh toán = Tổng tiền thuê (BE) + Tổng tiền cọc (tính)
     {
       title: "Tổng thanh toán",
       key: "grandTotal",
       align: "right",
       width: 160,
       render: (_, r) => {
-        const depositTotal = (r.items || []).reduce(
-          (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1),
-          0
-        );
-        const rentalTotal = Number(r.total || 0);
-        return <Text strong>{formatVND(rentalTotal + depositTotal)}</Text>;
+        const dep = (r.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+        return <Text strong>{formatVND(Number(r.total || 0) + dep)}</Text>;
       },
       sorter: (a, b) => {
         const depA = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
         const depB = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        const grandA = Number(a.total || 0) + depA;
-        const grandB = Number(b.total || 0) + depB;
-        return grandA - grandB;
+        return (Number(a.total || 0) + depA) - (Number(b.total || 0) + depB);
       },
     },
     {
       title: "Trạng thái",
       dataIndex: "orderStatus",
       key: "orderStatus",
-      width: 120,
+      width: 140,
       render: (s) => {
         const key = String(s || "").toLowerCase();
         const m = ORDER_STATUS_MAP[key] || { label: s || "—", color: "default" };
@@ -720,71 +1398,92 @@ export default function MyOrders() {
     {
       title: "",
       key: "actions",
-      width: 180,
-      render: (_, r) => {
-        // 🔽🔽🔽 Chỉ cho phép thanh toán khi: trạng thái đơn là "processing", đã ký hợp đồng 🔽🔽🔽
-        const canPay =
-          ["unpaid", "partial"].includes(String(r.paymentStatus).toLowerCase()) &&
-          String(r.orderStatus).toLowerCase() === "processing" &&
-          hasSignedContract(r.id);
-
-        const items = r.items || [];
-        const days = Number(r.days || 1);
-        const rentalTotal = items.reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0) * days;
-        const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        const totalAmount = rentalTotal + depositTotal;
-
-        return (
-          <Space size="small">
+      width: 120,
+      fixed: "right",
+      render: (_, r) => (
         <Tooltip title="Chi tiết đơn">
           <Button type="text" icon={<EyeOutlined />} onClick={() => showDetail(r)} />
         </Tooltip>
-            {canPay && totalAmount > 0 && (
-              <Tooltip title="Thanh toán">
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<DollarOutlined />}
-                  onClick={() => handlePayment(r)}
-                  loading={processingPayment}
-                >
-                  Thanh toán
-                </Button>
-              </Tooltip>
-            )}
-          </Space>
-        );
-      },
+      ),
     },
   ];
 
+  /* =========================
+   * 8) RENDER
+   * ========================= */
   return (
     <>
       <div
         style={{
-          height: "calc(100vh - var(--stacked-header,128px))",
+          minHeight: "calc(100vh - var(--stacked-header,128px))",
           marginTop: "-24px",
           marginBottom: "-24px",
           background: "#f0f2f5",
+          padding: "24px",
         }}
       >
-        <div className="h-full flex flex-col max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="py-6 border-b border-gray-200">
-            <Title level={3} style={{ margin: 0, fontFamily: "'Inter', sans-serif" }}>Đơn thuê của tôi</Title>
-            <Text type="secondary">Theo dõi trạng thái đơn, thanh toán và tải hợp đồng.</Text>
-          </div>
+        <div className="h-full flex flex-col max-w-7xl mx-auto">
+          {/* Header Section */}
+          <Card
+            style={{
+              marginBottom: 24,
+              borderRadius: 16,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
+              border: "none",
+              background: "#ffffff",
+            }}
+            bodyStyle={{ padding: "24px 32px" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+              <div>
+                <Title level={2} style={{ margin: 0, color: "#1a1a1a", fontWeight: 700, fontSize: 28 }}>
+                  Đơn thuê của tôi
+                </Title>
+                <Text type="secondary" style={{ fontSize: 15, marginTop: 8, display: "block", color: "#666" }}>
+                  Theo dõi trạng thái đơn, thanh toán và tải hợp đồng
+                </Text>
+              </div>
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                onClick={refresh}
+                loading={loading}
+                size="large"
+                style={{
+                  borderRadius: 12,
+                  height: 44,
+                  padding: "0 24px",
+                  fontWeight: 600,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                }}
+              >
+                Tải lại
+              </Button>
+            </div>
 
-          <div className="flex items-center justify-between py-4">
-            <Space wrap size="middle">
+            {/* Filters Section */}
+            <Space wrap size="middle" style={{ width: "100%" }}>
               <Input
                 allowClear
                 prefix={<SearchOutlined />}
                 placeholder="Tìm theo mã đơn, tên thiết bị…"
-                style={{ width: 320, borderRadius: 999, padding: "8px 16px" }}
+                size="large"
+                style={{
+                  width: 360,
+                  borderRadius: 12,
+                  height: 44,
+                }}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
-              <RangePicker onChange={setDateRange} style={{ borderRadius: 8 }} />
+              <RangePicker
+                onChange={setDateRange}
+                size="large"
+                style={{
+                  borderRadius: 12,
+                  height: 44,
+                }}
+              />
               <Dropdown
                 trigger={["click"]}
                 overlay={
@@ -797,45 +1496,113 @@ export default function MyOrders() {
                   />
                 }
               >
-                <Button shape="round" icon={<FilterOutlined />} style={{ borderRadius: 999 }}>
+                <Button
+                  size="large"
+                  icon={<FilterOutlined />}
+                  style={{
+                    borderRadius: 12,
+                    height: 44,
+                    padding: "0 20px",
+                    borderColor: "#d9d9d9",
+                  }}
+                >
                   {statusFilter ? `Lọc: ${ORDER_STATUS_MAP[statusFilter].label}` : "Lọc trạng thái"}
                 </Button>
               </Dropdown>
-              <Button shape="round" icon={<ReloadOutlined />} onClick={refresh} loading={loading} style={{ borderRadius: 999 }}>
-                Tải lại
-              </Button>
             </Space>
-          </div>
+          </Card>
 
-          <div className="flex-1 min-h-0 overflow-auto pb-3">
+          {/* Table Section */}
+          <Card
+            style={{
+              borderRadius: 16,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
+              border: "none",
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+            }}
+            bodyStyle={{ padding: "24px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
+          >
             {data.length === 0 ? (
-              <AnimatedEmpty description="Chưa có đơn nào" />
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+                <AnimatedEmpty description="Chưa có đơn nào" />
+              </div>
             ) : (
-              <Table
-                rowKey="id"
-                columns={columns}
-                dataSource={data}
-                loading={loading || loadingOrders}
-                size="middle"
-                bordered={false}
-                className="modern-table"
-                sticky
-                pagination={{ pageSize: 8, showSizeChanger: true, position: ["bottomRight"] }}
-              />
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <Table
+                  rowKey="id"
+                  columns={columns}
+                  dataSource={data}
+                  loading={loading || loadingOrders}
+                  size="middle"
+                  bordered={false}
+                  className="modern-table"
+                  sticky
+                  scroll={{ x: 980, y: tableScrollY }}
+                  pagination={{
+                    pageSize: 10,
+                    showSizeChanger: true,
+                    position: ["bottomRight"],
+                    showTotal: (total) => `Tổng ${total} đơn`,
+                    style: { marginTop: 16 },
+                  }}
+                />
+              </div>
             )}
-          </div>
+          </Card>
         </div>
       </div>
 
+      {/* Drawer chi tiết đơn */}
       <Drawer
-        title={current ? `Chi tiết đơn ${current.displayId ?? current.id}` : "Chi tiết đơn"}
-        width={800}
+        title={
+          <div>
+            <Title level={4} style={{ margin: 0, color: "#1a1a1a" }}>
+              {current ? `Chi tiết đơn ${current.displayId ?? current.id}` : "Chi tiết đơn"}
+            </Title>
+          </div>
+        }
+        width={900}
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        styles={{ body: { padding: 0, background: "#fff" } }}
+        onClose={() => {
+          setDetailOpen(false);
+          clearContractPreviewState();
+        }}
+        styles={{
+          body: { padding: 0, background: "#f5f7fa" },
+          header: { background: "#fff", borderBottom: "1px solid #e8e8e8", padding: "20px 24px" },
+        }}
       >
         {current && (
+          <div
+            style={{
+              padding: "20px 24px",
+              borderBottom: "1px solid #e8e8e8",
+              background: "#ffffff",
+            }}
+          >
+            {(() => {
+              const tracking = computeOrderTracking(current, contracts);
+              return (
+                <Steps
+                  current={tracking.current}
+                  size="small"
+                  responsive
+                  style={{ background: "transparent" }}
+                >
+                  {tracking.steps.map((s, idx) => (
+                    <Steps.Step key={idx} title={s.title} description={s.description} />
+                  ))}
+                </Steps>
+              );
+            })()}
+          </div>
+        )}
+        {current && (
           <Tabs
+            key={current.id}
             defaultActiveKey="overview"
             items={[
               {
@@ -850,7 +1617,6 @@ export default function MyOrders() {
                       const rentalTotal = rentalPerDay * days;
                       const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
 
-                      // 🔽🔽🔽 Chỉ cho phép thanh toán khi: trạng thái đơn là "processing", đã ký hợp đồng 🔽🔽🔽
                       const canPay =
                         ["unpaid", "partial"].includes(String(current.paymentStatus).toLowerCase()) &&
                         String(current.orderStatus).toLowerCase() === "processing" &&
@@ -859,52 +1625,67 @@ export default function MyOrders() {
 
                       return (
                         <>
-                    <Descriptions bordered column={2} size="middle" className="mb-4">
-                      <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
-                      <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
-                      <Descriptions.Item label="Ngày bắt đầu thuê">
-                        {current.startDate ? formatDateTime(current.startDate) : "—"}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Ngày kết thúc thuê">
-                        {current.endDate ? formatDateTime(current.endDate) : "—"}
-                      </Descriptions.Item>
-
-                      <Descriptions.Item label="Trạng thái đơn">
-                        <Tag color={(ORDER_STATUS_MAP[current.orderStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
-                          {(ORDER_STATUS_MAP[current.orderStatus] || {}).label ?? current.orderStatus ?? "—"}
-                        </Tag>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Thanh toán">
-                        {(() => {
-                          // Nếu order status là "delivery_confirmed" thì hiển thị payment status là "paid"
-                          const displayPaymentStatus = String(current.orderStatus).toLowerCase() === "delivery_confirmed" 
-                            ? "paid" 
-                            : current.paymentStatus;
-                          const paymentInfo = PAYMENT_STATUS_MAP[displayPaymentStatus] || {};
-                          return (
-                            <Tag color={paymentInfo.color} style={{ borderRadius: 20, padding: "0 12px" }}>
-                              {paymentInfo.label ?? displayPaymentStatus ?? "—"}
-                            </Tag>
-                          );
-                        })()}
-                      </Descriptions.Item>
-
-                      <Descriptions.Item label="Tổng tiền thuê (ước tính)">
+                          <Card
+                            style={{
+                              marginBottom: 24,
+                              borderRadius: 12,
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                              border: "1px solid #e8e8e8",
+                            }}
+                          >
+                            <Descriptions bordered column={2} size="middle">
+                            <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
+                            <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
+                            <Descriptions.Item label="Ngày bắt đầu thuê">
+                              {current.startDate ? formatDate(current.startDate) : "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Ngày kết thúc thuê">
+                              {current.endDate ? formatDate(current.endDate) : "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Trạng thái đơn">
+                              <Tag color={(ORDER_STATUS_MAP[current.orderStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
+                                {(ORDER_STATUS_MAP[current.orderStatus] || {}).label ?? current.orderStatus ?? "—"}
+                              </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Thanh toán">
+                              {(() => {
+                                const displayPaymentStatus = String(current.orderStatus).toLowerCase() === "delivery_confirmed" ? "paid" : current.paymentStatus;
+                                const paymentInfo = PAYMENT_STATUS_MAP[displayPaymentStatus] || {};
+                                return (
+                                  <Tag color={paymentInfo.color} style={{ borderRadius: 20, padding: "0 12px" }}>
+                                    {paymentInfo.label ?? displayPaymentStatus ?? "—"}
+                                  </Tag>
+                                );
+                              })()}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Tổng tiền thuê (ước tính)">
                               <Space direction="vertical" size={0}>
                                 <Text strong>{formatVND(Number(current?.total ?? rentalTotal))}</Text>
                               </Space>
                             </Descriptions.Item>
-
                             <Descriptions.Item label="Tổng tiền cọc (ước tính)">
                               <Space direction="vertical" size={0}>
                                 <Text strong>{formatVND(depositTotal)}</Text>
                               </Space>
-                        </Descriptions.Item>
-                    </Descriptions>
+                            </Descriptions.Item>
+                          </Descriptions>
+                          </Card>
 
-                          <Divider />
-                          <Title level={5} style={{ marginBottom: 8 }}>Sản phẩm trong đơn</Title>
-                          <Table
+                          {/* Products Section */}
+                          <Card
+                            style={{
+                              marginBottom: 24,
+                              borderRadius: 12,
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                              border: "1px solid #e8e8e8",
+                            }}
+                            title={
+                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                                Sản phẩm trong đơn
+                              </Title>
+                            }
+                          >
+                            <Table
                             rowKey={(r, idx) => `${r.deviceModelId || r.name}-${idx}`}
                             dataSource={items}
                             pagination={false}
@@ -921,47 +1702,73 @@ export default function MyOrders() {
                                     <div style={{ minWidth: 0 }}>
                                       <Text strong style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v}</Text>
                                     </div>
-                  </div>
-                ),
-              },
+                                  </div>
+                                ),
+                              },
                               { title: "SL", dataIndex: "qty", width: 70, align: "center" },
                               { title: "Đơn giá SP/ngày", dataIndex: "pricePerDay", width: 130, align: "right", render: (v) => formatVND(v) },
                               { title: "Số ngày thuê", key: "days", width: 90, align: "center", render: () => days },
-                              { title: "Tổng tiền thuê", key: "subtotal", width: 150, align: "right", render: (_, r) => {
-                                // Theo yêu cầu: Đơn giá 1 SP × Số ngày (không nhân SL)
-                                return formatVND(Number(r.pricePerDay || 0) * Number(days || 1));
-                              } },
+                              { title: "Tổng tiền thuê", key: "subtotal", width: 150, align: "right", render: (_, r) => formatVND(Number(r.pricePerDay || 0) * Number(days || 1)) },
                               { title: "Cọc/1 SP", dataIndex: "depositAmountPerUnit", width: 130, align: "right", render: (v) => formatVND(v) },
                               { title: "Tổng cọc", key: "depositSubtotal", width: 130, align: "right", render: (_, r) => formatVND(Number(r.depositAmountPerUnit || 0) * Number(r.qty || 1)) },
                             ]}
-                          />
+                            />
+                          </Card>
 
-                          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-                            <Space direction="vertical" align="end">
-                              {/* Removed Tiền/ngày per request */}
-                              <Text>Tổng tiền thuê ({days} ngày): <Text strong>{formatVND(Number(current?.total ?? rentalTotal))}</Text></Text>
-                              <Text>Tổng tiền cọc: <Text strong>{formatVND(depositTotal)}</Text></Text>
-                              <Divider style={{ margin: "8px 0" }} />
-                              <Text style={{ fontSize: 16 }}>
-                                Tổng thanh toán: <Text strong style={{ color: "#1890ff", fontSize: 18 }}>
-                                  {formatVND(totalAmount)}
-                                </Text>
-                              </Text>
+                          {/* Payment Summary */}
+                          <Card
+                            style={{
+                              borderRadius: 12,
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                              border: "1px solid #e8e8e8",
+                              background: canPay ? "#fafafa" : "#fff",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                              <Space direction="vertical" align="end" size="middle" style={{ width: "100%" }}>
+                                <div style={{ width: "100%", maxWidth: 400 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                                    <Text>Tổng tiền thuê ({days} ngày):</Text>
+                                    <Text strong style={{ fontSize: 15 }}>{formatVND(Number(current?.total ?? rentalTotal))}</Text>
+                                  </div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                                    <Text>Tổng tiền cọc:</Text>
+                                    <Text strong style={{ fontSize: 15 }}>{formatVND(depositTotal)}</Text>
+                                  </div>
+                                  <Divider style={{ margin: "12px 0" }} />
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <Text style={{ fontSize: 16, fontWeight: 600 }}>Tổng thanh toán:</Text>
+                                    <Text strong style={{ color: "#1a1a1a", fontSize: 20, fontWeight: 700 }}>
+                                      {formatVND(totalAmount)}
+                                    </Text>
+                                  </div>
+                                </div>
 
-                              {canPay && totalAmount > 0 ? (
-                                <Button
-                                  type="primary"
-                                  size="large"
-                                  icon={<DollarOutlined />}
-                                  onClick={() => handlePayment(current)}
-                                  loading={processingPayment}
-                                  style={{ marginTop: 8 }}
-                                >
-                                  Thanh toán ngay
-                                </Button>
-                              ) : null}
-                            </Space>
-                          </div>
+                                {canPay && totalAmount > 0 ? (
+                                  <Button
+                                    type="primary"
+                                    size="large"
+                                    icon={<DollarOutlined />}
+                                    onClick={() => handlePayment(current)}
+                                    loading={processingPayment}
+                                    block
+                                    style={{
+                                      marginTop: 8,
+                                      height: 48,
+                                      borderRadius: 12,
+                                      fontWeight: 600,
+                                      fontSize: 16,
+                                      background: "#1a1a1a",
+                                      borderColor: "#1a1a1a",
+                                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                                    }}
+                                  >
+                                    Thanh toán ngay
+                                  </Button>
+                                ) : null}
+                              </Space>
+                            </div>
+                          </Card>
                         </>
                       );
                     })()}
@@ -973,98 +1780,149 @@ export default function MyOrders() {
                 label: "Hợp đồng",
                 children: (
                   <div style={{ padding: 24 }}>
-                    <Title level={4} style={{ marginBottom: 16 }}>Hợp đồng đã tạo</Title>
-
-                    {contractsLoading ? (
-                      <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                        <Text type="secondary">Đang tải danh sách hợp đồng...</Text>
-                      </div>
-                    ) : contracts.length > 0 ? (
-                      <div>
+                    <Card
+                      style={{
+                        marginBottom: 24,
+                        borderRadius: 12,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                        border: "1px solid #e8e8e8",
+                      }}
+                      title={
+                        <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                          Hợp đồng đã tạo
+                        </Title>
+                      }
+                    >
+                      {contractsLoading ? (
+                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                          <Text type="secondary">Đang tải danh sách hợp đồng...</Text>
+                        </div>
+                      ) : contracts.length > 0 ? (
                         <Table
                           rowKey="id"
                           columns={[
                             { title: "Mã hợp đồng", dataIndex: "id", width: 100, render: (v) => <Text strong>#{v}</Text> },
                             { title: "Số hợp đồng", dataIndex: "number", width: 120, render: (v) => v || "—" },
                             {
-                              title: "Trạng thái", dataIndex: "status", width: 120,
+                              title: "Trạng thái", dataIndex: "status", width: 140,
                               render: (status) => {
-                                switch (String(status).toUpperCase()) {
-                                  case "DRAFT": return <Tag color="default">Nháp</Tag>;
-                                  case "PENDING_SIGNATURE": return <Tag color="gold">Chờ ký</Tag>;
-                                  case "SIGNED": return <Tag color="green">Đã ký</Tag>;
-                                  case "EXPIRED": return <Tag color="red">Hết hạn</Tag>;
-                                  case "CANCELLED": return <Tag color="red">Đã hủy</Tag>;
-                                  default: return <Tag>{status}</Tag>;
-                                }
+                                const key = String(status || "").toLowerCase();
+                                const info = CONTRACT_STATUS_MAP[key];
+                                return info ? <Tag color={info.color}>{info.label}</Tag> : <Tag>{status}</Tag>;
                               },
                             },
-                            { title: "Ngày tạo", dataIndex: "createdAt", width: 120, render: (v) => formatDateTime(v) },
+                            { title: "Ngày tạo", dataIndex: "createdAt", width: 150, render: (v) => formatDateTime(v) },
                             { title: "Tổng tiền", dataIndex: "totalAmount", width: 120, align: "right", render: (v) => formatVND(v) },
                             {
                               title: "Thao tác",
                               key: "actions",
-                              width: 200,
+                              width: 260,
                               render: (_, record) => (
                                 <Space size="small">
-                                  <Button size="small" icon={<EyeOutlined />} onClick={() => viewContractDetail(record.id)} loading={loadingContractDetail}>Xem</Button>
-                                  <Button size="small" icon={<FilePdfOutlined />} onClick={() => message.info("Tải PDF tuỳ chỉnh")}>Tải PDF</Button>
-                                  {record.status === "PENDING_SIGNATURE" && (
-                                    <Button size="small" type="primary" onClick={() => handleSignContract(record.id)}>Ký</Button>
+                                  <Button
+                                    size="small"
+                                    icon={<FilePdfOutlined />}
+                                    onClick={() => handleDownloadContract(record)}
+                                    loading={pdfGenerating}
+                                  >
+                                    Tải PDF
+                                  </Button>
+                            
+                                  {String(record.status || "").toUpperCase() === "PENDING_SIGNATURE" && (
+                                    <Button size="small" type="primary" onClick={() => handleSignContract(record.id)}>
+                                      Ký
+                                    </Button>
                                   )}
                                 </Space>
                               ),
-                            },
+                            }
                           ]}
                           dataSource={contracts}
                           pagination={false}
                           size="small"
-                          style={{ marginBottom: 16 }}
                         />
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                        <Text type="secondary">Chưa có hợp đồng nào được tạo cho đơn này</Text>
-                      </div>
-                    )}
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                          <Text type="secondary">Chưa có hợp đồng nào được tạo cho đơn này</Text>
+                        </div>
+                      )}
+                    </Card>
 
-                    <Divider />
-
-                    <Title level={4} style={{ marginBottom: 16 }}>Hợp đồng PDF (nếu có)</Title>
-                    <Space style={{ marginBottom: 12 }}>
+                    <Card
+                      style={{
+                        borderRadius: 12,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                        border: "1px solid #e8e8e8",
+                      }}
+                      title={
+                        <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                          Hợp đồng PDF
+                        </Title>
+                      }
+                    >
+                      <Space style={{ marginBottom: 16 }} wrap>
                       <Button icon={<ExpandOutlined />} onClick={() => {
                         const url = current.contractUrl || pdfPreviewUrl;
                         return url ? window.open(url, "_blank", "noopener") : message.warning("Không có URL hợp đồng");
                       }}>
                         Xem toàn màn hình
                       </Button>
-                      <Button type="primary" icon={<DownloadOutlined />} onClick={() => {
-                        if (current.contractUrl) {
-                          return downloadContract(current.contractUrl, current.contractFileName || `${current.displayId || current.id}.pdf`);
-                        }
-                        message.warning("Không có hợp đồng để tải");
-                      }}>
-                        Tải hợp đồng
-                      </Button>
-                    </Space>
 
-                    <div
-                      style={{
-                        height: 400,
-                        border: "1px solid #f0f0f0",
-                        borderRadius: 8,
-                        overflow: "hidden",
-                        background: "#fafafa",
-                      }}
-                    >
+                      {(() => {
+                        const href = current.contractUrl || pdfPreviewUrl;
+                        if (href) {
+                          return (
+                            <>
+                              <Button type="primary" icon={<DownloadOutlined />} href={href} target="_blank" rel="noopener">
+                                Tải hợp đồng
+                              </Button>
+                              <Button icon={<PrinterOutlined />} onClick={() => printPdfUrl(href)}>
+                                In hợp đồng (PDF)
+                              </Button>
+                            </>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {/* HTML → PDF nếu không có contractUrl từ BE */}
+                      {!(current.contractUrl || pdfPreviewUrl) && (
+                        <>
+                          <Button onClick={previewContractAsPdf} loading={pdfGenerating}>
+                            Xem trước hợp đồng PDF 
+                          </Button>
+                          <Button type="primary" onClick={downloadContractAsPdf} loading={pdfGenerating}>
+                            Tạo & tải hợp đồng PDF 
+                          </Button>
+                        </>
+                      )}
+                      </Space>
+
+                      <div
+                        style={{
+                          height: 500,
+                          border: "1px solid #e8e8e8",
+                          borderRadius: 12,
+                          overflow: "hidden",
+                          background: "#fafafa",
+                          marginTop: 16,
+                          boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
+                        }}
+                      >
                       {current.contractUrl || pdfPreviewUrl ? (
-                        <iframe title="ContractPreview" src={current.contractUrl || pdfPreviewUrl} style={{ width: "100%", height: "100%", border: "none" }} />
+                        <iframe
+                          key={current.contractUrl || pdfPreviewUrl}
+                          title="ContractPreview"
+                          src={current.contractUrl || pdfPreviewUrl}
+                          style={{ width: "100%", height: "100%", border: "none" }}
+                        />
                       ) : (
                         <div className="h-full flex items-center justify-center">
                           <Text type="secondary"><FilePdfOutlined /> Không có URL hợp đồng để hiển thị.</Text>
                         </div>
                       )}
-                    </div>
+                      </div>
+                    </Card>
                   </div>
                 ),
               },
@@ -1073,26 +1931,27 @@ export default function MyOrders() {
         )}
       </Drawer>
 
-      {/* Contract Detail Modal */}
+      {/* Modal chi tiết hợp đồng */}
       <Modal
         title="Chi tiết hợp đồng"
         open={contractDetailOpen}
-        onCancel={() => {
-          setContractDetailOpen(false);
-          setContractCustomer(null);
-        }}
+        onCancel={() => setContractDetailOpen(false)}
         footer={[
-          <Button key="close" onClick={() => {
-            setContractDetailOpen(false);
-            setContractCustomer(null);
-          }}>
-            Đóng
-          </Button>,
-          contractDetail && (
-            <Button key="download-pdf" icon={<FilePdfOutlined />} onClick={() => message.info("Tải PDF tuỳ chỉnh")}>
-              Tải PDF
-            </Button>
-          ),
+          <Button key="close" onClick={() => setContractDetailOpen(false)}>Đóng</Button>,
+          contractDetail && (() => {
+            const href = contractDetail.contractUrl || pdfPreviewUrl;
+            if (!href) return null;
+            return (
+              <>
+                <Button key="print" icon={<PrinterOutlined />} onClick={() => printPdfUrl(href)}>
+                  In
+                </Button>
+                <Button key="download-pdf" icon={<FilePdfOutlined />} href={href} target="_blank" rel="noopener">
+                  Tải PDF
+                </Button>
+              </>
+            );
+          })(),
           contractDetail && String(contractDetail.status).toUpperCase() === "PENDING_SIGNATURE" && (
             <Button key="sign" type="primary" onClick={() => handleSignContract(contractDetail.id)}>
               Ký hợp đồng
@@ -1102,12 +1961,16 @@ export default function MyOrders() {
         width={900}
         style={{ top: 20 }}
       >
-        {contractDetail && (
+        {loadingContractDetail ? (
+          <div style={{ textAlign: "center", padding: 32 }}>
+            <Text type="secondary">Đang tải…</Text>
+          </div>
+        ) : contractDetail ? (
           <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
             <Card
               title={
                 <div style={{ textAlign: 'center' }}>
-                  <Title level={2} style={{ margin: 0, color: '#1890ff' }}>
+                  <Title level={2} style={{ margin: 0, color: '#1a1a1a' }}>
                     {contractDetail.title}
                   </Title>
                   <Text type="secondary">Số hợp đồng: {contractDetail.number}</Text>
@@ -1118,33 +1981,45 @@ export default function MyOrders() {
               <Row gutter={[16, 16]}>
                 <Col span={12}>
                   <Card size="small" title="Thông tin cơ bản">
-                    <Descriptions size="small" column={1}>
-                      <Descriptions.Item label="Mã hợp đồng">#{contractDetail.id}</Descriptions.Item>
-                      <Descriptions.Item label="Đơn thuê">#{contractDetail.orderId}</Descriptions.Item>
-                      <Descriptions.Item label="Khách hàng">
-                        {contractCustomer ? (
-                          <div>
-                            <div><strong>{contractCustomer.fullName || contractCustomer.name || "—"}</strong></div>
-                            {contractCustomer.email && (<div style={{ color: "#666", fontSize: "12px" }}>{contractCustomer.email}</div>)}
-                            {contractCustomer.phoneNumber && (<div style={{ color: "#666", fontSize: "12px" }}>{contractCustomer.phoneNumber}</div>)}
-                            <div style={{ color: "#999", fontSize: "11px" }}>(Mã: #{contractDetail.customerId})</div>
-                          </div>
-                        ) : <>#{contractDetail.customerId}</>}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Loại hợp đồng">
-                        <Tag color="blue">{contractDetail.type}</Tag>
-                      </Descriptions.Item>
-                      <Descriptions.Item label="Trạng thái">
-                        <Tag color="gold">{contractDetail.status}</Tag>
-                      </Descriptions.Item>
-                    </Descriptions>
+                    {(() => {
+                      const statusKey = String(contractDetail.status || "").toLowerCase();
+                      const statusInfo = CONTRACT_STATUS_MAP[statusKey] || { label: contractDetail.status || "—", color: "default" };
+                      const typeKey = String(contractDetail.type || "").toUpperCase();
+                      const contractType = CONTRACT_TYPE_LABELS[typeKey] || contractDetail.type || "—";
+                      const customerName = contractCustomer?.fullName || contractCustomer?.name || `Khách hàng #${contractDetail.customerId}`;
+                      const customerEmail = contractCustomer?.email;
+                      const customerPhone = contractCustomer?.phoneNumber;
+                      return (
+                        <Descriptions size="small" column={1}>
+                          <Descriptions.Item label="Mã hợp đồng">#{contractDetail.id}</Descriptions.Item>
+                          <Descriptions.Item label="Đơn thuê">#{contractDetail.orderId}</Descriptions.Item>
+                          <Descriptions.Item label="Bên khách hàng">
+                            <div>
+                              <div><strong>{customerName}</strong></div>
+                              <div style={{ color: "#999", fontSize: 11 }}>ID: #{contractDetail.customerId}</div>
+                              {customerEmail && (<div style={{ color: "#666", fontSize: 12 }}>{customerEmail}</div>)}
+                              {customerPhone && (<div style={{ color: "#666", fontSize: 12 }}>{customerPhone}</div>)}
+                            </div>
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Bên cho thuê">
+                            <strong>CÔNG TY TECHRENT</strong>
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Loại hợp đồng">
+                            <Tag color="blue">{contractType}</Tag>
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Trạng thái">
+                            <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
+                          </Descriptions.Item>
+                        </Descriptions>
+                      );
+                    })()}
                   </Card>
                 </Col>
                 <Col span={12}>
                   <Card size="small" title="Thời gian">
                     <Descriptions size="small" column={1}>
-                      <Descriptions.Item label="Ngày bắt đầu">{contractDetail.startDate ? formatDateTime(contractDetail.startDate) : "—"}</Descriptions.Item>
-                      <Descriptions.Item label="Ngày kết thúc">{contractDetail.endDate ? formatDateTime(contractDetail.endDate) : "—"}</Descriptions.Item>
+                      <Descriptions.Item label="Ngày bắt đầu">{contractDetail.startDate ? formatDate(contractDetail.startDate) : "—"}</Descriptions.Item>
+                      <Descriptions.Item label="Ngày kết thúc">{contractDetail.endDate ? formatDate(contractDetail.endDate) : "—"}</Descriptions.Item>
                       <Descriptions.Item label="Số ngày thuê">{contractDetail.rentalPeriodDays ? `${contractDetail.rentalPeriodDays} ngày` : "—"}</Descriptions.Item>
                       <Descriptions.Item label="Hết hạn">{contractDetail.expiresAt ? formatDateTime(contractDetail.expiresAt) : "—"}</Descriptions.Item>
                     </Descriptions>
@@ -1187,10 +2062,48 @@ export default function MyOrders() {
               </Card>
             </Card>
           </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Text type="secondary">Không có dữ liệu hợp đồng</Text>
+          </div>
         )}
       </Modal>
 
-      {/* Sign Contract Modal */}
+      {/* Modal xem trước PDF do FE kết xuất */}
+      <Modal
+        title="Xem trước PDF hợp đồng (HTML→PDF)"
+        open={pdfModalOpen}
+        onCancel={() => {
+          setPdfModalOpen(false);
+          if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(""); }
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setPdfModalOpen(false);
+            if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(""); }
+          }}>
+            Đóng
+          </Button>,
+          <Button key="print" icon={<PrinterOutlined />} onClick={() => printPdfUrl(pdfBlobUrl)} disabled={!pdfBlobUrl}>
+            In
+          </Button>,
+          <Button key="download" type="primary" icon={<DownloadOutlined />} onClick={downloadContractAsPdf} loading={pdfGenerating}>
+            Tải PDF
+          </Button>
+        ]}
+        width={900}
+        style={{ top: 24 }}
+      >
+        {pdfBlobUrl ? (
+          <iframe title="PDFPreview" src={pdfBlobUrl} style={{ width:"100%", height: "70vh", border:"none" }} />
+        ) : (
+          <div style={{ textAlign:"center", padding:"40px 0" }}>
+            <Text type="secondary">Đang tạo bản xem trước…</Text>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal ký hợp đồng */}
       <Modal
         title="Ký hợp đồng"
         open={signModalOpen}
@@ -1200,135 +2113,102 @@ export default function MyOrders() {
           setPinSent(false);
         }}
         footer={null}
-        width={500}
+        destroyOnClose
       >
-        <Form
-          layout="vertical"
-          onFinish={pinSent ? handleSign : sendPin}
-          initialValues={{
-            email: customerProfile?.email || '',
-          }}
-        >
+        <Form layout="vertical" onFinish={pinSent ? handleSign : sendPin}>
           {!pinSent ? (
             <>
-              <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                <Text>Email đã được tự động điền từ tài khoản của bạn</Text>
-              </div>
-              
-              <Form.Item
-                label="Email"
-                name="email"
-              >
-                <Input 
-                  value={customerProfile?.email || ''}
-                  disabled
-                  size="large"
-                  style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-                />
-              </Form.Item>
-              
-              {!customerProfile?.email && (
-                <div style={{ marginBottom: 16, padding: 12, background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591' }}>
-                  <Text type="warning">
-                    Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin trước khi ký hợp đồng.
-                  </Text>
-                </div>
-              )}
-              
-              <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                <Space>
-                  <Button onClick={() => {
+              <Text>Email nhận mã PIN: <strong>{customerProfile?.email || "Chưa cập nhật"}</strong></Text>
+              <Divider />
+              <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+                <Button
+                  onClick={() => {
                     setSignModalOpen(false);
                     setCurrentContractId(null);
                     setPinSent(false);
-                  }}>
-                    Hủy
-                  </Button>
-                  <Button 
-                    type="primary" 
-                    htmlType="submit"
-                    loading={signingContract}
-                    disabled={!customerProfile?.email}
-                  >
-                    Gửi mã PIN
-                  </Button>
-                </Space>
-              </Form.Item>
+                  }}
+                >
+                  Hủy
+                </Button>
+                <Button type="primary" htmlType="submit" loading={signingContract} disabled={!customerProfile?.email}>
+                  Gửi mã PIN
+                </Button>
+              </Space>
             </>
           ) : (
             <>
-              <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                <Text>Mã PIN đã được gửi đến email của bạn</Text>
-                <br />
-                <Text type="secondary">Vui lòng kiểm tra email và nhập mã PIN để ký hợp đồng</Text>
-              </div>
-              
               <Form.Item
                 label="Mã PIN"
                 name="pinCode"
-                rules={[
-                  { required: true, message: 'Vui lòng nhập mã PIN!' },
-                  { min: 6, message: 'Mã PIN phải có ít nhất 6 ký tự!' }
-                ]}
+                rules={[{ required: true, message: "Vui lòng nhập mã PIN" }, { min: 6, message: "Ít nhất 6 ký tự" }]}
               >
-                <Input 
-                  placeholder="Nhập mã PIN từ email"
-                  size="large"
-                  maxLength={10}
-                />
+                <Input placeholder="Nhập mã PIN" maxLength={10} />
               </Form.Item>
-              
-              <Form.Item
-                label="Chữ ký số"
-                name="digitalSignature"
-              >
-                <Input 
-                  value={customerProfile?.fullName || 'Chưa có tên'}
-                  disabled
-                  size="large"
-                  style={{ backgroundColor: '#f5f5f5', cursor: 'not-allowed' }}
-                />
-                <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-                  Tên của bạn: <Text strong>{customerProfile?.fullName || 'Chưa cập nhật'}</Text>
-                </Text>
-              </Form.Item>
-              
-              <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                <Space>
-                  <Button onClick={() => setPinSent(false)}>
-                    Quay lại
-                  </Button>
-                  <Button 
-                    type="primary" 
-                    htmlType="submit"
-                    loading={signing}
-                  >
-                    Ký hợp đồng
-                  </Button>
-                </Space>
-              </Form.Item>
+              <Space style={{ justifyContent: "space-between", width: "100%" }}>
+                <Button onClick={() => setPinSent(false)}>Quay lại</Button>
+                <Button type="primary" htmlType="submit" loading={signing}>
+                  Ký hợp đồng
+                </Button>
+              </Space>
             </>
           )}
         </Form>
       </Modal>
 
+      {/* Container ẩn để render A4 rồi chụp */}
+      <div style={{ position:"fixed", left:-9999, top:-9999, background:"#fff" }}>
+        <div ref={printRef} />
+      </div>
+
       <style>{`
         .modern-table .ant-table-thead > tr > th {
           background: #fafafa;
           font-weight: 600;
-          color: #333;
-          border-bottom: 2px solid #f0f0f0;
+          color: #1a1a1a;
+          border-bottom: 2px solid #e8e8e8;
+          padding: 16px;
+          font-size: 14px;
         }
         .modern-table .ant-table-tbody > tr > td {
           border-bottom: 1px solid #f0f0f0;
-          transition: background 0.3s;
+          transition: all 0.3s ease;
+          padding: 16px;
         }
         .modern-table .ant-table-tbody > tr:hover > td {
-          background: #f6faff !important;
+          background: #f5f5f5 !important;
+          transform: translateY(-1px);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .modern-table .ant-table-tbody > tr {
+          transition: all 0.3s ease;
+        }
+        .modern-table .ant-table-container {
+          overflow: auto hidden;
+          border-radius: 12px;
+        }
+        .modern-table .ant-table {
+          border-radius: 12px;
+          overflow: hidden;
         }
         .ant-drawer-content {
-          border-radius: 12px 0 0 12px;
+          border-radius: 0;
           overflow: hidden;
+        }
+        .ant-drawer-header {
+          border-bottom: 1px solid #e8e8e8;
+        }
+        .ant-tabs-tab {
+          font-weight: 500;
+          font-size: 15px;
+        }
+        .ant-tabs-tab-active {
+          font-weight: 600;
+        }
+        .ant-card {
+          transition: all 0.3s ease;
+        }
+        .ant-card:hover {
+          box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
         }
       `}</style>
     </>

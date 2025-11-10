@@ -47,10 +47,20 @@ export default function OperatorTasks() {
         listRentalOrders().catch(() => []),
       ]);
       const sortedTasks = (Array.isArray(tasksRes) ? tasksRes : []).slice().sort((a, b) => {
+        const statusA = String(a?.status || "").toUpperCase();
+        const statusB = String(b?.status || "").toUpperCase();
+        const isPendingA = statusA === "PENDING";
+        const isPendingB = statusB === "PENDING";
+        
+        // Ưu tiên PENDING lên đầu
+        if (isPendingA && !isPendingB) return -1;
+        if (!isPendingA && isPendingB) return 1;
+        
+        // Nếu cùng status (hoặc cả hai đều không phải PENDING), sort mới nhất lên đầu
         const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
         const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
-        if (tb !== ta) return ta - tb; // oldest first
-        return (a?.taskId || a?.id || 0) - (b?.taskId || b?.id || 0);
+        if (tb !== ta) return tb - ta; // newest first
+        return (b?.taskId || b?.id || 0) - (a?.taskId || a?.id || 0);
       });
       setData(sortedTasks);
       setCategories(catsRes.map(normalizeTaskCategory));
@@ -82,7 +92,7 @@ export default function OperatorTasks() {
     form.setFieldsValue({
       taskCategoryId: undefined,
       orderId: undefined,
-      assignedStaffId: undefined,
+      assignedStaffIds: [],
       type: "",
       description: "",
       plannedStart: dayjs(),
@@ -92,10 +102,15 @@ export default function OperatorTasks() {
   };
 
   const openEdit = (r) => {
+    // Chuẩn hoá danh sách staffId từ dữ liệu cũ (1 người) và mới (nhiều người)
+    const staffIds = Array.isArray(r.assignedStaff)
+      ? r.assignedStaff.map((s) => s.staffId)
+      : (r.assignedStaffId ? [r.assignedStaffId] : []);
+
     form.setFieldsValue({
       taskCategoryId: r.taskCategoryId,
       orderId: r.orderId,
-      assignedStaffId: r.assignedStaffId,
+      assignedStaffIds: staffIds,
       type: r.type || "",
       description: r.description || "",
       plannedStart: r.plannedStart ? dayjs(r.plannedStart) : null,
@@ -125,7 +140,7 @@ export default function OperatorTasks() {
         // Khi update: không gửi orderId vì backend không cho phép thay đổi
         const updatePayload = {
           taskCategoryId: vals.taskCategoryId,
-          assignedStaffId: vals.assignedStaffId ? Number(vals.assignedStaffId) : undefined,
+          assignedStaffIds: Array.isArray(vals.assignedStaffIds) ? vals.assignedStaffIds.map(Number) : [],
           type: vals.type?.trim() || "",
           description: vals.description?.trim() || "",
           plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
@@ -138,7 +153,7 @@ export default function OperatorTasks() {
         const createPayload = {
           taskCategoryId: vals.taskCategoryId,
           orderId: vals.orderId ? Number(vals.orderId) : undefined,
-          assignedStaffId: vals.assignedStaffId ? Number(vals.assignedStaffId) : undefined,
+          assignedStaffIds: Array.isArray(vals.assignedStaffIds) ? vals.assignedStaffIds.map(Number) : [],
           type: vals.type?.trim() || "",
           description: vals.description?.trim() || "",
           plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
@@ -179,55 +194,28 @@ export default function OperatorTasks() {
       render: (v) => <strong>#{v}</strong>,
     },
     {
-      title: "Loại công việc",
-      dataIndex: "taskCategoryName",
-      key: "taskCategoryName",
-      width: 130,
-      ellipsis: true,
-    },
-    {
-      title: "Mô tả",
-      dataIndex: "description",
-      key: "description",
-      width: 200,
-      ellipsis: { showTitle: false },
-      render: (text) => (
-        <Tooltip title={text} placement="topLeft">
-          <span>{text || "-"}</span>
-        </Tooltip>
-      ),
-    },
-    {
-      title: "Loại",
-      dataIndex: "type",
-      key: "type",
-      width: 100,
-      ellipsis: true,
-    },
-    {
-      title: "Người phụ trách",
-      key: "assignee",
-      width: 150,
-      render: (_, r) => {
-        const name = r.assignedStaffName;
-        const role = r.assignedStaffRole;
-        if (!name && !role) return "-";
-        return (
-          <div>
-            <div>{name || "-"}</div>
-            {role && <Tag color="geekblue" style={{ marginTop: 4 }}>{role}</Tag>}
-          </div>
-        );
-      },
-    },
-    {
       title: "Đơn hàng",
       key: "order",
-      width: 140,
+      width: 160,
       render: (_, r) => {
         const id = r.orderId;
         const st = id ? (orderMap[id]?.status || orderMap[id]?.orderStatus || null) : null;
         if (!id) return "-";
+        const upper = String(st || "").toUpperCase();
+        const color =
+          upper.includes("PENDING") ? "orange" :
+          upper.includes("CONFIRM") ? "blue" :
+          upper.includes("CANCEL") ? "red" :
+          (upper.includes("DONE") || upper.includes("COMPLETE")) ? "green" :
+          "default";
+        const label =
+          upper.includes("PENDING") ? "Đang chờ" :
+          upper.includes("READY_FOR_DELIVERY") ? "Sẵn sàng giao" :
+          upper.includes("DELIVERY_CONFIRMED") ? "Đã xác nhận giao" :
+          upper.includes("CONFIRM") ? "Đã xác nhận" :
+          upper.includes("CANCEL") ? "Đã hủy" :
+          (upper.includes("DONE") || upper.includes("COMPLETE")) ? "Hoàn tất" :
+          (st || "-");
         return (
           <Space direction="vertical" size="small">
             <Space>
@@ -256,21 +244,57 @@ export default function OperatorTasks() {
               </Button>
             </Space>
             {st && (
-              <Tag 
-                color={
-                  String(st).toUpperCase().includes("PENDING") ? "orange" :
-                  String(st).toUpperCase().includes("CONFIRM") ? "blue" :
-                  String(st).toUpperCase().includes("CANCEL") ? "red" :
-                  String(st).toUpperCase().includes("DONE") || String(st).toUpperCase().includes("COMPLETE") ? "green" : "default"
-                }
-                style={{ margin: 0 }}
-              >
-                {String(st).toUpperCase().includes("PENDING") ? "PENDING" :
-                 String(st).toUpperCase().includes("CONFIRM") ? "CONFIRMED" :
-                 String(st).toUpperCase().includes("CANCEL") ? "CANCELLED" :
-                 String(st).toUpperCase().includes("DONE") || String(st).toUpperCase().includes("COMPLETE") ? "COMPLETED" : st}
-              </Tag>
+              <Tag color={color} style={{ margin: 0 }}>{label}</Tag>
             )}
+          </Space>
+        );
+      },
+    },
+    {
+      title: "Loại công việc",
+      dataIndex: "taskCategoryName",
+      key: "taskCategoryName",
+      width: 150,
+      ellipsis: true,
+    },
+    {
+      title: "Mô tả",
+      dataIndex: "description",
+      key: "description",
+      width: 240,
+      ellipsis: { showTitle: false },
+      render: (text) => (
+        <Tooltip title={text} placement="topLeft">
+          <span>{text || "-"}</span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: "Người phụ trách",
+      key: "assignee",
+      width: 170,
+      render: (_, r) => {
+        const staffList = Array.isArray(r.assignedStaff) ? r.assignedStaff : [];
+        if (staffList.length === 0) {
+          // Fallback dữ liệu cũ 1 người
+          const name = r.assignedStaffName;
+          const role = r.assignedStaffRole;
+          if (!name && !role) return "-";
+          return (
+            <div>
+              <div>{name || "-"}</div>
+              {role && <Tag color="geekblue" style={{ marginTop: 4 }}>{role}</Tag>}
+            </div>
+          );
+        }
+        return (
+          <Space direction="vertical" size="small">
+            {staffList.map((staff) => (
+              <div key={staff.staffId}>
+                <div>{staff.staffName || "-"}</div>
+                {staff.staffRole && <Tag color="geekblue" style={{ marginTop: 4 }}>{staff.staffRole}</Tag>}
+              </div>
+            ))}
           </Space>
         );
       },
@@ -278,7 +302,7 @@ export default function OperatorTasks() {
     {
       title: "Thời gian",
       key: "timeRange",
-      width: 200,
+      width: 220,
       render: (_, r) => {
         const start = r.plannedStart ? dayjs(r.plannedStart).format("DD/MM/YYYY HH:mm") : "-";
         const end = r.plannedEnd ? dayjs(r.plannedEnd).format("DD/MM/YYYY HH:mm") : "-";
@@ -291,10 +315,10 @@ export default function OperatorTasks() {
       },
     },
     {
-      title: "Trạng thái",
+      title: "Trạng thái task",
       dataIndex: "status",
       key: "status",
-      width: 120,
+      width: 140,
       filters: [
         { text: "Chờ thực hiện", value: "PENDING" },
         { text: "Đang thực hiện", value: "IN_PROGRESS" },
@@ -387,10 +411,11 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item label="Nhân viên phụ trách" name="assignedStaffId">
+          <Form.Item label="Nhân viên phụ trách" name="assignedStaffIds">
             <Select
+              mode="multiple"
               allowClear
-              placeholder="Chọn nhân viên (tuỳ chọn)"
+              placeholder="Chọn một hoặc nhiều nhân viên (tuỳ chọn)"
               showSearch
               optionFilterProp="label"
               options={staffs

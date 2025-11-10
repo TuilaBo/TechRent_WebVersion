@@ -30,6 +30,9 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
+import { connectCustomerNotifications } from "../../lib/notificationsSocket";
+import { listRentalOrders } from "../../lib/rentalOrdersApi";
+import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
 
 const { Title, Text } = Typography;
 
@@ -101,6 +104,11 @@ const MOCK_NOTIFS = [
 export default function NotificationsPage() {
   const [notifs, setNotifs] = useState(MOCK_NOTIFS);
   const [filter, setFilter] = useState("all");
+  const [customer, setCustomer] = useState(null);
+  const socketRef = useRef(null);
+  const pollingRef = useRef(null);
+  const connectedRef = useRef(false);
+  const seenProcessingRef = useRef(new Set());
 
   // Flow modal dùng chung
   const [flowOpen, setFlowOpen] = useState(false);
@@ -352,6 +360,117 @@ export default function NotificationsPage() {
   // ===== Modal nội dung theo loại thông báo =====
   const isApproved = current?.type === "approved";
   const isDue = current?.type === "due";
+
+  // Kết nối WebSocket để nhận thông báo realtime cho khách
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const prof = await fetchMyCustomerProfile();
+        const norm = normalizeCustomer(prof || {});
+        if (!mounted) return;
+        setCustomer(norm);
+        if (norm?.id) {
+          socketRef.current = connectCustomerNotifications({
+            // endpoint: undefined -> auto resolve from VITE_API_BASE_URL (/api/ws) or same-origin
+            customerId: norm.id,
+            onMessage: (payload) => {
+              const now = dayjs().format("YYYY-MM-DD HH:mm");
+              const lowerTitle = String(payload?.title || "").toLowerCase();
+              const lowerMsg = String(payload?.message || "").toLowerCase();
+              const typeRaw = String(payload?.type || payload?.notificationType || "").toLowerCase();
+              const approvedLike =
+                typeRaw === "approved" ||
+                lowerTitle.includes("xử lý") || lowerMsg.includes("xử lý") ||
+                lowerTitle.includes("processing") || lowerMsg.includes("processing");
+              const dueLike = typeRaw === "due" || lowerTitle.includes("tới hạn") || lowerMsg.includes("tới hạn");
+              const item = {
+                id: payload?.notificationId || `WS-${Date.now()}`,
+                type: approvedLike ? "approved" : (dueLike ? "due" : (typeRaw === "cancelled" ? "cancelled" : "general")),
+                status: "unread",
+                createdAt: now,
+                order: { id: payload?.orderCode || payload?.orderId || "" },
+                message: payload?.message || payload?.title || "Bạn có thông báo mới.",
+              };
+              // Debug log to verify incoming payloads during integration
+              try { // non-blocking
+                // eslint-disable-next-line no-console
+                console.log("[WS] Notification payload:", payload);
+              } catch {}
+              setNotifs((arr) => [item, ...arr]);
+              // Hiển thị toast ngắn gọn
+              message.success(item.message);
+            },
+            onConnect: () => {
+              connectedRef.current = true;
+              message.info("Đã kết nối thông báo realtime.");
+              // Nếu đang polling thì dừng
+              try { clearInterval(pollingRef.current); } catch {}
+              pollingRef.current = null;
+            },
+            onError: (e) => {
+              // eslint-disable-next-line no-console
+              console.error("[WS] Notification socket error:", e);
+              // Bật polling nếu WS không có
+              if (!pollingRef.current) {
+                message.warning("Không thể kết nối realtime. Chuyển sang chế độ theo dõi định kỳ.");
+                startPolling();
+              }
+            }
+          });
+          // Nếu sau 3s chưa connect -> bật polling
+          setTimeout(() => {
+            if (!connectedRef.current && !pollingRef.current) {
+              startPolling();
+            }
+          }, 3000);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      mounted = false;
+      try { socketRef.current?.disconnect(); } catch {}
+      try { clearInterval(pollingRef.current); } catch {}
+      pollingRef.current = null;
+    };
+  }, []);
+
+  // Polling fallback: kiểm tra đơn 'processing' và tạo noti
+  const startPolling = () => {
+    const run = async () => {
+      try {
+        const orders = await listRentalOrders();
+        const processing = (Array.isArray(orders) ? orders : []).filter((o) =>
+          String(o?.orderStatus || o?.status || "").toLowerCase() === "processing"
+        );
+        const now = dayjs().format("YYYY-MM-DD HH:mm");
+        processing.forEach((o) => {
+          const id = o.orderId ?? o.id;
+          if (id == null) return;
+          if (!seenProcessingRef.current.has(id)) {
+            seenProcessingRef.current.add(id);
+            const item = {
+              id: `PL-${id}-${Date.now()}`,
+              type: "approved",
+              status: "unread",
+              createdAt: now,
+              order: { id },
+              message: `Đơn ${id} đã được xử lý. Vui lòng ký hợp đồng và thanh toán.`,
+            };
+            setNotifs((arr) => [item, ...arr]);
+            message.success(item.message);
+          }
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[Polling] Load orders failed:", e?.message || e);
+      }
+    };
+    run();
+    pollingRef.current = setInterval(run, 20000);
+  };
 
   return (
     <div className="min-h-screen bg-white">

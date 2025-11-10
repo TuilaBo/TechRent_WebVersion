@@ -28,6 +28,7 @@ export default function AppHeader() {
   const { isAuthenticated, user, logout } = useAuth();
   const [cartCount, setCartCount] = useState(0);
   const [bump, setBump] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [hidden, setHidden] = useState(false);
   const lastYRef = useRef(typeof window !== 'undefined' ? window.scrollY : 0);
@@ -60,30 +61,66 @@ export default function AppHeader() {
     };
   }, []);
 
-  // Auto hide/show header on scroll
+  // Initialize header height CSS variable on mount
   useEffect(() => {
-    const onScroll = () => {
-      const currentY = window.scrollY || 0;
-      const lastY = lastYRef.current || 0;
-      const headerH = headerRef.current?.offsetHeight || 0;
-
+    const updateHeaderHeight = () => {
+      const headerH = headerRef.current?.offsetHeight || 72;
       document.documentElement.style.setProperty("--stacked-header", `${headerH}px`);
+    };
+    
+    // Set initial value
+    updateHeaderHeight();
+    
+    // Update on resize
+    window.addEventListener("resize", updateHeaderHeight);
+    
+    return () => window.removeEventListener("resize", updateHeaderHeight);
+  }, []);
 
-      const delta = currentY - lastY;
-      if (Math.abs(delta) < 4) return;
+  // Auto hide/show header on scroll - hide when scrolling down, show when scrolling up
+  useEffect(() => {
+    let ticking = false;
+    
+    const onScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentY = window.scrollY || 0;
+          const lastY = lastYRef.current || 0;
+          const headerH = headerRef.current?.offsetHeight || 72;
 
-      if (currentY > headerH && delta > 0) {
-        setHidden(true);
-      } else {
-        setHidden(false);
+          // Update CSS variable for header height
+          document.documentElement.style.setProperty("--stacked-header", `${headerH}px`);
+
+          // Always show header when at the top of the page (within 100px)
+          if (currentY < 100) {
+            setHidden(false);
+            lastYRef.current = currentY;
+            ticking = false;
+            return;
+          }
+
+          const delta = currentY - lastY;
+          
+          // Only react to significant scroll movements (threshold: 5px)
+          if (Math.abs(delta) >= 5) {
+            // Hide when scrolling down, show when scrolling up
+            if (delta > 0) {
+              // Scrolling down - hide header
+              setHidden(true);
+            } else {
+              // Scrolling up - show header
+              setHidden(false);
+            }
+            lastYRef.current = currentY;
+          }
+
+          ticking = false;
+        });
+        ticking = true;
       }
-
-      lastYRef.current = currentY;
     };
 
     window.addEventListener("scroll", onScroll, { passive: true });
-    const headerH = headerRef.current?.offsetHeight || 0;
-    document.documentElement.style.setProperty("--stacked-header", `${headerH}px`);
 
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -92,6 +129,15 @@ export default function AppHeader() {
     logout();
     toast.success("Đã đăng xuất");
     navigate("/login");
+  };
+
+  const doSearch = () => {
+    const q = (searchQuery || "").trim();
+    if (!q) {
+      toast("Nhập từ khoá để tìm kiếm");
+      return;
+    }
+    navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 
   const userMenuItems = [
@@ -112,18 +158,21 @@ export default function AppHeader() {
     <Header
       ref={headerRef}
       style={{
-        position: "sticky",
+        position: "fixed",
         top: 0,
+        left: 0,
+        right: 0,
         zIndex: 1000,
         width: "100%",
-        background: "rgba(255, 255, 255, 0.85)",
-        backdropFilter: "blur(16px) saturate(180%)",
-        WebkitBackdropFilter: "blur(16px) saturate(180%)",
-        padding: "0 32px",
-        boxShadow: hidden ? "none" : "0 1px 0 rgba(0,0,0,0.05), 0 2px 16px rgba(0,0,0,0.08)",
-        borderBottom: "1px solid rgba(0,0,0,0.06)",
+        background: "rgba(255, 255, 255, 0.95)",
+        backdropFilter: "blur(20px) saturate(180%)",
+        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        padding: "0 40px",
+        boxShadow: hidden ? "none" : "0 1px 0 rgba(0,0,0,0.06), 0 4px 24px rgba(0,0,0,0.1)",
+        borderBottom: "1px solid rgba(0,0,0,0.08)",
         transform: hidden ? "translateY(-100%)" : "translateY(0)",
-        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+        transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease",
+        height: 72,
       }}
     >
       {/* CSS animation cho badge/cart */}
@@ -167,24 +216,29 @@ export default function AppHeader() {
         .ant-menu-horizontal {
           border-bottom: none !important;
           background: transparent !important;
-          line-height: 62px;
+          line-height: 70px;
         }
         .ant-menu-item {
-          padding: 0 20px !important;
+          padding: 0 24px !important;
           font-weight: 600 !important;
-          color: #444 !important;
-          border-bottom: 2px solid transparent !important;
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-          margin: 0 4px !important;
+          font-size: 15px !important;
+          color: #555 !important;
+          border-bottom: 3px solid transparent !important;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          margin: 0 6px !important;
+          border-radius: 8px 8px 0 0 !important;
         }
         .ant-menu-item:hover {
           color: #000 !important;
+          background: rgba(0, 0, 0, 0.03) !important;
           border-bottom-color: #000 !important;
+          transform: translateY(-1px);
         }
         .ant-menu-item-selected {
           color: #000 !important;
           border-bottom-color: #000 !important;
-          background: transparent !important;
+          background: rgba(0, 0, 0, 0.02) !important;
+          font-weight: 700 !important;
         }
         .ant-menu-item::after {
           display: none !important;
@@ -192,26 +246,32 @@ export default function AppHeader() {
         
         /* Search input styles */
         .search-input { 
-          border-radius: 24px !important; 
-          border: 1.5px solid #e5e5e5 !important; 
-          background: rgba(255, 255, 255, 0.9) !important; 
+          border-radius: 20px !important; 
+          border: 1.5px solid #e8e8e8 !important; 
+          background: rgba(255, 255, 255, 0.95) !important; 
           font-weight: 500 !important;
-          font-size: 14px !important;
-          box-shadow: none !important; 
-          padding: 10px 20px !important; 
-          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          font-size: 13px !important;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important; 
+          padding: 6px 16px !important; 
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
         .search-input:hover {
-          border-color: #bbb !important;
+          border-color: #d0d0d0 !important;
           background: #fff !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
         }
-        .search-input:focus { 
+        .search-input:focus, .search-input-focused { 
           border: 1.5px solid #000 !important; 
-          box-shadow: 0 2px 12px rgba(0,0,0,0.08) !important;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.12) !important;
           background: #fff !important;
         }
         .search-input .ant-input {
           font-weight: 500 !important;
+          font-size: 13px !important;
+          padding: 0 !important;
+        }
+        .search-input .ant-input::placeholder {
+          color: #999 !important;
         }
         
         /* Header icon styles */
@@ -219,17 +279,19 @@ export default function AppHeader() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          width: 44px;
+          height: 44px;
+          border-radius: 14px;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           cursor: pointer;
+          position: relative;
         }
         .header-icon:hover {
-          background: rgba(0, 0, 0, 0.05);
+          background: rgba(0, 0, 0, 0.08);
+          transform: translateY(-2px);
         }
         .header-icon:active {
-          transform: scale(0.95);
+          transform: translateY(0) scale(0.96);
         }
         
         /* Badge styles */
@@ -242,40 +304,44 @@ export default function AppHeader() {
         
         /* Login button styles */
         .login-link-btn {
-          background: #000;
+          background: linear-gradient(135deg, #000 0%, #1a1a1a 100%);
           color: #fff;
-          border-radius: 10px;
-          padding: 8px 18px;
+          border-radius: 12px;
+          padding: 10px 24px;
           font-weight: 700;
-          font-size: 13px;
-          line-height: 1.1;
-          box-shadow: 0 1px 6px rgba(0,0,0,0.12);
+          font-size: 14px;
+          line-height: 1.2;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1);
           display: inline-block;
-          transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-          border: 1px solid #000;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          border: none;
+          letter-spacing: 0.3px;
         }
         .login-link-btn:hover {
-          background: #fff;
-          color: #000;
+          background: linear-gradient(135deg, #1a1a1a 0%, #000 100%);
+          color: #fff;
           transform: translateY(-2px);
-          box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+          box-shadow: 0 6px 20px rgba(0,0,0,0.25), 0 2px 6px rgba(0,0,0,0.15);
         }
         .login-link-btn:active {
           transform: translateY(0);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
         
         /* Logo animation */
         .logo-text {
-          background: linear-gradient(135deg, #000 0%, #333 100%);
+          background: linear-gradient(135deg, #000 0%, #1a1a1a 50%, #000 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
           position: relative;
           display: inline-block;
-          transition: all 0.3s ease;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
         }
         .logo-text:hover {
-          transform: scale(1.02);
+          transform: scale(1.03) translateY(-1px);
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));
         }
         
         /* Dropdown menu styles */
@@ -320,16 +386,16 @@ export default function AppHeader() {
         /* note: use default AntD motion to avoid double-animate flicker */
       `}</style>
 
-      <Row align="middle" justify="space-between" style={{ height: 64 }}>
+      <Row align="middle" justify="space-between" style={{ height: 72 }}>
         <Col flex="none">
           <Link
             to="/"
             className="logo-text"
             style={{
-              fontSize: 26,
+              fontSize: 28,
               fontWeight: 900,
               color: "#000",
-              letterSpacing: 0.5,
+              letterSpacing: 0.8,
               fontFamily: "'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
               textDecoration: "none",
             }}
@@ -339,7 +405,20 @@ export default function AppHeader() {
         </Col>
 
         {!isAuthenticated ? (
-          <Col>
+          <Col flex="none" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Search bar - compact */}
+            <Input
+              allowClear
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              prefix={<SearchOutlined style={{ color: "#999", fontSize: 14 }} />}
+              placeholder="Tìm kiếm..."
+              className="search-input"
+              onPressEnter={doSearch}
+              onFocus={(e) => e.currentTarget.parentElement?.classList.add("search-input-focused")}
+              onBlur={(e) => e.currentTarget.parentElement?.classList.remove("search-input-focused")}
+              style={{ width: 200, height: 36 }}
+            />
             <Link to="/login" aria-label="Đăng nhập">
               <div className="login-link-btn">
                 Đăng nhập
@@ -347,64 +426,61 @@ export default function AppHeader() {
             </Link>
           </Col>
         ) : (
-          <>
-            <Col flex="auto" className="hidden md:block">
-              <div style={{ display: "flex", alignItems: "center", gap: 16, marginLeft: 32 }}>
-                <Menu
-                  mode="horizontal"
-                  selectedKeys={[selectedNavKey]}
-                  items={navItems.map((n) => ({ key: n.key, label: <Link to={n.link}>{n.label}</Link> }))}
-                  style={{ flex: 1, minWidth: 360, borderBottom: "none" }}
-                />
-                <div style={{ maxWidth: 360, width: "100%" }}>
-                  <Input
-                    allowClear
-                    prefix={<SearchOutlined />}
-                    placeholder="Tìm sản phẩm, danh mục…"
-                    className="search-input"
-                    onPressEnter={(e) => {
-                      const q = e.currentTarget.value?.trim();
-                      if (q) navigate(`/search?q=${encodeURIComponent(q)}`);
-                    }}
-                  />
-                </div>
-              </div>
-            </Col>
+          <Col flex="none" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Navigation menu - only when authenticated */}
+            <div className="hidden lg:block">
+              <Menu
+                mode="horizontal"
+                selectedKeys={[selectedNavKey]}
+                items={navItems.map((n) => ({ key: n.key, label: <Link to={n.link}>{n.label}</Link> }))}
+                style={{ borderBottom: "none", background: "transparent" }}
+              />
+            </div>
 
-            <Col>
-              <div className="header-icons" style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <div className="md:hidden">
-                </div>
+            {/* Search bar - compact */}
+            <Input
+              allowClear
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              prefix={<SearchOutlined style={{ color: "#999", fontSize: 14 }} />}
+              placeholder="Tìm kiếm..."
+              className="search-input"
+              onPressEnter={doSearch}
+              onFocus={(e) => e.currentTarget.parentElement?.classList.add("search-input-focused")}
+              onBlur={(e) => e.currentTarget.parentElement?.classList.remove("search-input-focused")}
+              style={{ width: 200, height: 36 }}
+            />
 
-                <Link to="/notifications" className="header-icon" aria-label="Notifications">
-                  <Badge count={3} size="small" offset={[4, 4]} color="#000">
-                    <BellOutlined style={{ fontSize: 20, color: "#000" }} />
+            {/* Icons */}
+            <div className="header-icons" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Link to="/notifications" className="header-icon" aria-label="Notifications">
+                <Badge count={3} size="small" offset={[6, 6]} color="#000">
+                  <BellOutlined style={{ fontSize: 22, color: "#000" }} />
+                </Badge>
+              </Link>
+
+              {/* Cart icon + bump + ping */}
+              <Link to="/cart" className="header-icon" aria-label="Cart">
+                <span className={`icon-wrap ${bump ? "cart-badge-bump" : ""}`}>
+                  <Badge count={cartCount} size="small" offset={[6, 6]} color="#000">
+                    <ShoppingCartOutlined style={{ fontSize: 22, color: "#000" }} />
                   </Badge>
-                </Link>
+                  {bump && <span className="ping" />}
+                </span>
+              </Link>
 
-                {/* Cart icon + bump + ping */}
-                <Link to="/cart" className="header-icon" aria-label="Cart">
-                  <span className={`icon-wrap ${bump ? "cart-badge-bump" : ""}`}>
-                    <Badge count={cartCount} size="small" offset={[4, 4]} color="#000">
-                      <ShoppingCartOutlined style={{ fontSize: 20, color: "#000" }} />
-                    </Badge>
-                    {bump && <span className="ping" />}
-                  </span>
-                </Link>
-
-                <Dropdown 
-                  menu={{ items: userMenuItems }}
-                  trigger={["click"]}
-                  placement="bottomRight"
-                  overlayClassName="user-dropdown-menu"
-                >
-                  <div className="header-icon" role="button" aria-label="Account menu" title={user?.username || "Tài khoản"}>
-                    <UserOutlined style={{ fontSize: 20, color: "#000" }} />
-                  </div>
-                </Dropdown>
-              </div>
-            </Col>
-          </>
+              <Dropdown 
+                menu={{ items: userMenuItems }}
+                trigger={["click"]}
+                placement="bottomRight"
+                overlayClassName="user-dropdown-menu"
+              >
+                <div className="header-icon" role="button" aria-label="Account menu" title={user?.username || "Tài khoản"}>
+                  <UserOutlined style={{ fontSize: 22, color: "#000" }} />
+                </div>
+              </Dropdown>
+            </div>
+          </Col>
         )}
       </Row>
     </Header>

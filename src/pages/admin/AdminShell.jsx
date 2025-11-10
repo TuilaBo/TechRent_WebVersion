@@ -46,6 +46,7 @@ export default function AdminShell() {
     if (location.pathname.startsWith("/admin/products")) return "products";
     if (location.pathname.startsWith("/admin/maintenance"))
       return "maintenance";
+    if (location.pathname.startsWith("/admin/contracts")) return "contracts";
     if (location.pathname.startsWith("/admin/accounts")) return "accounts";
     if (location.pathname.startsWith("/admin/task-categories")) return "task-categories";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
@@ -125,6 +126,11 @@ export default function AdminShell() {
               label: <Link to="/admin/products">Sản phẩm</Link>,
             },
 
+            {
+              key: "contracts",
+              icon: <DatabaseOutlined />,
+              label: <Link to="/admin/contracts">Hợp đồng</Link>,
+            },
             {
               key: "accounts",
               icon: <TeamOutlined />,

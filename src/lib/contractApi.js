@@ -27,11 +27,23 @@ export function normalizeContract(c = {}) {
     startDate: c.startDate,
     endDate: c.endDate,
     signedAt: c.signedAt,
+    customerSignedAt: c.customerSignedAt,
+    customerSignedBy: c.customerSignedBy,
+    adminSignedAt: c.adminSignedAt,
+    adminSignedBy: c.adminSignedBy,
     expiresAt: c.expiresAt,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     createdBy: c.createdBy,
     updatedBy: c.updatedBy,
+    contractUrl:
+      c.contractUrl ??
+      c.contractFileUrl ??
+      c.fileUrl ??
+      c.pdfUrl ??
+      c.signedContractUrl ??
+      null,
+    contractFileName: c.contractFileName ?? c.fileName ?? null,
   };
 }
 
@@ -116,13 +128,19 @@ export async function sendPinEmail(contractId, email) {
  * }
  */
 export async function signContract(contractId, payload) {
+  const pin = payload?.pinCode ?? "";
+  const method = payload?.signatureMethod ?? "EMAIL_OTP";
+  const digital =
+    String(payload?.digitalSignature ?? "").trim() ||
+    (method === "EMAIL_OTP" ? String(pin) : "SIGNED_BY_USER");
+
   const body = {
     // nếu BE bỏ qua contractId trong body thì không cần field này;
     // vẫn giữ cho tương thích:
     contractId: Number(contractId),
-    digitalSignature: payload?.digitalSignature ?? "",
-    pinCode: payload?.pinCode ?? "",
-    signatureMethod: payload?.signatureMethod ?? "EMAIL_OTP", // Fixed: API requires EMAIL_OTP
+    digitalSignature: digital, // đảm bảo NotBlank với BE
+    pinCode: pin,
+    signatureMethod: method, // Fixed: API requires EMAIL_OTP
     deviceInfo: payload?.deviceInfo ?? "",
     ipAddress: payload?.ipAddress ?? "",
   };
@@ -131,6 +149,43 @@ export async function signContract(contractId, payload) {
     body
   );
   return unwrap(res);
+}
+
+/**
+ * 6) Ký hợp đồng bởi admin (server-side approve)
+ * POST /api/contracts/{contractId}/admin/sign
+ * body: giống hệt signContract (customer)
+ */
+export async function adminSignContract(contractId, payload) {
+  const pin = payload?.pinCode ?? "";
+  const method = payload?.signatureMethod ?? "EMAIL_OTP";
+  const digital =
+    String(payload?.digitalSignature ?? "").trim() ||
+    (method === "EMAIL_OTP" ? String(pin) : "SIGNED_BY_ADMIN");
+
+  const body = {
+    contractId: Number(contractId),
+    digitalSignature: digital, // đảm bảo NotBlank
+    pinCode: pin,
+    signatureMethod: method,
+    deviceInfo: payload?.deviceInfo ?? "",
+    ipAddress: payload?.ipAddress ?? "",
+  };
+  const res = await api.post(
+    `/api/contracts/${Number(contractId)}/admin/sign`,
+    body
+  );
+  return unwrap(res);
+}
+
+/**
+ * 7) Lấy tất cả hợp đồng (dành cho admin)
+ * GET /api/contracts
+ */
+export async function listAllContracts() {
+  const res = await api.get("/api/contracts");
+  const raw = unwrap(res) ?? [];
+  return Array.isArray(raw) ? raw : [];
 }
 
 

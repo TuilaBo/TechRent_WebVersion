@@ -1,51 +1,58 @@
-// src/lib/kycApi.js
 import { api } from "./api";
 
-// ------- helpers -------
 const unwrap = (res) => res?.data?.data ?? res?.data ?? null;
 
+// đảm bảo set text part kể cả rỗng
+const setText = (form, k, v) => form.set(k, v == null ? "" : String(v));
+
 /**
- * POST /api/operator/kyc/api/customers/me/kyc/documents/batch
- * Upload cùng lúc 3 ảnh KYC (front, back, selfie) của chính người dùng (me)
- * params: { front?: File|Blob, back?: File|Blob, selfie?: File|Blob }
+ * POST /api/customers/me/kyc/documents/batch
+ * multipart/form-data: front/back/selfie + text fields (flatten)
  */
-export async function uploadKycDocumentsBatch({ front, back, selfie } = {}) {
+export async function uploadKycDocumentsBatch({
+  front,
+  back,
+  selfie,
+  fullName,
+  identificationCode,
+  typeOfIdentification,
+  birthday,
+  expirationDate,
+  permanentAddress,
+} = {}) {
   const form = new FormData();
-  if (front) form.append("front", front);
-  if (back) form.append("back", back);
-  if (selfie) form.append("selfie", selfie);
 
-  const res = await api.post(
-    "/api/operator/kyc/api/customers/me/kyc/documents/batch",
-    form,
-    { headers: { "Content-Type": "multipart/form-data" } }
-  );
+  // file parts
+  if (front)  form.set("front", front);
+  if (back)   form.set("back", back);
+  if (selfie) form.set("selfie", selfie);
+
+  // text parts — khớp tên field Swagger
+  setText(form, "fullName",             fullName);
+  setText(form, "identificationCode",   identificationCode);
+  setText(form, "typeOfIdentification", typeOfIdentification);
+  setText(form, "birthday",             birthday);        // YYYY-MM-DD
+  setText(form, "expirationDate",       expirationDate);  // YYYY-MM-DD
+  setText(form, "permanentAddress",     permanentAddress);
+
+  // KHÔNG thêm part JSON "data" nữa (Swagger không yêu cầu)
+
+  // để axios tự set boundary
+  const res = await api.post("/api/customers/me/kyc/documents/batch", form);
   return unwrap(res);
 }
 
-/**
- * GET /api/operator/kyc/api/customers/me/kyc
- * Lấy thông tin KYC hiện tại của chính người dùng (me)
- */
+/** GET current user's KYC */
 export async function getMyKyc() {
-  const res = await api.get("/api/operator/kyc/api/customers/me/kyc");
+  const res = await api.get("/api/customers/me/kyc");
   return unwrap(res);
 }
 
-/**
- * GET /api/operator/kyc/customers/{customerId}
- * Lấy thông tin KYC theo customerId (dùng cho operator/admin)
- */
 export async function getKycByCustomerId(customerId) {
   const res = await api.get(`/api/operator/kyc/customers/${Number(customerId)}`);
   return unwrap(res);
 }
 
-/**
- * PATCH /api/operator/kyc/customers/{customerId}
- * Cập nhật trạng thái KYC cho khách hàng
- * body ví dụ: { status: "APPROVED" | "REJECTED" | ..., rejectionReason?: string, verifiedAt?: string, verifiedBy?: number }
- */
 export async function updateKycStatus(customerId, payload) {
   const body = {
     status: String(payload.status || "").toUpperCase(),
@@ -61,66 +68,39 @@ export async function updateKycStatus(customerId, payload) {
   return unwrap(res);
 }
 
-/**
- * GET /api/operator/kyc/statuses
- * Trả về danh sách các trạng thái KYC khả dụng: [{ label, value }]
- */
 export async function listKycStatuses() {
   const res = await api.get("/api/operator/kyc/statuses");
   const payload = unwrap(res) ?? [];
   return Array.isArray(payload) ? payload : [];
 }
 
-/**
- * GET /api/operator/kyc/pending – danh sách KYC đang chờ duyệt
- * Mỗi item ví dụ:
- * { kycStatus, customerId, verifiedAt, fullName, frontCCCDUrl, backCCCDUrl, selfieUrl, rejectionReason, verifiedBy }
- */
 export async function listPendingKycs() {
   const res = await api.get("/api/operator/kyc/pending");
   const payload = unwrap(res) ?? [];
   return Array.isArray(payload) ? payload : [];
 }
 
-/**
- * Lấy tất cả KYC của tất cả customers
- * Sử dụng listCustomers và fetch KYC cho từng customer
- */
 export async function listAllKycs() {
   try {
-    // Import động để tránh circular dependency
     const { listCustomers } = await import("./customerApi");
     const customers = await listCustomers();
-    
-    // Fetch KYC cho từng customer song song
-    const kycPromises = customers.map(async (customer) => {
-      try {
-        const kycData = await getKycByCustomerId(customer.customerId ?? customer.id);
-        if (kycData) {
-          return {
-            ...kycData,
-            customerId: customer.customerId ?? customer.id,
-            fullName: customer.fullName ?? customer.name ?? "Chưa cập nhật",
-            email: customer.email ?? "",
-          };
-        }
-        return null;
-      } catch {
-        // Nếu không có KYC hoặc lỗi, trả về null (sẽ filter sau)
-        return null;
-      }
-    });
-    
-    const kycs = await Promise.all(kycPromises);
-    // Lọc bỏ những customer không có KYC
-    return kycs.filter((kyc) => kyc !== null);
+    const kycs = await Promise.all(
+      customers.map(async (c) => {
+        try {
+          const kyc = await getKycByCustomerId(c.customerId ?? c.id);
+          return kyc
+            ? { ...kyc, customerId: c.customerId ?? c.id, fullName: c.fullName ?? c.name ?? "Chưa cập nhật", email: c.email ?? "" }
+            : null;
+        } catch { return null; }
+      })
+    );
+    return kycs.filter(Boolean);
   } catch (e) {
     console.error("Error listing all KYCs:", e);
     return [];
   }
 }
 
-/** Optional helper */
 export function normalizeKycItem(raw = {}) {
   return {
     customerId: raw.customerId,
@@ -130,6 +110,12 @@ export function normalizeKycItem(raw = {}) {
     verifiedAt: raw.verifiedAt,
     verifiedBy: raw.verifiedBy,
     rejectionReason: raw.rejectionReason,
+    // giữ lại các trường chi tiết để hiển thị ở Drawer operator
+    identificationCode: raw.identificationCode,
+    typeOfIdentification: raw.typeOfIdentification,
+    birthday: raw.birthday,
+    expirationDate: raw.expirationDate,
+    permanentAddress: raw.permanentAddress,
     frontUrl: raw.frontCCCDUrl ?? raw.frontUrl,
     backUrl: raw.backCCCDUrl ?? raw.backUrl,
     selfieUrl: raw.selfieUrl,
@@ -138,5 +124,3 @@ export function normalizeKycItem(raw = {}) {
     updatedAt: raw.updatedAt,
   };
 }
-
-

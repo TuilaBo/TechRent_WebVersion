@@ -31,7 +31,6 @@ import {
 import dayjs from "dayjs";
 import {
   listRentalOrders,
-  getRentalOrderById,
   fmtVND,
 } from "../../lib/rentalOrdersApi";
 import {
@@ -410,10 +409,10 @@ export default function OperatorContracts() {
                 {detail.signedAt ? dayjs(detail.signedAt).format("YYYY-MM-DD HH:mm") : "—"}
               </Descriptions.Item>
               <Descriptions.Item label="Ngày bắt đầu">
-                {detail.startDate ? dayjs(detail.startDate).format("YYYY-MM-DD") : "—"}
+                {detail.startDate ? dayjs(detail.startDate).format("DD/MM/YYYY") : "—"}
               </Descriptions.Item>
               <Descriptions.Item label="Ngày kết thúc">
-                {detail.endDate ? dayjs(detail.endDate).format("YYYY-MM-DD") : "—"}
+                {detail.endDate ? dayjs(detail.endDate).format("DD/MM/YYYY") : "—"}
               </Descriptions.Item>
               <Descriptions.Item label="Số ngày thuê" span={2}>
                 {detail.rentalPeriodDays ? `${detail.rentalPeriodDays} ngày` : "—"}
@@ -423,7 +422,11 @@ export default function OperatorContracts() {
             <Divider />
 
             <Space size={24} wrap>
-              <Statistic title="Tổng tiền" value={fmtVND(detail.totalAmount)} />
+              <Statistic 
+                title="Tổng tiền thuê" 
+                value={fmtVND(detail.totalAmount)} 
+                valueStyle={{ fontWeight: 'bold' }}
+              />
               <Statistic title="Tiền cọc" value={fmtVND(detail.depositAmount)} />
             </Space>
 

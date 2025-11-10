@@ -55,14 +55,15 @@ export function normalizeCustomer(c = {}) {
 
 /** Lấy hồ sơ customer của tài khoản hiện tại (Bearer token) */
 export async function fetchMyCustomerProfile() {
-  const res = await api.get("/api/customer/profile");
+  // BE endpoint dùng dạng số nhiều: /api/customers/profile
+  const res = await api.get("/api/customers/profile");
   return unwrap(res);
 }
 
 /** Cập nhật hồ sơ của chính mình */
 export async function updateMyCustomerProfile(payload) {
   // payload cho phép: { email, phoneNumber, fullName, shippingAddress, bankAccountNumber, bankName, bankAccountHolder }
-  const res = await api.put("/api/customer/profile", payload);
+  const res = await api.put("/api/customers/profile", payload);
   return unwrap(res);
 }
 
@@ -71,14 +72,14 @@ export async function updateMyCustomerProfile(payload) {
 /** 1) Lấy danh sách customers */
 export async function listCustomers() {
   // BE hiện không yêu cầu query params; nếu sau này có, truyền thêm ở đây
-  const res = await api.get("/api/customer");
+  const res = await api.get("/api/customers");
   const raw = unwrap(res) ?? [];
   return Array.isArray(raw) ? raw : [];
 }
 
 /** 2) Xem chi tiết customer theo ID (bạn đã có sẵn – giữ lại để dùng chung) */
 export async function fetchCustomerById(customerId) {
-  const res = await api.get(`/api/customer/${Number(customerId)}`);
+  const res = await api.get(`/api/customers/${Number(customerId)}`);
   return unwrap(res);
 }
 
@@ -94,13 +95,13 @@ export async function updateCustomerById(customerId, payload) {
     bankName: payload.bankName,
     bankAccountHolder: payload.bankAccountHolder,
   };
-  const res = await api.put(`/api/customer/${Number(customerId)}`, body);
+  const res = await api.put(`/api/customers/${Number(customerId)}`, body);
   return unwrap(res);
 }
 
 /** 4) Xoá customer theo ID (dành cho admin) */
 export async function deleteCustomerById(customerId) {
-  return safeDelete(`/api/customer/${Number(customerId)}`);
+  return safeDelete(`/api/customers/${Number(customerId)}`);
 }
 
 /** ----------------- Bank Information (CRUD) ----------------- */

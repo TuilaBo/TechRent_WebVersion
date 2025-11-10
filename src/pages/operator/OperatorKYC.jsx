@@ -34,13 +34,43 @@ export default function AdminKyc() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
+  // Helper function để xác định priority của status (0 = cao nhất, số càng lớn = ưu tiên càng thấp)
+  const getStatusPriority = (status) => {
+    const s = String(status || "").toUpperCase();
+    // Ưu tiên các status chờ duyệt lên đầu
+    if (s === "PENDING" || s === "SUBMITTED" || s === "DOCUMENTS_SUBMITTED") {
+      return 0; // Ưu tiên cao nhất
+    }
+    // Các status khác
+    if (s === "INCOMPLETE" || s === "NOT_STARTED") {
+      return 1;
+    }
+    if (s === "VERIFIED" || s === "APPROVED") {
+      return 2;
+    }
+    if (s === "REJECTED" || s === "REJECT" || s === "DENIED") {
+      return 3;
+    }
+    if (s === "EXPIRED") {
+      return 4;
+    }
+    return 5; // Các status khác
+  };
+
   const load = async () => {
     setLoading(true);
     try {
       const rows = await listAllKycs();
       const mapped = (Array.isArray(rows) ? rows : []).map(normalizeKycItem);
-      // sort newest submissions first
+      // Ưu tiên các status chờ duyệt lên đầu, sau đó sắp xếp theo thời gian mới nhất
       mapped.sort((a, b) => {
+        const priorityA = getStatusPriority(a?.kycStatus || a?.status);
+        const priorityB = getStatusPriority(b?.kycStatus || b?.status);
+        // Nếu priority khác nhau, sắp xếp theo priority (0 = cao nhất)
+        if (priorityA !== priorityB) {
+          return priorityA - priorityB;
+        }
+        // Nếu cùng priority, sắp xếp theo thời gian mới nhất
         const ta = new Date(a?.createdAt || a?.submittedAt || a?.verifiedAt || 0).getTime();
         const tb = new Date(b?.createdAt || b?.submittedAt || b?.verifiedAt || 0).getTime();
         if (tb !== ta) return tb - ta;
@@ -154,6 +184,10 @@ export default function AdminKyc() {
           <Button
             icon={<IdcardOutlined />}
             onClick={() => {
+              console.log("KYC Item:", r);
+              console.log("Front URL:", r.frontUrl);
+              console.log("Back URL:", r.backUrl);
+              console.log("Selfie URL:", r.selfieUrl);
               setCur(r);
               setOpen(true);
             }}
@@ -231,30 +265,82 @@ export default function AdminKyc() {
 
             <Divider />
 
+            {/* Khối 2: Thông tin giấy tờ KYC chi tiết */}
+            <Title level={5} style={{ marginTop: 0 }}>Thông tin giấy tờ</Title>
+            <Descriptions bordered size="small" column={2}>
+              <Descriptions.Item label="Họ và tên" span={2}>
+                {cur.fullName || "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Số định danh">
+                {cur.identificationCode || "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Loại giấy tờ">
+                {(() => {
+                  const t = String(cur.typeOfIdentification || "").toUpperCase();
+                  if (t === "CCCD") return "CCCD";
+                  if (t === "CMND") return "CMND";
+                  if (t === "PASSPORT") return "Hộ chiếu";
+                  return cur.typeOfIdentification || "—";
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="Ngày sinh">
+                {cur.birthday ? dayjs(cur.birthday).format("DD/MM/YYYY") : "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Ngày hết hạn">
+                {cur.expirationDate ? dayjs(cur.expirationDate).format("DD/MM/YYYY") : "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Địa chỉ thường trú" span={2}>
+                {cur.permanentAddress || "—"}
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Divider />
+
             {/* Khối 3: Ảnh đã tải lên */}
             <Title level={5} style={{ marginTop: 0 }}>
               Ảnh giấy tờ & selfie
             </Title>
-            <Image.PreviewGroup>
-              <Image
-                src={cur.frontUrl}
-                width={260}
-                style={{ marginRight: 8, borderRadius: 8 }}
-                alt="Mặt trước"
-              />
-              <Image
-                src={cur.backUrl}
-                width={260}
-                style={{ marginRight: 8, borderRadius: 8 }}
-                alt="Mặt sau"
-              />
-              <Image
-                src={cur.selfieUrl}
-                width={260}
-                style={{ borderRadius: 8 }}
-                alt="Selfie"
-              />
-            </Image.PreviewGroup>
+            <Space wrap size={12}>
+              {cur.frontUrl ? (
+                <Image
+                  src={cur.frontUrl}
+                  width={260}
+                  style={{ borderRadius: 8 }}
+                  alt="Mặt trước"
+                  fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='200'%3E%3Crect width='260' height='200' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='14'%3EKhông có ảnh mặt trước%3C/text%3E%3C/svg%3E"
+                />
+              ) : (
+                <div style={{ width: 260, height: 200, border: "1px dashed #d9d9d9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "#fafafa" }}>
+                  <Text type="secondary">Không có ảnh mặt trước</Text>
+                </div>
+              )}
+              {cur.backUrl ? (
+                <Image
+                  src={cur.backUrl}
+                  width={260}
+                  style={{ borderRadius: 8 }}
+                  alt="Mặt sau"
+                  fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='200'%3E%3Crect width='260' height='200' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='14'%3EKhông có ảnh mặt sau%3C/text%3E%3C/svg%3E"
+                />
+              ) : (
+                <div style={{ width: 260, height: 200, border: "1px dashed #d9d9d9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "#fafafa" }}>
+                  <Text type="secondary">Không có ảnh mặt sau</Text>
+                </div>
+              )}
+              {cur.selfieUrl ? (
+                <Image
+                  src={cur.selfieUrl}
+                  width={260}
+                  style={{ borderRadius: 8 }}
+                  alt="Selfie"
+                  fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='200'%3E%3Crect width='260' height='200' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='14'%3EKhông có ảnh selfie%3C/text%3E%3C/svg%3E"
+                />
+              ) : (
+                <div style={{ width: 260, height: 200, border: "1px dashed #d9d9d9", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", background: "#fafafa" }}>
+                  <Text type="secondary">Không có ảnh selfie</Text>
+                </div>
+              )}
+            </Space>
 
             <Divider />
             <Space>

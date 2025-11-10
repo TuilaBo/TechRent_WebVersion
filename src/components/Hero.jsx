@@ -1,23 +1,9 @@
-import { Input, Button } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
-import React, { useState } from "react";
+import { Button } from "antd";
+import React from "react";
 import { useNavigate } from "react-router-dom";
-import toast from "react-hot-toast";
-import { searchDeviceModels, normalizeModel } from "../lib/deviceModelsApi";
 
 export default function Hero() {
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-
-  const doSearch = async () => {
-    const q = (query || "").trim();
-    if (!q) {
-      toast("Nhập từ khoá để tìm kiếm");
-      return;
-    }
-    navigate(`/search?q=${encodeURIComponent(q)}`);
-  };
 
   const scrollToProducts = () => {
     try {
@@ -79,34 +65,11 @@ export default function Hero() {
           Camera, Laptop và hơn thế nữa — nhanh chóng & uy tín.
         </div>
 
-        {/* Ô tìm kiếm nhỏ + CTA */}
-        <form
-          style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 8, marginBottom: 8, width: '100%' }}
-          onSubmit={(e)=>{ e.preventDefault(); doSearch(); }}
-        >
-          <Input
-            size="large"
-            value={query}
-            onChange={(e)=> setQuery(e.target.value)}
-            prefix={<SearchOutlined style={{ color: "#444" }} />}
-            placeholder="Bạn cần gì? (VD: iPhone, Surface, ...)"
-            style={{
-              borderRadius: 50,
-              maxWidth: 320,
-              fontWeight: 600,
-              boxShadow: "none",
-              border: "2px solid #363738",
-              padding: '8px 18px',
-              background: '#fff',
-              transition: 'border .2s',
-            }}
-            allowClear
-          />
+        {/* CTA Button */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8, marginBottom: 8 }}>
           <Button
             type="primary"
-            htmlType="button"
             size="large"
-            loading={false}
             onClick={scrollToProducts}
             style={{
               borderRadius: 50,
@@ -122,7 +85,7 @@ export default function Hero() {
           >
             Khám phá sản phẩm
           </Button>
-        </form>
+        </div>
       </div>
 
       <style>{`
