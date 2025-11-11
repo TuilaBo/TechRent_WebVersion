@@ -4,8 +4,30 @@ import dayjs from "dayjs";
 /** ============== OCR (FE only) ============== **/
 async function ocr(fileOrUrl, langs = "vie+eng") {
   const T = await import("tesseract.js");
-  // KHÔNG truyền logger để tránh DataCloneError
-  const { data } = await T.recognize(fileOrUrl, langs);
+  // Cấu hình nhận dạng ưu tiên tiếng Việt có dấu, hạn chế ký tự rác
+  // Lưu ý: tesseract.js cho phép truyền config qua tham số thứ 3 của recognize
+  // Không truyền logger để tránh DataCloneError trong web worker của một số trình duyệt
+  const VI_WHITELIST =
+    // Chữ cái Latinh có dấu tiếng Việt (hoa + thường) + khoảng trắng + số và vài dấu cho ngày/tháng
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+    "abcdefghijklmnopqrstuvwxyz" +
+    "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯàáâãèéêìíòóôõùúăđĩũơư" +
+    "ẠẢÃÀÁÂẦẨẪẤĂẰẲẴẮẸẺẼỀỂỄẾÌÍĨỈỊỌỎÒÓÔỒỔỖỐƠỜỞỠỚỤỦŨÙÚƯỪỬỮỨ" +
+    "ạảãàáâầẩẫấăằẳẵắẹẻẽềểễếìíĩỉịọỏòóôồổỗốơờởỡớụủũùúưừửữứ" +
+    "ỲỴỶÝỳỵỷý" +
+    " -/0123456789";
+  const { data } = await T.recognize(fileOrUrl, langs, {
+    // PSM 6: Assume a single uniform block of text
+    tessedit_pageseg_mode: 6,
+    // LSTM only for better accuracy on diacritics
+    tessedit_oem_mode: 1,
+    // Giữ khoảng trắng giữa các từ ổn định hơn
+    preserve_interword_spaces: "1",
+    // DPI cao giúp tăng độ chính xác với ảnh chụp
+    user_defined_dpi: "300",
+    // Hạn chế ký tự rác thường gặp khi chụp nghiêng/ánh sáng kém
+    tessedit_char_whitelist: VI_WHITELIST,
+  });
   return (data?.text || "").replace(/\r/g, "");
 }
 
@@ -78,11 +100,13 @@ function nameFromFront(frontText = "") {
       .sort((a, b) => b.length - a.length)[0];
     if (cand) return cleanFullName(cand);
   }
-  const big = lines.find(
-    (l) =>
-      /^[A-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠƯẠ-Ỵ\s]{6,}$/.test(l) &&
-      !/CỘNG HÒA|CHỨNG MINH|CĂN CƯỚC|VIỆT NAM|SPECIMEN|BẢN MẪU/i.test(l)
-  );
+  // Cho phép toàn bộ ký tự chữ Unicode có dấu (hoa/thường) và khoảng trắng
+  const big = lines.find((l) => {
+    const onlyLetters = /^[\p{L}\s]{6,}$/u.test(l);
+    const isHeader =
+      /CỘNG HÒA|CHỨNG MINH|CĂN CƯỚC|VIỆT NAM|SPECIMEN|BẢN MẪU/i.test(l);
+    return onlyLetters && !isHeader;
+  });
   return big ? cleanFullName(big) : "";
 }
 

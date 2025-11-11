@@ -1,14 +1,16 @@
 // src/pages/auth/RegisterForm.jsx
 import { Form, Input, Button, Checkbox, Typography, Card, Alert } from "antd";
-import { UserOutlined, MailOutlined, LockOutlined, PhoneOutlined } from "@ant-design/icons";
+import { UserOutlined, MailOutlined, LockOutlined, PhoneOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import toast from "react-hot-toast";
+import { useState } from "react";
 
 export default function RegisterForm() {
   const navigate = useNavigate();
   const { register, loading, error, clearError } = useAuth();
   const [form] = Form.useForm();
+  const [capsLockOn, setCapsLockOn] = useState(false);
 
   const onFinish = async (values) => {
     try {
@@ -39,6 +41,12 @@ export default function RegisterForm() {
   const sanitizePhone = (e) => {
     const v = e?.target?.value ?? "";
     return v.replace(/\D/g, "").replace(/^0/, "").slice(0, 9);
+  };
+
+  // Detect Caps Lock
+  const handleKeyPress = (e) => {
+    const capsLock = e.getModifierState && e.getModifierState("CapsLock");
+    setCapsLockOn(capsLock);
   };
 
   return (
@@ -143,7 +151,21 @@ export default function RegisterForm() {
                 ]}
                 hasFeedback
               >
-                <Input.Password className="login-input" prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="••••••••" />
+                <Input.Password 
+                  className="login-input" 
+                  prefix={<LockOutlined style={{ color: '#9ca3af' }} />}
+                  suffix={
+                    capsLockOn ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <ExclamationCircleOutlined style={{ color: "#f59e0b", fontSize: 16 }} />
+                        <span style={{ color: "#f59e0b", fontSize: 12, fontWeight: 500 }}>Caps Lock</span>
+                      </div>
+                    ) : null
+                  }
+                  placeholder="••••••••"
+                  onKeyPress={handleKeyPress}
+                  onKeyUp={handleKeyPress}
+                />
               </Form.Item>
 
               <Form.Item
@@ -161,7 +183,21 @@ export default function RegisterForm() {
                   }),
                 ]}
               >
-                <Input.Password className="login-input" prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="••••••••" />
+                <Input.Password 
+                  className="login-input" 
+                  prefix={<LockOutlined style={{ color: '#9ca3af' }} />}
+                  suffix={
+                    capsLockOn ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <ExclamationCircleOutlined style={{ color: "#f59e0b", fontSize: 16 }} />
+                        <span style={{ color: "#f59e0b", fontSize: 12, fontWeight: 500 }}>Caps Lock</span>
+                      </div>
+                    ) : null
+                  }
+                  placeholder="••••••••"
+                  onKeyPress={handleKeyPress}
+                  onKeyUp={handleKeyPress}
+                />
               </Form.Item>
 
               <Form.Item

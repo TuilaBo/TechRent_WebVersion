@@ -7,6 +7,7 @@ import { listActiveStaff } from "../../lib/staffManage";
 import dayjs from "dayjs";
 
 const { Title } = Typography;
+const { Search } = Input;
 
 // Map màu trạng thái KYC (tiếng Việt)
 const kycTag = (s) => {
@@ -33,6 +34,7 @@ export default function AdminKyc() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [searchKw, setSearchKw] = useState("");
 
   // Helper function để xác định priority của status (0 = cao nhất, số càng lớn = ưu tiên càng thấp)
   const getStatusPriority = (status) => {
@@ -77,7 +79,7 @@ export default function AdminKyc() {
         return (b?.customerId || 0) - (a?.customerId || 0);
       });
       setAllData(mapped);
-      applyFilter(mapped, statusFilter);
+      applyFilter(mapped, statusFilter, searchKw);
       
       const sts = await listKycStatuses();
       setStatusOptions((Array.isArray(sts) ? sts : []).map((s) => ({ label: s.label ?? s.value, value: s.value })));
@@ -95,25 +97,32 @@ export default function AdminKyc() {
     }
   };
 
-  const applyFilter = (kycs, filter) => {
-    if (!filter || filter === "") {
-      setData(kycs);
-      return;
-    }
-    const filtered = kycs.filter((k) => {
-      const status = String(k.kycStatus || "").toUpperCase();
+  const applyFilter = (kycs, filter, keyword) => {
+    let filtered = kycs;
+    if (filter) {
       const filterUpper = String(filter).toUpperCase();
-      return status === filterUpper || status.includes(filterUpper);
-    });
+      filtered = filtered.filter((k) => {
+        const status = String(k.kycStatus || "").toUpperCase();
+        return status === filterUpper || status.includes(filterUpper);
+      });
+    }
+
+    if (keyword && keyword.trim()) {
+      const kw = keyword.trim().toLowerCase();
+      filtered = filtered.filter((k) => {
+        const name = String(k.fullName || "").toLowerCase();
+        const id = String(k.customerId || "").toLowerCase();
+        return name.includes(kw) || id.includes(kw);
+      });
+    }
+
     setData(filtered);
   };
 
   useEffect(() => {
-    if (allData.length > 0) {
-      applyFilter(allData, statusFilter);
-    }
+    applyFilter(allData, statusFilter, searchKw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, [statusFilter, searchKw]);
 
   useEffect(() => {
     load();
@@ -212,21 +221,31 @@ export default function AdminKyc() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>Quản lý KYC</Title>
-        <Select
-          placeholder="Lọc theo trạng thái"
-          allowClear
-          value={statusFilter || undefined}
-          onChange={(value) => setStatusFilter(value || "")}
-          style={{ width: 200 }}
-          options={[
-            { label: "Tất cả", value: "" },
-            { label: "Chờ duyệt", value: "PENDING" },
-            { label: "Đã duyệt", value: "VERIFIED" },
-            { label: "Đã từ chối", value: "REJECTED" },
-          ]}
-        />
+        <Space size={12} wrap>
+          <Search
+            allowClear
+            placeholder="Tìm theo tên hoặc ID khách hàng"
+            value={searchKw}
+            onChange={(e) => setSearchKw(e.target.value)}
+            onSearch={setSearchKw}
+            style={{ width: 280 }}
+          />
+          <Select
+            placeholder="Lọc theo trạng thái"
+            allowClear
+            value={statusFilter || undefined}
+            onChange={(value) => setStatusFilter(value || "")}
+            style={{ width: 200 }}
+            options={[
+              { label: "Tất cả", value: "" },
+              { label: "Chờ duyệt", value: "PENDING" },
+              { label: "Đã duyệt", value: "VERIFIED" },
+              { label: "Đã từ chối", value: "REJECTED" },
+            ]}
+          />
+        </Space>
       </div>
 
       <Table

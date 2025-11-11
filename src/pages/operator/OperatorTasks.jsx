@@ -1,10 +1,11 @@
 // src/pages/operator/OperatorTasks.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Table, Button, Space, Tag, Modal, Form, Input,
   DatePicker, Select, Typography, Spin, InputNumber, Popconfirm, Tooltip,
+  Card, Avatar, Descriptions, Divider,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import {
@@ -18,10 +19,13 @@ import {
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
 import { listActiveStaff } from "../../lib/staffManage";
-import { getRentalOrderById, listRentalOrders } from "../../lib/rentalOrdersApi";
+import { getRentalOrderById, listRentalOrders, fmtVND } from "../../lib/rentalOrdersApi";
+import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
+import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
+const { Search } = Input;
 
 export default function OperatorTasks() {
   const [data, setData] = useState([]);
@@ -35,6 +39,10 @@ export default function OperatorTasks() {
   const [orders, setOrders] = useState([]); // for orderId selection
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [orderViewing, setOrderViewing] = useState(null);
+  const [orderCustomer, setOrderCustomer] = useState(null);
+  const [orderDetailModels, setOrderDetailModels] = useState({});
+  const [orderDetailLoading, setOrderDetailLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Load data từ API
   const loadData = async () => {
@@ -185,6 +193,97 @@ export default function OperatorTasks() {
     }
   };
 
+  const describeOrderStatus = (status) => {
+    const upper = String(status || "").toUpperCase();
+    if (!upper) return { color: "default", label: "—" };
+    if (upper.includes("PENDING")) return { color: "orange", label: "Đang chờ" };
+    if (upper.includes("READY_FOR_DELIVERY")) return { color: "processing", label: "Sẵn sàng giao" };
+    if (upper.includes("DELIVERY_CONFIRMED")) return { color: "blue", label: "Đã xác nhận giao" };
+    if (upper.includes("CONFIRM")) return { color: "blue", label: "Đã xác nhận" };
+    if (upper.includes("CANCEL")) return { color: "red", label: "Đã hủy" };
+    if (upper.includes("DONE") || upper.includes("COMPLETE")) return { color: "green", label: "Hoàn tất" };
+    return { color: "default", label: status || "—" };
+  };
+
+  const openOrderDetail = async (orderId) => {
+    if (!orderId) return;
+    setOrderModalOpen(true);
+    setOrderDetailLoading(true);
+    setOrderViewing(null);
+    setOrderCustomer(null);
+
+    try {
+      let orderData = orderMap[orderId];
+      if (!orderData) {
+        orderData = await getRentalOrderById(orderId);
+        if (orderData) {
+          setOrderMap((prev) => ({ ...prev, [orderId]: orderData }));
+        }
+      }
+
+      if (!orderData) {
+        throw new Error("Không tìm thấy đơn hàng");
+      }
+
+      setOrderViewing(orderData);
+
+      if (orderData?.customerId) {
+        try {
+          const customerRaw = await fetchCustomerById(orderData.customerId);
+          setOrderCustomer(normalizeCustomer(customerRaw || {}));
+        } catch (err) {
+          console.error("Không tải được thông tin khách hàng:", err);
+          setOrderCustomer(null);
+        }
+      }
+
+      if (Array.isArray(orderData?.orderDetails) && orderData.orderDetails.length) {
+        const uniqueIds = Array.from(
+          new Set(orderData.orderDetails.map((od) => od?.deviceModelId).filter(Boolean))
+        );
+        const missing = uniqueIds.filter((id) => !orderDetailModels[id]);
+
+        if (missing.length) {
+          const entries = await Promise.all(
+            missing.map(async (modelId) => {
+              try {
+                const modelRaw = await getDeviceModelById(modelId);
+                return [modelId, normalizeModel(modelRaw || {})];
+              } catch (err) {
+                console.error(`Không tải được mẫu thiết bị ${modelId}:`, err);
+                return [modelId, null];
+              }
+            })
+          );
+          setOrderDetailModels((prev) => {
+            const next = { ...prev };
+            entries.forEach(([id, model]) => {
+              if (model) next[id] = model;
+            });
+            return next;
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Không thể mở chi tiết đơn hàng:", err);
+      toast.error("Không tải được chi tiết đơn hàng");
+      setOrderModalOpen(false);
+    } finally {
+      setOrderDetailLoading(false);
+    }
+  };
+
+  // Filter data based on search query
+  const filteredData = useMemo(() => {
+    if (!searchQuery.trim()) return data;
+    const query = searchQuery.trim().toLowerCase();
+    return data.filter((task) => {
+      const taskId = String(task.taskId || task.id || "").toLowerCase();
+      const orderId = String(task.orderId || "").toLowerCase();
+      return taskId.includes(query) || orderId.includes(query);
+    });
+  }, [data, searchQuery]);
+
   const columns = [
     { 
       title: "ID", 
@@ -200,22 +299,8 @@ export default function OperatorTasks() {
       render: (_, r) => {
         const id = r.orderId;
         const st = id ? (orderMap[id]?.status || orderMap[id]?.orderStatus || null) : null;
+        const { color, label } = describeOrderStatus(st);
         if (!id) return "-";
-        const upper = String(st || "").toUpperCase();
-        const color =
-          upper.includes("PENDING") ? "orange" :
-          upper.includes("CONFIRM") ? "blue" :
-          upper.includes("CANCEL") ? "red" :
-          (upper.includes("DONE") || upper.includes("COMPLETE")) ? "green" :
-          "default";
-        const label =
-          upper.includes("PENDING") ? "Đang chờ" :
-          upper.includes("READY_FOR_DELIVERY") ? "Sẵn sàng giao" :
-          upper.includes("DELIVERY_CONFIRMED") ? "Đã xác nhận giao" :
-          upper.includes("CONFIRM") ? "Đã xác nhận" :
-          upper.includes("CANCEL") ? "Đã hủy" :
-          (upper.includes("DONE") || upper.includes("COMPLETE")) ? "Hoàn tất" :
-          (st || "-");
         return (
           <Space direction="vertical" size="small">
             <Space>
@@ -224,21 +309,7 @@ export default function OperatorTasks() {
                 size="small" 
                 type="link"
                 style={{ padding: 0, height: 'auto' }}
-                onClick={async () => {
-                  if (!orderMap[id]) {
-                    try {
-                      const o = await getRentalOrderById(id);
-                      setOrderMap((m) => ({ ...m, [id]: o }));
-                      setOrderViewing(o);
-                    } catch {
-                      toast.error("Không tải được đơn hàng");
-                      return;
-                    }
-                  } else {
-                    setOrderViewing(orderMap[id]);
-                  }
-                  setOrderModalOpen(true);
-                }}
+                onClick={() => openOrderDetail(id)}
               >
                 Xem
               </Button>
@@ -261,7 +332,7 @@ export default function OperatorTasks() {
       title: "Mô tả",
       dataIndex: "description",
       key: "description",
-      width: 240,
+      width: 180,
       ellipsis: { showTitle: false },
       render: (text) => (
         <Tooltip title={text} placement="topLeft">
@@ -350,25 +421,172 @@ export default function OperatorTasks() {
     },
   ];
 
+  const fmtDate = (value) => (value ? dayjs(value).format("DD/MM/YYYY") : "—");
+
+  const orderDays = useMemo(() => {
+    if (!orderViewing?.startDate || !orderViewing?.endDate) return 1;
+    const start = dayjs(orderViewing.startDate).startOf("day");
+    const end = dayjs(orderViewing.endDate).startOf("day");
+    const diff = end.diff(start, "day");
+    return Math.max(1, diff || 1);
+  }, [orderViewing?.startDate, orderViewing?.endDate]);
+
+  const orderDetailRows = useMemo(() => {
+    if (!orderViewing || !Array.isArray(orderViewing.orderDetails)) return [];
+    return orderViewing.orderDetails.map((od, idx) => {
+      const model = orderDetailModels[od?.deviceModelId] || od?.deviceModel || {};
+      const image = model?.imageURL || model?.imageUrl || model?.image || od?.deviceModelImage || "";
+      const name =
+        model?.name ||
+        model?.deviceName ||
+        od?.deviceModelName ||
+        (od?.deviceModelId != null ? `Model #${od.deviceModelId}` : "Không rõ thiết bị");
+      const code =
+        model?.id ||
+        model?.deviceModelId ||
+        od?.deviceModelId ||
+        model?.code ||
+        "—";
+
+      return {
+        key: od?.orderDetailId || od?.id || idx,
+        orderDetailId: od?.orderDetailId || od?.id || idx,
+        quantity: Number(od?.quantity ?? 0),
+        pricePerDay: Number(od?.pricePerDay ?? od?.dailyPrice ?? model?.pricePerDay ?? 0),
+        depositAmountPerUnit: Number(od?.depositAmountPerUnit ?? model?.depositAmountPerUnit ?? 0),
+        modelInfo: {
+          name,
+          image,
+          code,
+        },
+      };
+    });
+  }, [orderViewing, orderDetailModels]);
+
+  const orderTotals = useMemo(() => {
+    return orderDetailRows.reduce(
+      (acc, item) => {
+        const qty = Number(item.quantity || 0);
+        const deposit = Number(item.depositAmountPerUnit || 0) * qty;
+        const rental = Number(item.pricePerDay || 0) * qty * Number(orderDays || 1);
+        return {
+          deposit: acc.deposit + deposit,
+          rental: acc.rental + rental,
+        };
+      },
+      { deposit: 0, rental: 0 }
+    );
+  }, [orderDetailRows, orderDays]);
+
+  const orderItemColumns = useMemo(() => [
+    {
+      title: "Chi tiết ID",
+      dataIndex: "orderDetailId",
+      width: 110,
+      render: (value) => (value ? `#${value}` : "—"),
+    },
+    {
+      title: "Thiết bị",
+      dataIndex: "modelInfo",
+      width: 280,
+      render: (_, record) => {
+        const model = record?.modelInfo || {};
+        const name = model.name || "Không rõ thiết bị";
+        return (
+          <Space align="start">
+            <Avatar
+              shape="square"
+              size={48}
+              src={model.image}
+              alt={name}
+              style={{ backgroundColor: model.image ? undefined : "#f0f0f0" }}
+            >
+              {!model.image && typeof name === "string" ? name.charAt(0)?.toUpperCase() : null}
+            </Avatar>
+            <div>
+              <div>
+                <Text strong>{name}</Text>
+              </div>
+              <div style={{ color: "#6B7280", fontSize: 12 }}>Mã mẫu: {model.code || "—"}</div>
+            </div>
+          </Space>
+        );
+      },
+    },
+    {
+      title: "SL",
+      dataIndex: "quantity",
+      width: 70,
+      align: "center",
+    },
+    {
+      title: "Giá/ngày",
+      dataIndex: "pricePerDay",
+      width: 120,
+      align: "right",
+      render: (value) => fmtVND(value),
+    },
+    {
+      title: "Cọc/1 SP",
+      dataIndex: "depositAmountPerUnit",
+      width: 130,
+      align: "right",
+      render: (value) => fmtVND(value),
+    },
+    {
+      title: "Tổng tiền cọc",
+      key: "depositTotal",
+      width: 140,
+      align: "right",
+      render: (_, record) => fmtVND(Number(record.depositAmountPerUnit || 0) * Number(record.quantity || 0)),
+    },
+    {
+      title: "Tổng tiền thuê",
+      key: "rentalTotal",
+      width: 150,
+      align: "right",
+      render: (_, record) =>
+        fmtVND(Number(record.pricePerDay || 0) * Number(record.quantity || 0) * Number(orderDays || 1)),
+    },
+  ], [orderDays]);
+
   return (
     <>
-      <Title level={3}>Quản lý nhiệm vụ</Title>
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <Title level={3} style={{ margin: 0 }}>Quản lý nhiệm vụ</Title>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={loadData}>Tải lại</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              Thêm task
+            </Button>
+          </Space>
+        </div>
+      </Card>
 
-      <div className="mb-2">
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          Thêm task
-        </Button>
-      </div>
+      <Card>
+        <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
+          <Search
+            placeholder="Tìm kiếm theo mã task hoặc mã đơn hàng..."
+            allowClear
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onSearch={setSearchQuery}
+            style={{ width: "100%", maxWidth: 400 }}
+            enterButton
+          />
+        </Space>
 
-      <Spin spinning={loading}>
-        <Table
-          rowKey="taskId"
-          columns={columns}
-          dataSource={data}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 1200 }}
-        />
-      </Spin>
+        <Spin spinning={loading}>
+          <Table
+            rowKey="taskId"
+            columns={columns}
+            dataSource={filteredData}
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} task` }}
+            scroll={{ x: 1200 }}
+          />
+        </Spin>
+      </Card>
 
       <Modal
         title={editing ? "Cập nhật task" : "Tạo task"}
@@ -466,29 +684,65 @@ export default function OperatorTasks() {
       <Modal
         open={orderModalOpen}
         title={`Đơn hàng ${orderViewing?.orderId ?? orderViewing?.id ?? ""}`}
-        onCancel={() => { setOrderModalOpen(false); setOrderViewing(null); }}
+        onCancel={() => {
+          setOrderModalOpen(false);
+          setOrderViewing(null);
+          setOrderCustomer(null);
+        }}
         footer={[<Button key="close" onClick={() => setOrderModalOpen(false)}>Đóng</Button>]}
-        width={700}
+        width={840}
       >
-        {orderViewing ? (
-          <div>
-            <p><b>Trạng thái:</b> {orderViewing.status || orderViewing.orderStatus || "—"}</p>
-            <p><b>Khách hàng:</b> {orderViewing.customerId ?? "—"}</p>
-            <p><b>Ngày bắt đầu:</b> {orderViewing.startDate || "—"}</p>
-            <p><b>Ngày kết thúc:</b> {orderViewing.endDate || "—"}</p>
-            {Array.isArray(orderViewing.orderDetails) && (
-              <div>
-                <b>Chi tiết:</b>
-                <ul>
-                  {orderViewing.orderDetails.map((d, i) => (
-                    <li key={i}>Model #{d.deviceModelId} × {d.quantity}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+        {orderDetailLoading ? (
+          <div style={{ textAlign: "center", padding: "32px 0" }}>
+            <Spin />
           </div>
+        ) : orderViewing ? (
+          <Space direction="vertical" style={{ width: "100%" }} size="large">
+            <Descriptions bordered column={2} size="middle">
+              <Descriptions.Item label="Mã đơn">#{orderViewing.orderId ?? orderViewing.id}</Descriptions.Item>
+              <Descriptions.Item label="Trạng thái">
+                <Tag color={describeOrderStatus(orderViewing.status || orderViewing.orderStatus).color}>
+                  {describeOrderStatus(orderViewing.status || orderViewing.orderStatus).label}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Khách hàng" span={2}>
+                <div>
+                  <div><strong>{orderCustomer?.fullName || orderViewing.customerName || "—"}</strong></div>
+                  <div style={{ color: "#4B5563" }}>SĐT: {orderCustomer?.phoneNumber || orderViewing.customerPhone || "—"}</div>
+                  <div style={{ color: "#4B5563" }}>Email: {orderCustomer?.email || orderViewing.customerEmail || "—"}</div>
+                </div>
+              </Descriptions.Item>
+              <Descriptions.Item label="Ngày thuê">
+                {fmtDate(orderViewing.startDate)} → {fmtDate(orderViewing.endDate)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Số ngày thuê">
+                {orderDays} ngày
+              </Descriptions.Item>
+              <Descriptions.Item label="Địa chỉ giao hàng" span={2}>
+                {orderViewing.shippingAddress || orderViewing.address || orderCustomer?.shippingAddress || "—"}
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Divider style={{ margin: "12px 0" }} />
+
+            <Table
+              rowKey="key"
+              columns={orderItemColumns}
+              dataSource={orderDetailRows}
+              pagination={false}
+              scroll={{ x: 760 }}
+              size="small"
+            />
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <Space direction="vertical" align="end" size={4}>
+                <div><strong>Tổng tiền cọc:</strong> {fmtVND(orderTotals.deposit)}</div>
+                <div><strong>Tổng tiền thuê:</strong> {fmtVND(orderTotals.rental)}</div>
+              </Space>
+            </div>
+          </Space>
         ) : (
-          <span>Đang tải…</span>
+          <span>Không có dữ liệu đơn hàng.</span>
         )}
       </Modal>
     </>

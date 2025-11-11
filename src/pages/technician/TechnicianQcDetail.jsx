@@ -9,7 +9,7 @@ import { InboxOutlined, ArrowLeftOutlined } from "@ant-design/icons";
 import toast from "react-hot-toast";
 import { getTaskById, normalizeTask } from "../../lib/taskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
-import { createQcReport } from "../../lib/qcReportApi";
+import { createQcReport, getQcReportsByOrderId, updateQcReport } from "../../lib/qcReportApi";
 import { getDevicesByModelId } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 
@@ -94,6 +94,9 @@ export default function TechnicianQcDetail() {
   const [devicesByOrderDetail, setDevicesByOrderDetail] = useState({});
   // Map: deviceModelId -> device model name
   const [modelNameById, setModelNameById] = useState({});
+  // QC Report state
+  const [existingQcReport, setExistingQcReport] = useState(null);
+  const [loadingQcReport, setLoadingQcReport] = useState(false);
   
   // Fetch task and order details
   useEffect(() => {
@@ -120,6 +123,28 @@ export default function TechnicianQcDetail() {
         if (normalizedTask.orderId) {
           const orderData = await getRentalOrderById(normalizedTask.orderId);
           setOrder(orderData);
+
+          // Fetch existing QC report by orderId (the correct way)
+          try {
+            setLoadingQcReport(true);
+            const qcReports = await getQcReportsByOrderId(normalizedTask.orderId);
+            if (Array.isArray(qcReports) && qcReports.length > 0) {
+              // Tìm QC report có taskId matching với task hiện tại
+              const matchingReport = qcReports.find(r => (r.taskId === normalizedTask.taskId || r.taskId === normalizedTask.id));
+              if (matchingReport) {
+                setExistingQcReport(matchingReport);
+              } else if (qcReports.length === 1) {
+                // Nếu chỉ có 1 report, dùng nó
+                setExistingQcReport(qcReports[0]);
+              }
+            }
+          } catch (e) {
+            // QC report không tồn tại hoặc lỗi -> không sao, sẽ tạo mới
+            console.log("No existing QC report found or error:", e?.response?.status);
+            setExistingQcReport(null);
+          } finally {
+            setLoadingQcReport(false);
+          }
         }
       } catch (e) {
         toast.error(e?.response?.data?.message || e?.message || "Không tải được dữ liệu");
@@ -237,7 +262,6 @@ export default function TechnicianQcDetail() {
     }
   }, [phase, resultOptions, result]);
   const [findings, setFindings] = useState("");
-  const [description, setDescription] = useState("");
   // Ảnh chụp phụ kiện: chọn 1 ảnh để upload kèm báo cáo
   const [accessorySnapshotFile, setAccessorySnapshotFile] = useState(null);
   const [accessorySnapshotPreview, setAccessorySnapshotPreview] = useState("");
@@ -245,6 +269,53 @@ export default function TechnicianQcDetail() {
   // Chọn thiết bị từ kho theo từng orderDetailId:
   // selectedDevicesByOrderDetail = { orderDetailId: ["SN-001", "SN-002"], ... }
   const [selectedDevicesByOrderDetail, setSelectedDevicesByOrderDetail] = useState({});
+
+  // Load existing QC report data into form when it's available
+  useEffect(() => {
+    if (existingQcReport) {
+      // Populate form fields with existing QC report data
+      if (existingQcReport.phase) {
+        setPhase(String(existingQcReport.phase).toUpperCase());
+      }
+      if (existingQcReport.result) {
+        setResult(String(existingQcReport.result).toUpperCase());
+      }
+      if (existingQcReport.findings) {
+        setFindings(String(existingQcReport.findings));
+      }
+      if (existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl) {
+        setAccessorySnapshotPreview(existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl);
+      }
+      
+      // Build orderDetailSerialNumbers from devices array in response
+      if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
+        const serialMap = {};
+        // orderDetailId nằm ở level QC report, không phải trong từng device
+        const orderDetailId = existingQcReport.orderDetailId;
+        if (orderDetailId) {
+          const serialNumbers = existingQcReport.devices
+            .map(device => device.serialNumber || device.serial || device.serialNo || device.deviceId || device.id)
+            .filter(Boolean)
+            .map(String);
+          
+          if (serialNumbers.length > 0) {
+            serialMap[String(orderDetailId)] = serialNumbers;
+          }
+        }
+        setSelectedDevicesByOrderDetail(serialMap);
+      } else if (existingQcReport.orderDetailSerialNumbers) {
+        // Fallback to orderDetailSerialNumbers if devices array not available
+        const serialMap = {};
+        Object.keys(existingQcReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
+          const serials = existingQcReport.orderDetailSerialNumbers[orderDetailId];
+          if (Array.isArray(serials)) {
+            serialMap[orderDetailId] = serials.map(String);
+          }
+        });
+        setSelectedDevicesByOrderDetail(serialMap);
+      }
+    }
+  }, [existingQcReport]);
 
   // Get order details from order
   const orderDetails = useMemo(() => {
@@ -404,18 +475,42 @@ export default function TechnicianQcDetail() {
         orderDetailSerialNumbers,
         phase: String(phase || "PRE_RENTAL").toUpperCase(),
         result: String(result || "READY_FOR_SHIPPING").toUpperCase(),
-        description: description.trim() || "",
         findings: findings.trim(),
         accessoryFile: accessorySnapshotFile || null,
       };
 
       console.log("QC report payload:", payload);
-      console.log("Calling createQcReport...");
       
-      await createQcReport(payload);
-      console.log("createQcReport succeeded");
+      // Check if updating existing report or creating new one
+      const taskStatus = String(task?.status || "").toUpperCase();
+      const isCompleted = taskStatus === "COMPLETED";
+      const qcReportId = existingQcReport?.qcReportId || existingQcReport?.id;
       
-      toast.success("Đã tạo QC report thành công!");
+      // Nếu status là COMPLETED nhưng chưa có QC report -> không cho tạo mới
+      if (isCompleted && !qcReportId) {
+        message.error("Task đã hoàn thành. Chỉ có thể cập nhật QC report đã tồn tại, không thể tạo mới.");
+        return;
+      }
+      
+      if (existingQcReport && qcReportId) {
+        console.log("Calling updateQcReport...");
+        // Remove taskId from update payload (not needed for update)
+        const updatePayload = {
+          orderDetailSerialNumbers: payload.orderDetailSerialNumbers,
+          phase: payload.phase,
+          result: payload.result,
+          findings: payload.findings,
+          accessoryFile: payload.accessoryFile,
+        };
+        await updateQcReport(qcReportId, updatePayload);
+        console.log("updateQcReport succeeded");
+        toast.success("Đã cập nhật QC report thành công!");
+      } else {
+        console.log("Calling createQcReport...");
+        await createQcReport(payload);
+        console.log("createQcReport succeeded");
+        toast.success("Đã tạo QC report thành công!");
+      }
       
       // Navigate back sau khi thành công
       setTimeout(() => {
@@ -463,9 +558,11 @@ export default function TechnicianQcDetail() {
           Quay lại
         </Button>
         <Title level={3} style={{ margin: 0 }}>
-          Chi tiết QC
+          {existingQcReport ? "Cập nhật QC Report" : "Chi tiết QC"}
         </Title>
-        <Tag color="blue">KIỂM TRA QC</Tag>
+        <Tag color={existingQcReport ? "orange" : "blue"}>
+          {existingQcReport ? "CẬP NHẬT QC" : "KIỂM TRA QC"}
+        </Tag>
       </Space>
 
       {/* Thông tin task và đơn hàng */}
@@ -645,18 +742,6 @@ export default function TechnicianQcDetail() {
 
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Mô tả
-            </Text>
-            <Input.TextArea
-              rows={3}
-              placeholder="Nhập mô tả về quá trình kiểm tra QC..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <Text strong style={{ display: "block", marginBottom: 8 }}>
               Ghi chú/Phát hiện <Text type="danger">*</Text>
             </Text>
             <Input.TextArea
@@ -670,7 +755,7 @@ export default function TechnicianQcDetail() {
 
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Ảnh chụp phụ kiện 
+              Ảnh chụp bằng chứng
             </Text>
             <Upload.Dragger
               multiple={false}
@@ -759,9 +844,9 @@ export default function TechnicianQcDetail() {
               message.error("Có lỗi xảy ra: " + (error?.message || "Unknown error"));
             }
           }}
-          disabled={loading}
+          disabled={loading || loadingQcReport}
         >
-          Lưu kết quả QC
+          {existingQcReport ? "Cập nhật QC Report" : "Lưu kết quả QC"}
         </Button>
       </Space>
     </div>

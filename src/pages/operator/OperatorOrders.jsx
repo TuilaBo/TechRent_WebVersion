@@ -1335,6 +1335,19 @@ export default function OperatorOrders() {
     return Math.max(1, d);
   }, [detail]);
 
+  // Tính Tổng tiền thuê theo logic MyOrders: Σ(pricePerDay × quantity × số ngày)
+  const rentalTotal = useMemo(() => {
+    if (!detail || !Array.isArray(detail.orderDetails)) return 0;
+    try {
+      return detail.orderDetails.reduce((sum, od) => {
+        const unit = Number(od?.pricePerDay || 0);
+        return sum + unit * Number(detailDays || 1);
+      }, 0);
+    } catch {
+      return 0;
+    }
+  }, [detail, detailDays]);
+
   const itemCols = useMemo(() => {
     const columns = [
       {
@@ -1387,21 +1400,30 @@ export default function OperatorOrders() {
           );
         },
       },
-      {
-        title: "SL",
-        dataIndex: "quantity",
-        width: 70,
-        align: "center",
-      },
     ];
 
+    // Reordered: Đơn giá/ngày -> Số ngày -> Tổng tiền thuê -> Cọc/1 SP -> Số lượng -> Tổng cọc -> Tổng thanh toán
     columns.push(
       {
-        title: "Giá/ngày",
+        title: "Đơn giá SP/ngày",
         dataIndex: "pricePerDay",
         width: 120,
         align: "right",
         render: (v) => fmtVND(v),
+      },
+      {
+        title: "Số ngày thuê",
+        key: "days",
+        width: 90,
+        align: "center",
+        render: () => detailDays,
+      },
+      {
+        title: "Tổng tiền thuê",
+        key: "subtotal",
+        width: 150,
+        align: "right",
+        render: (_, r) => fmtVND(Number(r.pricePerDay || 0) * Number(detailDays || 1)),
       },
       {
         title: "Cọc/1 SP",
@@ -1411,24 +1433,18 @@ export default function OperatorOrders() {
         render: (v) => fmtVND(v),
       },
       {
+        title: "SL",
+        dataIndex: "quantity",
+        width: 70,
+        align: "center",
+      },
+      {
         title: "Tổng tiền cọc",
         key: "depositTotal",
         width: 140,
         align: "right",
         render: (_, r) =>
           fmtVND(Number(r.depositAmountPerUnit || 0) * Number(r.quantity || 1)),
-      },
-      {
-        title: "Tổng tiền thuê",
-        key: "subtotal",
-        width: 150,
-        align: "right",
-        render: (_, r) =>
-          fmtVND(
-            Number(r.pricePerDay || 0) *
-              Number(r.quantity || 1) *
-              Number(detailDays || 1)
-          ),
       }
     );
 
@@ -1580,14 +1596,14 @@ export default function OperatorOrders() {
             <Divider />
 
             <Space size={24} wrap>
-              <Statistic title="Tổng tiền thuê " value={fmtVND(detail.totalPrice)} />
+              <Statistic title="Tổng tiền thuê " value={fmtVND(rentalTotal)} />
               <Statistic title="Tổng tiền cọc" value={fmtVND(detail.depositAmount)} />
               <Statistic
                 title="Tổng thanh toán"
                 value={fmtVND((detail.totalPrice || 0) + (detail.depositAmount || 0))}
                 valueStyle={{ color: "#1890ff", fontWeight: "bold" }}
               />
-              <Statistic title="Cọc hoàn lại" value={fmtVND(detail.depositAmountRefunded)} />
+              <Statistic title="Cọc đã hoàn lại" value={fmtVND(detail.depositAmountRefunded)} />
               <Statistic title="Giá/ngày (TB)" value={fmtVND(detail.pricePerDay)} />
             </Space>
 

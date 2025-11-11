@@ -234,7 +234,7 @@ export default function KycPage() {
 
       <Space className="mt-1" wrap>
         <Button onClick={() => setStep(0)}>Quay lại</Button>
-        <Button loading={ocring} onClick={doOCR}>Tự điền lại từ ảnh (OCR)</Button>
+        
         <Button type="primary" onClick={() => setStep(2)} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
           Tiếp tục
         </Button>

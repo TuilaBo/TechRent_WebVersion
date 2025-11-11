@@ -1,20 +1,27 @@
 import { Form, Input, Button, Typography, Card, Alert, Checkbox } from "antd";
-import { MailOutlined, LockOutlined } from "@ant-design/icons";
+import { MailOutlined, LockOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { FcGoogle } from "react-icons/fc";
 import { useAuth } from "../../context/AuthContext";
 import toast from "react-hot-toast";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function LoginForm() {
   const navigate = useNavigate();
   const { login, fetchMe, user, role, loading, error, clearError, bootstrapped } = useAuth();
+  const [capsLockOn, setCapsLockOn] = useState(false);
 
   useEffect(() => {
     if (!bootstrapped) return;
     if (!user) return;
     redirectByRole(role);
   }, [bootstrapped, user, role]);
+
+  // Detect Caps Lock
+  const handleKeyPress = (e) => {
+    const capsLock = e.getModifierState && e.getModifierState("CapsLock");
+    setCapsLockOn(capsLock);
+  };
 
   const redirectByRole = (r) => {
     switch (r) {
@@ -184,8 +191,18 @@ export default function LoginForm() {
           >
             <Input.Password 
               className="login-input"
-              prefix={<LockOutlined style={{ color: "#9ca3af" }} />} 
-              placeholder="••••••••" 
+              prefix={<LockOutlined style={{ color: "#9ca3af" }} />}
+              suffix={
+                capsLockOn ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <ExclamationCircleOutlined style={{ color: "#f59e0b", fontSize: 16 }} />
+                    <span style={{ color: "#f59e0b", fontSize: 12, fontWeight: 500 }}>Caps Lock</span>
+                  </div>
+                ) : null
+              }
+              placeholder="••••••••"
+              onKeyPress={handleKeyPress}
+              onKeyUp={handleKeyPress}
             />
           </Form.Item>
 

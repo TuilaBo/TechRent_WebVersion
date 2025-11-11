@@ -14,6 +14,7 @@ import {
   message,
   Select,
   Table,
+  Input,
 } from "antd";
 import {
   EnvironmentOutlined,
@@ -30,6 +31,7 @@ import {
   getTaskById,
   normalizeTask,
 } from "../../lib/taskApi";
+import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
   TECH_TASK_STATUS,
   getTechnicianStatusColor,
@@ -62,6 +64,9 @@ const taskToDisplay = (t) => ({
   taskCategoryName: t.taskCategoryName || "",
   assignedStaffName: t.assignedStaffName || "",
   assignedStaffRole: t.assignedStaffRole || "",
+  plannedStart: t.plannedStart || null,
+  plannedEnd: t.plannedEnd || null,
+  completedAt: t.completedAt || null,
 });
 
 const fmtStatus = (s) => {
@@ -127,6 +132,9 @@ export default function TechnicianCalendar() {
   const [customerDetail, setCustomerDetail] = useState(null);
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [loading, setLoading] = useState(false);
+  const [searchTaskId, setSearchTaskId] = useState("");
+  // Map: taskId -> hasQcReport (boolean)
+  const [hasQcReportMap, setHasQcReportMap] = useState({});
 
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
@@ -175,6 +183,49 @@ export default function TechnicianCalendar() {
       const allTasks = allTasksRaw.map(normalizeTask);
       const display = allTasks.map(taskToDisplay);
       setTasksAll(display);
+
+      // Check which tasks have QC reports (only for Pre Rental QC tasks)
+      // Lấy theo orderId thay vì taskId
+      const qcReportMap = {};
+      const preRentalQcTasks = allTasks.filter((task) => isPreRentalQC(task));
+      
+      // Group tasks by orderId to avoid duplicate API calls
+      const tasksByOrderId = {};
+      preRentalQcTasks.forEach((task) => {
+        const orderId = task.orderId;
+        const taskId = task.taskId || task.id;
+        if (orderId && taskId) {
+          if (!tasksByOrderId[orderId]) {
+            tasksByOrderId[orderId] = [];
+          }
+          tasksByOrderId[orderId].push(taskId);
+        }
+      });
+      
+      // Check QC reports by orderId in parallel
+      const qcReportChecks = Object.keys(tasksByOrderId).map(async (orderId) => {
+        try {
+          const qcReports = await getQcReportsByOrderId(orderId);
+          if (Array.isArray(qcReports) && qcReports.length > 0) {
+            // Mark all tasks in this order as having QC report
+            tasksByOrderId[orderId].forEach((taskId) => {
+              // Check if any QC report matches this taskId
+              const hasReport = qcReports.some(r => r.taskId === taskId);
+              if (hasReport) {
+                qcReportMap[taskId] = true;
+              }
+            });
+          }
+        } catch {
+          // No QC report exists or error - that's fine
+          tasksByOrderId[orderId].forEach((taskId) => {
+            qcReportMap[taskId] = false;
+          });
+        }
+      });
+      
+      await Promise.all(qcReportChecks);
+      setHasQcReportMap(qcReportMap);
     } catch (e) {
       toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
     } finally {
@@ -225,7 +276,7 @@ export default function TechnicianCalendar() {
         render: (_, r) => r.taskCategoryName || TYPES[r.type]?.label || r.type,
       },
       {
-        title: "Tiêu đề",
+        title: "Mô tả",
         dataIndex: "title",
         key: "title",
         ellipsis: true,
@@ -237,12 +288,19 @@ export default function TechnicianCalendar() {
         width: 130,
       },
       {
-        title: "Bắt đầu",
-        dataIndex: "date",
-        key: "start",
-        render: (d) => (d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—"),
+        title: "Deadline",
+        dataIndex: "plannedEnd",
+        key: "deadline",
+        render: (_, r) => {
+          const deadline = r.plannedEnd || r.plannedEndDate;
+          return deadline ? dayjs(deadline).format("DD/MM/YYYY HH:mm") : "—";
+        },
         width: 180,
-        sorter: (a, b) => dayjs(a.date) - dayjs(b.date),
+        sorter: (a, b) => {
+          const aDate = a.plannedEnd || a.plannedEndDate;
+          const bDate = b.plannedEnd || b.plannedEndDate;
+          return dayjs(aDate || 0) - dayjs(bDate || 0);
+        },
       },
       {
         title: "Trạng thái",
@@ -266,24 +324,36 @@ export default function TechnicianCalendar() {
         render: (_, r) => (
           <Space>
             <Button size="small" onClick={() => onClickTask(r)}>Xem</Button>
-            {isPreRentalQC(r) && String(r.status || "").toUpperCase() !== "COMPLETED" && (
-              <Button
-                size="small"
-                type="primary"
-                icon={<FileTextOutlined />}
-                onClick={() => {
-                  const taskId = r.taskId || r.id;
-                  navigate(`/technician/tasks/qc/${taskId}`, { state: { task: r } });
-                }}
-              >
-                Tạo QC Report
-              </Button>
-            )}
+            {isPreRentalQC(r) && (() => {
+              const taskId = r.taskId || r.id;
+              const status = String(r.status || "").toUpperCase();
+              const hasQcReport = hasQcReportMap[taskId];
+              const isCompleted = status === "COMPLETED";
+              
+              // Nếu COMPLETED: chỉ hiển thị nút nếu đã có QC report (chỉ cho update)
+              // Nếu chưa COMPLETED: hiển thị nút tạo/cập nhật như bình thường
+              if (isCompleted && !hasQcReport) {
+                return null; // Không hiển thị nút khi COMPLETED nhưng chưa có QC report
+              }
+              
+              return (
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<FileTextOutlined />}
+                  onClick={() => {
+                    navigate(`/technician/tasks/qc/${taskId}`, { state: { task: r } });
+                  }}
+                >
+                  {hasQcReport ? "Cập nhật QC Report" : "Tạo QC Report"}
+                </Button>
+              );
+            })()}
           </Space>
         ),
       },
     ],
-    [navigate, onClickTask]
+    [navigate, onClickTask, hasQcReportMap]
   );
 
   
@@ -311,6 +381,8 @@ export default function TechnicianCalendar() {
     );
 
     // === QC: chỉ hiển thị thông tin cơ bản + nút Thực hiện QC ===
+    const isCompletedQC = String(t.status || "").toUpperCase() === "COMPLETED";
+    
     if (t.type === "QC") {
       return (
         <>
@@ -324,25 +396,50 @@ export default function TechnicianCalendar() {
               {Array.isArray(t.devices) ? t.devices.join(", ") : t.device}
             </Descriptions.Item>
             <Descriptions.Item label="Hạn chót">
-              {fmtDateTime(t.deadline)}
+              {fmtDateTime(t.deadline || t.plannedEnd)}
             </Descriptions.Item>
             <Descriptions.Item label="Category">{t.category || "—"}</Descriptions.Item>
             <Descriptions.Item label="Địa điểm">{t.location || "—"}</Descriptions.Item>
+            {isCompletedQC && (
+              <>
+                <Descriptions.Item label="Thời gian bắt đầu">
+                  {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian kết thúc">
+                  {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian hoàn thành">
+                  {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                </Descriptions.Item>
+              </>
+            )}
           </Descriptions>
           <Divider />
           <Space wrap>
-            {isPreRentalQC(t) && String(t.status || "").toUpperCase() !== "COMPLETED" && (
-              <Button
-                type="primary"
-                icon={<FileTextOutlined />}
-                onClick={() => {
-                  const taskId = t.taskId || t.id;
-                  navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
-                }}
-              >
-                Tạo QC Report
-              </Button>
-            )}
+            {isPreRentalQC(t) && (() => {
+              const taskId = t.taskId || t.id;
+              const status = String(t.status || "").toUpperCase();
+              const hasQcReport = hasQcReportMap[taskId];
+              const isCompleted = status === "COMPLETED";
+              
+              // Nếu COMPLETED: chỉ hiển thị nút nếu đã có QC report (chỉ cho update)
+              // Nếu chưa COMPLETED: hiển thị nút tạo/cập nhật như bình thường
+              if (isCompleted && !hasQcReport) {
+                return null; // Không hiển thị nút khi COMPLETED nhưng chưa có QC report
+              }
+              
+              return (
+                <Button
+                  type="primary"
+                  icon={<FileTextOutlined />}
+                  onClick={() => {
+                    navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+                  }}
+                >
+                  {hasQcReport ? "Cập nhật QC Report" : "Tạo QC Report"}
+                </Button>
+              );
+            })()}
           </Space>
         </>
       );
@@ -469,6 +566,8 @@ export default function TechnicianCalendar() {
     }
 
     // Fallback generic detail for loại không xác định
+    const isCompleted = String(t.status || "").toUpperCase() === "COMPLETED";
+    
     return (
       <>
         {header}
@@ -483,6 +582,19 @@ export default function TechnicianCalendar() {
           </Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+          {isCompleted && (
+            <>
+              <Descriptions.Item label="Thời gian bắt đầu Task">
+                {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Thời gian kết thúc Task">
+                {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Thời gian hoàn thành Task">
+                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+              </Descriptions.Item>
+            </>
+          )}
         </Descriptions>
           {orderDetail && (
             <>
@@ -543,18 +655,30 @@ export default function TechnicianCalendar() {
         {/* duplicate order detail block removed */}
         <Divider />
         <Space wrap>
-          {isPreRentalQC(t) && String(t.status || "").toUpperCase() !== "COMPLETED" && (
-            <Button
-              type="primary"
-              icon={<FileTextOutlined />}
-              onClick={() => {
-                const taskId = t.taskId || t.id;
-                navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
-              }}
-            >
-              Tạo QC Report
-            </Button>
-          )}
+          {isPreRentalQC(t) && (() => {
+            const taskId = t.taskId || t.id;
+            const status = String(t.status || "").toUpperCase();
+            const hasQcReport = hasQcReportMap[taskId];
+            const isCompleted = status === "COMPLETED";
+            
+            // Nếu COMPLETED: chỉ hiển thị nút nếu đã có QC report (chỉ cho update)
+            // Nếu chưa COMPLETED: hiển thị nút tạo/cập nhật như bình thường
+            if (isCompleted && !hasQcReport) {
+              return null; // Không hiển thị nút khi COMPLETED nhưng chưa có QC report
+            }
+            
+            return (
+              <Button
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => {
+                  navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+                }}
+              >
+                {hasQcReport ? "Cập nhật QC Report" : "Tạo QC Report"}
+              </Button>
+            );
+          })()}
         </Space>
       </>
     );
@@ -569,7 +693,15 @@ export default function TechnicianCalendar() {
         </Button>
       </div>
 
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
+        <Input.Search
+          placeholder="Tìm theo mã task"
+          allowClear
+          value={searchTaskId}
+          onChange={(e) => setSearchTaskId(e.target.value)}
+          onSearch={setSearchTaskId}
+          style={{ width: 200 }}
+        />
         <span>Lọc trạng thái:</span>
         <Select
           style={{ width: 200 }}
@@ -589,7 +721,14 @@ export default function TechnicianCalendar() {
           loading={loading}
           columns={columns}
           dataSource={tasksAll
-            .filter((t) => (filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase()))
+            .filter((t) => {
+              // Filter by status
+              const statusMatch = filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase();
+              // Filter by task ID
+              const taskIdMatch = !searchTaskId.trim() || 
+                String(t.id || t.taskId || "").includes(String(searchTaskId.trim()));
+              return statusMatch && taskIdMatch;
+            })
             .sort((a, b) => {
               // Ưu tiên PENDING lên đầu
               const aIsPending = String(a.status || "").toUpperCase().includes("PENDING");

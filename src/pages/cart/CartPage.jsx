@@ -1,26 +1,46 @@
 // src/pages/cart/CartPage.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
-  Row, Col, Card, Typography, Breadcrumb, Button, InputNumber,
-  Divider, Space, Empty, DatePicker, Tooltip, Skeleton
+  Row,
+  Col,
+  Card,
+  Typography,
+  Breadcrumb,
+  Button,
+  InputNumber,
+  Divider,
+  Space,
+  Empty,
+  DatePicker,
+  Tooltip,
+  Skeleton,
 } from "antd";
 import {
-  DeleteOutlined, ArrowLeftOutlined, ShoppingCartOutlined, CalendarOutlined
+  DeleteOutlined,
+  ArrowLeftOutlined,
+  ShoppingCartOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
-  getCartFromStorage, saveCartToStorage,
-  removeFromCart, updateCartItemQuantity, debugCart
+  getCartFromStorage,
+  saveCartToStorage,
+  removeFromCart,
+  updateCartItemQuantity,
+  debugCart,
 } from "../../lib/cartUtils";
 import { getMyKyc } from "../../lib/kycApi";
 
 const { Title, Text } = Typography;
 
 const fmtVND = (n) =>
-  Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
+  Number(n || 0).toLocaleString("vi-VN", {
+    style: "currency",
+    currency: "VND",
+  });
 const disabledPast = (cur) => cur && cur < dayjs().startOf("day");
 const CART_DATES_STORAGE_KEY = "techrent-cart-dates";
 
@@ -138,7 +158,9 @@ export default function CartPage() {
       try {
         setKycLoading(true);
         const kyc = await getMyKyc();
-        const status = String(kyc?.kycStatus || kyc?.status || "").toLowerCase();
+        const status = String(
+          kyc?.kycStatus || kyc?.status || ""
+        ).toLowerCase();
         setKycStatus(status || "unverified");
       } catch {
         setKycStatus("unverified");
@@ -188,7 +210,8 @@ export default function CartPage() {
       items.map((it) => {
         const qty = Number(it.qty || 1);
         const subtotal = Number(it.dailyPrice || 0) * days * qty;
-        const deposit = Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty;
+        const deposit =
+          Number(it.deviceValue || 0) * Number(it.depositPercent || 0) * qty;
         return {
           id: it.id,
           name: it.name,
@@ -233,7 +256,12 @@ export default function CartPage() {
     if (s.includes("verified") || s.includes("approved")) return "verified";
     if (s.includes("reject") || s.includes("denied")) return "rejected";
     // Cho phép pending, submitted, documents_submitted, review
-    if (s.includes("pending") || s.includes("submit") || s.includes("review") || s === "documents_submitted")
+    if (
+      s.includes("pending") ||
+      s.includes("submit") ||
+      s.includes("review") ||
+      s === "documents_submitted"
+    )
       return "pending";
     return "unverified";
   }, [kycStatus]);
@@ -245,6 +273,17 @@ export default function CartPage() {
 
   const checkout = () => {
     persistCartDates(startDate, endDate);
+
+    // Validate dates
+    if (!startDate || !endDate) {
+      return toast.error("Vui lòng chọn ngày bắt đầu và kết thúc thuê.");
+    }
+    if (startDate.isBefore(dayjs().startOf("day"))) {
+      return toast.error("Ngày bắt đầu thuê không được là ngày trong quá khứ.");
+    }
+    if (endDate.isBefore(startDate.startOf("day"))) {
+      return toast.error("Ngày kết thúc thuê phải sau ngày bắt đầu thuê.");
+    }
 
     if (!items.length) {
       toast("Giỏ hàng đang trống.", { icon: "🛒" });
@@ -271,7 +310,10 @@ export default function CartPage() {
       <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <Breadcrumb
-            items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]}
+            items={[
+              { title: <Link to="/">Trang chủ</Link> },
+              { title: "Giỏ hàng" },
+            ]}
             className="mb-4"
           />
           <Title level={3}>Giỏ hàng</Title>
@@ -285,7 +327,10 @@ export default function CartPage() {
     <div className="min-h-screen" style={{ background: "#F5F7FA" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
         <Breadcrumb
-          items={[{ title: <Link to="/">Trang chủ</Link> }, { title: "Giỏ hàng" }]}
+          items={[
+            { title: <Link to="/">Trang chủ</Link> },
+            { title: "Giỏ hàng" },
+          ]}
           className="mb-4"
         />
         <Title level={3} style={{ color: "#111827", marginBottom: 16 }}>
@@ -293,8 +338,8 @@ export default function CartPage() {
         </Title>
 
         <Row gutter={[24, 24]}>
-          {/* LEFT: Items */}
-          <Col xs={24} lg={9}>
+          {/* LEFT: Items (narrower) */}
+          <Col xs={24} lg={8} xl={7}>
             <Card
               bordered
               className="rounded-xl"
@@ -305,7 +350,9 @@ export default function CartPage() {
                 <Empty description="Chưa có sản phẩm" />
               ) : (
                 items.map((it) => {
-                  const percent = Math.round(Number(it.depositPercent || 0) * 100);
+                  const percent = Math.round(
+                    Number(it.depositPercent || 0) * 100
+                  );
                   const line = lineTotals.find((x) => x.id === it.id);
                   return (
                     <Card
@@ -334,8 +381,18 @@ export default function CartPage() {
                           }}
                         />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                            <Text strong style={{ color: "#111827", fontSize: 15 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              marginBottom: 8,
+                            }}
+                          >
+                            <Text
+                              strong
+                              style={{ color: "#111827", fontSize: 15 }}
+                            >
                               {it.name}
                             </Text>
                             <Tooltip title="Xóa khỏi giỏ hàng">
@@ -352,7 +409,8 @@ export default function CartPage() {
                           <div style={{ marginBottom: 12 }}>
                             <div style={{ marginBottom: 4 }}>
                               <Text style={{ color: "#111827", fontSize: 14 }}>
-                                Giá thuê: <strong>{fmtVND(it.dailyPrice)}</strong> / ngày
+                                Giá thuê:{" "}
+                                <strong>{fmtVND(it.dailyPrice)}</strong> / ngày
                               </Text>
                             </div>
                             <div style={{ marginBottom: 4 }}>
@@ -362,28 +420,47 @@ export default function CartPage() {
                             </div>
                             <div>
                               <Text type="secondary" style={{ fontSize: 13 }}>
-                                Tiền cọc ({percent}%): <strong style={{ color: "#111827" }}>{fmtVND(line?.deposit || 0)}</strong>
+                                Tiền cọc ({percent}%):{" "}
+                                <strong style={{ color: "#111827" }}>
+                                  {fmtVND(line?.deposit || 0)}
+                                </strong>
                               </Text>
                             </div>
                           </div>
 
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
                             <Space.Compact>
-                              <Button onClick={() => updateItem(it.id, { qty: Math.max(1, it.qty - 1) })}>
+                              <Button
+                                onClick={() =>
+                                  updateItem(it.id, {
+                                    qty: Math.max(1, it.qty - 1),
+                                  })
+                                }
+                              >
                                 –
                               </Button>
                               <InputNumber
                                 min={1}
                                 value={it.qty}
-                                onChange={(v) => updateItem(it.id, { qty: v || 1 })}
+                                onChange={(v) =>
+                                  updateItem(it.id, { qty: v || 1 })
+                                }
                                 style={{ width: 60, textAlign: "center" }}
                               />
-                              <Button onClick={() => updateItem(it.id, { qty: it.qty + 1 })}>+</Button>
+                              <Button
+                                onClick={() =>
+                                  updateItem(it.id, { qty: it.qty + 1 })
+                                }
+                              >
+                                +
+                              </Button>
                             </Space.Compact>
-                            
-                            <Text strong style={{ color: "#111827", fontSize: 15 }}>
-                              {fmtVND(line?.subtotal || 0)}
-                            </Text>
                           </div>
                         </div>
                       </div>
@@ -394,8 +471,8 @@ export default function CartPage() {
             </Card>
           </Col>
 
-          {/* MIDDLE: Dates */}
-          <Col xs={24} lg={8}>
+          {/* MIDDLE: Dates (a bit narrower) */}
+          <Col xs={24} lg={7} xl={7}>
             <Card
               bordered
               className="rounded-xl"
@@ -434,7 +511,9 @@ export default function CartPage() {
                     disabledDate={(cur) =>
                       disabledPast(cur) ||
                       (startDate &&
-                        cur.startOf("day").diff(startDate.startOf("day"), "day") <= 0)
+                        cur
+                          .startOf("day")
+                          .diff(startDate.startOf("day"), "day") <= 0)
                     }
                     suffixIcon={<CalendarOutlined />}
                   />
@@ -463,72 +542,211 @@ export default function CartPage() {
             </Card>
           </Col>
 
-          {/* RIGHT: Summary */}
-          <Col xs={24} lg={7}>
+          {/* RIGHT: Summary (wider) */}
+          <Col xs={24} lg={9} xl={10}>
             <Card
               bordered
               className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
+              bodyStyle={{ padding: 16, wordBreak: "break-word" }}
               title={<Text strong>Tóm tắt đơn hàng</Text>}
             >
               <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                {lineTotals.map((ln) => (
+                <div
+                  style={{
+                    padding: 12,
+                    background: "#F9FAFB",
+                    borderRadius: 10,
+                    border: "1px solid #E5E7EB",
+                  }}
+                >
+                  {/* Dùng grid 2 cột để nhãn-giá trị không bị nhảy */}
                   <div
-                    key={ln.id}
                     style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      justifyContent: "space-between",
-                      paddingBottom: 8,
-                      borderBottom: "1px solid #F3F4F6",
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      rowGap: 6,
                     }}
                   >
-                    <div style={{ flex: 1 }}>
-                      <Text style={{ color: "#111827", display: "block", fontSize: 14 }}>
-                        {ln.name}
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 13 }}>
-                        {ln.qty} thiết bị × {days} ngày
-                      </Text>
-                    </div>
-                    <Text strong style={{ color: "#111827", fontSize: 14, marginLeft: 12 }}>
-                      {fmtVND(ln.subtotal)}
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>
+                      Ngày bắt đầu thuê
+                    </Text>
+                    <Text strong style={{ fontSize: 14, color: "#111827" }}>
+                      {startDate?.format("DD/MM/YYYY")}
+                    </Text>
+
+                    <Text style={{ fontSize: 14, color: "#6B7280" }}>
+                      Ngày kết thúc thuê
+                    </Text>
+                    <Text strong style={{ fontSize: 14, color: "#111827" }}>
+                      {endDate?.format("DD/MM/YYYY")}
                     </Text>
                   </div>
-                ))}
+                  <Divider style={{ margin: "8px 0" }} />
+                  <div
+                    style={{ display: "grid", gridTemplateColumns: "1fr auto" }}
+                  >
+                    <Text style={{ fontSize: 15, color: "#111827" }}>
+                      Tổng số ngày
+                    </Text>
+                    <Text strong style={{ fontSize: 16, color: "#111827" }}>
+                      {days} ngày
+                    </Text>
+                  </div>
+                </div>
+
+                <Divider />
+
+                {lineTotals.map((ln) => {
+                  const item = items.find((i) => i.id === ln.id) || {};
+                  const percent = Math.round(
+                    Number(item.depositPercent || 0) * 100
+                  );
+                  return (
+                    <div
+                      key={ln.id}
+                      style={{
+                        paddingBottom: 8,
+                        borderBottom: "1px solid #F3F4F6",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          marginBottom: 6,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 6,
+                            background: `url(${item.image}) center/cover no-repeat`,
+                            border: "1px solid #E5E7EB",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            width: "100%",
+                            alignItems: "center",
+                          }}
+                        >
+                          <Text
+                            style={{ color: "#111827", fontSize: 14, flex: 1 }}
+                          >
+                            {ln.name}
+                          </Text>
+                          <Text
+                            strong
+                            style={{
+                              fontSize: 14,
+                              color: "#111827",
+                              marginLeft: 12,
+                            }}
+                          >
+                            Tiền thuê: {fmtVND(ln.subtotal)}
+                          </Text>
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                        }}
+                      >
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                          {ln.qty} thiết bị × {days} ngày
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                          Giá trị thiết bị: {fmtVND(item.deviceValue)}
+                        </Text>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                        }}
+                      >
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>
+                          Tiền Cọc = {percent}% × Giá trị thiết bị × SL
+                        </span>
+                        <Text strong style={{ fontSize: 13, color: "#111827" }}>
+                          Tiền Cọc:{" "}
+                          {fmtVND(
+                            Number(item.deviceValue || 0) *
+                              Number(item.depositPercent || 0) *
+                              Number(ln.qty || 1)
+                          )}
+                        </Text>
+                      </div>
+                    </div>
+                  );
+                })}
               </Space>
 
               <Divider />
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between" style={{ padding: "8px 0" }}>
-                  <Text style={{ color: "#6B7280", fontSize: 14 }}>Tiền thuê thiết bị</Text>
-                  <Text strong style={{ color: "#111827", fontSize: 15 }}>{fmtVND(subtotal)}</Text>
+                <div
+                  className="flex items-center justify-between"
+                  style={{ padding: "8px 0" }}
+                >
+                  <Text style={{ color: "#6B7280", fontSize: 14 }}>
+                    Tổng tiền thuê thiết bị
+                  </Text>
+                  <Text strong style={{ color: "#111827", fontSize: 15 }}>
+                    {fmtVND(subtotal)}
+                  </Text>
                 </div>
-                <div className="flex items-center justify-between" style={{ padding: "8px 0" }}>
-                  <Text style={{ color: "#6B7280", fontSize: 14 }}>Tiền cọc</Text>
-                  <Text strong style={{ color: "#111827", fontSize: 15 }}>{fmtVND(deposit)}</Text>
+                <div
+                  className="flex items-center justify-between"
+                  style={{ padding: "8px 0" }}
+                >
+                  <Text style={{ color: "#6B7280", fontSize: 14 }}>
+                    Tổng tiền cọc
+                  </Text>
+                  <Text strong style={{ color: "#111827", fontSize: 15 }}>
+                    {fmtVND(deposit)}
+                  </Text>
                 </div>
               </div>
 
               <Divider />
 
-              <div className="flex items-center justify-between" style={{ padding: "12px 0" }}>
-                <Text strong style={{ fontSize: 16, color: "#111827" }}>Tổng cộng</Text>
-                <Title level={4} style={{ margin: 0, color: "#111827", fontSize: 20 }}>
+              <div
+                className="flex items-center justify-between"
+                style={{ padding: "12px 0" }}
+              >
+                <Text strong style={{ fontSize: 16, color: "#111827" }}>
+                  Tổng cộng
+                </Text>
+                <Title
+                  level={4}
+                  style={{ margin: 0, color: "#111827", fontSize: 20 }}
+                >
                   {fmtVND(grandTotal)}
                 </Title>
               </div>
 
-              <div style={{ 
-                background: "#F9FAFB", 
-                padding: 12, 
-                borderRadius: 8, 
-                marginTop: 8,
-                border: "1px solid #E5E7EB"
-              }}>
-                <Text type="secondary" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                  💡 Tiền cọc được hoàn trả sau khi bạn trả thiết bị trong tình trạng tốt
+              <div
+                style={{
+                  background: "#F9FAFB",
+                  padding: 12,
+                  borderRadius: 8,
+                  marginTop: 8,
+                  border: "1px solid #E5E7EB",
+                }}
+              >
+                <Text
+                  type="secondary"
+                  style={{ fontSize: 13, lineHeight: 1.6 }}
+                >
+                  💡 Tiền cọc được hoàn trả sau khi bạn trả thiết bị trong tình
+                  trạng tốt
                 </Text>
               </div>
 
@@ -538,7 +756,11 @@ export default function CartPage() {
                 block
                 icon={<ShoppingCartOutlined />}
                 onClick={checkout}
-                style={{ marginTop: 12, background: "#111827", borderColor: "#111827" }}
+                style={{
+                  marginTop: 12,
+                  background: "#111827",
+                  borderColor: "#111827",
+                }}
               >
                 Tiến hành thanh toán
               </Button>

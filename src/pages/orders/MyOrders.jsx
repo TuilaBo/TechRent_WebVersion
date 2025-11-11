@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Table, Tag, Typography, Input, DatePicker, Space, Button,
   Dropdown, Menu, Tooltip, message, Drawer, Descriptions,
-  Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps
+  Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps, Radio, Checkbox
 } from "antd";
 import {
   SearchOutlined, FilterOutlined, EyeOutlined,
@@ -582,10 +582,15 @@ export default function MyOrders() {
 
   const [customerProfile, setCustomerProfile] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
+  // Payment modal
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("PAYOS");
+  const [paymentTermsAccepted, setPaymentTermsAccepted] = useState(false);
+  const [paymentOrder, setPaymentOrder] = useState(null);
 
   // Layout: Table tự cuộn theo viewport
-  const TABLE_TOP_BLOCK = 56 + 64 + 24;
-  const TABLE_BOTTOM_BLOCK = 72;
+  const TABLE_TOP_BLOCK = 40 + 40 + 16;
+  const TABLE_BOTTOM_BLOCK = 56;
   const tableScrollY = `calc(100vh - ${TABLE_TOP_BLOCK + TABLE_BOTTOM_BLOCK}px)`;
 
   function revokeBlob(url) { try { if (url) URL.revokeObjectURL(url); } catch (e) { console.error("Error revoking blob:", e); } }
@@ -977,6 +982,7 @@ export default function MyOrders() {
         signatureMethod: "EMAIL_OTP",
       });
       message.success("Ký hợp đồng thành công!");
+      message.success("Bạn đã ký hợp đồng thành công. Vui lòng thanh toán để hoàn tất đơn.");
       setSignModalOpen(false);
       setCurrentContractId(null);
       setPinSent(false);
@@ -991,6 +997,16 @@ export default function MyOrders() {
 
   const handlePayment = async (order) => {
     if (!order || !order.id) { message.error("Không có thông tin đơn hàng để thanh toán."); return; }
+    setPaymentOrder(order);
+    setPaymentMethod("PAYOS");
+    setPaymentTermsAccepted(false);
+    setPaymentModalOpen(true);
+  };
+
+  const confirmCreatePayment = async () => {
+    const order = paymentOrder || current;
+    if (!order || !order.id) { message.error("Không có thông tin đơn hàng để thanh toán."); return; }
+    if (!paymentTermsAccepted) { message.warning("Vui lòng chấp nhận điều khoản trước khi thanh toán."); return; }
     try {
       setProcessingPayment(true);
       const items = order.items || [];
@@ -1004,27 +1020,24 @@ export default function MyOrders() {
       const baseUrl = window.location.origin;
       const orderIdParam = Number(order.id);
       const orderCodeParam = order.displayId || order.id;
-      const returnUrl = `https://www.facebook.com/`;
+      const returnUrl = `${baseUrl}/payment/return?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
       const cancelUrl = `${baseUrl}/payment/cancel?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
-
-      if (!returnUrl || !cancelUrl || returnUrl === "string" || cancelUrl === "string") {
-        message.error("URL redirect không hợp lệ."); return;
-      }
 
       const payload = {
         orderId: orderIdParam,
         invoiceType: "RENT_PAYMENT",
-        paymentMethod: "PAYOS",
+        paymentMethod: String(paymentMethod || "PAYOS").toUpperCase(),
         amount: totalAmount,
         description: `Thanh toán đơn hàng #${orderCodeParam}`,
         returnUrl, cancelUrl,
       };
 
       const result = await createPayment(payload);
-      if (result?.checkoutUrl) {
+      const redirectUrl = result?.checkoutUrl || result?.payUrl || result?.deeplink || result?.qrUrl;
+      if (redirectUrl) {
         localStorage.setItem("pendingPaymentOrderId", String(orderIdParam));
         localStorage.setItem("pendingPaymentOrderCode", String(orderCodeParam));
-        window.location.href = result.checkoutUrl;
+        window.location.href = redirectUrl;
       } else {
         message.error("Không nhận được link thanh toán từ hệ thống.");
       }
@@ -1307,26 +1320,26 @@ export default function MyOrders() {
       title: "Mã đơn",
       dataIndex: "displayId",
       key: "displayId",
-      width: 100,
+      width: 90,
       fixed: "left",
-      render: (v) => <Text strong>{v}</Text>,
+      render: (v) => <Text strong style={{ fontSize: 13 }}>{v}</Text>,
       sorter: (a, b) => String(a.displayId).localeCompare(String(b.displayId)),
     },
     {
       title: "Sản phẩm",
       key: "items",
-      width: 260,
+      width: 220,
       render: (_, r) => {
         const first = r.items?.[0] || {};
         const extra = (r.items?.length ?? 0) > 1 ? ` +${r.items.length - 1} mục` : "";
         return (
           <Space size="middle">
-            <Avatar shape="square" size={48} src={first.image} style={{ borderRadius: 8 }} />
-            <div style={{ maxWidth: 180 }}>
-              <Text strong style={{ display: "block" }} ellipsis={{ tooltip: first.name }}>
+            <Avatar shape="square" size={40} src={first.image} style={{ borderRadius: 6 }} />
+            <div style={{ maxWidth: 150 }}>
+              <Text strong style={{ display: "block", fontSize: 13 }} ellipsis={{ tooltip: first.name }}>
                 {first.name || "—"}
               </Text>
-              <Text type="secondary">SL: {first.qty ?? 1}{extra}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>SL: {first.qty ?? 1}{extra}</Text>
             </div>
           </Space>
         );
@@ -1336,17 +1349,17 @@ export default function MyOrders() {
       title: "Ngày tạo",
       dataIndex: "createdAt",
       key: "createdAt",
-      width: 150,
+      width: 130,
       render: (v) => formatDateTime(v),
       sorter: (a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0),
       defaultSortOrder: "descend",
     },
-    { title: "Số ngày", dataIndex: "days", key: "days", align: "center", width: 90, sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0) },
+    { title: "Số ngày", dataIndex: "days", key: "days", align: "center", width: 80, sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0) },
     {
       title: "Tổng tiền thuê",
       key: "rentalTotal",
       align: "right",
-      width: 140,
+      width: 120,
       render: (_, r) => <Text strong>{formatVND(Number(r.total || 0))}</Text>,
       sorter: (a, b) => Number(a.total || 0) - Number(b.total || 0),
     },
@@ -1354,7 +1367,7 @@ export default function MyOrders() {
       title: "Tổng tiền cọc",
       key: "depositTotal",
       align: "right",
-      width: 140,
+      width: 120,
       render: (_, r) => {
         const depositTotal = (r.items || []).reduce(
           (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0
@@ -1371,7 +1384,7 @@ export default function MyOrders() {
       title: "Tổng thanh toán",
       key: "grandTotal",
       align: "right",
-      width: 160,
+      width: 140,
       render: (_, r) => {
         const dep = (r.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
         return <Text strong>{formatVND(Number(r.total || 0) + dep)}</Text>;
@@ -1398,11 +1411,11 @@ export default function MyOrders() {
     {
       title: "",
       key: "actions",
-      width: 120,
+      width: 100,
       fixed: "right",
       render: (_, r) => (
         <Tooltip title="Chi tiết đơn">
-          <Button type="text" icon={<EyeOutlined />} onClick={() => showDetail(r)} />
+          <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => showDetail(r)} />
         </Tooltip>
       ),
     },
@@ -1426,35 +1439,35 @@ export default function MyOrders() {
           {/* Header Section */}
           <Card
             style={{
-              marginBottom: 24,
-              borderRadius: 16,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
-              border: "none",
+              marginBottom: 16,
+              borderRadius: 12,
+              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+              border: "1px solid #eee",
               background: "#ffffff",
             }}
-            bodyStyle={{ padding: "24px 32px" }}
+            bodyStyle={{ padding: "16px 20px" }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
               <div>
-                <Title level={2} style={{ margin: 0, color: "#1a1a1a", fontWeight: 700, fontSize: 28 }}>
-                  Đơn thuê của tôi
-                </Title>
-                <Text type="secondary" style={{ fontSize: 15, marginTop: 8, display: "block", color: "#666" }}>
-                  Theo dõi trạng thái đơn, thanh toán và tải hợp đồng
-                </Text>
+                <Title level={3} style={{ margin: 0, color: "#1a1a1a", fontWeight: 700, fontSize: 22 }}>
+                   Đơn thuê của tôi
+                 </Title>
+                <Text type="secondary" style={{ fontSize: 13, marginTop: 6, display: "block", color: "#666" }}>
+                   Theo dõi trạng thái đơn, thanh toán và tải hợp đồng
+                 </Text>
               </div>
               <Button
                 type="primary"
                 icon={<ReloadOutlined />}
                 onClick={refresh}
                 loading={loading}
-                size="large"
+                size="middle"
                 style={{
-                  borderRadius: 12,
-                  height: 44,
-                  padding: "0 24px",
+                  borderRadius: 8,
+                  height: 36,
+                  padding: "0 16px",
                   fontWeight: 600,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
                 }}
               >
                 Tải lại
@@ -1462,26 +1475,26 @@ export default function MyOrders() {
             </div>
 
             {/* Filters Section */}
-            <Space wrap size="middle" style={{ width: "100%" }}>
+            <Space wrap size="small" style={{ width: "100%" }}>
               <Input
                 allowClear
                 prefix={<SearchOutlined />}
                 placeholder="Tìm theo mã đơn, tên thiết bị…"
-                size="large"
+                size="middle"
                 style={{
-                  width: 360,
-                  borderRadius: 12,
-                  height: 44,
+                  width: 300,
+                  borderRadius: 8,
+                  height: 36,
                 }}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
               <RangePicker
                 onChange={setDateRange}
-                size="large"
+                size="middle"
                 style={{
-                  borderRadius: 12,
-                  height: 44,
+                  borderRadius: 8,
+                  height: 36,
                 }}
               />
               <Dropdown
@@ -1497,12 +1510,12 @@ export default function MyOrders() {
                 }
               >
                 <Button
-                  size="large"
+                  size="middle"
                   icon={<FilterOutlined />}
                   style={{
-                    borderRadius: 12,
-                    height: 44,
-                    padding: "0 20px",
+                    borderRadius: 8,
+                    height: 36,
+                    padding: "0 14px",
                     borderColor: "#d9d9d9",
                   }}
                 >
@@ -1515,15 +1528,15 @@ export default function MyOrders() {
           {/* Table Section */}
           <Card
             style={{
-              borderRadius: 16,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.1)",
+              borderRadius: 12,
+              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
               border: "none",
               flex: 1,
               display: "flex",
               flexDirection: "column",
               minHeight: 0,
             }}
-            bodyStyle={{ padding: "24px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
+            bodyStyle={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
           >
             {data.length === 0 ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
@@ -1536,11 +1549,11 @@ export default function MyOrders() {
                   columns={columns}
                   dataSource={data}
                   loading={loading || loadingOrders}
-                  size="middle"
+                  size="small"
                   bordered={false}
                   className="modern-table"
                   sticky
-                  scroll={{ x: 980, y: tableScrollY }}
+                  scroll={{ x: 900, y: tableScrollY }}
                   pagination={{
                     pageSize: 10,
                     showSizeChanger: true,
@@ -1572,7 +1585,7 @@ export default function MyOrders() {
         }}
         styles={{
           body: { padding: 0, background: "#f5f7fa" },
-          header: { background: "#fff", borderBottom: "1px solid #e8e8e8", padding: "20px 24px" },
+          header: { background: "#fff", borderBottom: "1px solid #e8e8e8", padding: "14px 18px" },
         }}
       >
         {current && (
@@ -1658,12 +1671,12 @@ export default function MyOrders() {
                                 );
                               })()}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Tổng tiền thuê (ước tính)">
+                            <Descriptions.Item label="Tổng tiền thuê">
                               <Space direction="vertical" size={0}>
                                 <Text strong>{formatVND(Number(current?.total ?? rentalTotal))}</Text>
                               </Space>
                             </Descriptions.Item>
-                            <Descriptions.Item label="Tổng tiền cọc (ước tính)">
+                            <Descriptions.Item label="Tổng tiền cọc">
                               <Space direction="vertical" size={0}>
                                 <Text strong>{formatVND(depositTotal)}</Text>
                               </Space>
@@ -1689,28 +1702,28 @@ export default function MyOrders() {
                             rowKey={(r, idx) => `${r.deviceModelId || r.name}-${idx}`}
                             dataSource={items}
                             pagination={false}
-                            size="middle"
-                            scroll={{ x: 980 }}
+                            size="small"
+                            scroll={{ x: 860 }}
                             columns={[
                               {
                                 title: "Sản phẩm",
                                 dataIndex: "name",
-                                width: 280,
+                                width: 240,
                                 render: (v, r) => (
                                   <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                                    <Avatar shape="square" size={48} src={r.image} style={{ borderRadius: 8 }} />
+                                    <Avatar shape="square" size={40} src={r.image} style={{ borderRadius: 6 }} />
                                     <div style={{ minWidth: 0 }}>
-                                      <Text strong style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v}</Text>
+                                      <Text strong style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }}>{v}</Text>
                                     </div>
                                   </div>
                                 ),
                               },
-                              { title: "SL", dataIndex: "qty", width: 70, align: "center" },
-                              { title: "Đơn giá SP/ngày", dataIndex: "pricePerDay", width: 130, align: "right", render: (v) => formatVND(v) },
-                              { title: "Số ngày thuê", key: "days", width: 90, align: "center", render: () => days },
-                              { title: "Tổng tiền thuê", key: "subtotal", width: 150, align: "right", render: (_, r) => formatVND(Number(r.pricePerDay || 0) * Number(days || 1)) },
-                              { title: "Cọc/1 SP", dataIndex: "depositAmountPerUnit", width: 130, align: "right", render: (v) => formatVND(v) },
-                              { title: "Tổng cọc", key: "depositSubtotal", width: 130, align: "right", render: (_, r) => formatVND(Number(r.depositAmountPerUnit || 0) * Number(r.qty || 1)) },
+                              { title: "SL", dataIndex: "qty", width: 60, align: "center" },
+                              { title: "Đơn giá SP/ngày", dataIndex: "pricePerDay", width: 120, align: "right", render: (v) => formatVND(v) },
+                              { title: "Số ngày thuê", key: "days", width: 80, align: "center", render: () => days },
+                              { title: "Tổng tiền thuê", key: "subtotal", width: 130, align: "right", render: (_, r) => formatVND(Number(r.pricePerDay || 0) * Number(days || 1)) },
+                              { title: "Cọc/1 SP", dataIndex: "depositAmountPerUnit", width: 120, align: "right", render: (v) => formatVND(v) },
+                              { title: "Tổng cọc", key: "depositSubtotal", width: 120, align: "right", render: (_, r) => formatVND(Number(r.depositAmountPerUnit || 0) * Number(r.qty || 1)) },
                             ]}
                             />
                           </Card>
@@ -1726,7 +1739,7 @@ export default function MyOrders() {
                           >
                             <div style={{ display: "flex", justifyContent: "flex-end" }}>
                               <Space direction="vertical" align="end" size="middle" style={{ width: "100%" }}>
-                                <div style={{ width: "100%", maxWidth: 400 }}>
+                                <div style={{ width: "100%", maxWidth: 360 }}>
                                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                                     <Text>Tổng tiền thuê ({days} ngày):</Text>
                                     <Text strong style={{ fontSize: 15 }}>{formatVND(Number(current?.total ?? rentalTotal))}</Text>
@@ -1738,34 +1751,13 @@ export default function MyOrders() {
                                   <Divider style={{ margin: "12px 0" }} />
                                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                     <Text style={{ fontSize: 16, fontWeight: 600 }}>Tổng thanh toán:</Text>
-                                    <Text strong style={{ color: "#1a1a1a", fontSize: 20, fontWeight: 700 }}>
+                                    <Text strong style={{ color: "#1a1a1a", fontSize: 18, fontWeight: 700 }}>
                                       {formatVND(totalAmount)}
                                     </Text>
                                   </div>
                                 </div>
 
-                                {canPay && totalAmount > 0 ? (
-                                  <Button
-                                    type="primary"
-                                    size="large"
-                                    icon={<DollarOutlined />}
-                                    onClick={() => handlePayment(current)}
-                                    loading={processingPayment}
-                                    block
-                                    style={{
-                                      marginTop: 8,
-                                      height: 48,
-                                      borderRadius: 12,
-                                      fontWeight: 600,
-                                      fontSize: 16,
-                                      background: "#1a1a1a",
-                                      borderColor: "#1a1a1a",
-                                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                                    }}
-                                  >
-                                    Thanh toán ngay
-                                  </Button>
-                                ) : null}
+
                               </Space>
                             </div>
                           </Card>
@@ -1816,7 +1808,7 @@ export default function MyOrders() {
                             {
                               title: "Thao tác",
                               key: "actions",
-                              width: 260,
+                              width: 220,
                               render: (_, record) => (
                                 <Space size="small">
                                   <Button
@@ -1846,6 +1838,38 @@ export default function MyOrders() {
                           <Text type="secondary">Chưa có hợp đồng nào được tạo cho đơn này</Text>
                         </div>
                       )}
+
+                      {(() => {
+                        const items = Array.isArray(current?.items) ? current.items : [];
+                        const days = Number(current?.days || 1);
+                        const rentalTotal = items.reduce((s, it) => s + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0) * days;
+                        const depositTotal = items.reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+                        const canPayCurrent =
+                          ["unpaid", "partial"].includes(String(current.paymentStatus).toLowerCase()) &&
+                          String(current.orderStatus).toLowerCase() === "processing" &&
+                          hasSignedContract(current.id) &&
+                          Number((current?.total ?? rentalTotal) + depositTotal) > 0;
+
+                        if (!canPayCurrent) return null;
+
+                        return (
+                          <div style={{ padding: '16px', textAlign: 'right', borderTop: '1px solid #f0f0f0', marginTop: 16 }}>
+                            <Button
+                              type="primary"
+                              size="middle"
+                              icon={<DollarOutlined />}
+                              onClick={() => handlePayment(current)}
+                              loading={processingPayment}
+                              style={{
+                                borderRadius: 8,
+                                fontWeight: 500,
+                              }}
+                            >
+                              Thanh toán
+                            </Button>
+                          </div>
+                        );
+                      })()}
                     </Card>
 
                     <Card
@@ -1896,16 +1920,18 @@ export default function MyOrders() {
                           </Button>
                         </>
                       )}
+
+
                       </Space>
 
                       <div
                         style={{
-                          height: 500,
+                          height: 460,
                           border: "1px solid #e8e8e8",
-                          borderRadius: 12,
+                          borderRadius: 10,
                           overflow: "hidden",
                           background: "#fafafa",
-                          marginTop: 16,
+                          marginTop: 12,
                           boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
                         }}
                       >
@@ -2155,6 +2181,72 @@ export default function MyOrders() {
         </Form>
       </Modal>
 
+      {/* Modal chọn phương thức thanh toán */}
+      <Modal
+        title="Thanh toán đơn hàng"
+        open={paymentModalOpen}
+        onCancel={() => setPaymentModalOpen(false)}
+        onOk={confirmCreatePayment}
+        okText="Thanh toán"
+        okButtonProps={{ disabled: !paymentTermsAccepted, loading: processingPayment }}
+        destroyOnClose
+      >
+        {(() => {
+          const order = paymentOrder || current;
+          const items = order?.items || [];
+          const days = Number(order?.days || 1);
+          const rentalTotalRecalc = items.reduce((s, it) => s + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0) * days;
+          const totalPriceFromBE = Number(order?.total ?? rentalTotalRecalc);
+          const depositTotal = items.reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+          const totalAmount = totalPriceFromBE + depositTotal;
+          return (
+            <Space direction="vertical" style={{ width: "100%" }} size="large">
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <Text>Tổng tiền thuê:</Text>
+                <Text strong>{formatVND(totalPriceFromBE)}</Text>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <Text>Tổng tiền cọc:</Text>
+                <Text strong>{formatVND(depositTotal)}</Text>
+              </div>
+              <Divider style={{ margin: "8px 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ fontSize: 15, fontWeight: 600 }}>Tổng thanh toán</Text>
+                <Text strong style={{ fontSize: 18 }}>{formatVND(totalAmount)}</Text>
+              </div>
+
+              <div>
+                <Text style={{ display: "block", marginBottom: 8 }}>Phương thức thanh toán</Text>
+                <Radio.Group
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  optionType="button"
+                  buttonStyle="solid"
+                >
+                  <Radio.Button value="MOMO">MoMo</Radio.Button>
+                  <Radio.Button value="PAYOS">PayOS</Radio.Button>
+                </Radio.Group>
+              </div>
+
+              <Checkbox
+                checked={paymentTermsAccepted}
+                onChange={(e) => setPaymentTermsAccepted(e.target.checked)}
+              >
+                Tôi đồng ý với các{" "}
+                <a
+                  href="https://docs.google.com/document/d/1GtAaYcQcSuvX8f-al_v_Q0mYYOWZMj-To8zHAKa0OnA/edit?tab=t.0"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  điều khoản thanh toán
+                </a>
+              </Checkbox>
+            </Space>
+          );
+        })()}
+      </Modal>
+
       {/* Container ẩn để render A4 rồi chụp */}
       <div style={{ position:"fixed", left:-9999, top:-9999, background:"#fff" }}>
         <div ref={printRef} />
@@ -2165,14 +2257,14 @@ export default function MyOrders() {
           background: #fafafa;
           font-weight: 600;
           color: #1a1a1a;
-          border-bottom: 2px solid #e8e8e8;
-          padding: 16px;
-          font-size: 14px;
+          border-bottom: 1px solid #e8e8e8;
+          padding: 12px;
+          font-size: 13px;
         }
         .modern-table .ant-table-tbody > tr > td {
           border-bottom: 1px solid #f0f0f0;
           transition: all 0.3s ease;
-          padding: 16px;
+          padding: 12px;
         }
         .modern-table .ant-table-tbody > tr:hover > td {
           background: #f5f5f5 !important;

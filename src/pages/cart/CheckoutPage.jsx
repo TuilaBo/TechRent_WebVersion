@@ -2,14 +2,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Row, Col, Card, Typography, Breadcrumb, Button, Divider, Space,
-  Skeleton, Form, Input, Select
+  Skeleton, Form, Input, Select, Modal
 } from "antd";
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { getCartFromStorage, clearCart } from "../../lib/cartUtils";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
-import { fetchMyCustomerProfile } from "../../lib/customerApi";
+import { fetchMyCustomerProfile, createShippingAddress, updateShippingAddress } from "../../lib/customerApi";
+import { fetchDistrictsHCM, fetchWardsByDistrict } from "../../lib/locationVn";
 import { createRentalOrder } from "../../lib/rentalOrdersApi";
 import { ShoppingCartOutlined, CheckCircleOutlined } from "@ant-design/icons";
 
@@ -57,6 +58,20 @@ export default function Checkout() {
   const [shippingAddresses, setShippingAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [note, setNote] = useState("");
+  // Address modal state
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(null);
+  const [addressForm] = Form.useForm();
+  const [districts, setDistricts] = useState([]);
+  const [modalDistrictCode, setModalDistrictCode] = useState(null);
+  const [modalWardOptions, setModalWardOptions] = useState([]);
+  const [modalWardsLoading, setModalWardsLoading] = useState(false);
+  const [addressSubmitting, setAddressSubmitting] = useState(false);
+  const isNameValid = useMemo(() => String(fullName || "").trim().length > 0, [fullName]);
+  const isAddressValid = useMemo(() => {
+    const s = String(shippingAddress || "").trim();
+    return Boolean(selectedAddressId) || s.length > 0;
+  }, [selectedAddressId, shippingAddress]);
 
   useEffect(() => {
     const load = async () => {
@@ -110,12 +125,115 @@ export default function Checkout() {
           })
         );
         setItems(normalized);
+        // Load districts for address modal
+        try {
+          const ds = await fetchDistrictsHCM();
+          setDistricts(Array.isArray(ds) ? ds : []);
+        } catch {
+          // ignore
+        }
       } finally {
         setLoading(false);
       }
     };
     load();
   }, []);
+
+  // Address modal helpers
+  const openAddressModal = (addr = null) => {
+    setEditingAddress(addr);
+    if (addr) {
+      addressForm.setFieldsValue({
+        districtCode: addr.districtCode ?? undefined,
+        wardCode: addr.wardCode ?? undefined,
+        addressLine: addr.addressLine ?? addr.address ?? "",
+      });
+      const dCode = addr.districtCode ?? null;
+      setModalDistrictCode(dCode);
+      if (dCode) {
+        setModalWardsLoading(true);
+        fetchWardsByDistrict(dCode)
+          .then((ws) => setModalWardOptions(Array.isArray(ws) ? ws : []))
+          .catch(() => setModalWardOptions([]))
+          .finally(() => setModalWardsLoading(false));
+      } else {
+        setModalWardOptions([]);
+      }
+    } else {
+      addressForm.resetFields();
+      setModalDistrictCode(null);
+      setModalWardOptions([]);
+    }
+    setAddressModalVisible(true);
+  };
+
+  const refreshAddresses = async () => {
+    try {
+      const me = await fetchMyCustomerProfile();
+      const list = me?.shippingAddressDtos || [];
+      setShippingAddresses(list);
+      if (list.length > 0) {
+        // chọn địa chỉ đầu tiên sau khi thêm/sửa
+        setSelectedAddressId(list[0].shippingAddressId);
+        setShippingAddress(list[0].address);
+      } else {
+        setSelectedAddressId(null);
+        setShippingAddress("");
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleAddressSubmit = async (values) => {
+    const { districtCode, wardCode, addressLine } = values || {};
+    if (!districtCode || !wardCode || !String(addressLine || "").trim()) {
+      toast.error("Vui lòng chọn quận, phường và nhập địa chỉ chi tiết.");
+      return;
+    }
+    try {
+      setAddressSubmitting(true);
+      const districtName = districts.find((d) => d.value === districtCode)?.label || "";
+      const wardName = modalWardOptions.find((w) => w.value === wardCode)?.label || "";
+      const composed = `${(addressLine || "").trim()}${wardName ? `, ${wardName}` : ""}${districtName ? `, ${districtName}` : ""}, TP. Hồ Chí Minh`;
+      const body = { address: composed };
+      if (editingAddress?.shippingAddressId) {
+        await updateShippingAddress(editingAddress.shippingAddressId, body);
+        toast.success("Đã cập nhật địa chỉ.");
+      } else {
+        await createShippingAddress(body);
+        toast.success("Đã thêm địa chỉ mới.");
+      }
+      await refreshAddresses();
+      setAddressModalVisible(false);
+      setEditingAddress(null);
+      addressForm.resetFields();
+      setModalDistrictCode(null);
+      setModalWardOptions([]);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Lưu địa chỉ thất bại.");
+    } finally {
+      setAddressSubmitting(false);
+    }
+  };
+
+  const onDistrictChange = async (code) => {
+    addressForm.setFieldsValue({ wardCode: undefined });
+    setModalDistrictCode(code || null);
+    if (!code) {
+      setModalWardOptions([]);
+      return;
+    }
+    setModalWardsLoading(true);
+    try {
+      const ws = await fetchWardsByDistrict(code);
+      setModalWardOptions(Array.isArray(ws) ? ws : []);
+    } catch {
+      setModalWardOptions([]);
+    } finally {
+      setModalWardsLoading(false);
+    }
+  };
 
   const days = useMemo(() => {
     if (!startDate || !endDate) return 1;
@@ -168,6 +286,8 @@ export default function Checkout() {
   const placeOrder = async () => {
     if (!items.length) return toast.error("Giỏ hàng đang trống.");
     if (!customerId) return toast.error("Không xác định được khách hàng, vui lòng đăng nhập lại.");
+    if (!isNameValid) return toast.error("Vui lòng nhập họ và tên để tiếp tục.");
+    if (!isAddressValid) return toast.error("Vui lòng chọn hoặc nhập địa chỉ giao hàng để tiếp tục.");
     if (placing) return; // chặn double click
 
     setPlacing(true);
@@ -265,41 +385,53 @@ export default function Checkout() {
                     size="large"
                   />
                 </Form.Item>
-                <Form.Item label={<Text strong>Địa chỉ giao hàng</Text>}>
-                  <Select
-                    placeholder="Chọn địa chỉ giao hàng"
-                    value={selectedAddressId}
-                    onChange={(addressId) => {
-                      setSelectedAddressId(addressId);
-                      const addr = shippingAddresses.find(a => a.shippingAddressId === addressId);
-                      setShippingAddress(addr?.address || "");
-                    }}
-                    options={shippingAddresses.map((addr) => ({
-                      value: addr.shippingAddressId,
-                      label: addr.address,
-                    }))}
-                    notFoundContent="Chưa có địa chỉ giao hàng. Vui lòng cập nhật trong hồ sơ."
-                    size="large"
-                  />
-                  {selectedAddressId && (
-                    <div style={{ marginTop: 12, padding: 12, background: "#F9FAFB", borderRadius: 8, border: "1px solid #E5E7EB" }}>
-                      <Text style={{ fontSize: 14, color: "#111827" }}>
-                        📍 {shippingAddresses.find(a => a.shippingAddressId === selectedAddressId)?.address}
-                      </Text>
+                <Form.Item label={<Text strong>Địa chỉ giao hàng</Text>} required>
+                  {shippingAddresses.length > 0 ? (
+                    <>
+                      <Select
+                        placeholder="Chọn địa chỉ giao hàng"
+                        value={selectedAddressId}
+                        onChange={(addressId) => {
+                          setSelectedAddressId(addressId || null);
+                          const addr = shippingAddresses.find(a => a.shippingAddressId === addressId);
+                          setShippingAddress(addr?.address || "");
+                        }}
+                        options={shippingAddresses.map((addr) => ({
+                          value: addr.shippingAddressId,
+                          label: addr.address,
+                        }))}
+                        size="large"
+                        allowClear
+                      />
+                      <div style={{ marginTop: 8 }}>
+                        <Button type="link" style={{ padding: 0 }} onClick={() => openAddressModal()}>
+                          Thêm địa chỉ mới →
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <Button
+                        type="primary"
+                        ghost
+                        size="large"
+                        block
+                        onClick={() => openAddressModal()}
+                        style={{ height: 44 }}
+                      >
+                        Thêm địa chỉ mới
+                      </Button>
+                      <div style={{ color: "#6B7280", marginTop: 8, fontSize: 13 }}>
+                        Chưa có địa chỉ nào. Bấm để thêm địa chỉ nhận hàng.
+                      </div>
+                    </div>
+                  )}
+                  {!isAddressValid && (
+                    <div style={{ color: "#ef4444", marginTop: 8, fontSize: 13 }}>
+                      Vui lòng chọn hoặc nhập địa chỉ giao hàng.
                     </div>
                   )}
                 </Form.Item>
-                {shippingAddresses.length === 0 && (
-                  <Form.Item>
-                    <Button
-                      type="link"
-                      onClick={() => navigate("/profile")}
-                      style={{ padding: 0, height: "auto" }}
-                    >
-                      Quản lý địa chỉ trong hồ sơ →
-                    </Button>
-                  </Form.Item>
-                )}
                 <Form.Item label={<Text strong>Ghi chú thêm (tuỳ chọn)</Text>}>
                   <Input.TextArea
                     value={note}
@@ -311,6 +443,84 @@ export default function Checkout() {
                 </Form.Item>
               </Form>
             </Card>
+            {/* Address Modal */}
+            <Modal
+              title={editingAddress ? "Sửa địa chỉ" : "Thêm địa chỉ mới"}
+              open={addressModalVisible}
+              onCancel={() => {
+                setAddressModalVisible(false);
+                setEditingAddress(null);
+                addressForm.resetFields();
+                setModalDistrictCode(null);
+                setModalWardOptions([]);
+              }}
+              footer={null}
+              width={600}
+              destroyOnClose
+            >
+              <Form
+                form={addressForm}
+                layout="vertical"
+                onFinish={handleAddressSubmit}
+                requiredMark={false}
+              >
+                <Form.Item
+                  label="Quận/Huyện"
+                  name="districtCode"
+                  rules={[{ required: true, message: "Vui lòng chọn quận/huyện" }]}
+                >
+                  <Select
+                    placeholder="Chọn quận/huyện"
+                    options={districts}
+                    showSearch
+                    optionFilterProp="label"
+                    onChange={onDistrictChange}
+                    allowClear
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Phường/Xã"
+                  name="wardCode"
+                  rules={[{ required: true, message: "Vui lòng chọn phường/xã" }]}
+                >
+                  <Select
+                    placeholder="Chọn phường/xã"
+                    loading={modalWardsLoading}
+                    options={modalWardOptions}
+                    disabled={!modalDistrictCode}
+                    showSearch
+                    optionFilterProp="label"
+                    allowClear
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Địa chỉ chi tiết"
+                  name="addressLine"
+                  rules={[{ required: true, message: "Vui lòng nhập địa chỉ chi tiết" }]}
+                >
+                  <Input.TextArea
+                    autoSize={{ minRows: 2, maxRows: 4 }}
+                    placeholder="Số nhà, tên đường…"
+                  />
+                </Form.Item>
+                <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+                  <Button
+                    onClick={() => {
+                      setAddressModalVisible(false);
+                      setEditingAddress(null);
+                      addressForm.resetFields();
+                      setModalDistrictCode(null);
+                      setModalWardOptions([]);
+                    }}
+                  >
+                    Hủy
+                  </Button>
+                  <Button type="primary" htmlType="submit" loading={addressSubmitting}>
+                    {editingAddress ? "Cập nhật" : "Thêm"}
+                  </Button>
+                </Space>
+              </Form>
+            </Modal>
 
             <Card
               bordered
@@ -357,6 +567,11 @@ export default function Checkout() {
                         <div style={{ marginBottom: 4 }}>
                           <Text type="secondary" style={{ fontSize: 13 }}>
                             Giá thuê: {fmtVND(ln.pricePerDay)}/ngày
+                          </Text>
+                        </div>
+                        <div style={{ marginBottom: 4 }}>
+                          <Text type="secondary" style={{ fontSize: 13 }}>
+                            Giá trị thiết bị: <strong style={{ color: "#111827" }}>{fmtVND(item.deviceValue)}</strong>
                           </Text>
                         </div>
                         <div>
@@ -413,6 +628,8 @@ export default function Checkout() {
                 <Divider />
 
                 {lineTotals.map((ln) => {
+                  const item = items.find((i) => i.id === ln.id) || {};
+                  const percent = Math.round(Number(item.depositPercent || 0) * 100);
                   return (
                     <div
                       key={ln.id}
@@ -421,21 +638,41 @@ export default function Checkout() {
                         borderBottom: "1px solid #F3F4F6"
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <Text style={{ color: "#111827", fontSize: 14, flex: 1 }}>
-                          {ln.name}
-                        </Text>
-                        <Text strong style={{ fontSize: 14, color: "#111827", marginLeft: 12 }}>
-                          {fmtVND(ln.subtotal)}
-                        </Text>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                        <div
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 6,
+                            background: `url(${item.image}) center/cover no-repeat`,
+                            border: "1px solid #E5E7EB",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
+                          <Text style={{ color: "#111827", fontSize: 14, flex: 1 }}>
+                            {ln.name}
+                          </Text>
+                          <Text strong style={{ fontSize: 14, color: "#111827", marginLeft: 12 }}>
+                           Tiền thuê: {fmtVND(ln.subtotal)}
+                          </Text>
+                        </div>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <Text type="secondary" style={{ fontSize: 13 }}>
                           {ln.qty} thiết bị × {days} ngày
                         </Text>
                         <Text type="secondary" style={{ fontSize: 13 }}>
-                          Cọc: {fmtVND(ln.deposit)}
+                          Giá trị thiết bị: {fmtVND(item.deviceValue)}
                         </Text>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>
+                          Tiền Cọc = {percent}% × Giá trị thiết bị × SL
+                        </span>
+                        <span style={{ fontSize: 13, color: "#6B7280" }}>
+                          Tiền Cọc: <strong style={{ color: "#111827" }}>{fmtVND(ln.deposit)}</strong>
+                        </span>
                       </div>
                     </div>
                   );
