@@ -18,7 +18,7 @@ import {
   listTaskCategories,
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
-import { listActiveStaff } from "../../lib/staffManage";
+import { listActiveStaff, searchStaff } from "../../lib/staffManage";
 import { getRentalOrderById, listRentalOrders, fmtVND } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
@@ -43,6 +43,8 @@ export default function OperatorTasks() {
   const [orderDetailModels, setOrderDetailModels] = useState({});
   const [orderDetailLoading, setOrderDetailLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [availableStaffs, setAvailableStaffs] = useState([]); // Staff rảnh theo thời gian
+  const [searchingStaff, setSearchingStaff] = useState(false); // Loading state cho search staff
 
   // Load data từ API
   const loadData = async () => {
@@ -95,18 +97,59 @@ export default function OperatorTasks() {
     loadData();
   }, []);
 
+  // Tìm staff rảnh theo thời gian
+  const searchAvailableStaff = async (startTime, endTime, role = null) => {
+    if (!startTime || !endTime) {
+      setAvailableStaffs([]);
+      return;
+    }
+
+    try {
+      setSearchingStaff(true);
+      const startISO = dayjs(startTime).toISOString();
+      // Nếu endTime cách startTime ít hơn 1 phút, tự động thêm 1 phút
+      let endISO = dayjs(endTime).toISOString();
+      if (dayjs(endTime).diff(dayjs(startTime), "minute") < 1) {
+        endISO = dayjs(startTime).add(1, "minute").toISOString();
+      }
+
+      const params = {
+        startTime: startISO,
+        endTime: endISO,
+        available: true,
+      };
+      if (role) {
+        params.staffRole = role;
+      }
+
+      const available = await searchStaff(params);
+      setAvailableStaffs(Array.isArray(available) ? available : []);
+    } catch (e) {
+      console.error("Error searching available staff:", e);
+      toast.error("Không thể tìm nhân viên rảnh");
+      setAvailableStaffs([]);
+    } finally {
+      setSearchingStaff(false);
+    }
+  };
+
   const openCreate = () => {
     setEditing(null);
+    setAvailableStaffs([]);
     form.setFieldsValue({
       taskCategoryId: undefined,
       orderId: undefined,
       assignedStaffIds: [],
+      staffRoleFilter: null,
       type: "",
       description: "",
       plannedStart: dayjs(),
-      plannedEnd: null,
+      plannedEnd: dayjs().add(1, "minute"),
     });
     setOpen(true);
+    // Tự động search staff rảnh với thời gian mặc định
+    const now = dayjs();
+    searchAvailableStaff(now, now.add(1, "minute"), null);
   };
 
   const openEdit = (r) => {
@@ -115,17 +158,27 @@ export default function OperatorTasks() {
       ? r.assignedStaff.map((s) => s.staffId)
       : (r.assignedStaffId ? [r.assignedStaffId] : []);
 
+    const plannedStart = r.plannedStart ? dayjs(r.plannedStart) : null;
+    const plannedEnd = r.plannedEnd ? dayjs(r.plannedEnd) : null;
+
     form.setFieldsValue({
       taskCategoryId: r.taskCategoryId,
       orderId: r.orderId,
       assignedStaffIds: staffIds,
+      staffRoleFilter: null,
       type: r.type || "",
       description: r.description || "",
-      plannedStart: r.plannedStart ? dayjs(r.plannedStart) : null,
-      plannedEnd: r.plannedEnd ? dayjs(r.plannedEnd) : null,
+      plannedStart,
+      plannedEnd,
     });
     setEditing(r);
     setOpen(true);
+    setAvailableStaffs([]);
+    
+    // Tự động search staff rảnh nếu có thời gian
+    if (plannedStart && plannedEnd) {
+      searchAvailableStaff(plannedStart, plannedEnd, null);
+    }
   };
 
   const remove = async (r) => {
@@ -629,22 +682,68 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item label="Nhân viên phụ trách" name="assignedStaffIds">
+          <Form.Item
+            label="Lọc theo role"
+            name="staffRoleFilter"
+            tooltip="Chọn role để lọc nhân viên rảnh"
+          >
+            <Select
+              allowClear
+              placeholder="Tất cả role"
+              onChange={(value) => {
+                const startTime = form.getFieldValue("plannedStart");
+                const endTime = form.getFieldValue("plannedEnd");
+                if (startTime && endTime) {
+                  searchAvailableStaff(startTime, endTime, value);
+                }
+              }}
+              options={[
+                { label: "TECHNICIAN", value: "TECHNICIAN" },
+                { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
+              ]}
+            />
+          </Form.Item>
+
+          <Form.Item 
+            label="Nhân viên phụ trách" 
+            name="assignedStaffIds"
+            tooltip={availableStaffs.length > 0 ? `Hiển thị ${availableStaffs.length} nhân viên rảnh trong khung giờ đã chọn` : "Chọn thời gian bắt đầu và kết thúc để xem nhân viên rảnh"}
+          >
             <Select
               mode="multiple"
               allowClear
-              placeholder="Chọn một hoặc nhiều nhân viên (tuỳ chọn)"
+              placeholder={
+                searchingStaff
+                  ? "Đang tìm nhân viên rảnh..."
+                  : availableStaffs.length > 0
+                  ? `Chọn từ ${availableStaffs.length} nhân viên rảnh`
+                  : "Chọn nhân viên (chọn thời gian để xem nhân viên rảnh)"
+              }
               showSearch
               optionFilterProp="label"
-              options={staffs
-                .filter((s) => {
-                  const role = String(s.staffRole || s.role || "").toUpperCase();
-                  return role === "TECHNICIAN";
-                })
-                .map((s) => ({
-                  label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
-                  value: s.staffId ?? s.id,
-                }))}
+              loading={searchingStaff}
+              disabled={searchingStaff}
+              options={
+                availableStaffs.length > 0
+                  ? availableStaffs
+                      .filter((s) => {
+                        const role = String(s.staffRole || s.role || "").toUpperCase();
+                        return role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
+                      })
+                      .map((s) => ({
+                        label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
+                        value: s.staffId ?? s.id,
+                      }))
+                  : staffs
+                      .filter((s) => {
+                        const role = String(s.staffRole || s.role || "").toUpperCase();
+                        return role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
+                      })
+                      .map((s) => ({
+                        label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
+                        value: s.staffId ?? s.id,
+                      }))
+              }
             />
           </Form.Item>
 
@@ -669,7 +768,23 @@ export default function OperatorTasks() {
             name="plannedStart"
             rules={[{ required: true, message: "Chọn ngày bắt đầu" }]}
           >
-            <DatePicker showTime style={{ width: "100%" }} format="DD/MM/YYYY HH:mm" />
+            <DatePicker
+              showTime
+              style={{ width: "100%" }}
+              format="DD/MM/YYYY HH:mm"
+              onChange={(value) => {
+                const endTime = form.getFieldValue("plannedEnd");
+                const roleFilter = form.getFieldValue("staffRoleFilter");
+                if (value && endTime) {
+                  searchAvailableStaff(value, endTime, roleFilter);
+                } else if (value && !endTime) {
+                  // Tự động set endTime cách startTime 1 phút
+                  const newEndTime = dayjs(value).add(1, "minute");
+                  form.setFieldValue("plannedEnd", newEndTime);
+                  searchAvailableStaff(value, newEndTime, roleFilter);
+                }
+              }}
+            />
           </Form.Item>
 
           <Form.Item
@@ -677,7 +792,18 @@ export default function OperatorTasks() {
             name="plannedEnd"
             rules={[{ required: true, message: "Chọn ngày kết thúc" }]}
           >
-            <DatePicker showTime style={{ width: "100%" }} format="DD/MM/YYYY HH:mm" />
+            <DatePicker
+              showTime
+              style={{ width: "100%" }}
+              format="DD/MM/YYYY HH:mm"
+              onChange={(value) => {
+                const startTime = form.getFieldValue("plannedStart");
+                const roleFilter = form.getFieldValue("staffRoleFilter");
+                if (startTime && value) {
+                  searchAvailableStaff(startTime, value, roleFilter);
+                }
+              }}
+            />
           </Form.Item>
         </Form>
       </Modal>

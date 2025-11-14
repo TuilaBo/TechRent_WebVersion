@@ -10,8 +10,9 @@ import toast from "react-hot-toast";
 import { getTaskById, normalizeTask } from "../../lib/taskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { createQcReport, getQcReportsByOrderId, updateQcReport } from "../../lib/qcReportApi";
-import { getDevicesByModelId } from "../../lib/deviceManage";
+import { getDevicesByModelId, getAvailableDevicesByModel } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
+import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
 
@@ -97,6 +98,7 @@ export default function TechnicianQcDetail() {
   // QC Report state
   const [existingQcReport, setExistingQcReport] = useState(null);
   const [loadingQcReport, setLoadingQcReport] = useState(false);
+  const [saving, setSaving] = useState(false);
   
   // Fetch task and order details
   useEffect(() => {
@@ -131,7 +133,7 @@ export default function TechnicianQcDetail() {
             if (Array.isArray(qcReports) && qcReports.length > 0) {
               // Tìm QC report có taskId matching với task hiện tại
               const matchingReport = qcReports.find(r => (r.taskId === normalizedTask.taskId || r.taskId === normalizedTask.id));
-              if (matchingReport) {
+              if (matchingReport) { 
                 setExistingQcReport(matchingReport);
               } else if (qcReports.length === 1) {
                 // Nếu chỉ có 1 report, dùng nó
@@ -168,6 +170,25 @@ export default function TechnicianQcDetail() {
         const devicesMap = {};
         const namesMap = {};
 
+        // Lấy startDate và endDate từ order
+        const startDate = order.startDate || order.rentalStartDate;
+        const endDate = order.endDate || order.rentalEndDate;
+        
+        // Format dates cho API (YYYY-MM-DDTHH:mm:ss)
+        let start = null;
+        let end = null;
+        
+        if (startDate && endDate) {
+          try {
+            const startDayjs = dayjs(startDate);
+            const endDayjs = dayjs(endDate);
+            start = startDayjs.format("YYYY-MM-DD[T]HH:mm:ss");
+            end = endDayjs.format("YYYY-MM-DD[T]HH:mm:ss");
+          } catch (e) {
+            console.warn("Không thể parse dates từ order:", e);
+          }
+        }
+
         // Fetch devices for each orderDetail concurrently
         const fetchPromises = order.orderDetails.map(async (orderDetail) => {
           const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
@@ -180,16 +201,23 @@ export default function TechnicianQcDetail() {
 
           try {
             const [devices, model] = await Promise.all([
-              getDevicesByModelId(deviceModelId).catch(() => []),
+              // Sử dụng API mới nếu có start/end, ngược lại dùng API cũ
+              start && end
+                ? getAvailableDevicesByModel(deviceModelId, start, end).catch(() => [])
+                : getDevicesByModelId(deviceModelId).catch(() => []),
               getDeviceModelById(deviceModelId).catch(() => null),
             ]);
             const name = model?.deviceName || model?.name || null;
-            // Chỉ lấy devices có status là "AVAILABLE"
+            
+            // API mới đã trả về devices khả dụng, không cần filter nữa
+            // Nhưng vẫn giữ filter để đảm bảo tương thích nếu API cũ được dùng
             const availableDevices = Array.isArray(devices) 
-              ? devices.filter(device => {
-                  const status = String(device.status || device.deviceStatus || device.state || "").toUpperCase();
-                  return status === "AVAILABLE";
-                })
+              ? (start && end 
+                  ? devices // API mới đã filter sẵn
+                  : devices.filter(device => {
+                      const status = String(device.status || device.deviceStatus || device.state || "").toUpperCase();
+                      return status === "AVAILABLE";
+                    }))
               : [];
             return { orderDetailId, devices: availableDevices, deviceModelId, name };
           } catch (e) {
@@ -290,18 +318,30 @@ export default function TechnicianQcDetail() {
       // Build orderDetailSerialNumbers from devices array in response
       if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
         const serialMap = {};
-        // orderDetailId nằm ở level QC report, không phải trong từng device
-        const orderDetailId = existingQcReport.orderDetailId;
-        if (orderDetailId) {
-          const serialNumbers = existingQcReport.devices
-            .map(device => device.serialNumber || device.serial || device.serialNo || device.deviceId || device.id)
-            .filter(Boolean)
-            .map(String);
-          
-          if (serialNumbers.length > 0) {
-            serialMap[String(orderDetailId)] = serialNumbers;
+
+        // 1) Gom nhóm devices theo deviceModelId -> danh sách serial
+        const groupByModel = existingQcReport.devices.reduce((acc, d) => {
+          const mid = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
+          const serial = d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id;
+          if (!mid || !serial) return acc;
+          if (!acc[mid]) acc[mid] = [];
+          acc[mid].push(String(serial));
+          return acc;
+        }, {});
+
+        // 2) Duyệt toàn bộ orderDetails, gán serial theo deviceModelId tương ứng (giới hạn theo quantity)
+        const ods = Array.isArray(order?.orderDetails) ? order.orderDetails : [];
+        ods.forEach((od) => {
+          const odId = od.orderDetailId || od.id;
+          const modelId = Number(od.deviceModelId ?? NaN);
+          const quantity = Number(od.quantity ?? 1);
+          if (!odId || !modelId) return;
+          const pool = groupByModel[modelId] || [];
+          if (pool.length > 0) {
+            serialMap[String(odId)] = pool.slice(0, Math.max(1, quantity));
           }
-        }
+        });
+
         setSelectedDevicesByOrderDetail(serialMap);
       } else if (existingQcReport.orderDetailSerialNumbers) {
         // Fallback to orderDetailSerialNumbers if devices array not available
@@ -315,7 +355,7 @@ export default function TechnicianQcDetail() {
         setSelectedDevicesByOrderDetail(serialMap);
       }
     }
-  }, [existingQcReport]);
+  }, [existingQcReport, order]);
 
   // Get order details from order
   const orderDetails = useMemo(() => {
@@ -375,6 +415,7 @@ export default function TechnicianQcDetail() {
   };
 
   const onSave = async () => {
+    if (saving) return; // 防抖，避免重复提交
     console.log("=== onSave called ===");
     console.log("task:", task);
     console.log("actualTaskId:", actualTaskId);
@@ -449,6 +490,7 @@ export default function TechnicianQcDetail() {
     }
 
     try {
+      setSaving(true);
       console.log("Starting to build payload...");
       
       // Map orderDetails thành orderDetailSerialNumbers format
@@ -524,6 +566,8 @@ export default function TechnicianQcDetail() {
         stack: e?.stack
       });
       toast.error(e?.response?.data?.message || e?.response?.data?.details || e?.message || "Không thể tạo QC report");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -566,13 +610,13 @@ export default function TechnicianQcDetail() {
       </Space>
 
       {/* Thông tin task và đơn hàng */}
-      <Card title="Thông tin task & đơn hàng" className="mb-3">
+      <Card title="Thông tin Task" className="mb-3">
         <Descriptions bordered size="small" column={2}>
           <Descriptions.Item label="Mã Task">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
           <Descriptions.Item label="Mô tả">{task.description || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Trạng thái">
+          <Descriptions.Item label="Trạng thái Task">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
             </Tag>
@@ -580,15 +624,34 @@ export default function TechnicianQcDetail() {
           {order && (
             <>
               <Descriptions.Item label="Số loại sản phẩm">{orderDetails.length}</Descriptions.Item>
-              <Descriptions.Item label="Trạng thái đơn">
-                <Tag color={getStatusColor(order.status || order.orderStatus)}>
-                  {translateStatus(order.status || order.orderStatus) || "—"}
-                </Tag>
-              </Descriptions.Item>
+              
             </>
           )}
         </Descriptions>
       </Card>
+
+      {/* Thông tin báo cáo hiện có (nếu có) */}
+      {existingQcReport && (
+        <Card className="mb-3" title="Báo cáo QC hiện có">
+          <Descriptions bordered size="small" column={2}>
+            <Descriptions.Item label="Người tạo">
+              {existingQcReport.createdBy || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Thời gian tạo">
+              {existingQcReport.createdAt ? dayjs(existingQcReport.createdAt).format("DD/MM/YYYY HH:mm") : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Giai đoạn">
+              {String(existingQcReport.phase || "").toUpperCase()}
+            </Descriptions.Item>
+            <Descriptions.Item label="Kết quả">
+              {String(existingQcReport.result || "").toUpperCase()}
+            </Descriptions.Item>
+            <Descriptions.Item label="Số serial được chọn" span={2}>
+              {Array.isArray(existingQcReport.devices) ? existingQcReport.devices.length : 0}
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+      )}
 
       {/* Chọn thiết bị từ kho theo từng order detail */}
       {orderDetails.length > 0 ? (
@@ -845,6 +908,7 @@ export default function TechnicianQcDetail() {
             }
           }}
           disabled={loading || loadingQcReport}
+          loading={saving}
         >
           {existingQcReport ? "Cập nhật QC Report" : "Lưu kết quả QC"}
         </Button>

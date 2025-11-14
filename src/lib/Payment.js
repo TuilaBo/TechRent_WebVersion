@@ -9,11 +9,13 @@ const unwrap = (res) => (res?.data?.data ?? res?.data ?? res);
 // {
 //   orderId: 0,
 //   invoiceType: "RENT_PAYMENT",
-//   paymentMethod: "PAYOS",
+//   paymentMethod: "VNPAY" | "PAYOS",
 //   amount: 0,
 //   description: "string",
 //   returnUrl: "string",
-//   cancelUrl: "string"
+//   cancelUrl: "string",
+//   frontendSuccessUrl: "string", // Required for VNPay
+//   frontendFailureUrl: "string"  // Required for VNPay
 // }
 export async function createPayment(payload) {
   const { data } = await api.post("/api/v1/payments", payload);
@@ -31,8 +33,20 @@ export async function getInvoiceByRentalOrderId(rentalOrderId) {
   return unwrap(data);
 }
 
+// 3) Get all transactions
+// Returns array of transaction objects including:
+// - transactionId, amount, transactionType
+// - createdAt, createdBy
+// - invoiceId, rentalOrderId
+// - paymentMethod, invoiceStatus
+export async function getTransactions() {
+  const { data } = await api.get("/api/v1/payments/transactions");
+  return unwrap(data);
+}
+
 export default {
   createPayment,
   getInvoiceByRentalOrderId,
+  getTransactions,
 };
 

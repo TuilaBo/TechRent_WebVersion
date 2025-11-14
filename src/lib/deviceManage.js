@@ -46,10 +46,54 @@ export async function listDeviceModels() {
   return data?.data ?? data ?? [];
 }
 export async function createDeviceModel(payload) {
+  // Hỗ trợ multipart khi có ảnh (payload.imageFile là File)
+  const file = payload?.imageFile instanceof File ? payload.imageFile : null;
+  if (file) {
+    const requestObj = {
+      deviceName: payload.deviceName,
+      brandId: payload.brandId,
+      specifications: payload.specifications ?? "",
+      description: payload.description ?? "",
+      deviceCategoryId: payload.deviceCategoryId,
+      deviceValue: Number(payload.deviceValue ?? 0),
+      pricePerDay: Number(payload.pricePerDay ?? 0),
+      depositPercent: Number(payload.depositPercent ?? 0),
+      active: !!payload.active,
+    };
+    const fd = new FormData();
+    fd.append("request", new Blob([JSON.stringify(requestObj)], { type: "application/json" }));
+    fd.append("image", file, file.name || "device-model.jpg");
+    const { data } = await api.post("/api/device-models", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data?.data ?? data;
+  }
   const { data } = await api.post("/api/device-models", payload);
   return data?.data ?? data;
 }
 export async function updateDeviceModel(id, payload) {
+  // Nếu có ảnh mới → gửi multipart; ngược lại gửi JSON như cũ
+  const file = payload?.imageFile instanceof File ? payload.imageFile : null;
+  if (file) {
+    const requestObj = {
+      deviceName: payload.deviceName,
+      brandId: payload.brandId,
+      specifications: payload.specifications ?? "",
+      description: payload.description ?? "",
+      deviceCategoryId: payload.deviceCategoryId,
+      deviceValue: Number(payload.deviceValue ?? 0),
+      pricePerDay: Number(payload.pricePerDay ?? 0),
+      depositPercent: Number(payload.depositPercent ?? 0),
+      active: !!payload.active,
+    };
+    const fd = new FormData();
+    fd.append("request", new Blob([JSON.stringify(requestObj)], { type: "application/json" }));
+    fd.append("image", file, file.name || "device-model.jpg");
+    const { data } = await api.put(`/api/device-models/${Number(id)}`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data?.data ?? data;
+  }
   const { data } = await api.put(`/api/device-models/${Number(id)}`, payload);
   return data?.data ?? data;
 }
@@ -65,6 +109,18 @@ export async function listDevices() {
 }
 export async function getDevicesByModelId(deviceModelId) {
   const { data } = await api.get(`/api/devices/model/${Number(deviceModelId)}`);
+  return data?.data ?? data ?? [];
+}
+
+/** Lấy danh sách thiết bị khả dụng theo model trong khoảng thời gian */
+export async function getAvailableDevicesByModel(deviceModelId, start, end) {
+  // Format: start và end phải là string date-time dạng "2025-11-12T09:00:00"
+  const { data } = await api.get(`/api/devices/model/${Number(deviceModelId)}`, {
+    params: {
+      start,
+      end,
+    },
+  });
   return data?.data ?? data ?? [];
 }
 export async function createDevice(payload) {

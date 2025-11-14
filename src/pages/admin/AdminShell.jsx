@@ -26,6 +26,7 @@ import {
   UserOutlined,
   HomeOutlined,
   TagsOutlined,
+  MoneyCollectOutlined,
 } from "@ant-design/icons";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -48,6 +49,7 @@ export default function AdminShell() {
       return "maintenance";
     if (location.pathname.startsWith("/admin/contracts")) return "contracts";
     if (location.pathname.startsWith("/admin/accounts")) return "accounts";
+    if (location.pathname.startsWith("/admin/transactions")) return "transactions";
     if (location.pathname.startsWith("/admin/task-categories")) return "task-categories";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
     return "dashboard";
@@ -124,6 +126,11 @@ export default function AdminShell() {
               key: "products",
               icon: <ShoppingCartOutlined />,
               label: <Link to="/admin/products">Sản phẩm</Link>,
+            },
+            {
+              key: "transactions",
+              icon: <MoneyCollectOutlined />,
+              label: <Link to="/admin/transactions">Giao dịch</Link>,
             },
 
             {

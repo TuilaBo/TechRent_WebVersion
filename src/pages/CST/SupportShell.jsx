@@ -9,6 +9,7 @@ import {
   SearchOutlined,
   BellOutlined,
   ReloadOutlined,
+  CheckCircleOutlined,
 } from "@ant-design/icons";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
@@ -24,6 +25,7 @@ export default function SupportShell() {
   // map URL -> key menu
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith("/support/desk")) return "desk";
+    if (location.pathname.startsWith("/support/tasks")) return "tasks";
     if (location.pathname.startsWith("/support/chats")) return "chats";
     if (location.pathname.startsWith("/support/kb")) return "kb";
     if (location.pathname.startsWith("/support/settings")) return "settings";
@@ -63,6 +65,11 @@ export default function SupportShell() {
               key: "desk",
               icon: <FileTextOutlined />,
               label: <Link to="/support/desk">Tickets & Chat</Link>,
+            },
+            {
+              key: "tasks",
+              icon: <CheckCircleOutlined />,
+              label: <Link to="/support/tasks">Công việc</Link>,
             },
             {
               key: "chats",

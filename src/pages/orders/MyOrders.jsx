@@ -15,7 +15,7 @@ import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signC
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
 import { connectCustomerNotifications } from "../../lib/notificationsSocket";
 import { getMyKyc } from "../../lib/kycApi";
-import { createPayment } from "../../lib/Payment";
+import { createPayment, getInvoiceByRentalOrderId } from "../../lib/Payment";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
@@ -32,6 +32,7 @@ const ORDER_STATUS_MAP = {
   confirmed: { label: "Đã xác nhận",  color: "blue"    },
   delivering:{ label: "Đang giao",    color: "cyan"    },
   active:    { label: "Đang thuê",    color: "gold"    },
+  in_use:    { label: "Đang sử dụng", color: "geekblue" },
   returned:  { label: "Đã trả",       color: "green"   },
   cancelled: { label: "Đã hủy",       color: "red"     },
   processing:{ label: "Đang xử lý",   color: "purple"  },
@@ -42,6 +43,25 @@ const PAYMENT_STATUS_MAP = {
   paid:     { label: "Đã thanh toán",        color: "green"    },
   refunded: { label: "Đã hoàn tiền",         color: "geekblue" },
   partial:  { label: "Thanh toán một phần",  color: "purple"   },
+};
+
+// Map invoice status to payment status
+const mapInvoiceStatusToPaymentStatus = (invoiceStatus) => {
+  if (!invoiceStatus) return "unpaid";
+  const status = String(invoiceStatus).toUpperCase();
+  if (status === "SUCCEEDED" || status === "PAID" || status === "COMPLETED") {
+    return "paid";
+  }
+  if (status === "FAILED" || status === "CANCELLED" || status === "EXPIRED") {
+    return "unpaid";
+  }
+  if (status === "PENDING" || status === "PROCESSING") {
+    return "partial";
+  }
+  if (status === "REFUNDED") {
+    return "refunded";
+  }
+  return "unpaid";
 };
 const CONTRACT_STATUS_MAP = {
   draft: { label: "Nháp", color: "default" },
@@ -587,6 +607,7 @@ export default function MyOrders() {
   const [paymentMethod, setPaymentMethod] = useState("PAYOS");
   const [paymentTermsAccepted, setPaymentTermsAccepted] = useState(false);
   const [paymentOrder, setPaymentOrder] = useState(null);
+  const [invoiceInfo, setInvoiceInfo] = useState(null); // Invoice info from API
 
   // Layout: Table tự cuộn theo viewport
   const TABLE_TOP_BLOCK = 40 + 40 + 16;
@@ -708,9 +729,13 @@ export default function MyOrders() {
   };
 
   // ---------- Tracking bar helpers ----------
-  function computeOrderTracking(order, contracts) {
+  function computeOrderTracking(order, contracts, invoiceInfo = null) {
     const status = String(order?.orderStatus || order?.status || "").toLowerCase();
-    const payment = String(order?.paymentStatus || "").toLowerCase();
+    // Use invoice status if available, otherwise use order paymentStatus
+    const invoiceStatus = invoiceInfo?.invoiceStatus;
+    const paymentStatus = invoiceStatus 
+      ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
+      : String(order?.paymentStatus || "unpaid").toLowerCase();
     const contract = (contracts || [])[0];
     const contractStatus = String(contract?.status || "").toLowerCase();
 
@@ -719,22 +744,25 @@ export default function MyOrders() {
       ["processing", "ready_for_delivery", "delivery_confirmed", "delivering", "active", "returned"].includes(status) ||
       !!contract;
     const isContractPending = contractStatus === "pending_signature";
-    const isPaid = payment === "paid";
+    const isPaid = paymentStatus === "paid";
     const isReady =
       ["ready_for_delivery", "delivery_confirmed"].includes(status) ||
       (isPaid && (status === "processing" || status === "active" || status === "delivering"));
+    const isDelivered = status === "in_use";
 
     let current = 0;
-    if (isReady) current = 3;
-    else if (isContractPending || (!isPaid && (isQcDone || contract))) current = 2;
-    else if (isQcDone) current = 1;
-    else current = 0;
+    if (isDelivered) current = 4; // Giao hàng thành công
+    else if (isReady) current = 3; // Sẵn sàng giao hàng
+    else if (isContractPending || (!isPaid && (isQcDone || contract))) current = 2; // Ký hợp đồng & Thanh toán
+    else if (isQcDone) current = 1; // QC,KYC trước thuê thành công
+    else current = 0; // Tạo đơn hàng thành công
 
     const steps = [
       { title: "Tạo đơn hàng thành công" },
-      { title: "QC trước thuê thành công" },
+      { title: "QC,KYC trước thuê thành công" },
       { title: "Ký hợp đồng & Thanh toán" },
       { title: "Sẵn sàng giao hàng" },
+      { title: "Giao hàng thành công" },
     ];
 
     steps[0].description = formatDateTime(order?.createdAt) || "";
@@ -817,6 +845,7 @@ export default function MyOrders() {
     clearContractPreviewState();
     setCurrent(record);
     setDetailOpen(true);
+    setInvoiceInfo(null); // Reset invoice info
 
     try {
       const fullOrder = await getRentalOrderById(idNum);
@@ -828,6 +857,15 @@ export default function MyOrders() {
           ...merged,
           items: (merged?.items?.length ? merged.items : prev.items) ?? [],
         }));
+      }
+      // Load invoice info
+      try {
+        const invoice = await getInvoiceByRentalOrderId(idNum);
+        setInvoiceInfo(invoice || null);
+      } catch (invoiceErr) {
+        // Invoice might not exist yet, that's okay
+        console.log("No invoice found for order:", idNum);
+        setInvoiceInfo(null);
       }
       await loadOrderContracts(idNum);
     } catch (err) {
@@ -998,7 +1036,7 @@ export default function MyOrders() {
   const handlePayment = async (order) => {
     if (!order || !order.id) { message.error("Không có thông tin đơn hàng để thanh toán."); return; }
     setPaymentOrder(order);
-    setPaymentMethod("PAYOS");
+    setPaymentMethod("VNPAY");
     setPaymentTermsAccepted(false);
     setPaymentModalOpen(true);
   };
@@ -1022,14 +1060,20 @@ export default function MyOrders() {
       const orderCodeParam = order.displayId || order.id;
       const returnUrl = `${baseUrl}/payment/return?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
       const cancelUrl = `${baseUrl}/payment/cancel?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
+      // VNPay sẽ redirect về các URL này với query params từ backend
+      const frontendSuccessUrl = `${baseUrl}/success?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
+      const frontendFailureUrl = `${baseUrl}/failure?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
 
       const payload = {
         orderId: orderIdParam,
         invoiceType: "RENT_PAYMENT",
-        paymentMethod: String(paymentMethod || "PAYOS").toUpperCase(),
+        paymentMethod: String(paymentMethod || "VNPAY").toUpperCase(),
         amount: totalAmount,
         description: `Thanh toán đơn hàng #${orderCodeParam}`,
-        returnUrl, cancelUrl,
+        returnUrl, 
+        cancelUrl,
+        frontendSuccessUrl,
+        frontendFailureUrl,
       };
 
       const result = await createPayment(payload);
@@ -1597,7 +1641,7 @@ export default function MyOrders() {
             }}
           >
             {(() => {
-              const tracking = computeOrderTracking(current, contracts);
+              const tracking = computeOrderTracking(current, contracts, invoiceInfo);
               return (
                 <Steps
                   current={tracking.current}
@@ -1630,8 +1674,14 @@ export default function MyOrders() {
                       const rentalTotal = rentalPerDay * days;
                       const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
 
+                      // Check payment status from invoice if available, otherwise use order paymentStatus
+                      const invoiceStatus = invoiceInfo?.invoiceStatus;
+                      const paymentStatus = invoiceStatus 
+                        ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
+                        : String(current.paymentStatus || "unpaid").toLowerCase();
+                      
                       const canPay =
-                        ["unpaid", "partial"].includes(String(current.paymentStatus).toLowerCase()) &&
+                        ["unpaid", "partial"].includes(paymentStatus) &&
                         String(current.orderStatus).toLowerCase() === "processing" &&
                         hasSignedContract(current.id);
                       const totalAmount = Number(current?.total ?? rentalTotal) + depositTotal;
@@ -1662,7 +1712,11 @@ export default function MyOrders() {
                             </Descriptions.Item>
                             <Descriptions.Item label="Thanh toán">
                               {(() => {
-                                const displayPaymentStatus = String(current.orderStatus).toLowerCase() === "delivery_confirmed" ? "paid" : current.paymentStatus;
+                                // Use invoice status if available, otherwise fallback to order paymentStatus
+                                const invoiceStatus = invoiceInfo?.invoiceStatus;
+                                const displayPaymentStatus = invoiceStatus 
+                                  ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
+                                  : (String(current.orderStatus).toLowerCase() === "delivery_confirmed" ? "paid" : current.paymentStatus);
                                 const paymentInfo = PAYMENT_STATUS_MAP[displayPaymentStatus] || {};
                                 return (
                                   <Tag color={paymentInfo.color} style={{ borderRadius: 20, padding: "0 12px" }}>
@@ -1804,7 +1858,17 @@ export default function MyOrders() {
                               },
                             },
                             { title: "Ngày tạo", dataIndex: "createdAt", width: 150, render: (v) => formatDateTime(v) },
-                            { title: "Tổng tiền", dataIndex: "totalAmount", width: 120, align: "right", render: (v) => formatVND(v) },
+                            { 
+                              title: "Tổng thanh toán", 
+                              key: "totalPayment", 
+                              width: 140, 
+                              align: "right", 
+                              render: (_, record) => {
+                                const totalAmount = Number(record.totalAmount || 0);
+                                const depositAmount = Number(record.depositAmount || 0);
+                                return formatVND(totalAmount + depositAmount);
+                              }
+                            },
                             {
                               title: "Thao tác",
                               key: "actions",
@@ -1844,8 +1908,15 @@ export default function MyOrders() {
                         const days = Number(current?.days || 1);
                         const rentalTotal = items.reduce((s, it) => s + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0) * days;
                         const depositTotal = items.reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+                        
+                        // Check payment status from invoice if available, otherwise use order paymentStatus
+                        const invoiceStatus = invoiceInfo?.invoiceStatus;
+                        const paymentStatus = invoiceStatus 
+                          ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
+                          : String(current.paymentStatus || "unpaid").toLowerCase();
+                        
                         const canPayCurrent =
-                          ["unpaid", "partial"].includes(String(current.paymentStatus).toLowerCase()) &&
+                          ["unpaid", "partial"].includes(paymentStatus) &&
                           String(current.orderStatus).toLowerCase() === "processing" &&
                           hasSignedContract(current.id) &&
                           Number((current?.total ?? rentalTotal) + depositTotal) > 0;
@@ -2223,7 +2294,7 @@ export default function MyOrders() {
                   optionType="button"
                   buttonStyle="solid"
                 >
-                  <Radio.Button value="MOMO">MoMo</Radio.Button>
+                  <Radio.Button value="VNPAY">VNPay</Radio.Button>
                   <Radio.Button value="PAYOS">PayOS</Radio.Button>
                 </Radio.Group>
               </div>

@@ -123,3 +123,49 @@ export async function listStaffByRole(staffRole) {
   const payload = data?.data ?? data ?? [];
   return Array.isArray(payload) ? payload.map(normalizeStaff) : [];
 }
+
+/* ---------------------------------------------------
+ * Search & Performance
+ * --------------------------------------------------- */
+
+/** GET /api/staff/search – Tìm kiếm staff theo role và availability trong khoảng thời gian
+ * @param {Object} params - Search parameters
+ * @param {string} params.startTime - Start time (ISO date-time string, e.g., "2025-11-14T02:53:00")
+ * @param {string} params.endTime - End time (ISO date-time string, e.g., "2025-11-14T09:00:00")
+ * @param {boolean} [params.available] - Filter by availability status
+ * @param {string} [params.staffRole] - Filter by staff role (e.g., "TECHNICIAN")
+ * @returns {Promise<Array>} Array of staff members matching the criteria
+ */
+export async function searchStaff({ startTime, endTime, available, staffRole }) {
+  const params = {};
+  if (startTime) params.startTime = startTime;
+  if (endTime) params.endTime = endTime;
+  if (available !== undefined && available !== null) params.available = Boolean(available);
+  if (staffRole) params.staffRole = staffRole;
+
+  const { data } = await api.get("/api/staff/search", { params });
+  const payload = data?.data ?? data ?? [];
+  return Array.isArray(payload) ? payload.map(normalizeStaff) : [];
+}
+
+/** GET /api/staff/performance/completions – Thống kê số lượng task hoàn thành theo tháng cho từng nhân viên
+ * @param {Object} params - Query parameters
+ * @param {number} params.year - Year (required, e.g., 2025)
+ * @param {number} params.month - Month (required, e.g., 11 for November)
+ * @param {string} [params.staffRole] - Filter by staff role (e.g., "TECHNICIAN")
+ * @returns {Promise<Array>} Array of staff performance/completion data
+ */
+export async function getStaffCompletionLeaderboard({ year, month, staffRole }) {
+  if (!year || !month) {
+    throw new Error("year and month are required parameters");
+  }
+
+  const params = {
+    year: Number(year),
+    month: Number(month),
+  };
+  if (staffRole) params.staffRole = staffRole;
+
+  const { data } = await api.get("/api/staff/performance/completions", { params });
+  return data?.data ?? data ?? [];
+}

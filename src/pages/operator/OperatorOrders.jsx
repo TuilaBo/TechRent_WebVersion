@@ -53,6 +53,8 @@ import {
 } from "../../lib/contractApi";
 import { getKycByCustomerId, updateKycStatus, normalizeKycItem } from "../../lib/kycApi";
 import { getDeviceModelById, normalizeModel as normalizeDeviceModel } from "../../lib/deviceModelsApi";
+import { getHandoverReportsByOrderId } from "../../lib/handoverReportApi";
+import { getInvoiceByRentalOrderId } from "../../lib/Payment";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -483,6 +485,8 @@ const statusTag = (s) => {
       return <Tag color="blue">Hoàn tất</Tag>;
     case "ACTIVE":
       return <Tag color="green">Đang thuê</Tag>;
+    case "IN_USE":
+      return <Tag color="geekblue">Đang sử dụng</Tag>;
     default:
       return <Tag color="default">{status}</Tag>;
   }
@@ -515,11 +519,33 @@ const kycStatusTag = (status) => {
   }
 };
 
-const paymentStatusTag = (paymentStatus, orderStatus) => {
-  const displayPaymentStatus =
-    String(orderStatus).toUpperCase() === "DELIVERY_CONFIRMED"
-      ? "paid"
-      : paymentStatus || "unpaid";
+// Map invoice status to payment status
+const mapInvoiceStatusToPaymentStatus = (invoiceStatus) => {
+  if (!invoiceStatus) return "unpaid";
+  const status = String(invoiceStatus).toUpperCase();
+  if (status === "SUCCEEDED" || status === "PAID" || status === "COMPLETED") {
+    return "paid";
+  }
+  if (status === "FAILED" || status === "CANCELLED" || status === "EXPIRED") {
+    return "unpaid";
+  }
+  if (status === "PENDING" || status === "PROCESSING") {
+    return "partial";
+  }
+  if (status === "REFUNDED") {
+    return "refunded";
+  }
+  return "unpaid";
+};
+
+const paymentStatusTag = (paymentStatus, orderStatus, invoiceInfo = null) => {
+  // Use invoice status if available, otherwise fallback to order paymentStatus
+  const invoiceStatus = invoiceInfo?.invoiceStatus;
+  const displayPaymentStatus = invoiceStatus
+    ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
+    : (String(orderStatus).toUpperCase() === "DELIVERY_CONFIRMED"
+        ? "paid"
+        : paymentStatus || "unpaid");
 
   const s = String(displayPaymentStatus || "unpaid").toUpperCase();
   switch (s) {
@@ -574,6 +600,9 @@ export default function OperatorOrders() {
   const [kycInfo, setKycInfo] = useState(null);
   const [orderContracts, setOrderContracts] = useState([]);
   const [contractsLoading, setContractsLoading] = useState(false);
+  const [handoverReports, setHandoverReports] = useState([]);
+  const [handoverLoading, setHandoverLoading] = useState(false);
+  const [invoiceInfo, setInvoiceInfo] = useState(null); // Invoice info from API
 
   // KYC review modal state
   const [kycReviewOpen, setKycReviewOpen] = useState(false);
@@ -588,11 +617,6 @@ export default function OperatorOrders() {
   const [contractCustomer, setContractCustomer] = useState(null);
   const [contractKyc, setContractKyc] = useState(null);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
-
-  // Contract list modal
-  const [contractPreviewOpen, setContractPreviewOpen] = useState(false);
-  const [contractPreview, setContractPreview] = useState(null);
-  const [contracts, setContracts] = useState([]);
 
   // PDF (FE render)
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
@@ -636,7 +660,6 @@ export default function OperatorOrders() {
 
   useEffect(() => {
     fetchAll();
-    fetchContracts();
   }, []);
 
   useEffect(() => {
@@ -745,9 +768,6 @@ export default function OperatorOrders() {
       message.success(
         `Đã tạo hợp đồng #${contract?.contractId || contract?.id} từ đơn #${r.orderId}`
       );
-      setContractPreview(contract);
-      setContractPreviewOpen(true);
-      fetchContracts();
       if (detail?.orderId) {
         fetchOrderContracts(detail.orderId, detail?.customerId);
       }
@@ -772,8 +792,20 @@ export default function OperatorOrders() {
   const viewDetail = async (orderId) => {
     try {
       setLoadingDetail(true);
+      setInvoiceInfo(null); // Reset invoice info
       const d = await getRentalOrderById(orderId);
       setDetail(d || null);
+      
+      // Load invoice info
+      try {
+        const invoice = await getInvoiceByRentalOrderId(orderId);
+        setInvoiceInfo(invoice || null);
+      } catch (invoiceErr) {
+        // Invoice might not exist yet, that's okay
+        console.log("No invoice found for order:", orderId);
+        setInvoiceInfo(null);
+      }
+      
       if (d?.customerId) {
         try {
           const c = await fetchCustomerById(d.customerId);
@@ -806,6 +838,7 @@ export default function OperatorOrders() {
         setKycInfo(null);
       }
       await fetchOrderContracts(orderId, d?.customerId);
+      await fetchHandoverReports(orderId);
     } catch (e) {
       message.error(e?.response?.data?.message || e?.message || "Không tải chi tiết đơn.");
     } finally {
@@ -840,10 +873,28 @@ export default function OperatorOrders() {
     }
   };
 
+  const fetchHandoverReports = async (orderId) => {
+    if (!orderId) {
+      setHandoverReports([]);
+      return;
+    }
+    try {
+      setHandoverLoading(true);
+      const reports = await getHandoverReportsByOrderId(orderId);
+      setHandoverReports(Array.isArray(reports) ? reports : []);
+    } catch (e) {
+      console.error("Failed to fetch handover reports:", e);
+      setHandoverReports([]);
+    } finally {
+      setHandoverLoading(false);
+    }
+  };
+
   const onView = (r) => {
     setOpen(true);
     setDetail(null);
     setKycInfo(null);
+    setHandoverReports([]);
     viewDetail(r.orderId);
   };
 
@@ -1269,6 +1320,7 @@ export default function OperatorOrders() {
         { text: "Đã xác nhận", value: "CONFIRMED" },
         { text: "Đang xử lý", value: "PROCESSING" },
         { text: "Sẵn sàng giao hàng", value: "DELIVERY_C" },
+        { text: "Đang sử dụng", value: "IN_USE" },
         { text: "Đã hủy", value: "CANCELLED" },
         { text: "Hoàn tất", value: "COMPLETED" },
       ],
@@ -1439,7 +1491,7 @@ export default function OperatorOrders() {
         align: "center",
       },
       {
-        title: "Tổng tiền cọc",
+        title: "Tổng tiền cọc/loại sản phẩm",
         key: "depositTotal",
         width: 140,
         align: "right",
@@ -1541,6 +1593,8 @@ export default function OperatorOrders() {
         onClose={() => {
           setOpen(false);
           setKycInfo(null);
+          setHandoverReports([]);
+          setInvoiceInfo(null);
         }}
         extra={detail && <Space></Space>}
       >
@@ -1552,7 +1606,7 @@ export default function OperatorOrders() {
               <Descriptions.Item label="Mã đơn">#{detail.orderId}</Descriptions.Item>
               <Descriptions.Item label="Trạng thái">{statusTag(detail.orderStatus)}</Descriptions.Item>
               <Descriptions.Item label="Thanh toán">
-                {paymentStatusTag(detail.paymentStatus, detail.orderStatus)}
+                {paymentStatusTag(detail.paymentStatus, detail.orderStatus, invoiceInfo)}
               </Descriptions.Item>
 
               <Descriptions.Item label="Khách hàng">
@@ -1588,7 +1642,7 @@ export default function OperatorOrders() {
               </Descriptions.Item>
 
               <Descriptions.Item label="Ngày bắt đầu thuê">{dayjs(detail.startDate).format("YYYY-MM-DD")}</Descriptions.Item>
-              <Descriptions.Item label="Ngày giao trả hàng">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
+              <Descriptions.Item label="Ngày giao kết thúc thuê">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
               <Descriptions.Item label="Số ngày">{detailDays} ngày</Descriptions.Item>
               <Descriptions.Item label="Địa chỉ giao">{detail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>
@@ -1604,7 +1658,7 @@ export default function OperatorOrders() {
                 valueStyle={{ color: "#1890ff", fontWeight: "bold" }}
               />
               <Statistic title="Cọc đã hoàn lại" value={fmtVND(detail.depositAmountRefunded)} />
-              <Statistic title="Giá/ngày (TB)" value={fmtVND(detail.pricePerDay)} />
+              
             </Space>
 
             <Divider />
@@ -1701,6 +1755,134 @@ export default function OperatorOrders() {
 
             <Divider />
 
+            <Title level={5} style={{ marginBottom: 8 }}>Biên bản bàn giao</Title>
+            {handoverLoading ? (
+              <Skeleton active paragraph={{ rows: 3 }} />
+            ) : handoverReports.length > 0 ? (
+              handoverReports.map((report) => (
+                <Card
+                  key={report.handoverReportId}
+                  type="inner"
+                  title={`Biên bản #${report.handoverReportId} • Task #${report.taskId ?? "—"}`}
+                  style={{ marginBottom: 16 }}
+                >
+                  <Descriptions column={1} size="small" bordered>
+                    <Descriptions.Item label="Ngày bàn giao">
+                      {report.handoverDateTime
+                        ? dayjs(report.handoverDateTime).format("DD/MM/YYYY HH:mm")
+                        : "—"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Địa điểm">
+                      {report.handoverLocation || "—"}
+                    </Descriptions.Item>
+                    {(() => {
+                      // Parse customerInfo string: "Tên • SĐT • Email"
+                      const customerInfoStr = report.customerInfo || "";
+                      const parts = customerInfoStr.split(" • ").filter(Boolean);
+                      const customerName = parts[0] || "—";
+                      const customerPhone = parts[1] || "—";
+                      const customerEmail = parts[2] || "—";
+                      
+                      return (
+                        <>
+                          <Descriptions.Item label="Tên khách hàng">
+                            {customerName}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Số điện thoại">
+                            {customerPhone}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Email">
+                            {customerEmail}
+                          </Descriptions.Item>
+                        </>
+                      );
+                    })()}
+                    <Descriptions.Item label="Thông tin nhân sự thực hiện">
+                      {report.technicianInfo || "—"}
+                    </Descriptions.Item>
+                  </Descriptions>
+
+                  <Divider dashed />
+
+                  <Title level={5} style={{ fontSize: 14 }}>Thiết bị bàn giao</Title>
+                  <Table
+                    rowKey={(record, idx) => `${report.handoverReportId}-${idx}`}
+                    dataSource={report.items || []}
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      { title: "Tên thiết bị", dataIndex: "itemName", key: "itemName" },
+                      {
+                        title: "Mã thiết bị/Serial",
+                        dataIndex: "itemCode",
+                        key: "itemCode",
+                        render: (val) => val || "—",
+                      },
+                      { title: "Đơn vị", dataIndex: "unit", key: "unit", width: 90 },
+                      {
+                        title: "SL đặt",
+                        dataIndex: "orderedQuantity",
+                        key: "orderedQuantity",
+                        width: 100,
+                        align: "center",
+                      },
+                      {
+                        title: "SL giao",
+                        dataIndex: "deliveredQuantity",
+                        key: "deliveredQuantity",
+                        width: 100,
+                        align: "center",
+                      },
+                    ]}
+                  />
+
+                  <Divider dashed />
+
+                  <Title level={5} style={{ fontSize: 14 }}>Kỹ thuật viên tham gia</Title>
+                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                    {(report.technicians || []).map((tech) => (
+                      <Card key={`${report.handoverReportId}-tech-${tech.staffId ?? tech.username ?? tech.fullName ?? ""}`} size="small">
+                        <Space direction="vertical" size={0}>
+                          <Text strong>
+                            {tech.fullName || tech.username || `Nhân sự #${tech.staffId ?? "?"}`}
+                          </Text>
+                          <Text type="secondary">Role: {tech.role || "—"}</Text>
+                          {tech.email && <Text type="secondary">Email: {tech.email}</Text>}
+                          {tech.phoneNumber && <Text type="secondary">Phone: {tech.phoneNumber}</Text>}
+                        </Space>
+                      </Card>
+                    ))}
+                    {(!report.technicians || report.technicians.length === 0) && (
+                      <Text type="secondary">Không có thông tin nhân sự.</Text>
+                    )}
+                  </Space>
+
+                  <Divider dashed />
+
+                  <Title level={5} style={{ fontSize: 14 }}>Bằng chứng</Title>
+                  <Space wrap>
+                    {(report.evidenceUrls || []).map((url, idx) => (
+                      <Image
+                        key={`${report.handoverReportId}-evidence-${idx}`}
+                        src={url}
+                        alt={`Evidence ${idx + 1}`}
+                        width={180}
+                        style={{ borderRadius: 8 }}
+                        fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='120'%3E%3Crect width='180' height='120' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='12'%3ENo Image%3C/text%3E%3C/svg%3E"
+                      />
+                    ))}
+                    {(!report.evidenceUrls || report.evidenceUrls.length === 0) && (
+                      <Text type="secondary">Không có bằng chứng hình ảnh.</Text>
+                    )}
+                  </Space>
+                </Card>
+              ))
+            ) : (
+              <Text type="secondary">Chưa có biên bản bàn giao nào cho đơn này.</Text>
+            )}
+
+            <Divider />
+
             <Space>
               {/* Chỉ cho phép tạo hợp đồng khi trạng thái đơn là "processing" và chưa có hợp đồng nào không ở trạng thái DRAFT */}
               {String(detail.orderStatus).toUpperCase() === "PROCESSING" && (() => {
@@ -1731,234 +1913,6 @@ export default function OperatorOrders() {
           <Text type="secondary">Không có dữ liệu.</Text>
         )}
       </Drawer>
-
-      {/* Contract Preview Modal */}
-      <Modal
-        title="Quản lý hợp đồng"
-        open={contractPreviewOpen}
-        onCancel={() => setContractPreviewOpen(false)}
-        footer={[
-          <Button key="close" onClick={() => setContractPreviewOpen(false)}>Đóng</Button>,
-        ]}
-        width={1000}
-        style={{ top: 20 }}
-      >
-        <Tabs
-          defaultActiveKey="preview"
-          items={[
-            {
-              key: "preview",
-              label: "Xem trước hợp đồng",
-              children: contractPreview ? (
-                <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-                  <Card
-                    title={
-                      <div style={{ textAlign: "center" }}>
-                        <Title level={2} style={{ margin: 0, color: "#1890ff" }}>
-                          {contractPreview.title}
-                        </Title>
-                        <Text type="secondary">Số hợp đồng: {contractPreview.contractNumber}</Text>
-                      </div>
-                    }
-                    style={{ marginBottom: 16 }}
-                  >
-                    <Row gutter={[16, 16]}>
-                      <Col span={12}>
-                        <Card size="small" title="Thông tin cơ bản">
-                          <Descriptions size="small" column={1}>
-                            <Descriptions.Item label="Mã hợp đồng">#{contractPreview.contractId}</Descriptions.Item>
-                            <Descriptions.Item label="Đơn thuê">#{contractPreview.orderId}</Descriptions.Item>
-                            <Descriptions.Item label="Khách hàng">#{contractPreview.customerId}</Descriptions.Item>
-                            <Descriptions.Item label="Loại hợp đồng">
-                              <Tag color="blue">{contractPreview.contractType}</Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Trạng thái">
-                              {contractStatusTag(contractPreview.status)}
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Card>
-                      </Col>
-                      <Col span={12}>
-                        <Card size="small" title="Thời gian">
-                          <Descriptions size="small" column={1}>
-                            <Descriptions.Item label="Ngày bắt đầu">
-                              {dayjs(contractPreview.startDate).format("DD/MM/YYYY HH:mm")}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Ngày kết thúc">
-                              {dayjs(contractPreview.endDate).format("DD/MM/YYYY HH:mm")}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Số ngày thuê">
-                              {contractPreview.rentalPeriodDays} ngày
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Hết hạn">
-                              {dayjs(contractPreview.expiresAt).format("DD/MM/YYYY HH:mm")}
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Card>
-                      </Col>
-                    </Row>
-
-                    <Divider />
-
-                    <Row gutter={[16, 16]}>
-                      <Col span={12}>
-                        <Card size="small" title="Tài chính">
-                          <Space direction="vertical" style={{ width: "100%" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between" }}>
-                              <Text>Tổng tiền thuê:</Text>
-                              <Text strong style={{ color: "#52c41a" }}>
-                                {fmtVND(contractPreview.totalAmount)}
-                              </Text>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between" }}>
-                              <Text>Tiền cọc:</Text>
-                              <Text strong style={{ color: "#1890ff" }}>
-                                {fmtVND(contractPreview.depositAmount)}
-                              </Text>
-                            </div>
-                          </Space>
-                        </Card>
-                      </Col>
-                      <Col span={12}>
-                        <Card size="small" title="Mô tả">
-                          <Text>{contractPreview.description}</Text>
-                        </Card>
-                      </Col>
-                    </Row>
-
-                    <Divider />
-
-                    <Card size="small" title="Nội dung hợp đồng">
-                      <div
-                        style={{
-                          border: "1px solid #f0f0f0",
-                          padding: 16,
-                          borderRadius: 6,
-                          backgroundColor: "#fafafa",
-                          maxHeight: "200px",
-                          overflowY: "auto",
-                        }}
-                        dangerouslySetInnerHTML={{ __html: contractPreview.contractContent }}
-                      />
-                    </Card>
-
-                    <Divider />
-
-                    <Card size="small" title="Điều khoản và điều kiện">
-                      <div
-                        style={{
-                          border: "1px solid #f0f0f0",
-                          padding: 16,
-                          borderRadius: 6,
-                          backgroundColor: "#fafafa",
-                          maxHeight: "150px",
-                          overflowY: "auto",
-                          whiteSpace: "pre-line",
-                        }}
-                      >
-                        {contractPreview.termsAndConditions}
-                      </div>
-                    </Card>
-                  </Card>
-                </div>
-              ) : (
-                <Text type="secondary">Không có hợp đồng để xem trước</Text>
-              ),
-            },
-            {
-              key: "list",
-              label: "Danh sách hợp đồng",
-              children: (
-                <div>
-                  <div
-                    style={{
-                      marginBottom: 16,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Title level={4} style={{ margin: 0 }}>
-                      Tất cả hợp đồng
-                    </Title>
-                    <Button icon={<ReloadOutlined />} onClick={fetchContracts}>
-                      Tải lại
-                    </Button>
-                  </div>
-
-                  {contractsLoading ? (
-                    <Skeleton active paragraph={{ rows: 5 }} />
-                  ) : (
-                    <Table
-                      rowKey="id"
-                      columns={[
-                        {
-                          title: "Mã hợp đồng",
-                          dataIndex: "id",
-                          width: 120,
-                          render: (v) => <strong>#{v}</strong>,
-                        },
-                        { title: "Số hợp đồng", dataIndex: "number", width: 150, render: (v) => v || "—" },
-                        { title: "Đơn hàng", dataIndex: "orderId", width: 100, render: (v) => (v ? `#${v}` : "—") },
-                        { title: "Khách hàng", dataIndex: "customerId", width: 100, render: (v) => (v ? `#${v}` : "—") },
-                        {
-                          title: "Ngày tạo",
-                          dataIndex: "createdAt",
-                          width: 150,
-                          render: (v) => dayjs(v).format("DD/MM/YYYY HH:mm"),
-                        },
-                        {
-                          title: "Trạng thái",
-                          dataIndex: "status",
-                          width: 120,
-                          render: (status) => contractStatusTag(status),
-                        },
-                        {
-                          title: "Tổng tiền",
-                          dataIndex: "totalAmount",
-                          width: 120,
-                          align: "right",
-                          render: (v) => fmtVND(v),
-                        },
-                        {
-                          title: "Thao tác",
-                          key: "actions",
-                          width: 150,
-                          render: (_, record) => (
-                            <Space size="small">
-                              <Button
-                                size="small"
-                                icon={<EyeOutlined />}
-                                onClick={() => viewContractDetail(record.id)}
-                                loading={loadingContractDetail}
-                              >
-                                Xem
-                              </Button>
-                              {record.status === "DRAFT" && (
-                                <Button
-                                  size="small"
-                                  type="primary"
-                                  loading={sendingForSignature}
-                                  onClick={() => doSendForSignature(record.id)}
-                                >
-                                  Gửi ký
-                                </Button>
-                              )}
-                            </Space>
-                          ),
-                        },
-                      ]}
-                      dataSource={contracts}
-                      pagination={{ pageSize: 5, showSizeChanger: false }}
-                      size="small"
-                    />
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </Modal>
 
       {/* Contract Detail Modal - CHỈ GIỮ PHẦN HỢP ĐỒNG PDF */}
       <Modal

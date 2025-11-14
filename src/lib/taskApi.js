@@ -124,3 +124,11 @@ export async function updateTask(taskId, body) {
 export async function deleteTask(taskId) {
   return safeDelete(`/api/staff/tasks/${Number(taskId)}`);
 }
+
+/** PATCH /api/staff/tasks/{taskId}/confirm-delivery – Xác nhận giao hàng
+ * Technician/support confirms they will deliver for the task
+ */
+export async function confirmDelivery(taskId) {
+  const { data } = await api.patch(`/api/staff/tasks/${Number(taskId)}/confirm-delivery`);
+  return data?.data ?? data ?? null;
+}

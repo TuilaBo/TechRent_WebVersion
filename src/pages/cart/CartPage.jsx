@@ -1,5 +1,5 @@
 // src/pages/cart/CartPage.jsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   Row,
   Col,
@@ -14,6 +14,10 @@ import {
   DatePicker,
   Tooltip,
   Skeleton,
+  Form,
+  Input,
+  Select,
+  Modal,
 } from "antd";
 import {
   DeleteOutlined,
@@ -24,7 +28,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
-import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
+import { getDeviceModelById, normalizeModel, getDeviceAvailability } from "../../lib/deviceModelsApi";
 import {
   getCartFromStorage,
   saveCartToStorage,
@@ -33,8 +37,12 @@ import {
   debugCart,
 } from "../../lib/cartUtils";
 import { getMyKyc } from "../../lib/kycApi";
+import { fetchMyCustomerProfile, createShippingAddress, updateShippingAddress } from "../../lib/customerApi";
+import { fetchDistrictsHCM, fetchWardsByDistrict } from "../../lib/locationVn";
+import { createRentalOrder } from "../../lib/rentalOrdersApi";
 
 const { Title, Text } = Typography;
+const { Option } = Select;
 
 const fmtVND = (n) =>
   Number(n || 0).toLocaleString("vi-VN", {
@@ -43,6 +51,7 @@ const fmtVND = (n) =>
   });
 const disabledPast = (cur) => cur && cur < dayjs().startOf("day");
 const CART_DATES_STORAGE_KEY = "techrent-cart-dates";
+const PENDING_ORDER_STORAGE_KEY = "pending-order-payload";
 
 /* ===== Helpers: persist/read rental dates ===== */
 function persistCartDates(startDate, endDate) {
@@ -90,10 +99,38 @@ export default function CartPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [placing, setPlacing] = useState(false);
+  const [autoSubmitting, setAutoSubmitting] = useState(false);
+  const [itemAvailabilities, setItemAvailabilities] = useState({}); // { itemId: availableCount }
+  const [checkingAvailabilities, setCheckingAvailabilities] = useState(false);
 
   // KYC
   const [kycStatus, setKycStatus] = useState("");
   const [kycLoading, setKycLoading] = useState(true);
+
+  // Customer info
+  const [customerId, setCustomerId] = useState(null);
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [shippingAddress, setShippingAddress] = useState("");
+  const [shippingAddresses, setShippingAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [note, setNote] = useState("");
+  // Address modal state
+  const [addressModalVisible, setAddressModalVisible] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(null);
+  const [addressForm] = Form.useForm();
+  const [districts, setDistricts] = useState([]);
+  const [modalDistrictCode, setModalDistrictCode] = useState(null);
+  const [modalWardOptions, setModalWardOptions] = useState([]);
+  const [modalWardsLoading, setModalWardsLoading] = useState(false);
+  const [addressSubmitting, setAddressSubmitting] = useState(false);
+  const isNameValid = useMemo(() => String(fullName || "").trim().length > 0, [fullName]);
+  const isAddressValid = useMemo(() => {
+    const s = String(shippingAddress || "").trim();
+    return Boolean(selectedAddressId) || s.length > 0;
+  }, [selectedAddressId, shippingAddress]);
 
   // Dates (init from storage to avoid reset)
   const initialDates = (() => {
@@ -108,6 +145,31 @@ export default function CartPage() {
     const loadCart = async () => {
       try {
         setLoading(true);
+
+        // Prefill customer info
+        try {
+          const me = await fetchMyCustomerProfile();
+          setCustomerId(me?.customerId ?? me?.id ?? null);
+          setFullName(me?.fullName ?? me?.username ?? "");
+          setPhone(me?.phoneNumber ?? "");
+          setEmail(me?.email ?? "");
+          setShippingAddress(me?.shippingAddress ?? "");
+          const addresses = me?.shippingAddressDtos || [];
+          setShippingAddresses(addresses);
+          if (addresses.length > 0) {
+            setSelectedAddressId(addresses[0].shippingAddressId);
+            setShippingAddress(addresses[0].address);
+          }
+        } catch {
+          // ignore
+        }
+        // Load districts for address modal (HCM)
+        try {
+          const ds = await fetchDistrictsHCM();
+          setDistricts(Array.isArray(ds) ? ds : []);
+        } catch {
+          // ignore
+        }
 
         // 1) đọc ngày đã lưu (nếu có)
         const stored = readCartDates();
@@ -171,10 +233,148 @@ export default function CartPage() {
     loadKycStatus();
   }, []);
 
+  // Address modal helpers
+  const openAddressModal = (addr = null) => {
+    setEditingAddress(addr);
+    if (addr) {
+      addressForm.setFieldsValue({
+        districtCode: addr.districtCode ?? undefined,
+        wardCode: addr.wardCode ?? undefined,
+        addressLine: addr.addressLine ?? addr.address ?? "",
+      });
+      const dCode = addr.districtCode ?? null;
+      setModalDistrictCode(dCode);
+      if (dCode) {
+        setModalWardsLoading(true);
+        fetchWardsByDistrict(dCode)
+          .then((ws) => setModalWardOptions(Array.isArray(ws) ? ws : []))
+          .catch(() => setModalWardOptions([]))
+          .finally(() => setModalWardsLoading(false));
+      } else {
+        setModalWardOptions([]);
+      }
+    } else {
+      addressForm.resetFields();
+      setModalDistrictCode(null);
+      setModalWardOptions([]);
+    }
+    setAddressModalVisible(true);
+  };
+
+  const refreshAddresses = async () => {
+    try {
+      const me = await fetchMyCustomerProfile();
+      const list = me?.shippingAddressDtos || [];
+      setShippingAddresses(list);
+      if (list.length > 0) {
+        setSelectedAddressId(list[0].shippingAddressId);
+        setShippingAddress(list[0].address);
+      } else {
+        setSelectedAddressId(null);
+        setShippingAddress("");
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleAddressSubmit = async (values) => {
+    const { districtCode, wardCode, addressLine } = values || {};
+    if (!districtCode || !wardCode || !String(addressLine || "").trim()) {
+      toast.error("Vui lòng chọn quận, phường và nhập địa chỉ chi tiết.");
+      return;
+    }
+    try {
+      setAddressSubmitting(true);
+      const districtName = districts.find((d) => d.value === districtCode)?.label || "";
+      const wardName = modalWardOptions.find((w) => w.value === wardCode)?.label || "";
+      const composed = `${(addressLine || "").trim()}${wardName ? `, ${wardName}` : ""}${districtName ? `, ${districtName}` : ""}, TP. Hồ Chí Minh`;
+      const body = { address: composed };
+      if (editingAddress?.shippingAddressId) {
+        await updateShippingAddress(editingAddress.shippingAddressId, body);
+        toast.success("Đã cập nhật địa chỉ.");
+      } else {
+        await createShippingAddress(body);
+        toast.success("Đã thêm địa chỉ mới.");
+      }
+      await refreshAddresses();
+      setAddressModalVisible(false);
+      setEditingAddress(null);
+      addressForm.resetFields();
+      setModalDistrictCode(null);
+      setModalWardOptions([]);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Lưu địa chỉ thất bại.");
+    } finally {
+      setAddressSubmitting(false);
+    }
+  };
+
+  const onDistrictChange = async (code) => {
+    addressForm.setFieldsValue({ wardCode: undefined });
+    setModalDistrictCode(code || null);
+    if (!code) {
+      setModalWardOptions([]);
+      return;
+    }
+    setModalWardsLoading(true);
+    try {
+      const ws = await fetchWardsByDistrict(code);
+      setModalWardOptions(Array.isArray(ws) ? ws : []);
+    } catch {
+      setModalWardOptions([]);
+    } finally {
+      setModalWardsLoading(false);
+    }
+  };
+
   // Persist items
   useEffect(() => {
     if (!loading) saveCartToStorage(items);
   }, [items, loading]);
+
+  // Check availability for all items when dates change
+  useEffect(() => {
+    if (!items.length || !startDate || !endDate) {
+      setItemAvailabilities({});
+      return;
+    }
+
+    const checkAllAvailabilities = async () => {
+      try {
+        setCheckingAvailabilities(true);
+        const start = startDate.format("YYYY-MM-DD[T]HH:mm:ss");
+        const end = endDate.format("YYYY-MM-DD[T]HH:mm:ss");
+        
+        const results = await Promise.all(
+          items.map(async (item) => {
+            try {
+              const result = await getDeviceAvailability(item.id, start, end);
+              const count = typeof result === "number" 
+                ? result 
+                : (result?.availableCount ?? result?.available ?? result?.count ?? 0);
+              return { id: item.id, count: Math.max(0, Number(count) || 0) };
+            } catch (err) {
+              console.error(`Error checking availability for item ${item.id}:`, err);
+              return { id: item.id, count: 0 };
+            }
+          })
+        );
+
+        const availMap = {};
+        results.forEach(({ id, count }) => {
+          availMap[id] = count;
+        });
+        setItemAvailabilities(availMap);
+      } catch (err) {
+        console.error("Error checking availabilities:", err);
+      } finally {
+        setCheckingAvailabilities(false);
+      }
+    };
+
+    checkAllAvailabilities();
+  }, [items, startDate, endDate]);
 
   // Persist dates tự động + đảm bảo khi rời trang
   useEffect(() => {
@@ -236,11 +436,16 @@ export default function CartPage() {
 
   const updateItem = (id, patch) => {
     const idStr = String(id);
-    const updated = items.map((it) =>
-      String(it.id) === idStr ? { ...it, ...patch } : it
-    );
-    setItems(updated);
-    if (patch.qty !== undefined) updateCartItemQuantity(id, patch.qty);
+    setItems((prevItems) => {
+      const updated = prevItems.map((it) =>
+        String(it.id) === idStr ? { ...it, ...patch } : it
+      );
+      // Update cart storage immediately
+      if (patch.qty !== undefined) {
+        updateCartItemQuantity(id, patch.qty);
+      }
+      return updated;
+    });
   };
 
   const removeItemHandler = (id) => {
@@ -255,14 +460,11 @@ export default function CartPage() {
     if (!s || s === "unverified") return "unverified";
     if (s.includes("verified") || s.includes("approved")) return "verified";
     if (s.includes("reject") || s.includes("denied")) return "rejected";
-    // Cho phép pending, submitted, documents_submitted, review
-    if (
-      s.includes("pending") ||
-      s.includes("submit") ||
-      s.includes("review") ||
-      s === "documents_submitted"
-    )
-      return "pending";
+    // Trạng thái hồ sơ đã gửi đủ: DOCUMENTS_SUBMITTED (cho phép đặt đơn)
+    if (s.includes("documents_submitted") || s.includes("documents-submitted"))
+      return "submitted";
+    // Các trạng thái khác: đang chờ/pending hoặc review
+    if (s.includes("pending") || s.includes("review")) return "pending";
     return "unverified";
   }, [kycStatus]);
 
@@ -271,7 +473,41 @@ export default function CartPage() {
     navigate("/");
   };
 
-  const checkout = () => {
+  const submitOrderPayload = useCallback(
+    async (payload, { silent = false } = {}) => {
+      try {
+        if (!silent) setPlacing(true);
+        else setAutoSubmitting(true);
+
+        const promise = createRentalOrder(payload);
+
+        if (silent) {
+          await promise;
+          toast.success("Đã đặt đơn thành công!");
+        } else {
+          await toast.promise(promise, {
+            loading: "Đang đặt đơn...",
+            success: "Đặt đơn thành công! Vui lòng chờ xử lý.",
+            error: (err) =>
+              err?.response?.data?.message ||
+              err?.message ||
+              "Đặt đơn thất bại.",
+          });
+        }
+
+        sessionStorage.removeItem(PENDING_ORDER_STORAGE_KEY);
+        saveCartToStorage([]);
+        setItems([]);
+        setTimeout(() => navigate("/orders"), 1200);
+      } finally {
+        if (!silent) setPlacing(false);
+        else setAutoSubmitting(false);
+      }
+    },
+    [navigate]
+  );
+
+  const placeOrder = async () => {
     persistCartDates(startDate, endDate);
 
     // Validate dates
@@ -285,25 +521,91 @@ export default function CartPage() {
       return toast.error("Ngày kết thúc thuê phải sau ngày bắt đầu thuê.");
     }
 
-    if (!items.length) {
-      toast("Giỏ hàng đang trống.", { icon: "🛒" });
-      return;
-    }
+    if (!items.length) return toast("Giỏ hàng đang trống.", { icon: "🛒" });
     if (kycLoading) {
       toast.loading("Đang kiểm tra trạng thái KYC...", { id: "kyc-check" });
       setTimeout(() => toast.dismiss("kyc-check"), 900);
       return;
     }
+    if (!customerId) return toast.error("Không xác định được khách hàng, vui lòng đăng nhập lại.");
+    if (!isNameValid) return toast.error("Vui lòng nhập họ và tên để tiếp tục.");
+    if (!isAddressValid)
+      return toast.error(
+        "Vui lòng chọn hoặc nhập địa chỉ giao hàng để tiếp tục."
+      );
 
-    // Cho phép đặt order khi KYC đã verified hoặc đang pending
-    if (!["verified", "pending"].includes(kycBucket)) {
-      toast("Vui lòng hoàn tất KYC trước khi đặt đơn.", { icon: "🪪" });
-      navigate(`/kyc?return=${encodeURIComponent("/checkout")}`);
+    const payload = {
+      startDate: dayjs(startDate).startOf("day").format("YYYY-MM-DD[T]HH:mm:ss"),
+      endDate: dayjs(endDate).endOf("day").format("YYYY-MM-DD[T]HH:mm:ss.SSS"),
+      shippingAddress: shippingAddress || "",
+      orderDetails: items.map((x) => ({
+        deviceModelId: x.id,
+        quantity: Number(x.qty) || 1,
+      })),
+    };
+
+    // YÊU CẦU: Cho phép đặt đơn khi KYC đã xác minh hoặc đã nộp đủ hồ sơ (DOCUMENTS_SUBMITTED)
+    if (!["verified", "submitted"].includes(kycBucket)) {
+      try {
+        sessionStorage.setItem(
+          PENDING_ORDER_STORAGE_KEY,
+          JSON.stringify(payload)
+        );
+      } catch {
+        // ignore storage errors
+      }
+      toast(
+        "Vui lòng hoàn tất KYC trước khi đặt đơn. Đơn hàng sẽ được gửi tự động sau khi KYC hoàn thành.",
+        {
+          icon: "🪪",
+        }
+      );
+      navigate(`/kyc?return=${encodeURIComponent("/cart")}`);
+      return;
+    }
+    if (placing) return;
+
+    await submitOrderPayload(payload);
+  };
+
+  useEffect(() => {
+    if (
+      kycLoading ||
+      autoSubmitting ||
+      placing ||
+      !["verified", "submitted"].includes(kycBucket)
+    ) {
       return;
     }
 
-    navigate("/checkout");
-  };
+    const pendingRaw = sessionStorage.getItem(PENDING_ORDER_STORAGE_KEY);
+    if (!pendingRaw) return;
+
+    try {
+      const payload = JSON.parse(pendingRaw);
+      toast.loading("Đang gửi đơn đã lưu sau khi hoàn tất KYC...", {
+        id: "auto-order",
+      });
+      submitOrderPayload(payload, { silent: true })
+        .then(() => toast.dismiss("auto-order"))
+        .catch((err) => {
+          toast.dismiss("auto-order");
+          toast.error(
+            err?.response?.data?.message ||
+              err?.message ||
+              "Không thể gửi đơn tự động, vui lòng thử lại."
+          );
+        });
+    } catch {
+      sessionStorage.removeItem(PENDING_ORDER_STORAGE_KEY);
+    }
+  }, [
+    kycLoading,
+    kycBucket,
+    placing,
+    autoSubmitting,
+    submitOrderPayload,
+  ]);
 
   if (loading || kycLoading) {
     return (
@@ -338,212 +640,96 @@ export default function CartPage() {
         </Title>
 
         <Row gutter={[24, 24]}>
-          {/* LEFT: Items (narrower) */}
-          <Col xs={24} lg={8} xl={7}>
+          {/* LEFT: Delivery Info */}
+          <Col xs={24} lg={12} xl={11}>
             <Card
               bordered
               className="rounded-xl"
               bodyStyle={{ padding: 16 }}
-              title={<Text strong>Sản phẩm trong giỏ</Text>}
+              title={<Text strong>Thông tin nhận hàng</Text>}
             >
-              {items.length === 0 ? (
-                <Empty description="Chưa có sản phẩm" />
-              ) : (
-                items.map((it) => {
-                  const percent = Math.round(
-                    Number(it.depositPercent || 0) * 100
-                  );
-                  const line = lineTotals.find((x) => x.id === it.id);
-                  return (
-                    <Card
-                      key={it.id}
-                      bordered
-                      style={{ marginBottom: 12, borderColor: "#E5E7EB" }}
-                      bodyStyle={{ padding: 16 }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 16,
-                          alignItems: "flex-start",
+              <Form layout="vertical">
+                <Form.Item label={<Text strong>Họ và tên</Text>}>
+                  <Input 
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Nhập họ và tên"
+                    size="large"
+                  />
+                </Form.Item>
+                <Form.Item label={<Text strong>Số điện thoại</Text>}>
+                  <Input 
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="09xx xxx xxx"
+                    size="large"
+                  />
+                </Form.Item>
+                <Form.Item label={<Text strong>Email</Text>}>
+                  <Input value={email} disabled size="large" />
+                </Form.Item>
+                <Form.Item label={<Text strong>Địa chỉ giao hàng</Text>} required>
+                  {shippingAddresses.length > 0 ? (
+                    <>
+                      <Select
+                        placeholder="Chọn địa chỉ giao hàng"
+                        value={selectedAddressId}
+                        onChange={(addressId) => {
+                          setSelectedAddressId(addressId || null);
+                          const addr = shippingAddresses.find(a => a.shippingAddressId === addressId);
+                          setShippingAddress(addr?.address || "");
                         }}
-                      >
-                        <div
-                          style={{
-                            width: 80,
-                            height: 80,
-                            flexShrink: 0,
-                            backgroundImage: `url(${it.image})`,
-                            backgroundSize: "cover",
-                            backgroundPosition: "center",
-                            borderRadius: 10,
-                            border: "1px solid #E5E7EB",
-                          }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "flex-start",
-                              marginBottom: 8,
-                            }}
-                          >
-                            <Text
-                              strong
-                              style={{ color: "#111827", fontSize: 15 }}
-                            >
-                              {it.name}
-                            </Text>
-                            <Tooltip title="Xóa khỏi giỏ hàng">
-                              <Button
-                                type="text"
-                                danger
-                                size="small"
-                                icon={<DeleteOutlined />}
-                                onClick={() => removeItemHandler(it.id)}
-                              />
-                            </Tooltip>
-                          </div>
-
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ marginBottom: 4 }}>
-                              <Text style={{ color: "#111827", fontSize: 14 }}>
-                                Giá thuê:{" "}
-                                <strong>{fmtVND(it.dailyPrice)}</strong> / ngày
-                              </Text>
-                            </div>
-                            <div style={{ marginBottom: 4 }}>
-                              <Text type="secondary" style={{ fontSize: 13 }}>
-                                Giá trị thiết bị: {fmtVND(it.deviceValue)}
-                              </Text>
-                            </div>
-                            <div>
-                              <Text type="secondary" style={{ fontSize: 13 }}>
-                                Tiền cọc ({percent}%):{" "}
-                                <strong style={{ color: "#111827" }}>
-                                  {fmtVND(line?.deposit || 0)}
-                                </strong>
-                              </Text>
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Space.Compact>
-                              <Button
-                                onClick={() =>
-                                  updateItem(it.id, {
-                                    qty: Math.max(1, it.qty - 1),
-                                  })
-                                }
-                              >
-                                –
-                              </Button>
-                              <InputNumber
-                                min={1}
-                                value={it.qty}
-                                onChange={(v) =>
-                                  updateItem(it.id, { qty: v || 1 })
-                                }
-                                style={{ width: 60, textAlign: "center" }}
-                              />
-                              <Button
-                                onClick={() =>
-                                  updateItem(it.id, { qty: it.qty + 1 })
-                                }
-                              >
-                                +
-                              </Button>
-                            </Space.Compact>
-                          </div>
-                        </div>
+                        options={shippingAddresses.map((addr) => ({
+                          value: addr.shippingAddressId,
+                          label: addr.address,
+                        }))}
+                        size="large"
+                        allowClear
+                      />
+                      <div style={{ marginTop: 8 }}>
+                        <Button type="link" style={{ padding: 0 }} onClick={() => openAddressModal()}>
+                          Thêm địa chỉ mới →
+                        </Button>
                       </div>
-                    </Card>
-                  );
-                })
-              )}
-            </Card>
-          </Col>
-
-          {/* MIDDLE: Dates (a bit narrower) */}
-          <Col xs={24} lg={7} xl={7}>
-            <Card
-              bordered
-              className="rounded-xl"
-              bodyStyle={{ padding: 16 }}
-              title={<Text strong>Thời gian thuê</Text>}
-            >
-              <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                <div>
-                  <Text type="secondary" className="block">
-                    Ngày bắt đầu
-                  </Text>
-                  <DatePicker
-                    value={startDate}
-                    onChange={(v) => {
-                      setStartDate(v);
-                      persistCartDates(v, endDate);
-                    }}
-                    style={{ width: "100%" }}
-                    format="YYYY-MM-DD"
-                    disabledDate={disabledPast}
-                    suffixIcon={<CalendarOutlined />}
+                    </>
+                  ) : (
+                    <div>
+                      <Button
+                        type="primary"
+                        ghost
+                        size="large"
+                        block
+                        onClick={() => openAddressModal()}
+                        style={{ height: 44 }}
+                      >
+                        Thêm địa chỉ mới
+                      </Button>
+                      <div style={{ color: "#6B7280", marginTop: 8, fontSize: 13 }}>
+                        Chưa có địa chỉ nào. Bấm để thêm địa chỉ nhận hàng.
+                      </div>
+                    </div>
+                  )}
+                  {!isAddressValid && (
+                    <div style={{ color: "#ef4444", marginTop: 8, fontSize: 13 }}>
+                      Vui lòng chọn hoặc nhập địa chỉ giao hàng.
+                    </div>
+                  )}
+                </Form.Item>
+                <Form.Item label={<Text strong>Ghi chú thêm (tuỳ chọn)</Text>}>
+                  <Input.TextArea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    autoSize={{ minRows: 3, maxRows: 6 }}
+                    placeholder="VD: Giao trước 9h, gọi mình trước khi tới giao nhé…"
+                    size="large"
                   />
-                </div>
-                <div>
-                  <Text type="secondary" className="block">
-                    Ngày kết thúc
-                  </Text>
-                  <DatePicker
-                    value={endDate}
-                    onChange={(v) => {
-                      setEndDate(v);
-                      persistCartDates(startDate, v);
-                    }}
-                    style={{ width: "100%" }}
-                    format="YYYY-MM-DD"
-                    disabledDate={(cur) =>
-                      disabledPast(cur) ||
-                      (startDate &&
-                        cur
-                          .startOf("day")
-                          .diff(startDate.startOf("day"), "day") <= 0)
-                    }
-                    suffixIcon={<CalendarOutlined />}
-                  />
-                </div>
-                <div>
-                  <Text type="secondary" className="block">
-                    Số ngày
-                  </Text>
-                  <div
-                    style={{
-                      width: "100%",
-                      height: 36,
-                      border: "1px solid #E5E7EB",
-                      borderRadius: 6,
-                      background: "#F9FAFB",
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "0 12px",
-                      color: "#111827",
-                    }}
-                  >
-                    {days} ngày
-                  </div>
-                </div>
-              </Space>
+                </Form.Item>
+              </Form>
             </Card>
           </Col>
 
           {/* RIGHT: Summary (wider) */}
-          <Col xs={24} lg={9} xl={10}>
+          <Col xs={24} lg={12} xl={13}>
             <Card
               bordered
               className="rounded-xl"
@@ -551,6 +737,7 @@ export default function CartPage() {
               title={<Text strong>Tóm tắt đơn hàng</Text>}
             >
               <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                {/* Thời gian thuê - có thể chọn */}
                 <div
                   style={{
                     padding: 12,
@@ -559,28 +746,54 @@ export default function CartPage() {
                     border: "1px solid #E5E7EB",
                   }}
                 >
-                  {/* Dùng grid 2 cột để nhãn-giá trị không bị nhảy */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      rowGap: 6,
-                    }}
-                  >
-                    <Text style={{ fontSize: 14, color: "#6B7280" }}>
-                      Ngày bắt đầu thuê
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
+                      Ngày bắt đầu
                     </Text>
-                    <Text strong style={{ fontSize: 14, color: "#111827" }}>
-                      {startDate?.format("DD/MM/YYYY")}
-                    </Text>
-
-                    <Text style={{ fontSize: 14, color: "#6B7280" }}>
-                      Ngày kết thúc thuê
-                    </Text>
-                    <Text strong style={{ fontSize: 14, color: "#111827" }}>
-                      {endDate?.format("DD/MM/YYYY")}
-                    </Text>
+                    <DatePicker
+                      value={startDate}
+                      onChange={(v) => {
+                        setStartDate(v);
+                        persistCartDates(v, endDate);
+                        if (v && endDate && v.isAfter(endDate)) {
+                          setEndDate(v.add(5, "day"));
+                        }
+                      }}
+                      style={{ width: "100%" }}
+                      format="YYYY-MM-DD"
+                      disabledDate={disabledPast}
+                      suffixIcon={<CalendarOutlined />}
+                    />
                   </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
+                      Ngày kết thúc
+                    </Text>
+                    <DatePicker
+                      value={endDate}
+                      onChange={(v) => {
+                        setEndDate(v);
+                        persistCartDates(startDate, v);
+                      }}
+                      style={{ width: "100%" }}
+                      format="YYYY-MM-DD"
+                      disabledDate={(cur) =>
+                        disabledPast(cur) ||
+                        (startDate &&
+                          cur
+                            .startOf("day")
+                            .diff(startDate.startOf("day"), "day") <= 0)
+                      }
+                      suffixIcon={<CalendarOutlined />}
+                    />
+                  </div>
+                  {checkingAvailabilities && (
+                    <div style={{ marginTop: 8, marginBottom: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Đang kiểm tra tính khả dụng cho tất cả sản phẩm...
+                      </Text>
+                    </div>
+                  )}
                   <Divider style={{ margin: "8px 0" }} />
                   <div
                     style={{ display: "grid", gridTemplateColumns: "1fr auto" }}
@@ -601,6 +814,9 @@ export default function CartPage() {
                   const percent = Math.round(
                     Number(item.depositPercent || 0) * 100
                   );
+                  const availableCount = itemAvailabilities[ln.id] ?? null;
+                  const isItemAvailable = availableCount !== null && availableCount > 0;
+                  const canSelectQty = isItemAvailable && ln.qty <= availableCount;
                   return (
                     <div
                       key={ln.id}
@@ -612,21 +828,68 @@ export default function CartPage() {
                       <div
                         style={{
                           display: "flex",
-                          alignItems: "center",
-                          gap: 10,
+                          alignItems: "flex-start",
+                          gap: 12,
                           marginBottom: 6,
                         }}
                       >
-                        <div
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 6,
-                            background: `url(${item.image}) center/cover no-repeat`,
-                            border: "1px solid #E5E7EB",
-                            flexShrink: 0,
-                          }}
-                        />
+                        {/* Ảnh + bộ chọn số lượng xếp dọc */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                          <div
+                            style={{
+                              width: 64,
+                              height: 64,
+                              borderRadius: 8,
+                              background: `url(${item.image}) center/cover no-repeat`,
+                              border: "1px solid #E5E7EB",
+                              flexShrink: 0,
+                            }}
+                          />
+                          <Space.Compact>
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                updateItem(ln.id, {
+                                  qty: Math.max(1, (item.qty || ln.qty || 1) - 1),
+                                })
+                              }
+                              disabled={!isItemAvailable}
+                            >
+                              –
+                            </Button>
+                            <InputNumber
+                              min={1}
+                              max={availableCount ?? undefined}
+                              value={item.qty || ln.qty || 1}
+                              onChange={(v) => {
+                                const max = availableCount ?? 0;
+                                if (max > 0) {
+                                  updateItem(ln.id, { qty: Math.min(Math.max(1, v || 1), max) });
+                                } else {
+                                  updateItem(ln.id, { qty: v || 1 });
+                                }
+                              }}
+                              style={{ width: 60, textAlign: "center" }}
+                              size="small"
+                              disabled={!isItemAvailable}
+                            />
+                            <Button
+                              size="small"
+                              onClick={() => {
+                                const max = availableCount ?? 0;
+                                const currentQty = item.qty || ln.qty || 1;
+                                if (max > 0) {
+                                  updateItem(ln.id, { qty: Math.min(currentQty + 1, max) });
+                                } else {
+                                  updateItem(ln.id, { qty: currentQty + 1 });
+                                }
+                              }}
+                              disabled={!isItemAvailable || (availableCount !== null && (item.qty || ln.qty || 1) >= availableCount)}
+                            >
+                              +
+                            </Button>
+                          </Space.Compact>
+                        </div>
                         <div
                           style={{
                             display: "flex",
@@ -650,12 +913,24 @@ export default function CartPage() {
                           >
                             Tiền thuê: {fmtVND(ln.subtotal)}
                           </Text>
+                          <Tooltip title="Xoá khỏi giỏ hàng">
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              onClick={() => removeItemHandler(ln.id)}
+                              style={{ marginLeft: 8 }}
+                            />
+                          </Tooltip>
                         </div>
                       </div>
                       <div
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 8,
                         }}
                       >
                         <Text type="secondary" style={{ fontSize: 13 }}>
@@ -665,6 +940,7 @@ export default function CartPage() {
                           Giá trị thiết bị: {fmtVND(item.deviceValue)}
                         </Text>
                       </div>
+                      {/* Bộ chọn số lượng đã chuyển xuống dưới ảnh */}
                       <div
                         style={{
                           display: "grid",
@@ -675,14 +951,33 @@ export default function CartPage() {
                           Tiền Cọc = {percent}% × Giá trị thiết bị × SL
                         </span>
                         <Text strong style={{ fontSize: 13, color: "#111827" }}>
-                          Tiền Cọc:{" "}
-                          {fmtVND(
-                            Number(item.deviceValue || 0) *
-                              Number(item.depositPercent || 0) *
-                              Number(ln.qty || 1)
-                          )}
+                          Tiền Cọc: {fmtVND(ln.deposit)}
                         </Text>
                       </div>
+                      {availableCount !== null && (
+                        <div style={{ marginTop: 8 }}>
+                          {!isItemAvailable ? (
+                            <Text type="danger" style={{ fontSize: 12 }}>
+                              ⚠️ Không còn thiết bị khả dụng trong khoảng thời gian đã chọn
+                            </Text>
+                          ) : !canSelectQty ? (
+                            <Text type="warning" style={{ fontSize: 12 }}>
+                              ⚠️ Chỉ còn {availableCount} thiết bị khả dụng. Vui lòng giảm số lượng.
+                            </Text>
+                          ) : (
+                            <Text type="success" style={{ fontSize: 12 }}>
+                              ✓ Còn {availableCount} thiết bị khả dụng
+                            </Text>
+                          )}
+                        </div>
+                      )}
+                      {checkingAvailabilities && availableCount === null && (
+                        <div style={{ marginTop: 8 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            Đang kiểm tra tính khả dụng...
+                          </Text>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -755,14 +1050,15 @@ export default function CartPage() {
                 size="large"
                 block
                 icon={<ShoppingCartOutlined />}
-                onClick={checkout}
+                onClick={placeOrder}
+                loading={placing}
                 style={{
                   marginTop: 12,
                   background: "#111827",
                   borderColor: "#111827",
                 }}
               >
-                Tiến hành thanh toán
+                Đặt đơn thuê
               </Button>
 
               <Button
@@ -775,6 +1071,85 @@ export default function CartPage() {
                 Tiếp tục mua sắm
               </Button>
             </Card>
+
+            {/* Address Modal */}
+            <Modal
+              title={editingAddress ? "Sửa địa chỉ" : "Thêm địa chỉ mới"}
+              open={addressModalVisible}
+              onCancel={() => {
+                setAddressModalVisible(false);
+                setEditingAddress(null);
+                addressForm.resetFields();
+                setModalDistrictCode(null);
+                setModalWardOptions([]);
+              }}
+              footer={null}
+              width={600}
+              destroyOnClose
+            >
+              <Form
+                form={addressForm}
+                layout="vertical"
+                onFinish={handleAddressSubmit}
+                requiredMark={false}
+              >
+                <Form.Item
+                  label="Quận/Huyện"
+                  name="districtCode"
+                  rules={[{ required: true, message: "Vui lòng chọn quận/huyện" }]}
+                >
+                  <Select
+                    placeholder="Chọn quận/huyện"
+                    options={districts}
+                    showSearch
+                    optionFilterProp="label"
+                    onChange={onDistrictChange}
+                    allowClear
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Phường/Xã"
+                  name="wardCode"
+                  rules={[{ required: true, message: "Vui lòng chọn phường/xã" }]}
+                >
+                  <Select
+                    placeholder="Chọn phường/xã"
+                    loading={modalWardsLoading}
+                    options={modalWardOptions}
+                    disabled={!modalDistrictCode}
+                    showSearch
+                    optionFilterProp="label"
+                    allowClear
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Địa chỉ chi tiết"
+                  name="addressLine"
+                  rules={[{ required: true, message: "Vui lòng nhập địa chỉ chi tiết" }]}
+                >
+                  <Input.TextArea
+                    autoSize={{ minRows: 2, maxRows: 4 }}
+                    placeholder="Số nhà, tên đường…"
+                  />
+                </Form.Item>
+                <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+                  <Button
+                    onClick={() => {
+                      setAddressModalVisible(false);
+                      setEditingAddress(null);
+                      addressForm.resetFields();
+                      setModalDistrictCode(null);
+                      setModalWardOptions([]);
+                    }}
+                  >
+                    Hủy
+                  </Button>
+                  <Button type="primary" htmlType="submit" loading={addressSubmitting}>
+                    {editingAddress ? "Cập nhật" : "Thêm"}
+                  </Button>
+                </Space>
+              </Form>
+            </Modal>
           </Col>
         </Row>
       </div>

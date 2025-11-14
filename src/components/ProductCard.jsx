@@ -64,13 +64,6 @@ export default function ProductCard() {
   const handleAdd = async (e, it) => {
     e.stopPropagation();
 
-    // Kiểm tra số lượng còn lại
-    const available = it.amountAvailable || 0;
-    if (available === 0) {
-      toast.error("Thiết bị không còn đủ để thuê");
-      return;
-    }
-
     if (!isAuthenticated) {
       toast((t) => (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -227,13 +220,7 @@ export default function ProductCard() {
             gap: 20,
           }}
         >
-          {([...items]
-            .sort((a, b) => {
-              const avA = Number(a?.amountAvailable || 0) > 0 ? 1 : 0;
-              const avB = Number(b?.amountAvailable || 0) > 0 ? 1 : 0;
-              return avB - avA; // còn hàng trước, hết hàng sau
-            }))
-            .map((it) => (
+          {items.map((it) => (
             <div
               key={it.id}
               onClick={() => goDetail(it.id)}
@@ -266,38 +253,6 @@ export default function ProductCard() {
                     transition: "transform .3s ease",
                   }}
                 />
-                {((it.amountAvailable || 0) === 0) && (
-                  <div style={{
-                    position: "absolute",
-                    top: 12,
-                    right: 12,
-                    background: "rgba(255,77,79,0.95)",
-                    color: "#fff",
-                    padding: "6px 14px",
-                    borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    backdropFilter: "blur(4px)",
-                  }}>
-                    Hết hàng
-                  </div>
-                )}
-                {((it.amountAvailable || 0) === 1) && (
-                  <div style={{
-                    position: "absolute",
-                    top: 12,
-                    right: 12,
-                    background: "rgba(250,173,20,0.95)",
-                    color: "#fff",
-                    padding: "6px 14px",
-                    borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    backdropFilter: "blur(4px)",
-                  }}>
-                    Sắp hết
-                  </div>
-                )}
               </div>
 
               <div
@@ -341,12 +296,6 @@ export default function ProductCard() {
                 >
                   {it.name}
                 </h3>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                  <span style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>Có thể thuê:</span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: (it.amountAvailable || 0) > 1 ? "#52c41a" : (it.amountAvailable || 0) > 0 ? "#faad14" : "#ff4d4f" }}>
-                    {it.amountAvailable || 0}
-                  </span>
-                </div>
               </div>
 
               <div
@@ -369,20 +318,19 @@ export default function ProductCard() {
                   type="primary"
                   size="middle"
                   style={{ 
-                    background: (it.amountAvailable || 0) > 0 ? "#000" : "#d9d9d9",
-                    borderColor: (it.amountAvailable || 0) > 0 ? "#000" : "#d9d9d9",
+                    background: "#000",
+                    borderColor: "#000",
                     color: "#fff", 
                     borderRadius: 10,
                     fontWeight: 700,
                     fontSize: 13,
                     height: 40,
                     padding: "0 16px",
-                    boxShadow: (it.amountAvailable || 0) > 0 ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
                   }}
                   icon={<ShoppingCartOutlined />}
                   loading={!!addingMap[it.id]}
-                  disabled={!!addingMap[it.id] || (it.amountAvailable || 0) === 0}
-                  title={(it.amountAvailable || 0) === 0 ? "Thiết bị không còn đủ để thuê" : ""}
+                  disabled={!!addingMap[it.id]}
                   onClick={(e) => handleAdd(e, it)}
                 >
                   {addingMap[it.id] ? "Đang thêm" : "Thuê ngay"}

@@ -8,6 +8,8 @@ import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { useNavigate, useLocation } from "react-router-dom";
 import { uploadKycDocumentsBatch, getMyKyc } from "../../lib/kycApi";
+import { createRentalOrder } from "../../lib/rentalOrdersApi";
+import { saveCartToStorage } from "../../lib/cartUtils";
 import { extractIdFieldsFE } from "../../../utils/kycOcrFE";
 
 const { Title, Text } = Typography;
@@ -19,6 +21,7 @@ export default function KycPage() {
   const location = useLocation();
   const search = new URLSearchParams(location.search || "");
   const returnTo = search.get("return") || "/checkout";
+  const PENDING_ORDER_STORAGE_KEY = "pending-order-payload";
 
   // 0 = Upload → 1 = Nhập thông tin → 2 = Xem lại & Gửi
   const [step, setStep] = useState(0);
@@ -262,6 +265,42 @@ export default function KycPage() {
         expirationDate:      v.expirationDate ? dayjs(v.expirationDate).format("YYYY-MM-DD") : "",
         permanentAddress:    (v.address || "").trim(),
       });
+
+      const pendingOrderRaw = sessionStorage.getItem(PENDING_ORDER_STORAGE_KEY);
+      if (pendingOrderRaw) {
+        sessionStorage.removeItem(PENDING_ORDER_STORAGE_KEY);
+        let pendingPayload = null;
+        try {
+          pendingPayload = JSON.parse(pendingOrderRaw);
+        } catch {
+          pendingPayload = null;
+        }
+
+        if (pendingPayload) {
+          try {
+            await toast.promise(
+              createRentalOrder(pendingPayload),
+              {
+                loading: "Đang tạo đơn sau khi hoàn tất KYC...",
+                success: "Đã tạo đơn thuê thành công!",
+                error: "Đặt đơn thất bại. Vui lòng thử lại.",
+              }
+            );
+            saveCartToStorage([]);
+            navigate("/orders");
+            return;
+          } catch (orderErr) {
+            console.error(orderErr);
+            toast.error(
+              orderErr?.response?.data?.message ||
+                orderErr?.message ||
+                "Không thể tạo đơn sau khi KYC. Vui lòng đặt lại từ giỏ hàng."
+            );
+            navigate("/cart");
+            return;
+          }
+        }
+      }
 
       toast.success("Đã gửi thông tin KYC");
       setTimeout(() => navigate(returnTo), 800);

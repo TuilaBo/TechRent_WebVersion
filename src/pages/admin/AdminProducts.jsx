@@ -12,6 +12,7 @@ import {
   DatePicker,
   Tag,
   Typography,
+  Upload,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -327,6 +328,7 @@ export default function AdminProducts() {
     const [editing, setEditing] = useState(null);
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
+    const [imageFile, setImageFile] = useState(null);
 
     const cols = [
       {
@@ -403,6 +405,7 @@ export default function AdminProducts() {
               icon={<EditOutlined />}
               onClick={() => {
                 setEditing(r);
+                setImageFile(null);
                 form.setFieldsValue({
                   deviceName: r.deviceName ?? r.name,
                   brandId: r.brandId ?? (function () {
@@ -412,7 +415,6 @@ export default function AdminProducts() {
                   deviceCategoryId: r.deviceCategoryId,
                   specifications: r.specifications ?? r.specs_json,
                   description: r.description ?? "",
-                  imageURL: r.imageURL ?? r.imageUrl ?? r.image,
                   pricePerDay: r.pricePerDay,
                   deviceValue: r.deviceValue,
                   depositPercent: r.depositPercent,
@@ -456,10 +458,16 @@ export default function AdminProducts() {
 
     const submit = async (v) => {
       try {
+        const img =
+          v.imageFile?.file?.originFileObj ||
+          v.imageFile?.file ||
+          v.imageFile?.originFileObj ||
+          v.imageFile ||
+          imageFile ||
+          null;
         const payload = {
           deviceName: v.deviceName,
           brandId: v.brandId,
-          imageURL: v.imageURL ?? "",
           specifications: v.specifications ?? "",
           description: v.description ?? "",
           deviceCategoryId: v.deviceCategoryId,
@@ -467,6 +475,7 @@ export default function AdminProducts() {
           pricePerDay: Number(v.pricePerDay ?? 0),
           depositPercent: Number(v.depositPercent ?? 0),
           active: !!v.active,
+          imageFile: img || undefined,
         };
         if (editing) {
           const id = editing.deviceModelId ?? editing.id;
@@ -478,6 +487,7 @@ export default function AdminProducts() {
         }
         setOpen(false);
         setEditing(null);
+        setImageFile(null);
         form.resetFields();
         loadAll();
       } catch (e) {
@@ -495,6 +505,7 @@ export default function AdminProducts() {
             onClick={() => {
               setEditing(null);
               form.resetFields();
+              setImageFile(null);
               setOpen(true);
             }}
           >
@@ -547,8 +558,22 @@ export default function AdminProducts() {
             <Form.Item name="description" label="Mô tả">
               <Input.TextArea rows={3} />
             </Form.Item>
-            <Form.Item name="imageURL" label="Ảnh (URL)">
-              <Input />
+            <Form.Item name="imageFile" label="Ảnh thiết bị">
+              <Upload.Dragger
+                accept=".jpg,.jpeg,.png,.webp"
+                multiple={false}
+                maxCount={1}
+                beforeUpload={() => false}
+                showUploadList={{ showPreviewIcon: false }}
+                onChange={({ file }) => {
+                  const f = file?.originFileObj || file;
+                  setImageFile(f || null);
+                  form.setFieldsValue({ imageFile: file });
+                }}
+              >
+                <p>Kéo thả hoặc bấm để chọn ảnh</p>
+                <p style={{ color: "#888", fontSize: 12 }}>Hỗ trợ: JPG, PNG, WEBP</p>
+              </Upload.Dragger>
             </Form.Item>
             <Form.Item name="pricePerDay" label="Giá/ngày">
               <Input type="number" />

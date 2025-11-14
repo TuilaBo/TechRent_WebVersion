@@ -28,6 +28,7 @@ import AdminProducts from "./pages/admin/AdminProducts.jsx";
 import AdminMaintenancePlanner from "./pages/admin/AdminMaintenancePlanner.jsx";
 import AdminAccounts from "./pages/admin/AdminAccounts.jsx";
 import AdminTaskCategory from "./pages/admin/AdminTaskCategory.jsx";
+import AdminTransactions from "./pages/admin/AdminTransactions.jsx";
 import AdminContract from "./pages/admin/AdminContract.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
@@ -42,10 +43,12 @@ import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
 import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
 import TechnicianReports from "./pages/technician/TechnicianReports.jsx";
 import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
+import TechnicianHandover from "./pages/technician/TechnicianHandover.jsx";
 
 import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
 import SupportChat from "./pages/CST/SupportChat.jsx";
+import SupportTask from "./pages/CST/SupportTask.jsx";
 import RequireRole from "./routes/RequireRole.jsx";
 export default function App() {
   return (
@@ -93,6 +96,9 @@ export default function App() {
           {/* Route cho PayOS redirect về /cancel thay vì /payment/cancel */}
           <Route path="cancel" element={<CancelPage />} />
           <Route path="return" element={<ReturnPage />} />
+          {/* Route cho VNPay redirect về /success và /failure */}
+          <Route path="success" element={<ReturnPage />} />
+          <Route path="failure" element={<CancelPage />} />
         </Route>
 
         <Route
@@ -109,6 +115,7 @@ export default function App() {
           <Route path="maintenance" element={<AdminMaintenancePlanner />} />
           <Route path="contracts" element={<AdminContract />} />
           <Route path="accounts" element={<AdminAccounts />} />
+          <Route path="transactions" element={<AdminTransactions />} />
           <Route path="task-categories" element={<AdminTaskCategory />} />
         </Route>
 
@@ -139,6 +146,7 @@ export default function App() {
           <Route index element={<TechnicianCalendar />} />
           <Route path="reports" element={<TechnicianReports />} />
           <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
+          <Route path="tasks/handover/:taskId" element={<TechnicianHandover />} />
         </Route>
 
         <Route
@@ -151,6 +159,7 @@ export default function App() {
         >
           <Route index element={<SupportDesk />} />
           <Route path="desk" element={<SupportDesk />} />
+          <Route path="tasks" element={<SupportTask />} />
           <Route path="chats" element={<SupportChat />} />
           <Route path="settings" element={<div>Settings (sắp có)</div>} />
         </Route>

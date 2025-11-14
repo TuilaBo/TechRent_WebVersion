@@ -87,14 +87,7 @@ export default function RelatedCard({ categoryId, excludeId }) {
           margin: "0 auto",
         }}
       >
-        {[...items]
-          .sort((a, b) => {
-            const avA = Number(a?.amountAvailable || 0) > 0 ? 1 : 0;
-            const avB = Number(b?.amountAvailable || 0) > 0 ? 1 : 0;
-            return avB - avA;
-          })
-          .slice(0, 4)
-          .map((it) => (
+        {items.slice(0, 4).map((it) => (
           <div
             key={it.id}
             onClick={() => navigate(`/devices/${it.id}`)}
@@ -128,39 +121,7 @@ export default function RelatedCard({ categoryId, excludeId }) {
                   objectFit: "cover",
                   transition: "transform .3s ease",
                 }}
-              />
-              {(it.amountAvailable || 0) === 0 && (
-                <div style={{
-                  position: "absolute",
-                  top: 12,
-                  right: 12,
-                  background: "rgba(255,77,79,0.95)",
-                  color: "#fff",
-                  padding: "6px 14px",
-                  borderRadius: 20,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  backdropFilter: "blur(4px)",
-                }}>
-                  Hết hàng
-                </div>
-              )}
-              {(it.amountAvailable || 0) === 1 && (
-                <div style={{
-                  position: "absolute",
-                  top: 12,
-                  right: 12,
-                  background: "rgba(250,173,20,0.95)",
-                  color: "#fff",
-                  padding: "6px 14px",
-                  borderRadius: 20,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  backdropFilter: "blur(4px)",
-                }}>
-                  Sắp hết
-                </div>
-              )}
+                />
             </div>
             <div
               style={{
@@ -200,16 +161,10 @@ export default function RelatedCard({ categoryId, excludeId }) {
                   WebkitBoxOrient: "vertical",
                   overflow: "hidden",
                 }}
-              >
-                {it.name}
-              </h3>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                <span style={{ fontSize: 13, color: "#888", fontWeight: 500 }}>Còn lại:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: (it.amountAvailable || 0) > 1 ? "#52c41a" : (it.amountAvailable || 0) > 0 ? "#faad14" : "#ff4d4f" }}>
-                  {it.amountAvailable || 0}
-                </span>
+                >
+                  {it.name}
+                </h3>
               </div>
-            </div>
             <div
               style={{
                 padding: "0 14px 14px",
@@ -229,15 +184,15 @@ export default function RelatedCard({ categoryId, excludeId }) {
                 type="primary"
                 size="middle"
                 style={{
-                  background: (it.amountAvailable || 0) > 0 ? "#000" : "#d9d9d9",
-                  borderColor: (it.amountAvailable || 0) > 0 ? "#000" : "#d9d9d9",
+                  background: "#000",
+                  borderColor: "#000",
                   color: "#fff",
                   borderRadius: 10,
                   fontWeight: 700,
                   fontSize: 13,
                   height: 40,
                   padding: "0 16px",
-                  boxShadow: (it.amountAvailable || 0) > 0 ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
                 }}
                 icon={<ShoppingCartOutlined />}
                 onClick={(e) => {

@@ -1,6 +1,6 @@
 // src/components/AppHeader.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Layout, Row, Col, Space, Badge, Dropdown, Menu, Input } from "antd";
+import { Layout, Row, Col, Badge, Dropdown, Menu, Input } from "antd";
 import {
   ShoppingCartOutlined,
   UserOutlined,
@@ -246,32 +246,32 @@ export default function AppHeader() {
         
         /* Search input styles */
         .search-input { 
-          border-radius: 20px !important; 
-          border: 1.5px solid #e8e8e8 !important; 
+          border-radius: 24px !important; 
+          border: 2px solid #eaeaea !important; 
           background: rgba(255, 255, 255, 0.95) !important; 
           font-weight: 500 !important;
-          font-size: 13px !important;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.04) !important; 
-          padding: 6px 16px !important; 
+          font-size: 14px !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important; 
+          padding: 8px 16px !important; 
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
         .search-input:hover {
-          border-color: #d0d0d0 !important;
+          border-color: #cfcfcf !important;
           background: #fff !important;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+          box-shadow: 0 4px 14px rgba(0,0,0,0.10) !important;
         }
-        .search-input:focus, .search-input-focused { 
-          border: 1.5px solid #000 !important; 
-          box-shadow: 0 2px 12px rgba(0,0,0,0.12) !important;
+        .search-input:focus, .search-input-focused, .search-input:focus-within { 
+          border: 2px solid #111 !important; 
+          box-shadow: 0 6px 18px rgba(0,0,0,0.14) !important;
           background: #fff !important;
         }
         .search-input .ant-input {
           font-weight: 500 !important;
-          font-size: 13px !important;
+          font-size: 14px !important;
           padding: 0 !important;
         }
         .search-input .ant-input::placeholder {
-          color: #999 !important;
+          color: #8c8c8c !important;
         }
         
         /* Header icon styles */
@@ -412,12 +412,12 @@ export default function AppHeader() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               prefix={<SearchOutlined style={{ color: "#999", fontSize: 14 }} />}
-              placeholder="Tìm kiếm..."
+              placeholder="Tìm kiếm sản phẩm, danh mục..."
               className="search-input"
               onPressEnter={doSearch}
               onFocus={(e) => e.currentTarget.parentElement?.classList.add("search-input-focused")}
               onBlur={(e) => e.currentTarget.parentElement?.classList.remove("search-input-focused")}
-              style={{ width: 200, height: 36 }}
+              style={{ width: 340, height: 44 }}
             />
             <Link to="/login" aria-label="Đăng nhập">
               <div className="login-link-btn">
@@ -443,12 +443,12 @@ export default function AppHeader() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               prefix={<SearchOutlined style={{ color: "#999", fontSize: 14 }} />}
-              placeholder="Tìm kiếm..."
+              placeholder="Tìm kiếm sản phẩm, danh mục..."
               className="search-input"
               onPressEnter={doSearch}
               onFocus={(e) => e.currentTarget.parentElement?.classList.add("search-input-focused")}
               onBlur={(e) => e.currentTarget.parentElement?.classList.remove("search-input-focused")}
-              style={{ width: 200, height: 36 }}
+              style={{ width: 340, height: 44 }}
             />
 
             {/* Icons */}

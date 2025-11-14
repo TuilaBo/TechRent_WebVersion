@@ -3,17 +3,18 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Row, Col, Card, Typography, Breadcrumb, Space, Divider,
-  InputNumber, Button, Image, Tabs, Skeleton, Carousel, Tag
+  InputNumber, Button, Image, Tabs, Skeleton, Carousel, Tag, DatePicker, Alert
 } from "antd";
 import { 
   ShoppingCartOutlined, MinusOutlined, PlusOutlined, LeftOutlined, 
   RightOutlined, CheckCircleFilled, CloseCircleFilled, FireOutlined,
-  SafetyOutlined
+  SafetyOutlined, CalendarOutlined
 } from "@ant-design/icons";
 import toast from "react-hot-toast";
+import dayjs from "dayjs";
 
 import { useAuth } from "../context/AuthContext";
-import { getDeviceModelById, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
+import { getDeviceModelById, normalizeModel, fmtVND, getDeviceAvailability } from "../lib/deviceModelsApi";
 import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils";
 import RelatedCard from "../components/RelatedCard";
@@ -97,6 +98,12 @@ export default function DeviceDetail() {
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  
+  // Rental dates for availability check
+  const [startDate, setStartDate] = useState(dayjs().add(1, "day"));
+  const [endDate, setEndDate] = useState(dayjs().add(6, "day"));
+  const [availableCount, setAvailableCount] = useState(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -121,16 +128,43 @@ export default function DeviceDetail() {
     })();
   }, [id]);
 
+  // Check availability when dates or item changes
   useEffect(() => {
-    if (item?.amountAvailable !== undefined) {
-      const available = item.amountAvailable || 0;
-      if (available > 0 && qty > available) {
-        setQty(available);
-      } else if (available === 0) {
-        setQty(1);
-      }
+    if (!item?.id || !startDate || !endDate) {
+      setAvailableCount(null);
+      return;
     }
-  }, [item?.amountAvailable]);
+
+    const checkAvailability = async () => {
+      try {
+        setCheckingAvailability(true);
+        const start = startDate.format("YYYY-MM-DD[T]HH:mm:ss");
+        const end = endDate.format("YYYY-MM-DD[T]HH:mm:ss");
+        const result = await getDeviceAvailability(item.id, start, end);
+        // API có thể trả về số hoặc object có field availableCount/available
+        const count = typeof result === "number" 
+          ? result 
+          : (result?.availableCount ?? result?.available ?? result?.count ?? 0);
+        setAvailableCount(Math.max(0, Number(count) || 0));
+      } catch (err) {
+        console.error("Error checking availability:", err);
+        setAvailableCount(0);
+      } finally {
+        setCheckingAvailability(false);
+      }
+    };
+
+    checkAvailability();
+  }, [item?.id, startDate, endDate]);
+
+  // Adjust quantity when available count changes
+  useEffect(() => {
+    if (availableCount !== null && availableCount > 0 && qty > availableCount) {
+      setQty(availableCount);
+    } else if (availableCount === 0) {
+      setQty(1);
+    }
+  }, [availableCount]);
 
   const perDaySubtotal = useMemo(
     () => Math.round((item?.pricePerDay || 0) * qty),
@@ -161,14 +195,19 @@ export default function DeviceDetail() {
   const handleAddToCart = async () => {
     if (adding) return;
 
-    const available = item?.amountAvailable || 0;
+    const available = availableCount ?? 0;
     if (available === 0) {
-      toast.error("Thiết bị không còn đủ để thuê");
+      toast.error("Thiết bị không còn đủ để thuê trong khoảng thời gian đã chọn");
       return;
     }
     if (qty > available) {
       toast.error(`Chỉ còn ${available} thiết bị có sẵn. Vui lòng chọn số lượng không quá ${available}.`);
       setQty(available);
+      return;
+    }
+    
+    if (!startDate || !endDate) {
+      toast.error("Vui lòng chọn ngày bắt đầu và kết thúc thuê");
       return;
     }
 
@@ -205,6 +244,7 @@ export default function DeviceDetail() {
 
     try {
       setAdding(true);
+      // Lưu thời gian thuê vào cart item (có thể mở rộng cartUtils sau)
       const result = await addToCart(id, qty);
       if (result.success) {
         toast.success((t) => (
@@ -264,8 +304,9 @@ export default function DeviceDetail() {
     );
   }
 
-  const isAvailable = (item.amountAvailable || 0) > 0;
-  const isLowStock = isAvailable && (item.amountAvailable || 0) < 2;
+  const isAvailable = (availableCount ?? 0) > 0;
+  const isLowStock = isAvailable && (availableCount ?? 0) < 2;
+  const disabledPast = (cur) => cur && cur < dayjs().startOf("day");
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#fafafa" }}>
@@ -373,31 +414,102 @@ export default function DeviceDetail() {
                   </Tag>
                 </div>
 
-                <div style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 12px",
-                  background: isAvailable ? "#f0fdf4" : "#fef2f2",
-                  border: `1px solid ${isAvailable ? "#86efac" : "#fecaca"}`,
-                  borderRadius: 8
-                }}>
-                  {isAvailable ? (
-                    <CheckCircleFilled style={{ color: "#16a34a", fontSize: 14 }} />
-                  ) : (
-                    <CloseCircleFilled style={{ color: "#dc2626", fontSize: 14 }} />
-                  )}
-                  <Text style={{ 
-                    color: isAvailable ? "#15803d" : "#991b1b", 
-                    fontSize: 13, 
-                    fontWeight: 600, 
-                    margin: 0 
+                {availableCount !== null && (
+                  <div style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 12px",
+                    background: isAvailable ? "#f0fdf4" : "#fef2f2",
+                    border: `1px solid ${isAvailable ? "#86efac" : "#fecaca"}`,
+                    borderRadius: 8
                   }}>
-                    {isAvailable 
-                      ? `Còn ${item.amountAvailable} thiết bị` 
-                      : "Hết hàng"}
-                  </Text>
-                </div>
+                    {isAvailable ? (
+                      <CheckCircleFilled style={{ color: "#16a34a", fontSize: 14 }} />
+                    ) : (
+                      <CloseCircleFilled style={{ color: "#dc2626", fontSize: 14 }} />
+                    )}
+                    <Text style={{ 
+                      color: isAvailable ? "#15803d" : "#991b1b", 
+                      fontSize: 13, 
+                      fontWeight: 600, 
+                      margin: 0 
+                    }}>
+                      {isAvailable 
+                        ? `Còn ${availableCount} thiết bị` 
+                        : "Hết hàng"}
+                    </Text>
+                  </div>
+                )}
+              </div>
+
+              <Divider style={{ margin: "20px 0", borderColor: "#e5e7eb" }} />
+
+              {/* Rental Dates */}
+              <div className="mb-5">
+                <Text strong className="block mb-2" style={{ 
+                  color: "#111", 
+                  fontWeight: 600,
+                  fontSize: 14
+                }}>
+                  Thời gian thuê
+                </Text>
+                <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                      Ngày bắt đầu
+                    </Text>
+                    <DatePicker
+                      value={startDate}
+                      onChange={(v) => {
+                        setStartDate(v);
+                        if (v && endDate && v.isAfter(endDate)) {
+                          setEndDate(v.add(5, "day"));
+                        }
+                      }}
+                      style={{ width: "100%" }}
+                      format="YYYY-MM-DD"
+                      disabledDate={disabledPast}
+                      suffixIcon={<CalendarOutlined />}
+                      size="large"
+                    />
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                      Ngày kết thúc
+                    </Text>
+                    <DatePicker
+                      value={endDate}
+                      onChange={(v) => setEndDate(v)}
+                      style={{ width: "100%" }}
+                      format="YYYY-MM-DD"
+                      disabledDate={(cur) =>
+                        disabledPast(cur) ||
+                        (startDate && cur.startOf("day").diff(startDate.startOf("day"), "day") <= 0)
+                      }
+                      suffixIcon={<CalendarOutlined />}
+                      size="large"
+                    />
+                  </div>
+                </Space>
+                {checkingAvailability && (
+                  <Alert
+                    message="Đang kiểm tra tính khả dụng..."
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                  />
+                )}
+                {availableCount !== null && !checkingAvailability && (
+                  <Alert
+                    message={availableCount > 0 
+                      ? `Còn ${availableCount} thiết bị khả dụng trong khoảng thời gian này`
+                      : "Không còn thiết bị khả dụng trong khoảng thời gian này"}
+                    type={availableCount > 0 ? "success" : "warning"}
+                    showIcon
+                    style={{ marginTop: 8 }}
+                  />
+                )}
               </div>
 
               <Divider style={{ margin: "20px 0", borderColor: "#e5e7eb" }} />
@@ -502,10 +614,10 @@ export default function DeviceDetail() {
                   />
                   <InputNumber
                     min={1}
-                    max={item.amountAvailable || 0}
+                    max={availableCount ?? 0}
                     value={qty}
                     onChange={(v) => {
-                      const max = item.amountAvailable || 0;
+                      const max = availableCount ?? 0;
                       if (max > 0) {
                         setQty(Math.min(Math.max(1, v || 1), max));
                       }
@@ -526,7 +638,7 @@ export default function DeviceDetail() {
                   <Button
                     size="middle"
                     onClick={() => {
-                      const max = item.amountAvailable || 0;
+                      const max = availableCount ?? 0;
                       setQty((q) => Math.min(q + 1, max));
                     }}
                     icon={<PlusOutlined />}
@@ -538,7 +650,7 @@ export default function DeviceDetail() {
                       transition: "all 0.2s"
                     }}
                     className="qty-btn"
-                    disabled={adding || !isAvailable || qty >= (item.amountAvailable || 0)}
+                    disabled={adding || !isAvailable || qty >= (availableCount ?? 0)}
                   />
                 </Space.Compact>
                 {!isAvailable && (
@@ -560,10 +672,10 @@ export default function DeviceDetail() {
                 icon={adding ? null : <ShoppingCartOutlined style={{ fontSize: 16 }} />}
                 className="w-full add-to-cart-btn"
                 onClick={handleAddToCart}
-                loading={adding}
-                disabled={adding || !isAvailable || qty > (item.amountAvailable || 0)}
+                loading={adding || checkingAvailability}
+                disabled={adding || checkingAvailability || !isAvailable || qty > (availableCount ?? 0) || !startDate || !endDate}
                 style={{ 
-                  background: isAvailable && qty <= (item.amountAvailable || 0) ? "#111" : "#d1d5db",
+                  background: isAvailable && qty <= (availableCount ?? 0) ? "#111" : "#d1d5db",
                   border: "none", 
                   borderRadius: 10, 
                   height: 44, 

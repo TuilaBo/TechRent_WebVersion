@@ -24,14 +24,49 @@ export default function ReturnPage() {
   const orderCode = searchParams.get("orderCode");
   const orderId = searchParams.get("orderId");
 
+  // VNPay params
+  const vnpResponseCode = searchParams.get("vnp_ResponseCode");
+
   useEffect(() => {
-    // Nếu có orderId từ URL, fetch thông tin invoice
+    // Kiểm tra nếu là VNPay và có response code
+    // VNPay: vnp_ResponseCode = "00" là success, khác là failure/cancel
+    if (vnpResponseCode !== null) {
+      const isSuccess = vnpResponseCode === "00";
+      
+      if (!isSuccess) {
+        // Redirect sang CancelPage nếu không phải success
+        const cancelParams = new URLSearchParams();
+        if (orderId) cancelParams.set("orderId", orderId);
+        if (orderCode) cancelParams.set("orderCode", orderCode);
+        // Giữ lại các params VNPay để debug
+        searchParams.forEach((value, key) => {
+          if (key.startsWith("vnp_")) {
+            cancelParams.set(key, value);
+          }
+        });
+        navigate(`/failure?${cancelParams.toString()}`, { replace: true });
+        return;
+      }
+    }
+
+    // PayOS params check
+    const payosCode = searchParams.get("code");
+    if (payosCode !== null && payosCode !== "00") {
+      // PayOS: code != "00" là failure
+      const cancelParams = new URLSearchParams();
+      if (orderId) cancelParams.set("orderId", orderId);
+      if (orderCode) cancelParams.set("orderCode", orderCode);
+      navigate(`/failure?${cancelParams.toString()}`, { replace: true });
+      return;
+    }
+
+    // Nếu có orderId từ URL và đã confirm là success, fetch thông tin invoice
     if (orderId) {
       loadInvoice(Number(orderId));
     } else {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode]);
 
   const loadInvoice = async (rentalOrderId) => {
     try {

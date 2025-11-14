@@ -13,6 +13,18 @@ export async function getDeviceModelById(id) {
   return data?.data ?? data;
 }
 
+/** Kiểm tra tính khả dụng của thiết bị theo model trong khoảng thời gian */
+export async function getDeviceAvailability(deviceModelId, start, end) {
+  // Format: start và end phải là string date-time dạng "2025-11-12T09:00:00"
+  const { data } = await api.get(`/api/devices/models/${deviceModelId}/availability`, {
+    params: {
+      start,
+      end,
+    },
+  });
+  return data?.data ?? data;
+}
+
 /** Tìm kiếm mẫu thiết bị với phân trang/sort/filter */
 export async function searchDeviceModels(params = {}) {
   const {
