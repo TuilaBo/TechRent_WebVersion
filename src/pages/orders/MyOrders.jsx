@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Table, Tag, Typography, Input, DatePicker, Space, Button,
   Dropdown, Menu, Tooltip, message, Drawer, Descriptions,
-  Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps, Radio, Checkbox
+  Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps, Radio, Checkbox, Alert
 } from "antd";
 import {
   SearchOutlined, FilterOutlined, EyeOutlined,
@@ -19,6 +19,7 @@ import { createPayment, getInvoiceByRentalOrderId } from "../../lib/Payment";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
+import { useLocation } from "react-router-dom";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -42,7 +43,7 @@ const PAYMENT_STATUS_MAP = {
   unpaid:   { label: "Chưa thanh toán",      color: "volcano"  },
   paid:     { label: "Đã thanh toán",        color: "green"    },
   refunded: { label: "Đã hoàn tiền",         color: "geekblue" },
-  partial:  { label: "Thanh toán một phần",  color: "purple"   },
+  partial:  { label: "Chưa thanh toán thành công",  color: "purple"   },
 };
 
 // Map invoice status to payment status
@@ -608,6 +609,12 @@ export default function MyOrders() {
   const [paymentTermsAccepted, setPaymentTermsAccepted] = useState(false);
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [invoiceInfo, setInvoiceInfo] = useState(null); // Invoice info from API
+  const [detailTab, setDetailTab] = useState("overview");
+  const location = useLocation();
+  const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const deeplinkOrderId = queryParams.get("orderId");
+  const deeplinkTab = queryParams.get("tab");
+  const deepLinkHandledRef = useRef(false);
 
   // Layout: Table tự cuộn theo viewport
   const TABLE_TOP_BLOCK = 40 + 40 + 16;
@@ -719,6 +726,13 @@ export default function MyOrders() {
     }
     return rows.sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
   }, [search, statusFilter, dateRange, orders]);
+
+  const needsContractAction = useMemo(() => {
+    const status = String(current?.orderStatus || current?.status || "").toUpperCase();
+    return status === "PROCESSING";
+  }, [current?.orderStatus, current?.status]);
+
+  const hasContracts = useMemo(() => (contracts || []).length > 0, [contracts]);
 
   const refresh = async () => {
     setLoading(true);
@@ -845,6 +859,7 @@ export default function MyOrders() {
     clearContractPreviewState();
     setCurrent(record);
     setDetailOpen(true);
+    setDetailTab("overview");
     setInvoiceInfo(null); // Reset invoice info
 
     try {
@@ -872,6 +887,26 @@ export default function MyOrders() {
       console.error("Error loading order details:", err);
     }
   };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    if (!deeplinkOrderId) return;
+    if (!orders || orders.length === 0) return;
+    const target = orders.find((o) => {
+      const id = o?.id ?? o?.orderId;
+      return (
+        String(id) === String(deeplinkOrderId) ||
+        String(o?.displayId) === String(deeplinkOrderId)
+      );
+    });
+    if (!target) return;
+    deepLinkHandledRef.current = true;
+    showDetail(target);
+    if (deeplinkTab === "contract") {
+      setDetailTab("contract");
+    }
+  }, [orders, deeplinkOrderId, deeplinkTab]);
 
   const loadAllContracts = async () => {
     try {
@@ -1129,6 +1164,19 @@ export default function MyOrders() {
           ${identificationCode ? `<div><b>Số căn cước công dân:</b> ${identificationCode}</div>` : ""}
           ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
           ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
+          ${(() => {
+            const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
+            if (bankInfo.length > 0) {
+              return bankInfo.map((bank, idx) => {
+                const bankName = bank?.bankName || "";
+                const bankHolder = bank?.bankHolder || "";
+                const cardNumber = bank?.cardNumber || "";
+                if (!bankName && !bankHolder && !cardNumber) return "";
+                return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
+              }).filter(Boolean).join("");
+            }
+            return "";
+          })()}
         </section>
 
         <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>
@@ -1626,6 +1674,7 @@ export default function MyOrders() {
         onClose={() => {
           setDetailOpen(false);
           clearContractPreviewState();
+          setDetailTab("overview");
         }}
         styles={{
           body: { padding: 0, background: "#f5f7fa" },
@@ -1657,10 +1706,38 @@ export default function MyOrders() {
             })()}
           </div>
         )}
+        {current && needsContractAction && (
+          <div
+            style={{
+              padding: "16px 24px",
+              borderBottom: "1px solid #e8e8e8",
+              background: "#fff",
+            }}
+          >
+            <Alert
+              type="info"
+              showIcon
+                message={`Đơn #${current.displayId ?? current.id} đã được xác nhận`}
+                description={
+                  hasContracts
+                    ? "Vui lòng ký hợp đồng và thanh toán để chúng tôi chuẩn bị giao hàng."
+                    : "Chúng tôi đang tạo hợp đồng cho đơn này. Bạn sẽ nhận được thông báo khi hợp đồng sẵn sàng."
+                }
+                action={
+                  hasContracts && (
+                    <Button type="link" onClick={() => setDetailTab("contract")} style={{ padding: 0 }}>
+                      Xem hợp đồng
+                    </Button>
+                  )
+                }
+            />
+          </div>
+        )}
         {current && (
           <Tabs
             key={current.id}
-            defaultActiveKey="overview"
+            activeKey={detailTab}
+            onChange={setDetailTab}
             items={[
               {
                 key: "overview",
@@ -1900,6 +1977,11 @@ export default function MyOrders() {
                       ) : (
                         <div style={{ textAlign: 'center', padding: '40px 0' }}>
                           <Text type="secondary">Chưa có hợp đồng nào được tạo cho đơn này</Text>
+                          {needsContractAction && (
+                            <div style={{ marginTop: 12, color: "#6B7280" }}>
+                              Hệ thống sẽ tự động tạo hợp đồng sau khi đơn được chuẩn bị.
+                            </div>
+                          )}
                         </div>
                       )}
 

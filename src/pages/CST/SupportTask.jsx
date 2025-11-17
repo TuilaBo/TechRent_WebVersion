@@ -488,7 +488,7 @@ export default function SupportTask() {
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <Title level={3} style={{ margin: 0 }}>Danh sách công việc hỗ trợ</Title>
+        <Title level={3} style={{ margin: 0 }}>Danh sách công việc</Title>
         <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={loading}>
           Tải lại
         </Button>

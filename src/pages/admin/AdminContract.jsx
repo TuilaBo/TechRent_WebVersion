@@ -450,6 +450,19 @@ function buildPrintableHtml(detail, customer, kyc) {
           ${identificationCode ? `<div><b>Số căn cước công dân:</b> ${identificationCode}</div>` : ""}
           ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
           ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
+          ${(() => {
+            const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
+            if (bankInfo.length > 0) {
+              return bankInfo.map((bank, idx) => {
+                const bankName = bank?.bankName || "";
+                const bankHolder = bank?.bankHolder || "";
+                const cardNumber = bank?.cardNumber || "";
+                if (!bankName && !bankHolder && !cardNumber) return "";
+                return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
+              }).filter(Boolean).join("");
+            }
+            return "";
+          })()}
         </section>
 
         <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>

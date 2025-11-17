@@ -947,6 +947,19 @@ export default function OperatorOrders() {
           ${identificationCode ? `<div><b>Số căn cước công dân:</b> ${identificationCode}</div>` : ""}
           ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
           ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
+          ${(() => {
+            const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
+            if (bankInfo.length > 0) {
+              return bankInfo.map((bank, idx) => {
+                const bankName = bank?.bankName || "";
+                const bankHolder = bank?.bankHolder || "";
+                const cardNumber = bank?.cardNumber || "";
+                if (!bankName && !bankHolder && !cardNumber) return "";
+                return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
+              }).filter(Boolean).join("");
+            }
+            return "";
+          })()}
         </section>
 
         <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>
@@ -1637,12 +1650,12 @@ export default function OperatorOrders() {
                 ) : "—"}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Ngày tạo">
+              <Descriptions.Item label="Ngày tạo đơn">
                 {dayjs(detail.createdAt).format("YYYY-MM-DD HH:mm")}
               </Descriptions.Item>
 
               <Descriptions.Item label="Ngày bắt đầu thuê">{dayjs(detail.startDate).format("YYYY-MM-DD")}</Descriptions.Item>
-              <Descriptions.Item label="Ngày giao kết thúc thuê">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
+              <Descriptions.Item label="Ngày kết thúc thuê">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
               <Descriptions.Item label="Số ngày">{detailDays} ngày</Descriptions.Item>
               <Descriptions.Item label="Địa chỉ giao">{detail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Table, Button, Space, Tag, Modal, Form, Input,
   DatePicker, Select, Typography, Spin, InputNumber, Popconfirm, Tooltip,
-  Card, Avatar, Descriptions, Divider,
+  Card, Avatar, Descriptions, Divider, Alert,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -237,6 +237,8 @@ export default function OperatorTasks() {
     switch (status) {
       case "PENDING":
         return <Tag color="orange">Chờ thực hiện</Tag>;
+      case "PROCESSING":
+        return <Tag color="purple">Đang xử lý</Tag>;
       case "IN_PROGRESS":
         return <Tag color="blue">Đang thực hiện</Tag>;
       case "COMPLETED":
@@ -250,6 +252,7 @@ export default function OperatorTasks() {
     const upper = String(status || "").toUpperCase();
     if (!upper) return { color: "default", label: "—" };
     if (upper.includes("PENDING")) return { color: "orange", label: "Đang chờ" };
+    if (upper.includes("PROCESSING")) return { color: "purple", label: "Đang xử lý" };
     if (upper.includes("READY_FOR_DELIVERY")) return { color: "processing", label: "Sẵn sàng giao" };
     if (upper.includes("DELIVERY_CONFIRMED")) return { color: "blue", label: "Đã xác nhận giao" };
     if (upper.includes("CONFIRM")) return { color: "blue", label: "Đã xác nhận" };
@@ -432,8 +435,8 @@ export default function OperatorTasks() {
         const end = r.plannedEnd ? dayjs(r.plannedEnd).format("DD/MM/YYYY HH:mm") : "-";
         return (
           <div style={{ fontSize: "12px", lineHeight: "1.5" }}>
-            <div><strong>Bắt đầu:</strong> {start}</div>
-            <div><strong>Kết thúc:</strong> {end}</div>
+            <div><strong>Thời gian Bắt đầu task:</strong> {start}</div>
+            <div><strong>Thời gian kết thúc task:</strong> {end}</div>
           </div>
         );
       },
@@ -445,6 +448,7 @@ export default function OperatorTasks() {
       width: 140,
       filters: [
         { text: "Chờ thực hiện", value: "PENDING" },
+        { text: "Đang xử lý", value: "PROCESSING" },
         { text: "Đang thực hiện", value: "IN_PROGRESS" },
         { text: "Hoàn thành", value: "COMPLETED" },
       ],
@@ -709,42 +713,63 @@ export default function OperatorTasks() {
             name="assignedStaffIds"
             tooltip={availableStaffs.length > 0 ? `Hiển thị ${availableStaffs.length} nhân viên rảnh trong khung giờ đã chọn` : "Chọn thời gian bắt đầu và kết thúc để xem nhân viên rảnh"}
           >
-            <Select
-              mode="multiple"
-              allowClear
-              placeholder={
-                searchingStaff
-                  ? "Đang tìm nhân viên rảnh..."
-                  : availableStaffs.length > 0
-                  ? `Chọn từ ${availableStaffs.length} nhân viên rảnh`
-                  : "Chọn nhân viên (chọn thời gian để xem nhân viên rảnh)"
+            {(() => {
+              const startTime = form.getFieldValue("plannedStart");
+              const endTime = form.getFieldValue("plannedEnd");
+              const hasTimeRange = startTime && endTime;
+              const hasSearched = hasTimeRange && !searchingStaff;
+              const noAvailableStaff = hasSearched && availableStaffs.length === 0;
+
+              if (noAvailableStaff) {
+                return (
+                  <Alert
+                    message="Hiện tại không có nhân viên nào rảnh"
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 0 }}
+                  />
+                );
               }
-              showSearch
-              optionFilterProp="label"
-              loading={searchingStaff}
-              disabled={searchingStaff}
-              options={
-                availableStaffs.length > 0
-                  ? availableStaffs
-                      .filter((s) => {
-                        const role = String(s.staffRole || s.role || "").toUpperCase();
-                        return role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
-                      })
-                      .map((s) => ({
-                        label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
-                        value: s.staffId ?? s.id,
-                      }))
-                  : staffs
-                      .filter((s) => {
-                        const role = String(s.staffRole || s.role || "").toUpperCase();
-                        return role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
-                      })
-                      .map((s) => ({
-                        label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
-                        value: s.staffId ?? s.id,
-                      }))
-              }
-            />
+
+              return (
+                <Select
+                  mode="multiple"
+                  allowClear
+                  placeholder={
+                    searchingStaff
+                      ? "Đang tìm nhân viên rảnh..."
+                      : availableStaffs.length > 0
+                      ? `Chọn từ ${availableStaffs.length} nhân viên rảnh`
+                      : "Chọn nhân viên (chọn thời gian để xem nhân viên rảnh)"
+                  }
+                  showSearch
+                  optionFilterProp="label"
+                  loading={searchingStaff}
+                  disabled={searchingStaff}
+                  options={
+                    availableStaffs.length > 0
+                      ? availableStaffs
+                          .filter((s) => {
+                            const role = String(s.staffRole || s.role || "").toUpperCase();
+                            return role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
+                          })
+                          .map((s) => ({
+                            label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
+                            value: s.staffId ?? s.id,
+                          }))
+                      : staffs
+                          .filter((s) => {
+                            const role = String(s.staffRole || s.role || "").toUpperCase();
+                            return role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
+                          })
+                          .map((s) => ({
+                            label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
+                            value: s.staffId ?? s.id,
+                          }))
+                  }
+                />
+              );
+            })()}
           </Form.Item>
 
           <Form.Item
@@ -764,9 +789,9 @@ export default function OperatorTasks() {
           </Form.Item>
 
           <Form.Item
-            label="Ngày bắt đầu"
+            label="Thời gian bắt đầu task (dự kiến)"
             name="plannedStart"
-            rules={[{ required: true, message: "Chọn ngày bắt đầu" }]}
+            rules={[{ required: true, message: "Chọn thời gian bắt đầu task (dự kiến)" }]}
           >
             <DatePicker
               showTime
@@ -788,9 +813,9 @@ export default function OperatorTasks() {
           </Form.Item>
 
           <Form.Item
-            label="Ngày kết thúc"
+            label="Thời gian kết thúc( dự kiến)"
             name="plannedEnd"
-            rules={[{ required: true, message: "Chọn ngày kết thúc" }]}
+            rules={[{ required: true, message: "Chọn Thời gian kết thúc task( dự kiến)" }]}
           >
             <DatePicker
               showTime
@@ -864,6 +889,9 @@ export default function OperatorTasks() {
               <Space direction="vertical" align="end" size={4}>
                 <div><strong>Tổng tiền cọc:</strong> {fmtVND(orderTotals.deposit)}</div>
                 <div><strong>Tổng tiền thuê:</strong> {fmtVND(orderTotals.rental)}</div>
+                <div style={{ color: "#1890ff", fontWeight: "bold", fontSize: "16px", marginTop: 8 }}>
+                  <strong>Tổng thanh toán:</strong> {fmtVND(orderTotals.deposit + orderTotals.rental)}
+                </div>
               </Space>
             </div>
           </Space>

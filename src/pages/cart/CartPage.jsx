@@ -18,12 +18,16 @@ import {
   Input,
   Select,
   Modal,
+  Alert,
+  Popconfirm,
 } from "antd";
 import {
   DeleteOutlined,
   ArrowLeftOutlined,
   ShoppingCartOutlined,
   CalendarOutlined,
+  EditOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -37,9 +41,17 @@ import {
   debugCart,
 } from "../../lib/cartUtils";
 import { getMyKyc } from "../../lib/kycApi";
-import { fetchMyCustomerProfile, createShippingAddress, updateShippingAddress } from "../../lib/customerApi";
+import {
+  fetchMyCustomerProfile,
+  createShippingAddress,
+  updateShippingAddress,
+  createBankInformation,
+  updateBankInformation,
+  deleteBankInformation,
+} from "../../lib/customerApi";
 import { fetchDistrictsHCM, fetchWardsByDistrict } from "../../lib/locationVn";
 import { createRentalOrder } from "../../lib/rentalOrdersApi";
+import { BANKS } from "../../../Bank";
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -117,10 +129,17 @@ export default function CartPage() {
   const [shippingAddresses, setShippingAddresses] = useState([]);
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [note, setNote] = useState("");
+  const [bankInformations, setBankInformations] = useState([]);
+  const [selectedBankId, setSelectedBankId] = useState(null);
+  const [bankModalVisible, setBankModalVisible] = useState(false);
+  const [editingBank, setEditingBank] = useState(null);
+  const [bankSubmitting, setBankSubmitting] = useState(false);
+  const hasBankInfo = useMemo(() => (bankInformations?.length ?? 0) > 0, [bankInformations]);
   // Address modal state
   const [addressModalVisible, setAddressModalVisible] = useState(false);
   const [editingAddress, setEditingAddress] = useState(null);
   const [addressForm] = Form.useForm();
+  const [bankForm] = Form.useForm();
   const [districts, setDistricts] = useState([]);
   const [modalDistrictCode, setModalDistrictCode] = useState(null);
   const [modalWardOptions, setModalWardOptions] = useState([]);
@@ -141,6 +160,28 @@ export default function CartPage() {
   const [startDate, setStartDate] = useState(initialDates.start);
   const [endDate, setEndDate] = useState(initialDates.end);
 
+  const applyProfileData = useCallback((profile) => {
+    if (!profile) return;
+    setCustomerId(profile?.customerId ?? profile?.id ?? null);
+    setFullName((prev) => prev || profile?.fullName || profile?.username || "");
+    setPhone((prev) => prev || profile?.phoneNumber || "");
+    setEmail(profile?.email || "");
+
+    const addresses = profile?.shippingAddressDtos || [];
+    setShippingAddresses(addresses);
+    if (addresses.length > 0) {
+      setSelectedAddressId(addresses[0].shippingAddressId);
+      setShippingAddress(addresses[0].address);
+    } else {
+      setSelectedAddressId(null);
+      setShippingAddress(profile?.shippingAddress || "");
+    }
+
+    const banks = profile?.bankInformationDtos || profile?.bankInformations || [];
+    setBankInformations(banks);
+    setSelectedBankId(banks[0]?.bankInformationId || null);
+  }, []);
+
   useEffect(() => {
     const loadCart = async () => {
       try {
@@ -149,17 +190,7 @@ export default function CartPage() {
         // Prefill customer info
         try {
           const me = await fetchMyCustomerProfile();
-          setCustomerId(me?.customerId ?? me?.id ?? null);
-          setFullName(me?.fullName ?? me?.username ?? "");
-          setPhone(me?.phoneNumber ?? "");
-          setEmail(me?.email ?? "");
-          setShippingAddress(me?.shippingAddress ?? "");
-          const addresses = me?.shippingAddressDtos || [];
-          setShippingAddresses(addresses);
-          if (addresses.length > 0) {
-            setSelectedAddressId(addresses[0].shippingAddressId);
-            setShippingAddress(addresses[0].address);
-          }
+          applyProfileData(me);
         } catch {
           // ignore
         }
@@ -212,7 +243,7 @@ export default function CartPage() {
     };
 
     loadCart();
-  }, []);
+  }, [applyProfileData]);
 
   // Load KYC status
   useEffect(() => {
@@ -261,22 +292,14 @@ export default function CartPage() {
     setAddressModalVisible(true);
   };
 
-  const refreshAddresses = async () => {
+  const refreshAddresses = useCallback(async () => {
     try {
       const me = await fetchMyCustomerProfile();
-      const list = me?.shippingAddressDtos || [];
-      setShippingAddresses(list);
-      if (list.length > 0) {
-        setSelectedAddressId(list[0].shippingAddressId);
-        setShippingAddress(list[0].address);
-      } else {
-        setSelectedAddressId(null);
-        setShippingAddress("");
-      }
+      applyProfileData(me);
     } catch {
       // ignore
     }
-  };
+  }, [applyProfileData]);
 
   const handleAddressSubmit = async (values) => {
     const { districtCode, wardCode, addressLine } = values || {};
@@ -307,6 +330,64 @@ export default function CartPage() {
       toast.error(e?.response?.data?.message || e?.message || "Lưu địa chỉ thất bại.");
     } finally {
       setAddressSubmitting(false);
+    }
+  };
+
+  const openBankModal = (bank = null) => {
+    setEditingBank(bank);
+    if (bank) {
+      bankForm.setFieldsValue({
+        bankName: bank.bankName,
+        bankHolder: bank.bankHolder,
+        cardNumber: bank.cardNumber,
+      });
+    } else {
+      bankForm.resetFields();
+    }
+    setBankModalVisible(true);
+  };
+
+  const handleBankSubmit = async (values) => {
+    const payload = {
+      bankName: values.bankName?.trim(),
+      bankHolder: values.bankHolder?.trim(),
+      cardNumber: values.cardNumber?.trim(),
+    };
+    if (!payload.bankName || !payload.bankHolder || !payload.cardNumber) {
+      toast.error("Vui lòng nhập đầy đủ thông tin ngân hàng.");
+      return;
+    }
+    try {
+      setBankSubmitting(true);
+      if (editingBank?.bankInformationId) {
+        await updateBankInformation(editingBank.bankInformationId, payload);
+        toast.success("Cập nhật thông tin ngân hàng thành công!");
+      } else {
+        await createBankInformation(payload);
+        toast.success("Thêm thông tin ngân hàng thành công!");
+      }
+      setBankModalVisible(false);
+      setEditingBank(null);
+      bankForm.resetFields();
+      const profile = await fetchMyCustomerProfile();
+      applyProfileData(profile);
+    } catch (e) {
+      toast.error(
+        e?.response?.data?.message || e?.message || "Không thể lưu thông tin ngân hàng."
+      );
+    } finally {
+      setBankSubmitting(false);
+    }
+  };
+
+  const handleDeleteBank = async (bankId) => {
+    try {
+      await deleteBankInformation(bankId);
+      toast.success("Đã xóa thông tin ngân hàng.");
+      const profile = await fetchMyCustomerProfile();
+      applyProfileData(profile);
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Không thể xóa thông tin ngân hàng.");
     }
   };
 
@@ -533,6 +614,10 @@ export default function CartPage() {
       return toast.error(
         "Vui lòng chọn hoặc nhập địa chỉ giao hàng để tiếp tục."
       );
+    if (!hasBankInfo) {
+      toast.error("Vui lòng nhập thông tin tài khoản ngân hàng trước khi đặt đơn.");
+      return;
+    }
 
     const payload = {
       startDate: dayjs(startDate).startOf("day").format("YYYY-MM-DD[T]HH:mm:ss"),
@@ -573,7 +658,8 @@ export default function CartPage() {
       kycLoading ||
       autoSubmitting ||
       placing ||
-      !["verified", "submitted"].includes(kycBucket)
+      !["verified", "submitted"].includes(kycBucket) ||
+      !hasBankInfo
     ) {
       return;
     }
@@ -605,6 +691,7 @@ export default function CartPage() {
     placing,
     autoSubmitting,
     submitOrderPayload,
+    hasBankInfo,
   ]);
 
   if (loading || kycLoading) {
@@ -723,6 +810,100 @@ export default function CartPage() {
                     placeholder="VD: Giao trước 9h, gọi mình trước khi tới giao nhé…"
                     size="large"
                   />
+                </Form.Item>
+
+                <Divider />
+                <Form.Item
+                  label={<Text strong>Thông tin tài khoản ngân hàng</Text>}
+                  required
+                >
+                  {hasBankInfo ? (
+                    <Select
+                      placeholder="Chọn tài khoản ngân hàng"
+                      value={selectedBankId}
+                      onChange={(val) => setSelectedBankId(val || null)}
+                      allowClear
+                      options={bankInformations.map((bank) => ({
+                        value: bank.bankInformationId,
+                        label: (
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
+                            <span style={{ flex: 1 }}>
+                              {`${bank.bankName} - ${bank.bankHolder}`}
+                            </span>
+                            <Space
+                              size={8}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Button
+                                size="small"
+                                type="link"
+                                icon={<EditOutlined />}
+                                onClick={() => openBankModal(bank)}
+                              />
+                              <Popconfirm
+                                title="Xóa thông tin ngân hàng này?"
+                                onConfirm={() =>
+                                  handleDeleteBank(bank.bankInformationId)
+                                }
+                                okText="Xóa"
+                                cancelText="Hủy"
+                              >
+                                <Button
+                                  size="small"
+                                  danger
+                                  type="link"
+                                  icon={<DeleteOutlined />}
+                                />
+                              </Popconfirm>
+                            </Space>
+                          </div>
+                        ),
+                      }))}
+                      dropdownRender={(menu) => (
+                        <>
+                          {menu}
+                          <div
+                            style={{
+                              padding: "8px 12px",
+                              borderTop: "1px solid #f0f0f0",
+                            }}
+                          >
+                            <Button
+                              type="link"
+                              icon={<PlusOutlined />}
+                              onClick={() => openBankModal()}
+                              block
+                            >
+                              Thêm tài khoản ngân hàng mới
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    />
+                  ) : (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="Bạn chưa thêm thông tin ngân hàng"
+                      description={
+                        <div>
+                          <div style={{ marginBottom: 8, fontSize: 13 }}>
+                            Thông tin ngân hàng được dùng để điền vào hợp đồng
+                            và tự động lưu trong hồ sơ.
+                          </div>
+                          <Button type="primary" onClick={() => openBankModal()}>
+                            Thêm thông tin ngân hàng
+                          </Button>
+                        </div>
+                      }
+                    />
+                  )}
                 </Form.Item>
               </Form>
             </Card>
@@ -1146,6 +1327,70 @@ export default function CartPage() {
                   </Button>
                   <Button type="primary" htmlType="submit" loading={addressSubmitting}>
                     {editingAddress ? "Cập nhật" : "Thêm"}
+                  </Button>
+                </Space>
+              </Form>
+            </Modal>
+
+            <Modal
+              title={editingBank ? "Sửa thông tin ngân hàng" : "Thêm thông tin ngân hàng"}
+              open={bankModalVisible}
+              onCancel={() => {
+                setBankModalVisible(false);
+                setEditingBank(null);
+                bankForm.resetFields();
+              }}
+              footer={null}
+              width={520}
+              destroyOnClose
+            >
+              <Form
+                form={bankForm}
+                layout="vertical"
+                onFinish={handleBankSubmit}
+                requiredMark={false}
+              >
+                <Form.Item
+                  label="Ngân hàng"
+                  name="bankName"
+                  rules={[{ required: true, message: "Vui lòng chọn ngân hàng" }]}
+                >
+                  <Select
+                    placeholder="Chọn ngân hàng"
+                    showSearch
+                    optionFilterProp="label"
+                    options={BANKS}
+                  />
+                </Form.Item>
+                <Form.Item
+                  label="Chủ tài khoản"
+                  name="bankHolder"
+                  rules={[{ required: true, message: "Vui lòng nhập chủ tài khoản" }]}
+                >
+                  <Input placeholder="Họ và tên chủ tài khoản" />
+                </Form.Item>
+                <Form.Item
+                  label="Số tài khoản"
+                  name="cardNumber"
+                  rules={[
+                    { required: true, message: "Vui lòng nhập số tài khoản" },
+                    { pattern: /^[0-9\s-]{6,20}$/, message: "Số tài khoản không hợp lệ" },
+                  ]}
+                >
+                  <Input placeholder="VD: 0123456789" />
+                </Form.Item>
+                <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+                  <Button
+                    onClick={() => {
+                      setBankModalVisible(false);
+                      setEditingBank(null);
+                      bankForm.resetFields();
+                    }}
+                  >
+                    Hủy
+                  </Button>
+                  <Button type="primary" htmlType="submit" loading={bankSubmitting}>
+                    {editingBank ? "Cập nhật" : "Thêm"}
                   </Button>
                 </Space>
               </Form>

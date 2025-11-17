@@ -45,6 +45,9 @@ export function normalizeCustomer(c = {}) {
     // Arrays for multiple addresses and banks
     shippingAddresses: shippingAddresses,
     bankInformations: bankInformations,
+    // Also preserve original field names for compatibility
+    bankInformationDtos: bankInformations,
+    shippingAddressDtos: shippingAddresses,
     isActive: c.isActive ?? c.active ?? true,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
