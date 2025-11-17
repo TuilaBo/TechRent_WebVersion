@@ -1324,7 +1324,7 @@ export default function OperatorOrders() {
       render: (v) => fmtVND(v),
     },
     {
-      title: "Trạng thái",
+      title: "Trạng thái đơn hàng",
       dataIndex: "orderStatus",
       width: 140,
       render: statusTag,
@@ -1616,13 +1616,13 @@ export default function OperatorOrders() {
         ) : detail ? (
           <>
             <Descriptions bordered size="middle" column={2}>
-              <Descriptions.Item label="Mã đơn">#{detail.orderId}</Descriptions.Item>
-              <Descriptions.Item label="Trạng thái">{statusTag(detail.orderStatus)}</Descriptions.Item>
-              <Descriptions.Item label="Thanh toán">
+              <Descriptions.Item label="Mã đơn hàng">#{detail.orderId}</Descriptions.Item>
+              <Descriptions.Item label="Trạng thái đơn hàng">{statusTag(detail.orderStatus)}</Descriptions.Item>
+              <Descriptions.Item label="Trạng thái thanh toán">
                 {paymentStatusTag(detail.paymentStatus, detail.orderStatus, invoiceInfo)}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Khách hàng">
+              <Descriptions.Item label="Thông tin khách hàng">
                 {detail.customerId ? (
                   <div>
                     <div><strong>#{detail.customerId}</strong></div>

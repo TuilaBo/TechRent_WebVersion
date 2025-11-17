@@ -650,22 +650,41 @@ export default function MyOrders() {
           endpoint: "/ws",
           customerId: normalized.id,
           onMessage: async (payload) => {
-            const lower = String(payload?.message || payload?.title || "").toLowerCase();
-            const typeRaw = String(payload?.type || payload?.notificationType || "").toLowerCase();
-            const isProcessing =
-              lower.includes("xử lý") ||
-              lower.includes("processing") ||
-              typeRaw === "approved";
-            if (isProcessing) {
-              const orderCode = payload?.orderCode || payload?.orderId || "";
+            const statusRaw = String(payload?.orderStatus || payload?.status || "").toUpperCase();
+            const lowerMsg = String(payload?.message || payload?.title || "").toLowerCase();
+            const lowerType = String(payload?.type || payload?.notificationType || "").toLowerCase();
+            const heuristicProcessing =
+              !statusRaw &&
+              (lowerMsg.includes("xử lý") ||
+                lowerMsg.includes("processing") ||
+                lowerType === "approved");
+            if (statusRaw !== "PROCESSING" && !heuristicProcessing) return;
+
+            const orderCode = payload?.orderCode || payload?.orderId || "";
+            try {
+              await loadOrders();
+            } catch (err) {
+              console.error("Failed to refresh orders after notification:", err);
+            }
+            let contractsSnapshot = [];
+            try {
+              contractsSnapshot = await loadAllContracts();
+            } catch (err) {
+              console.error("Failed to refresh contracts after notification:", err);
+            }
+            const hasContractAlready = hasAnyContract(payload?.orderId, contractsSnapshot);
+            if (hasContractAlready) {
               message.success(
                 orderCode
-                  ? `Đơn ${orderCode} đã được xử lý. Vui lòng ký hợp đồng và thanh toán.`
-                  : "Đơn của bạn đã được xử lý. Vui lòng ký hợp đồng và thanh toán."
+                  ? `Đơn ${orderCode} đã có hợp đồng. Vui lòng ký và thanh toán ngay.`
+                  : "Đơn của bạn đã có hợp đồng. Vui lòng ký và thanh toán ngay."
               );
-              // Refresh list to reflect new status
-              try { await loadOrders(); } catch {}
-              try { await loadAllContracts(); } catch {}
+            } else {
+              message.success(
+                orderCode
+                  ? `Đơn ${orderCode} đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút.`
+                  : "Đơn của bạn đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút."
+              );
             }
           },
           onConnect: () => {
@@ -784,17 +803,39 @@ export default function MyOrders() {
     return { current, steps };
   }
 
-  const hasSignedContract = (orderId) => {
-    if (!orderId || !allContracts.length) return false;
-    const orderContracts = allContracts.filter(c =>
-      (c.orderId === orderId) ||
-      (c.orderId === Number(orderId)) ||
-      (String(c.orderId) === String(orderId))
-    );
-    return orderContracts.some(c => {
-      const status = String(c.status).toUpperCase();
+  const getOrderContracts = (orderId, contractsList = allContracts) => {
+    if (!orderId || !Array.isArray(contractsList) || contractsList.length === 0) {
+      return [];
+    }
+    const keyStr = String(orderId);
+    const keyNum = Number(orderId);
+    return contractsList.filter((c) => {
+      const cid =
+        c.orderId ??
+        c.rentalOrderId ??
+        c.order?.orderId ??
+        c.order?.id ??
+        null;
+      if (cid == null) return false;
+      return (
+        cid === orderId ||
+        cid === keyNum ||
+        String(cid) === keyStr
+      );
+    });
+  };
+
+  const hasSignedContract = (orderId, contractsList = allContracts) => {
+    const orderContracts = getOrderContracts(orderId, contractsList);
+    if (!orderContracts.length) return false;
+    return orderContracts.some((c) => {
+      const status = String(c.status || "").toUpperCase();
       return status === "SIGNED" || status === "ACTIVE";
     });
+  };
+
+  const hasAnyContract = (orderId, contractsList = allContracts) => {
+    return getOrderContracts(orderId, contractsList).length > 0;
   };
   const handleDownloadContract = async (record) => {
     try {
@@ -910,12 +951,16 @@ export default function MyOrders() {
 
   const loadAllContracts = async () => {
     try {
-      const allContracts = await getMyContracts();
-      const normalized = Array.isArray(allContracts) ? allContracts.map(normalizeContract) : [];
+      const allContractsRes = await getMyContracts();
+      const normalized = Array.isArray(allContractsRes)
+        ? allContractsRes.map(normalizeContract)
+        : [];
       setAllContracts(normalized);
+      return normalized;
     } catch (e) {
       console.error("Failed to fetch all contracts:", e);
       setAllContracts([]);
+      return [];
     }
   };
 
@@ -927,11 +972,7 @@ export default function MyOrders() {
         if (allContracts.length === 0) await loadAllContracts();
         inScope = allContracts;
       }
-      let orderContracts = (inScope || []).filter(c =>
-        c.orderId === orderId ||
-        c.orderId === Number(orderId) ||
-        String(c.orderId) === String(orderId)
-      );
+      let orderContracts = getOrderContracts(orderId, inScope);
 
       const needDetail = orderContracts.some(c => !c.contractUrl);
       if (needDetail) {
@@ -1379,9 +1420,15 @@ export default function MyOrders() {
           if (id == null) continue;
           if (!seenProcessingRef.current.has(id)) {
             seenProcessingRef.current.add(id);
-            message.success(`Đơn ${id} đã được xử lý. Vui lòng ký hợp đồng và thanh toán.`);
             try { await loadOrders(); } catch {}
-            try { await loadAllContracts(); } catch {}
+            let contractsSnapshot = [];
+            try { contractsSnapshot = await loadAllContracts(); } catch {}
+            const hasContractReady = hasAnyContract(id, contractsSnapshot);
+            message.success(
+              hasContractReady
+                ? `Đơn ${id} đã có hợp đồng. Vui lòng ký và thanh toán ngay.`
+                : `Đơn ${id} đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút.`
+            );
           }
         }
       } catch (e) {

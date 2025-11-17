@@ -1,9 +1,9 @@
 // src/pages/operator/OperatorTasks.jsx
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Table, Button, Space, Tag, Modal, Form, Input,
   DatePicker, Select, Typography, Spin, InputNumber, Popconfirm, Tooltip,
-  Card, Avatar, Descriptions, Divider, Alert,
+  Card, Avatar, Descriptions, Divider, Alert, Tabs, Statistic, Row, Col,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -18,7 +18,7 @@ import {
   listTaskCategories,
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
-import { listActiveStaff, searchStaff } from "../../lib/staffManage";
+import { listActiveStaff, searchStaff, getStaffCompletionLeaderboard } from "../../lib/staffManage";
 import { getRentalOrderById, listRentalOrders, fmtVND } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
@@ -45,6 +45,12 @@ export default function OperatorTasks() {
   const [searchQuery, setSearchQuery] = useState("");
   const [availableStaffs, setAvailableStaffs] = useState([]); // Staff rảnh theo thời gian
   const [searchingStaff, setSearchingStaff] = useState(false); // Loading state cho search staff
+  const [activeTab, setActiveTab] = useState("tasks"); // Tab hiện tại
+  const [leaderboardData, setLeaderboardData] = useState([]); // Dữ liệu leaderboard
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false); // Loading cho leaderboard
+  const [selectedYear, setSelectedYear] = useState(dayjs().year()); // Năm được chọn
+  const [selectedMonth, setSelectedMonth] = useState(dayjs().month() + 1); // Tháng được chọn (1-12)
+  const [leaderboardRoleFilter, setLeaderboardRoleFilter] = useState(null); // Lọc theo role
 
   // Load data từ API
   const loadData = async () => {
@@ -96,6 +102,41 @@ export default function OperatorTasks() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Load leaderboard data
+  const loadLeaderboard = useCallback(async () => {
+    if (!selectedYear || !selectedMonth) return;
+    
+    setLeaderboardLoading(true);
+    try {
+      const params = {
+        year: selectedYear,
+        month: selectedMonth,
+      };
+      if (leaderboardRoleFilter) {
+        params.staffRole = leaderboardRoleFilter;
+      }
+      const result = await getStaffCompletionLeaderboard(params);
+      // Sort by completion count descending
+      const sorted = Array.isArray(result) 
+        ? result.sort((a, b) => (b.completedTaskCount || b.completionCount || 0) - (a.completedTaskCount || a.completionCount || 0))
+        : [];
+      setLeaderboardData(sorted);
+    } catch (e) {
+      console.error("Error loading leaderboard:", e);
+      toast.error(e?.response?.data?.message || e?.message || "Không thể tải dữ liệu leaderboard");
+      setLeaderboardData([]);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  }, [selectedYear, selectedMonth, leaderboardRoleFilter]);
+
+  // Load leaderboard when tab changes or filters change
+  useEffect(() => {
+    if (activeTab === "leaderboard") {
+      loadLeaderboard();
+    }
+  }, [activeTab, loadLeaderboard]);
 
   // Tìm staff rảnh theo thời gian
   const searchAvailableStaff = async (startTime, endTime, role = null) => {
@@ -385,7 +426,7 @@ export default function OperatorTasks() {
       ellipsis: true,
     },
     {
-      title: "Mô tả",
+      title: "Mô tả công việc",
       dataIndex: "description",
       key: "description",
       width: 180,
@@ -607,43 +648,213 @@ export default function OperatorTasks() {
     },
   ], [orderDays]);
 
+  // Leaderboard columns
+  const leaderboardColumns = [
+    {
+      title: "Hạng",
+      key: "rank",
+      width: 80,
+      align: "center",
+      render: (_, __, index) => {
+        const rank = index + 1;
+        if (rank === 1) return <Tag color="gold" style={{ fontSize: 16, padding: "4px 12px" }}>🥇 {rank}</Tag>;
+        if (rank === 2) return <Tag color="default" style={{ fontSize: 16, padding: "4px 12px" }}>🥈 {rank}</Tag>;
+        if (rank === 3) return <Tag color="orange" style={{ fontSize: 16, padding: "4px 12px" }}>🥉 {rank}</Tag>;
+        return <strong>{rank}</strong>;
+      },
+    },
+    {
+      title: "Nhân viên",
+      key: "staff",
+      width: 200,
+      render: (_, record) => (
+        <Space>
+          <Avatar style={{ backgroundColor: "#1890ff" }}>
+            {(record.staffName || record.username || "U")[0]?.toUpperCase()}
+          </Avatar>
+          <div>
+            <div><strong>{record.staffName || record.username || "—"}</strong></div>
+            <div style={{ fontSize: 12, color: "#666" }}>
+              {record.email || "—"}
+            </div>
+          </div>
+        </Space>
+      ),
+    },
+    {
+      title: "Role",
+      dataIndex: "staffRole",
+      key: "staffRole",
+      width: 150,
+      render: (role) => (
+        <Tag color={role === "TECHNICIAN" ? "blue" : role === "CUSTOMER_SUPPORT_STAFF" ? "purple" : "default"}>
+          {role || "—"}
+        </Tag>
+      ),
+    },
+    {
+      title: "Số task hoàn thành",
+      dataIndex: "completedTaskCount",
+      key: "completedTaskCount",
+      width: 180,
+      align: "center",
+      render: (count, record) => {
+        const completedCount = count || record.completionCount || 0;
+        return (
+          <Statistic
+            value={completedCount}
+            valueStyle={{ color: "#3f8600", fontSize: 20, fontWeight: "bold" }}
+          />
+        );
+      },
+    },
+    {
+      title: "Tỷ lệ hoàn thành",
+      key: "completionRate",
+      width: 150,
+      align: "center",
+      render: (_, record) => {
+        const total = record.totalTaskCount || record.totalTasks || 0;
+        const completed = record.completedTaskCount || record.completionCount || 0;
+        const rate = total > 0 ? ((completed / total) * 100).toFixed(1) : 0;
+        return (
+          <div>
+            <div style={{ fontSize: 16, fontWeight: "bold", color: "#1890ff" }}>
+              {rate}%
+            </div>
+            <div style={{ fontSize: 12, color: "#999" }}>
+              {completed}/{total} task
+            </div>
+          </div>
+        );
+      },
+    },
+  ];
+
+  const tabItems = [
+    {
+      key: "tasks",
+      label: "Quản lý nhiệm vụ",
+      children: (
+        <>
+          <Card style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+              <Title level={3} style={{ margin: 0 }}>Quản lý nhiệm vụ</Title>
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={loadData}>Tải lại</Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+                  Thêm task
+                </Button>
+              </Space>
+            </div>
+          </Card>
+
+          <Card>
+            <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
+              <Search
+                placeholder="Tìm kiếm theo mã task hoặc mã đơn hàng..."
+                allowClear
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onSearch={setSearchQuery}
+                style={{ width: "100%", maxWidth: 400 }}
+                enterButton
+              />
+            </Space>
+
+            <Spin spinning={loading}>
+              <Table
+                rowKey="taskId"
+                columns={columns}
+                dataSource={filteredData}
+                pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} task` }}
+                scroll={{ x: 1200 }}
+              />
+            </Spin>
+          </Card>
+        </>
+      ),
+    },
+    {
+      key: "leaderboard",
+      label: "Theo dõi tiến độ hoàn thành",
+      children: (
+        <>
+          <Card style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+              <Title level={3} style={{ margin: 0 }}>Theo dõi tiến độ hoàn thành công việc của staff</Title>
+              <Button icon={<ReloadOutlined />} onClick={loadLeaderboard}>Tải lại</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
+              <Row gutter={16} align="middle">
+                <Col>
+                  <Space>
+                    <span>Tháng/Năm:</span>
+                    <DatePicker
+                      picker="month"
+                      value={dayjs(`${selectedYear}-${String(selectedMonth).padStart(2, "0")}-01`)}
+                      onChange={(date) => {
+                        if (date) {
+                          setSelectedYear(date.year());
+                          setSelectedMonth(date.month() + 1);
+                        }
+                      }}
+                      format="MM/YYYY"
+                      allowClear={false}
+                    />
+                  </Space>
+                </Col>
+                <Col>
+                  <Space>
+                    <span>Lọc theo role:</span>
+                    <Select
+                      style={{ width: 200 }}
+                      allowClear
+                      placeholder="Tất cả role"
+                      value={leaderboardRoleFilter}
+                      onChange={setLeaderboardRoleFilter}
+                      options={[
+                        { label: "TECHNICIAN", value: "TECHNICIAN" },
+                        { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
+                      ]}
+                    />
+                  </Space>
+                </Col>
+              </Row>
+            </Space>
+
+            <Spin spinning={leaderboardLoading}>
+              {leaderboardData.length > 0 ? (
+                <Table
+                  rowKey={(record) => `${record.staffId || record.id || Math.random()}`}
+                  columns={leaderboardColumns}
+                  dataSource={leaderboardData}
+                  pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `Tổng ${total} nhân viên` }}
+                  scroll={{ x: 800 }}
+                />
+              ) : (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "#999" }}>
+                  {leaderboardLoading ? "Đang tải..." : "Không có dữ liệu cho tháng/năm đã chọn"}
+                </div>
+              )}
+            </Spin>
+          </Card>
+        </>
+      ),
+    },
+  ];
+
   return (
     <>
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <Title level={3} style={{ margin: 0 }}>Quản lý nhiệm vụ</Title>
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={loadData}>Tải lại</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              Thêm task
-            </Button>
-          </Space>
-        </div>
-      </Card>
-
-      <Card>
-        <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
-          <Search
-            placeholder="Tìm kiếm theo mã task hoặc mã đơn hàng..."
-            allowClear
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onSearch={setSearchQuery}
-            style={{ width: "100%", maxWidth: 400 }}
-            enterButton
-          />
-        </Space>
-
-        <Spin spinning={loading}>
-          <Table
-            rowKey="taskId"
-            columns={columns}
-            dataSource={filteredData}
-            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} task` }}
-            scroll={{ x: 1200 }}
-          />
-        </Spin>
-      </Card>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={tabItems}
+        size="large"
+      />
 
       <Modal
         title={editing ? "Cập nhật task" : "Tạo task"}

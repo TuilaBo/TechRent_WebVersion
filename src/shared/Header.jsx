@@ -1,6 +1,6 @@
 // src/components/AppHeader.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Layout, Row, Col, Badge, Dropdown, Menu, Input } from "antd";
+import { Layout, Row, Col, Badge, Dropdown, Menu, Input, notification } from "antd";
 import {
   ShoppingCartOutlined,
   UserOutlined,
@@ -11,8 +11,73 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 import { getCartCount } from "../lib/cartUtils";
+import { listRentalOrders } from "../lib/rentalOrdersApi";
+import { fetchMyCustomerProfile } from "../lib/customerApi";
+import { connectCustomerNotifications } from "../lib/notificationsSocket";
 
 const { Header } = Layout;
+
+const CUSTOMER_NOTIFICATION_STATUSES = new Set([
+  "PROCESSING",
+  "READY_FOR_DELIVERY",
+  "DELIVERY_CONFIRMED",
+]);
+
+const extractOrderId = (order) => {
+  if (!order) return undefined;
+  return (
+    order?.orderId ??
+    order?.rentalOrderId ??
+    order?.id ??
+    order?.rentalId ??
+    order?.rentalOrderCode ??
+    order?.orderCode ??
+    order?.referenceId ??
+    order?.data?.orderId ??
+    order?.detail?.orderId
+  );
+};
+
+const extractStatus = (order) => {
+  if (!order) return "";
+  return String(
+    order?.orderStatus ||
+      order?.status ||
+      order?.state ||
+      order?.orderState ||
+      order?.newStatus ||
+      order?.data?.orderStatus ||
+      order?.detail?.status ||
+      ""
+  ).toUpperCase();
+};
+
+const deriveOrderInfo = (payload) => {
+  if (!payload) return { orderId: undefined, status: "" };
+  const merged = {
+    ...payload,
+    ...(payload.order || payload.data || payload.detail || {}),
+  };
+  return {
+    orderId: extractOrderId(merged),
+    status: extractStatus(merged),
+  };
+};
+
+const STATUS_NOTICE = {
+  PROCESSING: {
+    title: "Đơn đã được xác nhận",
+    description: "Vui lòng ký hợp đồng và thanh toán để tiếp tục.",
+  },
+  READY_FOR_DELIVERY: {
+    title: "Đơn sẵn sàng giao",
+    description: "Đơn hàng đang chuẩn bị giao, hãy kiểm tra hợp đồng & thanh toán.",
+  },
+  DELIVERY_CONFIRMED: {
+    title: "Đơn đã giao thành công",
+    description: "Vui lòng kiểm tra thiết bị và phản hồi nếu có vấn đề.",
+  },
+};
 
 const navItems = [
   { key: "home", label: "Trang chủ", link: "/" },
@@ -29,6 +94,8 @@ export default function AppHeader() {
   const [cartCount, setCartCount] = useState(0);
   const [bump, setBump] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [notificationCount, setNotificationCount] = useState(0);
+  const notificationsMapRef = useRef(new Map());
 
   const [hidden, setHidden] = useState(false);
   const lastYRef = useRef(typeof window !== 'undefined' ? window.scrollY : 0);
@@ -60,6 +127,96 @@ export default function AppHeader() {
       window.removeEventListener("cart:updated", onCartUpdated);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      notificationsMapRef.current = new Map();
+      setNotificationCount(0);
+      return;
+    }
+
+    let active = true;
+    let connection = null;
+
+    const recomputeFromOrders = (orders = []) => {
+      const map = new Map();
+      orders.forEach((order) => {
+        const status = extractStatus(order);
+        if (CUSTOMER_NOTIFICATION_STATUSES.has(status)) {
+          const key = extractOrderId(order);
+          if (key != null) map.set(String(key), status);
+        }
+      });
+      notificationsMapRef.current = map;
+      setNotificationCount(map.size);
+    };
+
+    const showPopup = (orderId, status) => {
+      const meta = STATUS_NOTICE[status] || {};
+      notification.open({
+        message: meta.title || `Đơn #${orderId}`,
+        description: meta.description || "Đơn hàng của bạn vừa được cập nhật.",
+        placement: "topRight",
+        duration: 4,
+      });
+    };
+
+    const upsertOrderStatus = (orderId, status, shouldNotify = false) => {
+      if (!orderId) return;
+      const normalized = String(status || "").toUpperCase();
+      const map = new Map(notificationsMapRef.current);
+      const key = String(orderId);
+      const prevStatus = map.get(key);
+      if (CUSTOMER_NOTIFICATION_STATUSES.has(normalized)) {
+        map.set(key, normalized);
+        if (shouldNotify && prevStatus !== normalized) {
+          showPopup(orderId, normalized);
+        }
+      } else {
+        map.delete(key);
+      }
+      notificationsMapRef.current = map;
+      setNotificationCount(map.size);
+    };
+
+    const loadInitial = async () => {
+      try {
+        const orders = await listRentalOrders();
+        if (!active) return;
+        recomputeFromOrders(orders || []);
+      } catch (error) {
+        console.error("Header: cannot load notifications", error);
+      }
+    };
+
+    const initSocket = async () => {
+      try {
+        const profile = await fetchMyCustomerProfile();
+        if (!active) return;
+        const customerId = profile?.customerId ?? profile?.id;
+        if (!customerId) return;
+        connection = connectCustomerNotifications({
+          endpoint: "/ws",
+          customerId,
+          onMessage: (payload) => {
+            const { orderId, status } = deriveOrderInfo(payload);
+            if (!orderId || !status) return;
+            upsertOrderStatus(orderId, status, true);
+          },
+        });
+      } catch (error) {
+        console.error("Header: cannot init notification socket", error);
+      }
+    };
+
+    loadInitial();
+    initSocket();
+
+    return () => {
+      active = false;
+      connection?.disconnect?.();
+    };
+  }, [isAuthenticated]);
 
   // Initialize header height CSS variable on mount
   useEffect(() => {
@@ -454,8 +611,24 @@ export default function AppHeader() {
             {/* Icons */}
             <div className="header-icons" style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <Link to="/notifications" className="header-icon" aria-label="Notifications">
-                <Badge count={3} size="small" offset={[6, 6]} color="#000">
-                  <BellOutlined style={{ fontSize: 22, color: "#000" }} />
+                <Badge
+                  count={notificationCount || 0}
+                  overflowCount={99}
+                  showZero
+                  size="small"
+                  offset={[6, 0]}
+                  style={{
+                    backgroundColor: "#ff4d4f",
+                    minWidth: 18,
+                    height: 18,
+                    lineHeight: "18px",
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  <span className="icon-wrap">
+                    <BellOutlined style={{ fontSize: 22, color: "#000" }} />
+                  </span>
                 </Badge>
               </Link>
 

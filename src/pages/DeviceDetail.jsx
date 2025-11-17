@@ -321,71 +321,68 @@ export default function DeviceDetail() {
           style={{ fontSize: 15 }}
         />
 
-        <Row gutter={[24, 24]}>
-          {/* Gallery */}
+        <Row gutter={[24, 24]} align="stretch">
           <Col xs={24} lg={14}>
-            <Card 
-              bordered={false} 
-              className="rounded-xl shadow-sm overflow-hidden product-card"
+            <Card
+              bordered={false}
+              className="rounded-xl shadow-sm overflow-hidden product-card media-card"
               bodyStyle={{ padding: 0 }}
               style={{ background: "#fff", border: "1px solid #e5e7eb" }}
             >
-              <Carousel
-                arrows
-                prevArrow={<LeftOutlined />}
-                nextArrow={<RightOutlined />}
-                autoplay
-                autoplaySpeed={5000}
-                dots={{ className: "custom-dots" }}
-                className="product-carousel"
-              >
-                {(item.images?.length ? item.images : [item.image]).map((src, idx) => (
-                  <div key={idx} className="carousel-item">
-                    <Image
-                      src={src || "https://placehold.co/1200x900?text=No+Image"}
-                      alt={`${item.name} ${idx + 1}`}
-                      width="100%"
-                      height={480}
-                      style={{ objectFit: "cover" }}
-                      placeholder
-                    />
-                  </div>
-                ))}
-              </Carousel>
-              
-              {isLowStock && (
-                <div style={{
-                  position: "absolute",
-                  top: 16,
-                  left: 16,
-                  zIndex: 10
-                }}>
-                  <Tag 
+              <div className="media-wrapper">
+                <Carousel
+                  arrows
+                  prevArrow={<LeftOutlined />}
+                  nextArrow={<RightOutlined />}
+                  autoplay
+                  autoplaySpeed={5000}
+                  dots={{ className: "custom-dots" }}
+                className="product-carousel media-carousel"
+                >
+                  {(item.images?.length ? item.images : [item.image]).map((src, idx) => (
+                    <div key={idx} className="carousel-item">
+                      <Image
+                        src={src || "https://placehold.co/1200x900?text=No+Image"}
+                        alt={`${item.name} ${idx + 1}`}
+                        width="100%"
+                        height="100%"
+                        style={{ objectFit: "contain" }}
+                        placeholder
+                      />
+                    </div>
+                  ))}
+                </Carousel>
+                {isLowStock && (
+                  <Tag
                     icon={<FireOutlined />}
                     color="error"
-                    style={{ 
-                      fontSize: 13, 
+                    style={{
+                      position: "absolute",
+                      top: 16,
+                      left: 16,
+                      fontSize: 13,
                       padding: "6px 12px",
-                      fontWeight: 600
+                      fontWeight: 600,
+                      zIndex: 10,
                     }}
                   >
                     Sắp hết hàng
                   </Tag>
-                </div>
-              )}
+                )}
+              </div>
             </Card>
           </Col>
 
-          {/* Info Panel */}
           <Col xs={24} lg={10}>
             <Card
               bordered={false}
               className="rounded-xl shadow-sm info-card"
-              style={{ 
-                position: "sticky", 
+              style={{
+                position: "sticky",
                 top: 24,
                 background: "#fff",
-                border: "1px solid #e5e7eb"
+                border: "1px solid #e5e7eb",
+                minHeight: "fit-content",
               }}
               bodyStyle={{ padding: 28 }}
             >
@@ -858,15 +855,38 @@ export default function DeviceDetail() {
         .ant-breadcrumb a:hover {
           color: #111;
         }
+
+        .media-card {
+          min-height: auto;
+        }
+        .media-wrapper {
+          position: relative;
+          height: 100%;
+        }
+        .media-carousel .carousel-item {
+          height: clamp(320px, 45vw, 520px);
+          display: flex !important;
+          align-items: center;
+          justify-content: center;
+          background: #f9fafb;
+          padding: clamp(12px, 3vw, 32px);
+        }
+        .media-carousel .carousel-item img {
+          max-height: 100%;
+          width: auto;
+        }
         
         @media (max-width: 768px) {
           .carousel-item {
-            height: 300px;
+            height: 260px;
           }
           .product-carousel .ant-carousel .slick-arrow {
             width: 32px;
             height: 32px;
             font-size: 16px;
+          }
+          .info-card {
+            position: static !important;
           }
         }
       `}</style>

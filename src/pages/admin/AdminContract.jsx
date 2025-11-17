@@ -1,8 +1,8 @@
 // src/pages/admin/AdminContract.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   Table, Tag, Typography, Button, Space, Modal, Form, Input, message,
-  Drawer, Divider
+  Drawer, Divider, Row, Col, Select, DatePicker, Card
 } from "antd";
 import {
   EyeOutlined, FilePdfOutlined, DownloadOutlined, PrinterOutlined, ExpandOutlined
@@ -17,6 +17,8 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 const { Title, Text } = Typography;
+const ADMIN_SIGN_EMAIL = "admin123@yopmail.com";
+const { RangePicker } = DatePicker;
 
 const CONTRACT_STATUS_MAP = {
   draft: { label: "Nháp", color: "default" },
@@ -175,8 +177,8 @@ function formatEquipmentLayout(html = "") {
         html = html.slice(0, insertPos) + grandHtml + html.slice(insertPos);
       }
     }
-  } catch {
-    // ignore
+  } catch (error) {
+    console.error("Failed to format money in HTML:", error);
   }
 
   return html;
@@ -197,8 +199,8 @@ function formatDatesInHtml(html = "") {
           year: "numeric",
         });
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error("Failed to format date in HTML:", error);
     }
     return match;
   });
@@ -569,6 +571,9 @@ async function elementToPdfBlob(el) {
 export default function AdminContract() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState();
+  const [dateRange, setDateRange] = useState(null);
 
   // Sign
   const [signOpen, setSignOpen] = useState(false);
@@ -596,7 +601,13 @@ export default function AdminContract() {
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const printRef = useRef(null);
 
-  function revokeBlob(url) { try { url && URL.revokeObjectURL(url); } catch (e) {} }
+function revokeBlob(url) {
+  try {
+    if (url) URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Failed to revoke blob URL:", error);
+  }
+}
   function clearContractPreviewState() {
     revokeBlob(pdfBlobUrl);
     setPdfBlobUrl("");
@@ -625,7 +636,8 @@ export default function AdminContract() {
           try {
             const detail = await getContractById(c.id ?? c.contractId ?? c.contractID);
             return normalizeContract(detail || {});
-          } catch {
+          } catch (error) {
+            console.error("Failed to load contract detail for order:", error);
             return c;
           }
         }));
@@ -662,14 +674,18 @@ export default function AdminContract() {
           const prof = await fetchCustomerById(record.customerId);
           customer = normalizeCustomer(prof || {});
           setContractCustomer(customer);
-        } catch {}
+        } catch (error) {
+          console.error("Failed to fetch customer info:", error);
+        }
       }
       let kyc = contractKyc;
       if (!kyc && record?.customerId) {
         try {
           kyc = await getKycByCustomerId(record.customerId);
           setContractKyc(kyc);
-        } catch {}
+        } catch (error) {
+          console.error("Failed to fetch KYC info:", error);
+        }
       }
 
       const detail = augmentContractContent(record);
@@ -693,22 +709,24 @@ export default function AdminContract() {
     }
   };
 
+  const loadContracts = async () => {
+    setLoading(true);
+    try {
+      const list = await listAllContracts();
+      const normalized = (Array.isArray(list) ? list : []).map(normalizeContract);
+      normalized.sort((a, b) => {
+        const ta = new Date(a?.signedAt || a?.createdAt || 0).getTime();
+        const tb = new Date(b?.signedAt || b?.createdAt || 0).getTime();
+        return tb - ta;
+      });
+      setRows(normalized);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const list = await listAllContracts();
-        const normalized = (Array.isArray(list) ? list : []).map(normalizeContract);
-        normalized.sort((a, b) => {
-          const ta = new Date(a?.signedAt || a?.createdAt || 0).getTime();
-          const tb = new Date(b?.signedAt || b?.createdAt || 0).getTime();
-          return tb - ta;
-        });
-        setRows(normalized);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadContracts();
   }, []);
 
   const openSign = (id) => {
@@ -716,7 +734,43 @@ export default function AdminContract() {
     setSignOpen(true);
     setPinSent(false);
     form.resetFields();
+    form.setFieldsValue({
+      email: ADMIN_SIGN_EMAIL,
+      pinCode: undefined,
+    });
   };
+
+  const filteredRows = useMemo(() => {
+    let data = [...rows];
+    if (searchText.trim()) {
+      const keyword = searchText.trim().toLowerCase();
+      data = data.filter((row) => {
+        const haystack = [
+          row.number,
+          row.id,
+          row.orderId,
+          row.customerId,
+          row.customerName,
+        ]
+          .map((v) => (v != null ? String(v).toLowerCase() : ""))
+          .join(" ");
+        return haystack.includes(keyword);
+      });
+    }
+    if (statusFilter) {
+      data = data.filter(
+        (row) => String(row.status).toLowerCase() === String(statusFilter).toLowerCase()
+      );
+    }
+    if (dateRange?.length === 2) {
+      const [start, end] = dateRange;
+      data = data.filter((row) => {
+        const t = dayjs(row?.createdAt || row?.signedAt);
+        return t.isValid() && t.isBetween(start, end, "day", "[]");
+      });
+    }
+    return data;
+  }, [rows, searchText, statusFilter, dateRange]);
 
   const doAdminSign = async (values) => {
     if (!currentId) return;
@@ -785,11 +839,17 @@ export default function AdminContract() {
         try {
           const customer = await fetchCustomerById(normalized.customerId);
           setContractCustomer(normalizeCustomer(customer || {}));
-        } catch { setContractCustomer(null); }
+        } catch (error) {
+          console.error("Failed to fetch customer for contract detail:", error);
+          setContractCustomer(null);
+        }
         try {
           const kyc = await getKycByCustomerId(normalized.customerId);
           setContractKyc(kyc || null);
-        } catch { setContractKyc(null); }
+        } catch (error) {
+          console.error("Failed to fetch KYC for contract detail:", error);
+          setContractKyc(null);
+        }
       } else {
         setContractCustomer(null);
         setContractKyc(null);
@@ -810,6 +870,53 @@ export default function AdminContract() {
   return (
     <div>
       <Title level={3} style={{ marginBottom: 12 }}>Hợp đồng</Title>
+      <Card style={{ marginBottom: 16 }} bodyStyle={{ paddingBottom: 8 }}>
+        <Row gutter={[12, 12]} align="middle">
+          <Col xs={24} md={8}>
+            <Input.Search
+              placeholder="Tìm theo mã hợp đồng, đơn hàng, khách hàng..."
+              allowClear
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Select
+              allowClear
+              placeholder="Lọc trạng thái"
+              value={statusFilter}
+              onChange={(value) => setStatusFilter(value)}
+              style={{ width: "100%" }}
+              options={Object.entries(CONTRACT_STATUS_MAP).map(([key, meta]) => ({
+                label: meta.label,
+                value: key,
+              }))}
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <RangePicker
+              style={{ width: "100%" }}
+              value={dateRange}
+              onChange={(range) => setDateRange(range || null)}
+              format="DD/MM/YYYY"
+            />
+          </Col>
+          <Col xs={24} md={4}>
+            <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+              <Button onClick={loadContracts} loading={loading}>Tải lại</Button>
+              <Button
+                onClick={() => {
+                  setSearchText("");
+                  setStatusFilter(undefined);
+                  setDateRange(null);
+                }}
+              >
+                Xóa lọc
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
       <Table
         rowKey={(r) => r.id}
         columns={[
@@ -837,7 +944,7 @@ export default function AdminContract() {
             ),
           },
         ]}
-        dataSource={rows}
+        dataSource={filteredRows}
         loading={loading}
         pagination={{ pageSize: 10 }}
         scroll={{ x: 900 }}
@@ -859,7 +966,10 @@ export default function AdminContract() {
                 name="email"
                 rules={[{ required: true, message: "Vui lòng nhập email" }]}
               >
-                <Input placeholder="nhap@email.com" type="email" />
+                <Input type="email" disabled value={ADMIN_SIGN_EMAIL} />
+              </Form.Item>
+              <Form.Item style={{ marginTop: -8, marginBottom: 12 }}>
+                
               </Form.Item>
               <Form.Item style={{ textAlign: "right", marginBottom: 0 }}>
                 <Space>
@@ -1008,14 +1118,18 @@ export default function AdminContract() {
                               const customerData = await fetchCustomerById(contractDetail.customerId);
                               customer = normalizeCustomer(customerData || {});
                               setContractCustomer(customer);
-                            } catch {}
+                            } catch (error) {
+                              console.error("Failed to fetch customer for PDF preview:", error);
+                            }
                           }
                           if (!kyc) {
                             try {
                               const kycData = await getKycByCustomerId(contractDetail.customerId);
                               kyc = kycData || null;
                               setContractKyc(kyc);
-                            } catch {}
+                            } catch (error) {
+                              console.error("Failed to fetch KYC for PDF preview:", error);
+                            }
                           }
                         }
 
@@ -1055,14 +1169,18 @@ export default function AdminContract() {
                               const customerData = await fetchCustomerById(contractDetail.customerId);
                               customer = normalizeCustomer(customerData || {});
                               setContractCustomer(customer);
-                            } catch {}
+                            } catch (error) {
+                              console.error("Failed to fetch customer for PDF download:", error);
+                            }
                           }
                           if (!kyc) {
                             try {
                               const kycData = await getKycByCustomerId(contractDetail.customerId);
                               kyc = kycData || null;
                               setContractKyc(kyc);
-                            } catch {}
+                            } catch (error) {
+                              console.error("Failed to fetch KYC for PDF download:", error);
+                            }
                           }
                         }
 
@@ -1160,14 +1278,18 @@ export default function AdminContract() {
                       const customerData = await fetchCustomerById(contractDetail.customerId);
                       customer = normalizeCustomer(customerData || {});
                       setContractCustomer(customer);
-                    } catch {}
+                    } catch (error) {
+                      console.error("Failed to fetch customer for modal download:", error);
+                    }
                   }
                   if (!kyc) {
                     try {
                       const kycData = await getKycByCustomerId(contractDetail.customerId);
                       kyc = kycData || null;
                       setContractKyc(kyc);
-                    } catch {}
+                    } catch (error) {
+                      console.error("Failed to fetch KYC for modal download:", error);
+                    }
                   }
                 }
 

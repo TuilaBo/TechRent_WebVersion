@@ -16,16 +16,75 @@ import { useNavigate } from "react-router-dom";
 import { listRentalOrders, getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { fetchMyCustomerProfile } from "../../lib/customerApi";
 import { connectCustomerNotifications } from "../../lib/notificationsSocket";
+import { getMyContracts, normalizeContract } from "../../lib/contractApi";
 
 const { Title, Text } = Typography;
+
+function normalizeOrderId(value) {
+  if (value == null) return undefined;
+  const num = Number(value);
+  return Number.isNaN(num) ? String(value) : num;
+}
+
+function extractOrderId(order) {
+  if (!order) return undefined;
+  const raw =
+    order?.orderId ??
+    order?.rentalOrderId ??
+    order?.id ??
+    order?.rentalId ??
+    order?.rentalOrderCode ??
+    order?.orderCode ??
+    order?.referenceId ??
+    order?.data?.orderId ??
+    order?.detail?.orderId;
+  return normalizeOrderId(raw);
+}
+
+function extractStatus(order) {
+  if (!order) return "";
+  const raw =
+    order?.orderStatus ??
+    order?.status ??
+    order?.state ??
+    order?.orderState ??
+    order?.newStatus ??
+    order?.data?.orderStatus ??
+    order?.detail?.status;
+  return String(raw || "").toUpperCase();
+}
+
+function deriveOrderInfo(payload) {
+  if (!payload) return { orderId: undefined, status: "" };
+  const merged = {
+    ...payload,
+    ...(payload.order || payload.data || payload.detail || {}),
+  };
+  return {
+    orderId: extractOrderId(merged),
+    status: extractStatus(merged),
+  };
+}
+
+function buildContractsMap(contracts = []) {
+  const map = new Map();
+  contracts.forEach((contract) => {
+    const orderId = normalizeOrderId(
+      contract?.orderId ??
+        contract?.rentalOrderId ??
+        contract?.order?.orderId ??
+        contract?.order?.id
+    );
+    if (orderId != null) {
+      map.set(orderId, contract);
+    }
+  });
+  return map;
+}
 
 const STATUS_META = {
   PROCESSING: {
     tag: { color: "gold", label: "Đang xử lý" },
-    title: (order) => `Đơn #${order.orderId} đã được xác nhận`,
-    description:
-      "Vui lòng ký hợp đồng và thanh toán để chúng tôi chuẩn bị thiết bị cho bạn.",
-    actionLabel: "Ký & thanh toán",
   },
   READY_FOR_DELIVERY: {
     tag: { color: "cyan", label: "Sẵn sàng giao hàng" },
@@ -43,26 +102,45 @@ const STATUS_META = {
   },
 };
 
-function buildNotificationFromOrder(order) {
-  const status = String(order?.orderStatus || "").toUpperCase();
+function buildNotificationFromOrder(order, contractsMap) {
+  const status = extractStatus(order);
   const meta = STATUS_META[status];
   if (!meta) return null;
 
-  const key = `${order.orderId || order.id}-${status}`;
-  const baseLink = `/orders?orderId=${order.orderId || order.id}`;
-  const link =
-    status === "PROCESSING"
-      ? `${baseLink}&tab=contract`
-      : baseLink;
+  const orderId = extractOrderId(order);
+  if (orderId == null) return null;
+  const key = `${orderId}-${status}`;
+  const baseLink = `/orders?orderId=${orderId}`;
+  const hasContract = contractsMap?.get?.(orderId);
+
+  let link = baseLink;
+  const displayCode = order?.orderCode || order?.rentalOrderCode || orderId;
+  let title = meta.title ? meta.title(order) : `Đơn #${displayCode}`;
+  let description = meta.description || "";
+  let actionLabel = meta.actionLabel || "Xem đơn";
+
+  if (status === "PROCESSING") {
+    title = `Đơn #${displayCode} đã được duyệt`;
+    if (hasContract) {
+      description =
+        "Hợp đồng đã sẵn sàng. Vui lòng ký hợp đồng và thanh toán để chúng tôi chuẩn bị giao hàng.";
+      actionLabel = "Ký & thanh toán";
+      link = `${baseLink}&tab=contract`;
+    } else {
+      description = "QC đã hoàn tất. Chúng tôi sẽ gửi hợp đồng để bạn ký trong ít phút.";
+      actionLabel = "Xem trạng thái";
+    }
+  }
+
   return {
     key,
-    orderId: order.orderId || order.id,
+    orderId,
     status,
     createdAt: order.updatedAt || order.completedAt || order.createdAt,
-    title: meta.title(order),
-    description: meta.description,
+    title,
+    description,
     tag: meta.tag,
-    actionLabel: meta.actionLabel,
+    actionLabel,
     link,
   };
 }
@@ -73,6 +151,8 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
   const [profile, setProfile] = useState(null);
   const connectionRef = useRef(null);
+  const contractsMapRef = useRef(new Map());
+  const pollingRef = useRef(null);
 
   const sortedNotifications = useMemo(() => {
     return [...notifications].sort((a, b) => {
@@ -92,23 +172,52 @@ export default function NotificationsPage() {
     });
   };
 
-  const loadOrdersAsNotifications = async () => {
+  const refreshContractsMap = async () => {
     try {
-      setLoading(true);
-      const orders = await listRentalOrders();
-      const mapped = (orders || []).map(buildNotificationFromOrder).filter(Boolean);
+      const contracts = await getMyContracts();
+      const normalized = Array.isArray(contracts)
+        ? contracts.map((c) => (normalizeContract ? normalizeContract(c) : c))
+        : [];
+      const map = buildContractsMap(normalized);
+      contractsMapRef.current = map;
+      return map;
+    } catch (error) {
+      console.error("Notifications: cannot load contracts", error);
+      return contractsMapRef.current;
+    }
+  };
+
+  const loadOrdersAsNotifications = async ({ silent = false } = {}) => {
+    try {
+      if (!silent) setLoading(true);
+      const [orders, contractsMap] = await Promise.all([
+        listRentalOrders(),
+        refreshContractsMap(),
+      ]);
+      const mapped = (orders || [])
+        .map((order) => buildNotificationFromOrder(order, contractsMap))
+        .filter(Boolean);
       upsertNotifications(mapped);
     } catch (error) {
       message.error(
         error?.response?.data?.message || error?.message || "Không tải được thông báo."
       );
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadOrdersAsNotifications();
+    pollingRef.current = setInterval(() => {
+      loadOrdersAsNotifications({ silent: true });
+    }, 5000);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -123,13 +232,21 @@ export default function NotificationsPage() {
           endpoint: "/ws",
           customerId: me.customerId ?? me.id,
           onMessage: async (payload) => {
-            if (!payload?.orderId || !payload?.orderStatus) return;
+            const { orderId: payloadOrderId, status: payloadStatus } = deriveOrderInfo(payload);
+            if (!payloadOrderId || !payloadStatus) return;
             try {
-              const order = await getRentalOrderById(payload.orderId);
-              const noti = buildNotificationFromOrder({
-                ...order,
-                orderStatus: payload.orderStatus,
-              });
+              const order = await getRentalOrderById(payloadOrderId);
+              let contractsMap = contractsMapRef.current;
+              if (payloadStatus === "PROCESSING") {
+                contractsMap = await refreshContractsMap();
+              }
+              const noti = buildNotificationFromOrder(
+                {
+                  ...order,
+                  orderStatus: payloadStatus,
+                },
+                contractsMap
+              );
               if (noti) upsertNotifications([noti]);
             } catch {
               // silent
@@ -201,7 +318,7 @@ export default function NotificationsPage() {
           extra={
             <Button
               icon={<ReloadOutlined />}
-              onClick={loadOrdersAsNotifications}
+              onClick={() => loadOrdersAsNotifications()}
               type="text"
             >
               Làm mới
