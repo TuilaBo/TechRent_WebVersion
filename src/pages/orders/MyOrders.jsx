@@ -9,13 +9,15 @@ import {
   SearchOutlined, FilterOutlined, EyeOutlined,
   ReloadOutlined, FilePdfOutlined, DownloadOutlined, ExpandOutlined, DollarOutlined, PrinterOutlined
 } from "@ant-design/icons";
-import { listRentalOrders, getRentalOrderById } from "../../lib/rentalOrdersApi";
+import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder } from "../../lib/rentalOrdersApi";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract as signContractApi } from "../../lib/contractApi";
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
 import { connectCustomerNotifications } from "../../lib/notificationsSocket";
 import { getMyKyc } from "../../lib/kycApi";
 import { createPayment, getInvoiceByRentalOrderId } from "../../lib/Payment";
+import { listTasks } from "../../lib/taskApi";
+import { getSettlementByOrderId, respondSettlement } from "../../lib/settlementApi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
@@ -38,12 +40,22 @@ const ORDER_STATUS_MAP = {
   cancelled: { label: "Đã hủy",       color: "red"     },
   processing:{ label: "Đang xử lý",   color: "purple"  },
   delivery_confirmed: { label: "Đã xác nhận giao hàng", color: "green" },
+  completed: { label: "Hoàn tất đơn hàng", color: "green" },
 };
 const PAYMENT_STATUS_MAP = {
   unpaid:   { label: "Chưa thanh toán",      color: "volcano"  },
   paid:     { label: "Đã thanh toán",        color: "green"    },
   refunded: { label: "Đã hoàn tiền",         color: "geekblue" },
   partial:  { label: "Chưa thanh toán thành công",  color: "purple"   },
+};
+const SETTLEMENT_STATUS_MAP = {
+  draft: { label: "Nháp", color: "default" },
+  pending: { label: "Chờ xử lý", color: "gold" },
+  awaiting_customer: { label: "Chờ khách xác nhận", color: "orange" },
+  submitted: { label: "Đã gửi", color: "blue" },
+  issued: { label: "Đã chấp nhận", color: "green" },
+  closed: { label: "Đã tất toán", color: "geekblue" },
+  rejected: { label: "Đã từ chối", color: "red" },
 };
 
 // Map invoice status to payment status
@@ -91,16 +103,6 @@ function formatVND(n = 0) {
   } catch {
     return `${n} VNĐ`;
   }
-}
-function formatDate(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
-  });
 }
 function formatDateTime(iso) {
   if (!iso) return "—";
@@ -158,10 +160,6 @@ function parseAnyNumber(str = "") {
   return Number.isFinite(v) ? v : 0;
 }
 
-/** Format các template tiền trong HTML:
- *  - Bắt được nhãn có thẻ HTML xen kẽ (</b>, <span>...) và khoảng trắng
- *  - Ví dụ: "<b>Tổng tiền thuê</b>: 1000.00&nbsp;VNĐ" -> "Tổng tiền thuê: 1.000 VNĐ"
- */
 function formatMoneyInHtml(html = "") {
   if (!html) return html;
   html = normalizeHtmlSpaces(html);
@@ -593,6 +591,7 @@ export default function MyOrders() {
   const notifSocketRef = useRef(null);
   const pollingRef = useRef(null);
   const wsConnectedRef = useRef(false);
+  const shownReturnNotificationRef = useRef(new Set());
 
   // Signing
   const [signingContract, setSigningContract] = useState(false);
@@ -609,7 +608,26 @@ export default function MyOrders() {
   const [paymentTermsAccepted, setPaymentTermsAccepted] = useState(false);
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [invoiceInfo, setInvoiceInfo] = useState(null); // Invoice info from API
+  const [settlementInfo, setSettlementInfo] = useState(null);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementActionLoading, setSettlementActionLoading] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [extendModalOpen, setExtendModalOpen] = useState(false);
+  const [processingReturn, setProcessingReturn] = useState(false);
+  const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
+    // Load from localStorage on init
+    try {
+      const saved = localStorage.getItem("confirmedReturnOrders");
+      if (saved) {
+        const ids = JSON.parse(saved);
+        return new Set(Array.isArray(ids) ? ids : []);
+      }
+    } catch (e) {
+      console.error("Failed to load confirmed return orders from localStorage:", e);
+    }
+    return new Set();
+  });
   const location = useLocation();
   const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const deeplinkOrderId = queryParams.get("orderId");
@@ -630,11 +648,175 @@ export default function MyOrders() {
     setContractCustomer(null);
   }
 
+  // Calculate days remaining until return date
+  const DAY_MS = 1000 * 60 * 60 * 24;
+  const getDaysRemaining = (endDate) => {
+    if (!endDate) return null;
+    const end = new Date(endDate);
+    if (Number.isNaN(end.getTime())) return null;
+    const now = new Date();
+
+    // Use UTC to avoid timezone drift when comparing calendar days
+    const endDayUtc = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+    const nowDayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
+    const diff = endDayUtc - nowDayUtc;
+    const days = Math.floor(diff / DAY_MS);
+    return days;
+  };
+
+  const formatRemainingDaysText = (daysRemaining) => {
+    if (daysRemaining === null) return "—";
+    if (daysRemaining < 0) return "Đã quá hạn";
+    if (daysRemaining === 0) return "Hết hạn hôm nay";
+    if (daysRemaining <= 1) return "Còn 1 ngày";
+    return `Còn ${daysRemaining} ngày`;
+  };
+
+  // Check if order is close to return date (less than 1 day)
+  const isCloseToReturnDate = (order) => {
+    if (!order?.endDate) return false;
+    const daysRemaining = getDaysRemaining(order.endDate);
+    return daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 1;
+  };
+
+  // Check if order has been confirmed for return
+  const isReturnConfirmed = async (order) => {
+    if (!order) return false;
+    const orderId = order?.id || order?.orderId || order?.rentalOrderId;
+    
+    // Check if we've tracked this order as confirmed (from localStorage)
+    if (orderId && confirmedReturnOrders.has(orderId)) {
+      return true;
+    }
+    
+    // Check status
+    const status = String(order?.orderStatus || order?.status || "").toLowerCase();
+    if (status === "returned" || status === "return_confirmed") {
+      return true;
+    }
+    
+    // Check for return confirmation flag
+    if (order?.returnConfirmed === true || order?.returnConfirmed === "true") {
+      return true;
+    }
+    
+    // Check if status contains "return" keyword
+    if (status.includes("return")) {
+      return true;
+    }
+    
+    // Check if there's a return task for this order
+    try {
+      const tasks = await listTasks({ orderId });
+      const hasReturnTask = tasks.some(task => {
+        const taskType = String(task?.type || "").toUpperCase();
+        const taskDesc = String(task?.description || "").toLowerCase();
+        return taskType.includes("RETURN") || 
+               taskType.includes("PICKUP") || 
+               taskDesc.includes("thu hồi") || 
+               taskDesc.includes("trả hàng");
+      });
+      if (hasReturnTask && orderId) {
+        // Mark as confirmed
+        setConfirmedReturnOrders(prev => {
+          const newSet = new Set([...prev, orderId]);
+          // Save to localStorage
+          try {
+            localStorage.setItem("confirmedReturnOrders", JSON.stringify(Array.from(newSet)));
+          } catch (e) {
+            console.error("Failed to save confirmed return orders to localStorage:", e);
+          }
+          return newSet;
+        });
+        return true;
+      }
+    } catch (e) {
+      console.error("Error checking return tasks:", e);
+    }
+    
+    return false;
+  };
+
+  // Synchronous version for use in render (uses cached state)
+  const isReturnConfirmedSync = (order) => {
+    if (!order) return false;
+    const orderId = order?.id || order?.orderId || order?.rentalOrderId;
+    
+    // Check if we've tracked this order as confirmed
+    if (orderId && confirmedReturnOrders.has(orderId)) {
+      return true;
+    }
+    
+    // Check status
+    const status = String(order?.orderStatus || order?.status || "").toLowerCase();
+    if (status === "returned" || status === "return_confirmed") {
+      return true;
+    }
+    
+    // Check for return confirmation flag
+    if (order?.returnConfirmed === true || order?.returnConfirmed === "true") {
+      return true;
+    }
+    
+    // Check if status contains "return" keyword
+    if (status.includes("return")) {
+      return true;
+    }
+    
+    return false;
+  };
+
   useEffect(() => {
     loadOrders();
     loadAllContracts();
     loadCustomerProfile();
   }, []);
+
+  // Check for orders close to return date and show notification
+  useEffect(() => {
+    const checkCloseToReturn = () => {
+      const closeOrders = orders.filter((order) => 
+        isCloseToReturnDate(order) && !isReturnConfirmedSync(order)
+      );
+      if (closeOrders.length > 0 && !returnModalOpen && !extendModalOpen) {
+        const firstCloseOrder = closeOrders[0];
+        const orderId = firstCloseOrder.id;
+        // Only show notification once per order
+        if (shownReturnNotificationRef.current.has(orderId)) {
+          return;
+        }
+        const daysRemaining = getDaysRemaining(firstCloseOrder.endDate);
+        if (daysRemaining !== null && daysRemaining <= 1) {
+          shownReturnNotificationRef.current.add(orderId);
+          const reminderText = "1 ngày";
+          Modal.confirm({
+            title: `Đơn #${firstCloseOrder.displayId ?? firstCloseOrder.id} sắp đến hạn trả hàng`,
+            content: `Còn ${reminderText} nữa là đến hạn trả hàng. Bạn muốn gia hạn hay trả hàng?`,
+            okText: "Trả hàng",
+            cancelText: "Gia hạn",
+            onOk: () => {
+              setCurrent(firstCloseOrder);
+              setDetailOpen(true);
+              setDetailTab("return");
+              setReturnModalOpen(true);
+            },
+            onCancel: () => {
+              setCurrent(firstCloseOrder);
+              setDetailOpen(true);
+              setDetailTab("return");
+              setExtendModalOpen(true);
+            },
+            width: 500,
+          });
+        }
+      }
+    };
+
+    if (orders.length > 0) {
+      checkCloseToReturn();
+    }
+  }, [orders, returnModalOpen, extendModalOpen]);
 
   const loadCustomerProfile = async () => {
     try {
@@ -647,53 +829,91 @@ export default function MyOrders() {
       pollingRef.current = null;
       if (normalized?.id) {
         notifSocketRef.current = connectCustomerNotifications({
-          endpoint: "/ws",
+          endpoint: "http://160.191.245.242:8080/ws",
           customerId: normalized.id,
           onMessage: async (payload) => {
+            console.log("📬 MyOrders: Received WebSocket message", payload);
             const statusRaw = String(payload?.orderStatus || payload?.status || "").toUpperCase();
             const lowerMsg = String(payload?.message || payload?.title || "").toLowerCase();
             const lowerType = String(payload?.type || payload?.notificationType || "").toLowerCase();
-            const heuristicProcessing =
-              !statusRaw &&
-              (lowerMsg.includes("xử lý") ||
-                lowerMsg.includes("processing") ||
-                lowerType === "approved");
-            if (statusRaw !== "PROCESSING" && !heuristicProcessing) return;
+            
+            // Check if this is a PROCESSING notification
+            const isProcessing = 
+              statusRaw === "PROCESSING" ||
+              lowerType === "order_processing" ||
+              lowerType === "processing" ||
+              lowerMsg.includes("xử lý") ||
+              lowerMsg.includes("processing") ||
+              lowerType === "approved";
+            
+            if (!isProcessing) {
+              console.log("⚠️ MyOrders: Message not PROCESSING, ignoring", { statusRaw, lowerMsg, lowerType });
+              return;
+            }
+            console.log("✅ MyOrders: Processing PROCESSING notification", payload);
 
-            const orderCode = payload?.orderCode || payload?.orderId || "";
+            // Load orders first to get the latest orderId
+            let refreshedOrders = [];
             try {
-              await loadOrders();
+              const res = await listRentalOrders();
+              refreshedOrders = Array.isArray(res) ? res : [];
+              // Update orders state
+              const mapped = await Promise.all((refreshedOrders || []).map(mapOrderFromApi));
+              setOrders(mapped.filter(o => o && o.id != null));
             } catch (err) {
               console.error("Failed to refresh orders after notification:", err);
             }
+
+            // Find the most recent PROCESSING order
+            const processingOrder = refreshedOrders
+              .filter(o => {
+                const status = String(o?.status || o?.orderStatus || "").toUpperCase();
+                return status === "PROCESSING";
+              })
+              .sort((a, b) => {
+                const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
+                const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+                return tb - ta; // newest first
+              })[0];
+
+            const orderId = processingOrder?.orderId || processingOrder?.id || payload?.orderId || payload?.rentalOrderId;
+            const orderCode = processingOrder?.orderId || processingOrder?.id || payload?.orderCode || payload?.orderId || "";
+
+            console.log("🔍 MyOrders: Found processing order", { orderId, orderCode, processingOrder });
+
             let contractsSnapshot = [];
             try {
               contractsSnapshot = await loadAllContracts();
             } catch (err) {
               console.error("Failed to refresh contracts after notification:", err);
             }
-            const hasContractAlready = hasAnyContract(payload?.orderId, contractsSnapshot);
+
+            const hasContractAlready = orderId ? hasAnyContract(orderId, contractsSnapshot) : false;
+            console.log("📋 MyOrders: Contract check", { orderId, hasContractAlready, contractsCount: contractsSnapshot.length });
+
             if (hasContractAlready) {
               message.success(
                 orderCode
-                  ? `Đơn ${orderCode} đã có hợp đồng. Vui lòng ký và thanh toán ngay.`
+                  ? `Đơn #${orderCode} đã có hợp đồng. Vui lòng ký và thanh toán ngay.`
                   : "Đơn của bạn đã có hợp đồng. Vui lòng ký và thanh toán ngay."
               );
             } else {
               message.success(
                 orderCode
-                  ? `Đơn ${orderCode} đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút.`
+                  ? `Đơn #${orderCode} đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút.`
                   : "Đơn của bạn đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút."
               );
             }
           },
           onConnect: () => {
+            console.log("✅ MyOrders: WebSocket connected successfully");
             wsConnectedRef.current = true;
             // stop polling if any
             try { clearInterval(pollingRef.current); } catch {}
             pollingRef.current = null;
           },
-          onError: () => {
+          onError: (err) => {
+            console.error("❌ MyOrders: WebSocket error", err);
             if (!pollingRef.current) startPollingProcessing();
           },
         });
@@ -714,7 +934,42 @@ export default function MyOrders() {
       setLoadingOrders(true);
       const res = await listRentalOrders();
       const mapped = await Promise.all((res || []).map(mapOrderFromApi));
-      setOrders(mapped.filter(o => o && o.id != null));
+      const validOrders = mapped.filter(o => o && o.id != null);
+      setOrders(validOrders);
+      
+      // Check for orders that might have return tasks created
+      // This helps detect orders that were confirmed for return even if status hasn't changed
+      try {
+        const allTasks = await listTasks();
+        const returnTaskOrderIds = new Set();
+        allTasks.forEach(task => {
+          const taskType = String(task?.type || "").toUpperCase();
+          const taskDesc = String(task?.description || "").toLowerCase();
+          const isReturnTask = taskType.includes("RETURN") || 
+                              taskType.includes("PICKUP") || 
+                              taskDesc.includes("thu hồi") || 
+                              taskDesc.includes("trả hàng");
+          if (isReturnTask && task?.orderId) {
+            returnTaskOrderIds.add(task.orderId);
+          }
+        });
+        
+        // Update confirmedReturnOrders if we found return tasks
+        if (returnTaskOrderIds.size > 0) {
+          setConfirmedReturnOrders(prev => {
+            const newSet = new Set([...prev, ...returnTaskOrderIds]);
+            try {
+              localStorage.setItem("confirmedReturnOrders", JSON.stringify(Array.from(newSet)));
+            } catch (e) {
+              console.error("Failed to save confirmed return orders to localStorage:", e);
+            }
+            return newSet;
+          });
+        }
+      } catch (taskErr) {
+        console.error("Error checking return tasks:", taskErr);
+        // Don't fail the whole load if task check fails
+      }
     } catch (err) {
       console.error(err);
       message.error("Không thể tải danh sách đơn hàng.");
@@ -774,7 +1029,7 @@ export default function MyOrders() {
 
     const isCreated = true;
     const isQcDone =
-      ["processing", "ready_for_delivery", "delivery_confirmed", "delivering", "active", "returned"].includes(status) ||
+      ["processing", "ready_for_delivery", "delivery_confirmed", "delivering", "active", "returned", "completed"].includes(status) ||
       !!contract;
     const isContractPending = contractStatus === "pending_signature";
     const isPaid = paymentStatus === "paid";
@@ -782,9 +1037,11 @@ export default function MyOrders() {
       ["ready_for_delivery", "delivery_confirmed"].includes(status) ||
       (isPaid && (status === "processing" || status === "active" || status === "delivering"));
     const isDelivered = status === "in_use";
+    const isCompleted = status === "completed";
 
     let current = 0;
-    if (isDelivered) current = 4; // Giao hàng thành công
+    if (isCompleted) current = 5; // Trả hàng và hoàn cọc thành công
+    else if (isDelivered) current = 4; // Giao hàng thành công
     else if (isReady) current = 3; // Sẵn sàng giao hàng
     else if (isContractPending || (!isPaid && (isQcDone || contract))) current = 2; // Ký hợp đồng & Thanh toán
     else if (isQcDone) current = 1; // QC,KYC trước thuê thành công
@@ -796,6 +1053,7 @@ export default function MyOrders() {
       { title: "Ký hợp đồng & Thanh toán" },
       { title: "Sẵn sàng giao hàng" },
       { title: "Giao hàng thành công" },
+      { title: "Trả hàng và hoàn cọc thành công" },
     ];
 
     steps[0].description = formatDateTime(order?.createdAt) || "";
@@ -836,6 +1094,89 @@ export default function MyOrders() {
 
   const hasAnyContract = (orderId, contractsList = allContracts) => {
     return getOrderContracts(orderId, contractsList).length > 0;
+  };
+
+  // Handle return confirmation
+  const handleConfirmReturn = async () => {
+    if (!current || !current.id) {
+      message.error("Không có thông tin đơn hàng để trả.");
+      return;
+    }
+    try {
+      setProcessingReturn(true);
+      await confirmReturnRentalOrder(current.id);
+      message.success("Đã xác nhận trả hàng. Chúng tôi sẽ liên hệ với bạn để thu hồi thiết bị.");
+      setReturnModalOpen(false);
+      // Mark this order as confirmed for return
+      if (current?.id) {
+        setConfirmedReturnOrders(prev => {
+          const newSet = new Set([...prev, current.id]);
+          // Save to localStorage
+          try {
+            localStorage.setItem("confirmedReturnOrders", JSON.stringify(Array.from(newSet)));
+          } catch (e) {
+            console.error("Failed to save confirmed return orders to localStorage:", e);
+          }
+          return newSet;
+        });
+      }
+      // Reload orders to get updated status
+      await loadOrders();
+      // Update current order to reflect return confirmation
+      const updatedOrder = await getRentalOrderById(current.id);
+      if (updatedOrder) {
+        const mapped = await mapOrderFromApi(updatedOrder);
+        setCurrent(mapped);
+        // Mark as confirmed even if status doesn't change immediately
+        setConfirmedReturnOrders(prev => {
+          const newSet = new Set([...prev, current.id]);
+          // Save to localStorage
+          try {
+            localStorage.setItem("confirmedReturnOrders", JSON.stringify(Array.from(newSet)));
+          } catch (e) {
+            console.error("Failed to save confirmed return orders to localStorage:", e);
+          }
+          return newSet;
+        });
+        // Switch to return tab to show thank you message
+        setDetailTab("return");
+      }
+      // Keep drawer open to show thank you message
+    } catch (error) {
+      console.error("Error confirming return:", error);
+      message.error(error?.response?.data?.message || error?.message || "Không thể xác nhận trả hàng.");
+    } finally {
+      setProcessingReturn(false);
+    }
+  };
+
+  const handleRespondSettlement = async (accepted) => {
+    if (!settlementInfo) {
+      message.warning("Chưa có quyết toán để xử lý.");
+      return;
+    }
+    const settlementId = settlementInfo.settlementId || settlementInfo.id;
+    if (!settlementId) {
+      message.error("Không tìm thấy ID settlement.");
+      return;
+    }
+    try {
+      setSettlementActionLoading(true);
+      await respondSettlement(settlementId, accepted);
+      message.success(accepted ? "Bạn đã chấp nhận quyết toán thành công." : "Bạn đã từ chối quyết toán.");
+      await loadOrderSettlement(settlementInfo.orderId || current?.id || settlementInfo.orderId);
+    } catch (error) {
+      console.error("Failed to respond settlement:", error);
+      message.error(error?.response?.data?.message || error?.message || "Không xử lý được yêu cầu.");
+    } finally {
+      setSettlementActionLoading(false);
+    }
+  };
+
+  // Handle extend request
+  const handleExtendRequest = () => {
+    message.info("Tính năng gia hạn đang được phát triển. Vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.");
+    setExtendModalOpen(false);
   };
   const handleDownloadContract = async (record) => {
     try {
@@ -899,6 +1240,7 @@ export default function MyOrders() {
     }
     clearContractPreviewState();
     setCurrent(record);
+    setSettlementInfo(null);
     setDetailOpen(true);
     setDetailTab("overview");
     setInvoiceInfo(null); // Reset invoice info
@@ -924,6 +1266,7 @@ export default function MyOrders() {
         setInvoiceInfo(null);
       }
       await loadOrderContracts(idNum);
+      await loadOrderSettlement(idNum);
     } catch (err) {
       console.error("Error loading order details:", err);
     }
@@ -946,6 +1289,8 @@ export default function MyOrders() {
     showDetail(target);
     if (deeplinkTab === "contract") {
       setDetailTab("contract");
+    } else if (deeplinkTab === "settlement") {
+      setDetailTab("settlement");
     }
   }, [orders, deeplinkOrderId, deeplinkTab]);
 
@@ -1013,6 +1358,25 @@ export default function MyOrders() {
       setPdfPreviewUrl("");
     } finally {
       setContractsLoading(false);
+    }
+  };
+
+  const loadOrderSettlement = async (orderId) => {
+    if (!orderId) {
+      setSettlementInfo(null);
+      return null;
+    }
+    try {
+      setSettlementLoading(true);
+      const settlement = await getSettlementByOrderId(orderId);
+      setSettlementInfo(settlement || null);
+      return settlement || null;
+    } catch (e) {
+      console.error("Failed to fetch settlement by orderId:", e);
+      setSettlementInfo(null);
+      return null;
+    } finally {
+      setSettlementLoading(false);
     }
   };
 
@@ -1485,7 +1849,7 @@ export default function MyOrders() {
       },
     },
     {
-      title: "Ngày tạo",
+      title: "Ngày tạo đơn",
       dataIndex: "createdAt",
       key: "createdAt",
       width: 130,
@@ -1722,6 +2086,7 @@ export default function MyOrders() {
           setDetailOpen(false);
           clearContractPreviewState();
           setDetailTab("overview");
+          setSettlementInfo(null);
         }}
         styles={{
           body: { padding: 0, background: "#f5f7fa" },
@@ -1739,16 +2104,26 @@ export default function MyOrders() {
             {(() => {
               const tracking = computeOrderTracking(current, contracts, invoiceInfo);
               return (
-                <Steps
-                  current={tracking.current}
-                  size="small"
-                  responsive
-                  style={{ background: "transparent" }}
-                >
-                  {tracking.steps.map((s, idx) => (
-                    <Steps.Step key={idx} title={s.title} description={s.description} />
-                  ))}
-                </Steps>
+                <div style={{ overflowX: "auto", padding: "8px 0" }}>
+                  <Steps
+                    current={tracking.current}
+                    size="default"
+                    responsive
+                    style={{ 
+                      background: "transparent",
+                      minWidth: "max-content",
+                    }}
+                    className="order-tracking-steps"
+                  >
+                    {tracking.steps.map((s, idx) => (
+                      <Steps.Step 
+                        key={idx} 
+                        title={<span style={{ fontSize: 13, whiteSpace: "nowrap" }}>{s.title}</span>} 
+                        description={s.description ? <span style={{ fontSize: 11 }}>{s.description}</span> : null} 
+                      />
+                    ))}
+                  </Steps>
+                </div>
               );
             })()}
           </div>
@@ -1765,18 +2140,66 @@ export default function MyOrders() {
               type="info"
               showIcon
                 message={`Đơn #${current.displayId ?? current.id} đã được xác nhận`}
-                description={
-                  hasContracts
-                    ? "Vui lòng ký hợp đồng và thanh toán để chúng tôi chuẩn bị giao hàng."
-                    : "Chúng tôi đang tạo hợp đồng cho đơn này. Bạn sẽ nhận được thông báo khi hợp đồng sẵn sàng."
-                }
+              description={
+                hasContracts
+                  ? "Vui lòng ký hợp đồng và thanh toán để chúng tôi chuẩn bị giao hàng."
+                  : "Chúng tôi đang tạo hợp đồng cho đơn này. Bạn sẽ nhận được thông báo khi hợp đồng sẵn sàng."
+              }
+              action={
+                hasContracts && (
+                  <Button type="link" onClick={() => setDetailTab("contract")} style={{ padding: 0 }}>
+                    Xem hợp đồng
+                  </Button>
+                )
+              }
+            />
+          </div>
+        )}
+        {current && settlementInfo && (() => {
+          const settlementState = String(settlementInfo.state || "").toUpperCase();
+          const isAwaitingResponse = !["ISSUED", "REJECTED", "CANCELLED", "CLOSED"].includes(settlementState);
+          if (!isAwaitingResponse) return null;
+          return (
+            <div
+              style={{
+                padding: "16px 24px",
+                borderBottom: "1px solid #e8e8e8",
+                background: "#fff",
+              }}
+            >
+              <Alert
+                type="warning"
+                showIcon
+                message={`Đơn #${current.displayId ?? current.id} có quyết toán cần xác nhận`}
+                description="Vui lòng xem bảng quyết toán và chấp nhận hoặc từ chối để chúng tôi hoàn cọc cho bạn."
                 action={
-                  hasContracts && (
-                    <Button type="link" onClick={() => setDetailTab("contract")} style={{ padding: 0 }}>
-                      Xem hợp đồng
-                    </Button>
-                  )
+                  <Button type="link" onClick={() => setDetailTab("settlement")} style={{ padding: 0 }}>
+                    Xem quyết toán
+                  </Button>
                 }
+              />
+            </div>
+          );
+        })()}
+        {current && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
+          <div
+            style={{
+              padding: "16px 24px",
+              borderBottom: "1px solid #e8e8e8",
+              background: "#fffacd",
+            }}
+          >
+            <Alert
+              type="warning"
+              showIcon
+              message={`Đơn #${current.displayId ?? current.id} sắp đến hạn trả hàng`}
+              description={
+                "Còn 1 ngày nữa là đến hạn trả hàng. Bạn muốn gia hạn hay trả hàng?"
+              }
+              action={
+                <Space>
+                </Space>
+              }
             />
           </div>
         )}
@@ -1824,10 +2247,10 @@ export default function MyOrders() {
                             <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
                             <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
                             <Descriptions.Item label="Ngày bắt đầu thuê">
-                              {current.startDate ? formatDate(current.startDate) : "—"}
+                              {current.startDate ? formatDateTime(current.startDate) : "—"}
                             </Descriptions.Item>
                             <Descriptions.Item label="Ngày kết thúc thuê">
-                              {current.endDate ? formatDate(current.endDate) : "—"}
+                              {current.endDate ? formatDateTime(current.endDate) : "—"}
                             </Descriptions.Item>
                             <Descriptions.Item label="Trạng thái đơn">
                               <Tag color={(ORDER_STATUS_MAP[current.orderStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
@@ -2152,6 +2575,345 @@ export default function MyOrders() {
                   </div>
                 ),
               },
+              {
+                key: "return",
+                label: "Trả hàng và gia hạn",
+                children: (
+                  <div style={{ padding: 24 }}>
+                    {(() => {
+                      const daysRemaining = getDaysRemaining(current?.endDate);
+                      const isClose = isCloseToReturnDate(current);
+                      const returnConfirmed = isReturnConfirmedSync(current);
+                      const status = String(current?.orderStatus || "").toLowerCase();
+                      const canReturn = ["active", "in_use"].includes(status) && daysRemaining !== null && !returnConfirmed;
+
+                      // If return is confirmed, show thank you message
+                      if (returnConfirmed) {
+                        return (
+                          <>
+                            <Card
+                              style={{
+                                marginBottom: 24,
+                                borderRadius: 12,
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                                border: "1px solid #52c41a",
+                                background: "#f6ffed",
+                              }}
+                            >
+                              <Alert
+                                type="success"
+                                showIcon
+                                message="Cảm ơn bạn đã xác nhận trả hàng"
+                                description={
+                                  <div>
+                                    <Text>
+                                      Chúng tôi đã nhận được xác nhận trả hàng của bạn cho đơn hàng <Text strong>#{current?.displayId ?? current?.id}</Text>.
+                                    </Text>
+                                    <div style={{ marginTop: 12 }}>
+                                      <Text strong>Những việc tiếp theo:</Text>
+                                      <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+                                        <li>Vui lòng chuẩn bị thiết bị và tất cả phụ kiện đi kèm để bàn giao</li>
+                                        <li>Đảm bảo thiết bị được đóng gói cẩn thận và an toàn</li>
+                                        <li>Kiểm tra lại danh sách thiết bị và phụ kiện theo hợp đồng trước khi bàn giao</li>
+                                      </ul>
+                                    </div>
+                                  </div>
+                                }
+                              />
+                            </Card>
+
+                            <Card
+                              style={{
+                                marginBottom: 24,
+                                borderRadius: 12,
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                                border: "1px solid #e8e8e8",
+                              }}
+                              title={
+                                <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                                  Thông tin trả hàng
+                                </Title>
+                              }
+                            >
+                              <Descriptions bordered column={1} size="middle">
+                                <Descriptions.Item label="Mã đơn hàng">
+                                  <Text strong>#{current?.displayId ?? current?.id}</Text>
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Ngày bắt đầu thuê">
+                                  {current?.startDate ? formatDateTime(current.startDate) : "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Ngày kết thúc thuê">
+                                  {current?.endDate ? formatDateTime(current.endDate) : "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Số ngày thuê">
+                                  {current?.days ? `${current.days} ngày` : "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Trạng thái">
+                                  <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>
+                                    Đã xác nhận trả hàng
+                                  </Tag>
+                                </Descriptions.Item>
+                              </Descriptions>
+                            </Card>
+                          </>
+                        );
+                      }
+
+                      // Normal return/extend interface
+                      return (
+                        <>
+                          <Card
+                            style={{
+                              marginBottom: 24,
+                              borderRadius: 12,
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                              border: "1px solid #e8e8e8",
+                            }}
+                            title={
+                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                                Thông tin trả hàng
+                              </Title>
+                            }
+                          >
+                            <Descriptions bordered column={1} size="middle">
+                              <Descriptions.Item label="Ngày bắt đầu thuê">
+                                {current?.startDate ? formatDateTime(current.startDate) : "—"}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="Ngày kết thúc thuê">
+                                {current?.endDate ? formatDateTime(current.endDate) : "—"}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="Số ngày thuê">
+                                {current?.days ? `${current.days} ngày` : "—"}
+                              </Descriptions.Item>
+                              <Descriptions.Item label="Thời gian còn lại">
+                                {daysRemaining !== null ? (
+                                  <Tag color={isClose ? "orange" : "green"} style={{ fontSize: 14, padding: "4px 12px" }}>
+                                    {formatRemainingDaysText(daysRemaining)}
+                                  </Tag>
+                                ) : (
+                                  "—"
+                                )}
+                              </Descriptions.Item>
+                            </Descriptions>
+                          </Card>
+
+                          {isClose && (
+                            <Card
+                              style={{
+                                marginBottom: 24,
+                                borderRadius: 12,
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                                border: "1px solid #ffa940",
+                                background: "#fff7e6",
+                              }}
+                            >
+                              <Alert
+                                type="warning"
+                                showIcon
+                                message="Đơn hàng sắp đến hạn trả"
+                                description={
+                                  <div>
+                                    <Text>
+                                      Đơn hàng của bạn sẽ hết hạn sau 1 ngày. Vui lòng chọn một trong các tùy chọn sau:
+                                    </Text>
+                                    <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+                                      <li><Text strong>Gia hạn:</Text> Nếu bạn muốn tiếp tục sử dụng thiết bị, vui lòng liên hệ bộ phận hỗ trợ để gia hạn.</li>
+                                      <li><Text strong>Trả hàng:</Text> Xác nhận trả hàng để chúng tôi thu hồi thiết bị đúng hạn.</li>
+                                    </ul>
+                                  </div>
+                                }
+                              />
+                            </Card>
+                          )}
+
+                          <Card
+                            style={{
+                              borderRadius: 12,
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                              border: "1px solid #e8e8e8",
+                            }}
+                            title={
+                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                                Thao tác
+                              </Title>
+                            }
+                          >
+                            <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                              {canReturn && (
+                                <>
+                                  <div>
+                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
+                                      Gia hạn đơn hàng
+                                    </Text>
+                                    <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+                                      Nếu bạn muốn tiếp tục sử dụng thiết bị, vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.
+                                    </Text>
+                                    <Button
+                                      type="default"
+                                      size="large"
+                                      onClick={() => setExtendModalOpen(true)}
+                                      style={{ width: "100%" }}
+                                    >
+                                      Yêu cầu gia hạn
+                                    </Button>
+                                  </div>
+                                  <Divider />
+                                  <div>
+                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
+                                      Xác nhận trả hàng
+                                    </Text>
+                                    <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+                                      Xác nhận trả hàng để chúng tôi tạo task thu hồi thiết bị.
+                                    </Text>
+                                    <Button
+                                      type="primary"
+                                      size="large"
+                                      onClick={() => setReturnModalOpen(true)}
+                                      style={{ width: "100%" }}
+                                      danger={isClose}
+                                    >
+                                      Xác nhận trả hàng
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
+                              {!canReturn && (
+                                <Alert
+                                  type="info"
+                                  message="Đơn hàng này không thể trả hàng hoặc gia hạn"
+                                  description="Chỉ các đơn hàng đang trong trạng thái 'Đang thuê' hoặc 'Đang sử dụng' mới có thể thực hiện thao tác trả hàng hoặc gia hạn."
+                                />
+                              )}
+                            </Space>
+                          </Card>
+                        </>
+                      );
+                    })()}
+                  </div>
+                ),
+              },
+              {
+                key: "settlement",
+                label: "Quyết toán & hoàn cọc",
+                children: (
+                  <div style={{ padding: 24 }}>
+                    {settlementLoading ? (
+                      <Card>
+                        <Text>Đang tải thông tin quyết toán...</Text>
+                      </Card>
+                    ) : settlementInfo ? (
+                      <>
+                        <Card
+                          style={{
+                            marginBottom: 24,
+                            borderRadius: 12,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                            border: "1px solid #e8e8e8",
+                          }}
+                          title={
+                            <Title level={5} style={{ margin: 0 }}>
+                              Thông tin quyết toán
+                            </Title>
+                          }
+                        >
+                          <Descriptions bordered column={1} size="middle">
+                            <Descriptions.Item label="Tổng tiền cọc">
+                              {formatVND(settlementInfo.totalRent || 0)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Phí hư hỏng">
+                              {formatVND(settlementInfo.damageFee || 0)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Phí trễ hạn">
+                              {formatVND(settlementInfo.lateFee || 0)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Phí phụ kiện">
+                              {formatVND(settlementInfo.accessoryFee || 0)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Cọc đã dùng">
+                              {formatVND(settlementInfo.depositUsed || 0)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Số tiền hoàn lại / cần thanh toán">
+                              <Text strong>{formatVND(settlementInfo.finalAmount || 0)}</Text>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Trạng thái">
+                              {(() => {
+                                const key = String(settlementInfo.state || "").toLowerCase();
+                                const info = SETTLEMENT_STATUS_MAP[key] || { label: settlementInfo.state || "—", color: "default" };
+                                return <Tag color={info.color}>{info.label}</Tag>;
+                              })()}
+                            </Descriptions.Item>
+                          </Descriptions>
+                        </Card>
+
+                        <Card
+                          style={{
+                            borderRadius: 12,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                            border: "1px solid #e8e8e8",
+                          }}
+                        >
+                          {(() => {
+                            const state = String(settlementInfo.state || "").toUpperCase();
+                            const canRespond = !["ISSUED", "REJECTED", "CANCELLED", "CLOSED"].includes(state);
+                            if (!canRespond) {
+                              return (
+                                <Alert
+                                  type={
+                                    state === "ISSUED"
+                                      ? "success"
+                                      : state === "REJECTED"
+                                      ? "error"
+                                      : "info"
+                                  }
+                                  showIcon
+                                  message={
+                                    state === "ISSUED"
+                                      ? "Bạn đã chấp nhận quyết toán này."
+                                      : state === "REJECTED"
+                                      ? "Bạn đã từ chối quyết toán này."
+                                      : state === "CLOSED"
+                                      ? "Quyết toán đã tất toán xong. Cảm ơn bạn đã hợp tác."
+                                      : "Quyết toán đã được xử lý."
+                                  }
+                                />
+                              );
+                            }
+                            return (
+                              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                <Alert
+                                  type="warning"
+                                  showIcon
+                                  message="Vui lòng xem và xác nhận quyết toán để hoàn tất việc hoàn cọc."
+                                />
+                                <Space>
+                                  <Button
+                                    type="primary"
+                                    loading={settlementActionLoading}
+                                    onClick={() => handleRespondSettlement(true)}
+                                  >
+                                    Chấp nhận quyết toán
+                                  </Button>
+                                  <Button
+                                    danger
+                                    loading={settlementActionLoading}
+                                    onClick={() => handleRespondSettlement(false)}
+                                  >
+                                    Từ chối
+                                  </Button>
+                                </Space>
+                              </Space>
+                            );
+                          })()}
+                        </Card>
+                      </>
+                    ) : (
+                      <Card>
+                        <Text type="secondary">Chưa có quyết toán nào được tạo cho đơn hàng này.</Text>
+                      </Card>
+                    )}
+                  </div>
+                ),
+              },
             ]}
           />
         )}
@@ -2244,8 +3006,8 @@ export default function MyOrders() {
                 <Col span={12}>
                   <Card size="small" title="Thời gian">
                     <Descriptions size="small" column={1}>
-                      <Descriptions.Item label="Ngày bắt đầu">{contractDetail.startDate ? formatDate(contractDetail.startDate) : "—"}</Descriptions.Item>
-                      <Descriptions.Item label="Ngày kết thúc">{contractDetail.endDate ? formatDate(contractDetail.endDate) : "—"}</Descriptions.Item>
+                      <Descriptions.Item label="Ngày bắt đầu">{contractDetail.startDate ? formatDateTime(contractDetail.startDate) : "—"}</Descriptions.Item>
+                      <Descriptions.Item label="Ngày kết thúc">{contractDetail.endDate ? formatDateTime(contractDetail.endDate) : "—"}</Descriptions.Item>
                       <Descriptions.Item label="Số ngày thuê">{contractDetail.rentalPeriodDays ? `${contractDetail.rentalPeriodDays} ngày` : "—"}</Descriptions.Item>
                       <Descriptions.Item label="Hết hạn">{contractDetail.expiresAt ? formatDateTime(contractDetail.expiresAt) : "—"}</Descriptions.Item>
                     </Descriptions>
@@ -2381,6 +3143,93 @@ export default function MyOrders() {
         </Form>
       </Modal>
 
+      {/* Modal xác nhận trả hàng */}
+      <Modal
+        title="Xác nhận trả hàng"
+        open={returnModalOpen}
+        onCancel={() => setReturnModalOpen(false)}
+        onOk={handleConfirmReturn}
+        okText="Xác nhận trả hàng"
+        okButtonProps={{ loading: processingReturn, danger: true }}
+        cancelText="Hủy"
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Alert
+            type="warning"
+            showIcon
+            message="Bạn có chắc chắn muốn trả hàng?"
+            description={
+              <div>
+      
+                {current && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text strong>Thông tin đơn hàng:</Text>
+                    <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+                      <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
+                      <li>Ngày kết thúc thuê: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                      {(() => {
+                        const days = getDaysRemaining(current.endDate);
+                        if (days === null) return null;
+                        return (
+                          <li>
+                            Thời gian còn lại: <Text strong>{formatRemainingDaysText(days)}</Text>
+                          </li>
+                        );
+                      })()}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            }
+          />
+        </Space>
+      </Modal>
+
+      {/* Modal yêu cầu gia hạn */}
+      <Modal
+        title="Yêu cầu gia hạn đơn hàng"
+        open={extendModalOpen}
+        onCancel={() => setExtendModalOpen(false)}
+        onOk={handleExtendRequest}
+        okText="Gửi yêu cầu"
+        cancelText="Hủy"
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Alert
+            type="info"
+            showIcon
+            message="Tính năng gia hạn đang được phát triển"
+            description={
+              <div>
+                <Text>
+                  Hiện tại tính năng gia hạn đơn hàng đang được phát triển. Vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.
+                </Text>
+                {current && (
+                  <div style={{ marginTop: 12 }}>
+                    <Text strong>Thông tin đơn hàng:</Text>
+                    <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+                      <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
+                      <li>Ngày kết thúc thuê: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                      {(() => {
+                        const days = getDaysRemaining(current.endDate);
+                        if (days === null) return null;
+                        return (
+                          <li>
+                            Thời gian còn lại: <Text strong>{formatRemainingDaysText(days)}</Text>
+                          </li>
+                        );
+                      })()}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            }
+          />
+        </Space>
+      </Modal>
+
       {/* Modal chọn phương thức thanh toán */}
       <Modal
         title="Thanh toán đơn hàng"
@@ -2501,6 +3350,23 @@ export default function MyOrders() {
         }
         .ant-card:hover {
           box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
+        }
+        .order-tracking-steps .ant-steps-item {
+          flex: 0 0 auto !important;
+          min-width: 140px;
+          margin-right: 8px !important;
+        }
+        .order-tracking-steps .ant-steps-item-title {
+          font-size: 13px !important;
+          line-height: 1.4 !important;
+          padding-right: 0 !important;
+        }
+        .order-tracking-steps .ant-steps-item-description {
+          font-size: 11px !important;
+          margin-top: 4px !important;
+        }
+        .order-tracking-steps .ant-steps-item-content {
+          max-width: 160px;
         }
       `}</style>
     </>

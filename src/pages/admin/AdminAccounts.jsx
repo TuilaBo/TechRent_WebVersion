@@ -231,7 +231,25 @@ export default function AdminAccounts() {
     { title: "Username", dataIndex: "username", width: 160, ellipsis: true },
     { title: "Email", dataIndex: "email", width: 240, ellipsis: true },
     { title: "Số điện thoại", dataIndex: "phoneNumber", width: 140, ellipsis: true },
-    { title: "Vai trò", dataIndex: "staffRole", width: 130, render: (v) => <Tag color="geekblue">{v}</Tag> },
+    { 
+      title: "Vai trò", 
+      dataIndex: "staffRole", 
+      width: 200, 
+      ellipsis: true,
+      render: (v) => (
+        <Tag color="geekblue" style={{ maxWidth: '100%' }}>
+          <span style={{ 
+            display: 'inline-block', 
+            maxWidth: '180px', 
+            overflow: 'hidden', 
+            textOverflow: 'ellipsis', 
+            whiteSpace: 'nowrap' 
+          }} title={v}>
+            {v}
+          </span>
+        </Tag>
+      )
+    },
     {
       title: "Trạng thái",
       dataIndex: "isActive",
@@ -461,7 +479,7 @@ export default function AdminAccounts() {
                     dataSource={staff}
                     loading={staffLoading}
                     pagination={{ pageSize: 10 }}
-                    scroll={{ x: 1000 }}
+                    scroll={{ x: 1200 }}
                   />
                 </Card>
               ),

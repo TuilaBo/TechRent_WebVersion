@@ -63,6 +63,16 @@ export async function deleteRentalOrder(id) {
   return data?.data ?? data ?? true;
 }
 
+/** Khách xác nhận trả đơn
+ * Khách xác nhận sẽ trả hàng khi hết hạn thuê, hệ thống tạo task thu hồi đơn
+ * @param {number} id - Rental order ID
+ * @returns {Promise<any>} Response data
+ */
+export async function confirmReturnRentalOrder(id) {
+  const { data } = await api.patch(`/api/rental-orders/${Number(id)}/confirm-return`);
+  return data?.data ?? data ?? null;
+}
+
 /** Helper định dạng VND */
 export const fmtVND = (n) =>
   Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });

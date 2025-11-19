@@ -44,9 +44,18 @@ export async function getTransactions() {
   return unwrap(data);
 }
 
+// 4) Confirm refund for settlement
+// POST /api/v1/payments/settlements/{settlementId}/confirm-refund
+// Returns empty object {} on success (200 OK)
+export async function confirmRefundSettlement(settlementId) {
+  const { data } = await api.post(`/api/v1/payments/settlements/${Number(settlementId)}/confirm-refund`);
+  return unwrap(data);
+}
+
 export default {
   createPayment,
   getInvoiceByRentalOrderId,
   getTransactions,
+  confirmRefundSettlement,
 };
 

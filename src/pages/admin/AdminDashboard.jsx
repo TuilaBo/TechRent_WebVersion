@@ -567,7 +567,7 @@ export default function AdminDashboard() {
               )}
             </Card>
           </Col>
-          <Col xs={24} lg={8}>
+          {/* <Col xs={24} lg={8}>
             <Card title="Giao dịch gần đây">
               {recentTransactions.length ? (
                 <List
@@ -598,10 +598,10 @@ export default function AdminDashboard() {
                 <Empty description="Chưa có giao dịch" />
               )}
             </Card>
-          </Col>
+          </Col> */}
         </Row>
 
-        <Row gutter={[16, 16]}>
+        {/* <Row gutter={[16, 16]}>
           <Col xs={24} lg={12}>
             <Card title="Đơn cần xử lý">
               {attentionOrders.length ? (
@@ -660,9 +660,9 @@ export default function AdminDashboard() {
               )}
             </Card>
           </Col>
-        </Row>
+        </Row> */}
 
-        <Card
+        {/* <Card
           title={
             <Space>
               Đơn hàng gần đây
@@ -689,7 +689,7 @@ export default function AdminDashboard() {
               emptyText: loading ? "Đang tải..." : "Không có đơn nào",
             }}
           />
-        </Card>
+        </Card> */}
       </Space>
     </Spin>
 

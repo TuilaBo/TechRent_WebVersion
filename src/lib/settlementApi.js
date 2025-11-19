@@ -52,11 +52,24 @@ export async function listSettlements({ page = 0, size = 10, sort = [] } = {}) {
   return unwrap(data);
 }
 
+// 5) Customer respond to settlement (confirm/reject)
+// PATCH /api/settlements/{id}/respond?accepted={true|false}
+// accepted: boolean - true = confirm, false = reject
+// If confirmed, state will change to "Issued"
+// Returns empty object {} on success (200 OK)
+export async function respondSettlement(id, accepted) {
+  const { data } = await api.patch(`/api/settlements/${Number(id)}/respond`, null, {
+    params: { accepted: Boolean(accepted) },
+  });
+  return unwrap(data);
+}
+
 export default {
   createSettlement,
   updateSettlement,
   getSettlementByOrderId,
   listSettlements,
+  respondSettlement,
 };
 
 

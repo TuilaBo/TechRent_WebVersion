@@ -12,6 +12,7 @@ import {
   Space,
   Empty,
   DatePicker,
+  TimePicker,
   Tooltip,
   Skeleton,
   Form,
@@ -159,6 +160,12 @@ export default function CartPage() {
   })();
   const [startDate, setStartDate] = useState(initialDates.start);
   const [endDate, setEndDate] = useState(initialDates.end);
+  const [startTime, setStartTime] = useState(() =>
+    dayjs().hour(9).minute(0).second(0)
+  );
+  const [endTime, setEndTime] = useState(() =>
+    dayjs().hour(9).minute(0).second(0)
+  );
 
   const applyProfileData = useCallback((profile) => {
     if (!profile) return;
@@ -409,14 +416,40 @@ export default function CartPage() {
     }
   };
 
+  // Số ngày thuê
+  const days = useMemo(() => {
+    if (!startDate || !endDate) return 1;
+    const diff = endDate.startOf("day").diff(startDate.startOf("day"), "day");
+    return Math.max(1, diff || 1);
+  }, [startDate, endDate]);
+
+  // Kết hợp ngày + giờ để gửi BE
+  const startDateTime = useMemo(() => {
+    if (!startDate || !startTime) return null;
+    return startDate
+      .hour(startTime.hour())
+      .minute(startTime.minute())
+      .second(0)
+      .millisecond(0);
+  }, [startDate, startTime]);
+
+  const endDateTime = useMemo(() => {
+    if (!endDate || !endTime) return null;
+    return endDate
+      .hour(endTime.hour())
+      .minute(endTime.minute())
+      .second(0)
+      .millisecond(0);
+  }, [endDate, endTime]);
+
   // Persist items
   useEffect(() => {
     if (!loading) saveCartToStorage(items);
   }, [items, loading]);
 
-  // Check availability for all items when dates change
+  // Check availability for all items when dates/time change
   useEffect(() => {
-    if (!items.length || !startDate || !endDate) {
+    if (!items.length || !startDateTime || !endDateTime) {
       setItemAvailabilities({});
       return;
     }
@@ -424,8 +457,8 @@ export default function CartPage() {
     const checkAllAvailabilities = async () => {
       try {
         setCheckingAvailabilities(true);
-        const start = startDate.format("YYYY-MM-DD[T]HH:mm:ss");
-        const end = endDate.format("YYYY-MM-DD[T]HH:mm:ss");
+        const start = startDateTime.format("YYYY-MM-DD[T]HH:mm:ss");
+        const end = endDateTime.format("YYYY-MM-DD[T]HH:mm:ss");
         
         const results = await Promise.all(
           items.map(async (item) => {
@@ -455,7 +488,7 @@ export default function CartPage() {
     };
 
     checkAllAvailabilities();
-  }, [items, startDate, endDate]);
+  }, [items, startDateTime, endDateTime]);
 
   // Persist dates tự động + đảm bảo khi rời trang
   useEffect(() => {
@@ -479,11 +512,6 @@ export default function CartPage() {
     };
   }, [startDate, endDate]);
 
-  const days = useMemo(() => {
-    if (!startDate || !endDate) return 1;
-    const diff = endDate.startOf("day").diff(startDate.startOf("day"), "day");
-    return Math.max(1, diff || 1);
-  }, [startDate, endDate]);
 
   // Tính tiền
   const lineTotals = useMemo(
@@ -591,15 +619,16 @@ export default function CartPage() {
   const placeOrder = async () => {
     persistCartDates(startDate, endDate);
 
-    // Validate dates
-    if (!startDate || !endDate) {
-      return toast.error("Vui lòng chọn ngày bắt đầu và kết thúc thuê.");
+    // Validate dates & time
+    if (!startDateTime || !endDateTime) {
+      return toast.error("Vui lòng chọn đầy đủ ngày và giờ thuê.");
     }
-    if (startDate.isBefore(dayjs().startOf("day"))) {
-      return toast.error("Ngày bắt đầu thuê không được là ngày trong quá khứ.");
+    const now = dayjs();
+    if (startDateTime.isBefore(now)) {
+      return toast.error("Thời gian bắt đầu thuê không được ở trong quá khứ.");
     }
-    if (endDate.isBefore(startDate.startOf("day"))) {
-      return toast.error("Ngày kết thúc thuê phải sau ngày bắt đầu thuê.");
+    if (!endDateTime.isAfter(startDateTime)) {
+      return toast.error("Thời gian kết thúc thuê phải sau thời gian bắt đầu thuê.");
     }
 
     if (!items.length) return toast("Giỏ hàng đang trống.", { icon: "🛒" });
@@ -620,8 +649,8 @@ export default function CartPage() {
     }
 
     const payload = {
-      startDate: dayjs(startDate).startOf("day").format("YYYY-MM-DD[T]HH:mm:ss"),
-      endDate: dayjs(endDate).endOf("day").format("YYYY-MM-DD[T]HH:mm:ss.SSS"),
+      startDate: startDateTime.format("YYYY-MM-DD[T]HH:mm:ss"),
+      endDate: endDateTime.format("YYYY-MM-DD[T]HH:mm:ss.SSS"),
       shippingAddress: shippingAddress || "",
       orderDetails: items.map((x) => ({
         deviceModelId: x.id,
@@ -968,6 +997,36 @@ export default function CartPage() {
                       suffixIcon={<CalendarOutlined />}
                     />
                   </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
+                        Giờ bắt đầu thuê
+                      </Text>
+                      <TimePicker
+                        value={startTime}
+                        onChange={(t) => {
+                          setStartTime(t);
+                          // nếu chưa chọn giờ kết thúc thì cho trùng với giờ bắt đầu
+                          if (!endTime && t) {
+                            setEndTime(t);
+                          }
+                        }}
+                        format="HH:mm"
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                    <div>
+                      <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
+                        Giờ kết thúc thuê
+                      </Text>
+                      <TimePicker
+                        value={endTime}
+                        onChange={(t) => setEndTime(t)}
+                        format="HH:mm"
+                        style={{ width: "100%" }}
+                      />
+                    </div>
+                  </div>
                   {checkingAvailabilities && (
                     <div style={{ marginTop: 8, marginBottom: 8 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
@@ -1147,7 +1206,7 @@ export default function CartPage() {
                             </Text>
                           ) : (
                             <Text type="success" style={{ fontSize: 12 }}>
-                              ✓ Còn {availableCount} thiết bị khả dụng
+                              ✓ Còn {availableCount} thiết bị có thể thuê
                             </Text>
                           )}
                         </div>

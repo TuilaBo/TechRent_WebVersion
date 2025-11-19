@@ -1,6 +1,6 @@
 // src/components/AppHeader.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Layout, Row, Col, Badge, Dropdown, Menu, Input, notification } from "antd";
+import { Layout, Row, Col, Badge, Dropdown, Menu, Input } from "antd";
 import {
   ShoppingCartOutlined,
   UserOutlined,
@@ -54,6 +54,16 @@ const extractStatus = (order) => {
 
 const deriveOrderInfo = (payload) => {
   if (!payload) return { orderId: undefined, status: "" };
+  
+  // Handle notification payload with type field
+  const notificationType = String(payload?.type || "").toUpperCase();
+  if (notificationType === "ORDER_PROCESSING") {
+    return {
+      orderId: extractOrderId(payload) || payload?.rentalOrderId || payload?.orderId,
+      status: "PROCESSING",
+    };
+  }
+  
   const merged = {
     ...payload,
     ...(payload.order || payload.data || payload.detail || {}),
@@ -77,6 +87,15 @@ const STATUS_NOTICE = {
     title: "Đơn đã giao thành công",
     description: "Vui lòng kiểm tra thiết bị và phản hồi nếu có vấn đề.",
   },
+};
+
+const broadcastCustomerToast = (detail) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("customer-toast", { detail }));
+  } catch (error) {
+    console.error("Header: Failed to dispatch toast event", error);
+  }
 };
 
 const navItems = [
@@ -153,11 +172,12 @@ export default function AppHeader() {
 
     const showPopup = (orderId, status) => {
       const meta = STATUS_NOTICE[status] || {};
-      notification.open({
-        message: meta.title || `Đơn #${orderId}`,
+      broadcastCustomerToast({
+        title: meta.title || `Đơn #${orderId}`,
         description: meta.description || "Đơn hàng của bạn vừa được cập nhật.",
         placement: "topRight",
         duration: 4,
+        key: `order-${orderId}-${status}-${Date.now()}`,
       });
     };
 
@@ -196,12 +216,51 @@ export default function AppHeader() {
         const customerId = profile?.customerId ?? profile?.id;
         if (!customerId) return;
         connection = connectCustomerNotifications({
-          endpoint: "/ws",
+          endpoint: "http://160.191.245.242:8080/ws",
           customerId,
-          onMessage: (payload) => {
-            const { orderId, status } = deriveOrderInfo(payload);
-            if (!orderId || !status) return;
-            upsertOrderStatus(orderId, status, true);
+          onMessage: async (payload) => {
+            console.log("📬 Header: Received WebSocket message", payload);
+            let { orderId, status } = deriveOrderInfo(payload);
+            
+            // If no orderId but we have a notification type, try to find it from orders
+            if (!orderId && (status === "PROCESSING" || payload?.type === "ORDER_PROCESSING")) {
+              try {
+                const orders = await listRentalOrders();
+                const processingOrder = (orders || [])
+                  .filter(o => {
+                    const s = String(o?.status || o?.orderStatus || "").toUpperCase();
+                    return s === "PROCESSING";
+                  })
+                  .sort((a, b) => {
+                    const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
+                    const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
+                    return tb - ta;
+                  })[0];
+                if (processingOrder) {
+                  orderId = extractOrderId(processingOrder);
+                  status = "PROCESSING";
+                  console.log("🔍 Header: Found processing order", { orderId, processingOrder });
+                }
+              } catch (err) {
+                console.error("Header: Failed to load orders for notification", err);
+              }
+            }
+            
+            if (!status) {
+              console.log("⚠️ Header: Message missing status, ignoring", { orderId, status, payload });
+              return;
+            }
+            
+            // If we have status but no orderId, still update count (use a generic key)
+            const key = orderId ? String(orderId) : `notification-${Date.now()}`;
+            console.log("✅ Header: Processing notification", { orderId, status, key });
+            upsertOrderStatus(key, status, true);
+          },
+          onConnect: () => {
+            console.log("✅ Header: WebSocket connected successfully");
+          },
+          onError: (err) => {
+            console.error("❌ Header: WebSocket error", err);
           },
         });
       } catch (error) {

@@ -62,8 +62,8 @@ const statusTag = (s) => {
     case "AVAILABLE":
       return <Tag color="green">Có sẵn</Tag>;
     case "PRE_RENTAL_QC":
-      return <Tag color="gold">PRE_RENTAL_QC</Tag>;
-    case "RENTED":
+      return <Tag color="gold">Kiểm tra trước thuê</Tag>;
+    case "RENTING":
       return <Tag color="blue">Đang thuê</Tag>;
     case "MAINTENANCE":
       return <Tag color="orange">Bảo trì</Tag>;
@@ -740,7 +740,10 @@ export default function AdminProducts() {
             style={{ minWidth: 180 }}
             options={[
               { label: 'Có sẵn', value: 'AVAILABLE' },
-              { label: 'PRE_RENTAL_QC', value: 'PRE_RENTAL_QC' },
+              { label: 'Kiểm tra trước thuê', value: 'PRE_RENTAL_QC' },
+              { label: 'Đang thuê', value: 'RENTED' },
+              { label: 'Bảo trì', value: 'MAINTENANCE' },
+              { label: 'Hỏng', value: 'BROKEN' },
             ]}
           />
           <Select
@@ -793,7 +796,10 @@ export default function AdminProducts() {
               <Select
                 options={[
                   { label: "Có sẵn", value: "AVAILABLE" },
-                  { label: "PRE_RENTAL_QC", value: "PRE_RENTAL_QC" },
+                  { label: "Kiểm tra trước thuê", value: "PRE_RENTAL_QC" },
+                  { label: "Đang thuê", value: "RENTED" },
+                  { label: "Bảo trì", value: "MAINTENANCE" },
+                  { label: "Hỏng", value: "BROKEN" },
                 ]}
               />
             </Form.Item>

@@ -31,6 +31,7 @@ import {
   getTaskById,
   normalizeTask,
   confirmDelivery,
+  confirmRetrieval,
 } from "../../lib/taskApi";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
@@ -57,6 +58,7 @@ const taskToDisplay = (t) => ({
   id: t.taskId ?? t.id,
   type: t.type || "QC",
   title: t.description || t.type || t.taskCategoryName || "Task",
+  description: t.description || "", // Keep description for pickup task detection
   date: t.plannedStart || t.createdAt || null,
   device: t.deviceName || t.taskCategoryName || "Thiết bị",
   location: t.location || "—",
@@ -124,6 +126,31 @@ const isPreRentalQC = (task) => {
   return false;
 };
 
+/** Kiểm tra xem task có phải là PickUp/Retrieval không */
+const isPickupTask = (task) => {
+  if (!task) return false;
+  const categoryName = String(task.taskCategoryName || "").toUpperCase();
+  const type = String(task.type || "").toUpperCase();
+  const description = String(task.description || "").toUpperCase();
+  
+  // Kiểm tra type: "PICKUP", "PICK UP", "RETURN", "RETRIEVAL", etc.
+  if (type.includes("PICKUP") || type.includes("PICK UP") || type.includes("RETURN") || type.includes("RETRIEVAL")) {
+    return true;
+  }
+  
+  // Kiểm tra categoryName: "PICK UP RENTAL ORDER", "PICKUP", etc.
+  if (categoryName.includes("PICKUP") || categoryName.includes("PICK UP") || categoryName.includes("RETURN") || categoryName.includes("RETRIEVAL")) {
+    return true;
+  }
+  
+  // Kiểm tra description
+  if (description.includes("THU HỒI") || description.includes("TRẢ HÀNG") || description.includes("PICKUP") || description.includes("PICK UP")) {
+    return true;
+  }
+  
+  return false;
+};
+
 export default function TechnicianCalendar() {
   const [tasksAll, setTasksAll] = useState([]);
   const [detailTask, setDetailTask] = useState(null); // task được click (đầy đủ từ API detail)
@@ -137,7 +164,9 @@ export default function TechnicianCalendar() {
   // Map: taskId -> hasQcReport (boolean)
   const [hasQcReportMap, setHasQcReportMap] = useState({});
   const [confirmingDelivery, setConfirmingDelivery] = useState({}); // taskId -> loading
-  const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed
+  const [confirmingRetrieval, setConfirmingRetrieval] = useState({}); // taskId -> loading
+  const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed (delivery)
+  const [confirmedRetrievalTasks, setConfirmedRetrievalTasks] = useState(new Set()); // Set of taskIds that have been confirmed (retrieval)
 
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
@@ -187,21 +216,25 @@ export default function TechnicianCalendar() {
       const display = allTasks.map(taskToDisplay);
       setTasksAll(display);
 
-      // Check which tasks have QC reports (only for Pre Rental QC tasks)
+      // Check which tasks have QC reports (for both Pre Rental QC and PickUp tasks)
       // Lấy theo orderId thay vì taskId
       const qcReportMap = {};
       const preRentalQcTasks = allTasks.filter((task) => isPreRentalQC(task));
+      const pickupTasks = allTasks.filter((task) => isPickupTask(task));
+      
+      // Combine both types of tasks that need QC reports
+      const tasksNeedingQc = [...preRentalQcTasks, ...pickupTasks];
       
       // Group tasks by orderId to avoid duplicate API calls
       const tasksByOrderId = {};
-      preRentalQcTasks.forEach((task) => {
+      tasksNeedingQc.forEach((task) => {
         const orderId = task.orderId;
         const taskId = task.taskId || task.id;
         if (orderId && taskId) {
           if (!tasksByOrderId[orderId]) {
             tasksByOrderId[orderId] = [];
           }
-          tasksByOrderId[orderId].push(taskId);
+          tasksByOrderId[orderId].push({ taskId, isPickup: isPickupTask(task) });
         }
       });
       
@@ -210,14 +243,17 @@ export default function TechnicianCalendar() {
         try {
           const qcReports = await getQcReportsByOrderId(orderId);
           const reports = Array.isArray(qcReports) ? qcReports : [];
-          const hasAnyReport = reports.length > 0;
 
-          tasksByOrderId[orderId].forEach((taskId) => {
+          tasksByOrderId[orderId].forEach(({ taskId, isPickup }) => {
+            // For PickUp tasks, check for POST_RENTAL reports
+            // For Pre Rental QC tasks, check for PRE_RENTAL reports
+            const phaseToCheck = isPickup ? "POST_RENTAL" : "PRE_RENTAL";
             const hasReportForTask = reports.some(
-              (r) => Number(r.taskId) === Number(taskId)
+              (r) => Number(r.taskId) === Number(taskId) && 
+                     String(r.phase || "").toUpperCase() === phaseToCheck
             );
 
-            if (hasReportForTask || hasAnyReport) {
+            if (hasReportForTask) {
               qcReportMap[taskId] = true;
             } else if (qcReportMap[taskId] === undefined) {
               qcReportMap[taskId] = false;
@@ -225,7 +261,7 @@ export default function TechnicianCalendar() {
           });
         } catch {
           // No QC report exists or error - that's fine
-          tasksByOrderId[orderId].forEach((taskId) => {
+          tasksByOrderId[orderId].forEach(({ taskId }) => {
             qcReportMap[taskId] = false;
           });
         }
@@ -287,6 +323,30 @@ export default function TechnicianCalendar() {
       toast.error(error?.response?.data?.message || error?.message || "Không thể xác nhận giao hàng");
     } finally {
       setConfirmingDelivery((prev) => ({ ...prev, [taskId]: false }));
+    }
+  }, [loadTasks, detailTask]);
+
+  // Xác nhận đi trả hàng
+  const handleConfirmRetrieval = useCallback(async (taskId) => {
+    try {
+      setConfirmingRetrieval((prev) => ({ ...prev, [taskId]: true }));
+      await confirmRetrieval(taskId);
+      toast.success("Đã xác nhận đi lấy hàng thành công!");
+      // Đánh dấu task đã được xác nhận
+      setConfirmedRetrievalTasks((prev) => new Set([...prev, taskId]));
+      // Reload tasks để cập nhật trạng thái
+      await loadTasks();
+      // Reload detail task nếu đang mở
+      if (detailTask && (detailTask.taskId === taskId || detailTask.id === taskId)) {
+        const full = await getTaskById(taskId);
+        if (full) {
+          setDetailTask(normalizeTask(full));
+        }
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error?.message || "Không thể xác nhận đi trả hàng");
+    } finally {
+      setConfirmingRetrieval((prev) => ({ ...prev, [taskId]: false }));
     }
   }, [loadTasks, detailTask]);
 
@@ -377,6 +437,7 @@ export default function TechnicianCalendar() {
             {r.type === "DELIVERY" && (() => {
               const taskId = r.taskId || r.id;
               const status = String(r.status || "").toUpperCase();
+              const isPending = status === "PENDING";
               const isCompleted = status === "COMPLETED";
               const isInProgress = status === "IN_PROGRESS";
               const isConfirmed = confirmedTasks.has(taskId);
@@ -384,16 +445,19 @@ export default function TechnicianCalendar() {
               
               return (
                 <>
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<FileTextOutlined />}
-                    onClick={() => {
-                      navigate(`/technician/tasks/handover/${taskId}`, { state: { task: r } });
-                    }}
-                  >
-                    Tạo biên bản
-                  </Button>
+                  {/* Chỉ hiển thị nút "Tạo biên bản" khi không phải PENDING */}
+                  {!isPending && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<FileTextOutlined />}
+                      onClick={() => {
+                        navigate(`/technician/tasks/handover/${taskId}`, { state: { task: r } });
+                      }}
+                    >
+                      Tạo biên bản
+                    </Button>
+                  )}
                   {!isCompleted && !isInProgress && !isConfirmed && (
                     <Button
                       size="small"
@@ -407,11 +471,54 @@ export default function TechnicianCalendar() {
                 </>
               );
             })()}
+            {isPickupTask(r) && (() => {
+              const taskId = r.taskId || r.id;
+              const status = String(r.status || "").toUpperCase();
+              const isCompleted = status === "COMPLETED";
+              const isInProgress = status === "IN_PROGRESS";
+              const isConfirmed = confirmedRetrievalTasks.has(taskId);
+              const isLoading = confirmingRetrieval[taskId];
+              const hasQcReport = hasQcReportMap[taskId];
+              const buttonLabel =
+                status === "COMPLETED"
+                  ? "Cập nhật QC Report"
+                  : hasQcReport
+                    ? "Cập nhật QC Report"
+                    : "Tạo QC Report";
+              
+              return (
+                <>
+                  {!isCompleted && !isInProgress && !isConfirmed && (
+                    <Button
+                      size="small"
+                      type="default"
+                      loading={isLoading}
+                      onClick={() => handleConfirmRetrieval(taskId)}
+                    >
+                      Xác nhận đi láy hàng
+                    </Button>
+                  )}
+                  {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
+                  {(isInProgress || isCompleted) && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<FileTextOutlined />}
+                      onClick={() => {
+                        navigate(`/technician/tasks/qc/${taskId}`, { state: { task: r } });
+                      }}
+                    >
+                      {buttonLabel}
+                    </Button>
+                  )}
+                </>
+              );
+            })()}
           </Space>
         ),
       },
     ],
-    [navigate, onClickTask, hasQcReportMap, confirmingDelivery, handleConfirmDelivery, confirmedTasks]
+    [navigate, onClickTask, hasQcReportMap, confirmingDelivery, handleConfirmDelivery, confirmedTasks, confirmingRetrieval, handleConfirmRetrieval, confirmedRetrievalTasks, isPickupTask]
   );
 
   
@@ -575,7 +682,7 @@ export default function TechnicianCalendar() {
               {t.cycleDays ? `${t.cycleDays} ngày` : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Dự kiến lần kế tiếp">
-              {next ? fmtDate(next) : "—"}
+              {next ? fmtDateTime(next) : "—"}
             </Descriptions.Item>
           </Descriptions>
           <Divider />
@@ -589,6 +696,7 @@ export default function TechnicianCalendar() {
     if (t.type === "DELIVERY") {
       const taskId = t.taskId || t.id;
       const status = String(t.status || "").toUpperCase();
+      const isPending = status === "PENDING";
       const isCompleted = status === "COMPLETED";
       const isInProgress = status === "IN_PROGRESS";
       const isConfirmed = confirmedTasks.has(taskId);
@@ -610,13 +718,13 @@ export default function TechnicianCalendar() {
             <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
             {isCompleted && (
               <>
-                <Descriptions.Item label="Thời gian bắt đầu Task">
+                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
                   {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian kết thúc Task">
+                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
                   {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian hoàn thành Task">
+                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
                   {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
                 </Descriptions.Item>
               </>
@@ -642,7 +750,7 @@ export default function TechnicianCalendar() {
                   )}
                 </Descriptions.Item>
                 <Descriptions.Item label="Thời gian">
-                  {orderDetail.startDate ? fmtDate(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDate(orderDetail.endDate) : "—"}
+                  {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="Địa chỉ giao">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
               </Descriptions>
@@ -680,15 +788,18 @@ export default function TechnicianCalendar() {
           )}
           <Divider />
           <Space wrap>
-            <Button
-              type="primary"
-              icon={<FileTextOutlined />}
-              onClick={() => {
-                navigate(`/technician/tasks/handover/${taskId}`, { state: { task: t } });
-              }}
-            >
-              Tạo biên bản bàn giao
-            </Button>
+            {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING */}
+            {!isPending && (
+              <Button
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => {
+                  navigate(`/technician/tasks/handover/${taskId}`, { state: { task: t } });
+                }}
+              >
+                Tạo biên bản bàn giao
+              </Button>
+            )}
             {!isCompleted && !isInProgress && !isConfirmed && (
               <Button
                 type="default"
@@ -701,6 +812,139 @@ export default function TechnicianCalendar() {
             {(isCompleted || isConfirmed || isInProgress) && (
               <Text type="success">Đã xác nhận giao hàng</Text>
             )}
+          </Space>
+        </>
+      );
+    }
+
+    if (isPickupTask(t)) {
+      const taskId = t.taskId || t.id;
+      const status = String(t.status || "").toUpperCase();
+      const isCompleted = status === "COMPLETED";
+      const isInProgress = status === "IN_PROGRESS";
+      const isConfirmed = confirmedRetrievalTasks.has(taskId);
+      const isLoading = confirmingRetrieval[taskId];
+      
+      return (
+        <>
+          {header}
+          <Divider />
+          <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Trạng thái">
+              {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
+                <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+              ); })() : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+            {isCompleted && (
+              <>
+                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                  {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                  {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                  {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                </Descriptions.Item>
+              </>
+            )}
+          </Descriptions>
+          {orderDetail && (
+            <>
+              <Divider />
+              <Title level={5} style={{ marginTop: 0 }}>Chi tiết đơn #{orderDetail.orderId || orderDetail.id}</Title>
+              <Descriptions bordered size="small" column={1}>
+                <Descriptions.Item label="Trạng thái">
+                  {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Khách hàng">
+                  {customerDetail ? (
+                    <>
+                      {customerDetail.fullName || customerDetail.username || "Khách hàng"}
+                      {customerDetail.phoneNumber ? ` • ${customerDetail.phoneNumber}` : ""}
+                      {customerDetail.email ? ` • ${customerDetail.email}` : ""}
+                    </>
+                  ) : (
+                    orderDetail.customerId ?? "—"
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian">
+                  {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Địa chỉ">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
+              </Descriptions>
+              {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                <>
+                  <Divider />
+                  <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                  <List
+                    size="small"
+                    dataSource={orderDetail.orderDetails}
+                    renderItem={(d) => (
+                      <List.Item>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          {d.deviceModel?.image ? (
+                            <img src={d.deviceModel.image} alt={d.deviceModel.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }} />
+                          ) : null}
+                          <div>
+                            <div style={{ fontWeight: 600 }}>
+                              {d.deviceModel?.name || `Model #${d.deviceModelId}`} {`× ${d.quantity}`}
+                            </div>
+                            {d.deviceModel && (
+                              <div style={{ color: '#667085' }}>
+                                {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ''}
+                                Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                </>
+              )}
+            </>
+          )}
+          <Divider />
+          <Space wrap>
+            {!isCompleted && !isInProgress && !isConfirmed && (
+              <Button
+                type="default"
+                loading={isLoading}
+                onClick={() => handleConfirmRetrieval(taskId)}
+              >
+                Xác nhận đi trả hàng
+              </Button>
+            )}
+            {(isCompleted || isConfirmed || isInProgress) && (
+              <Text type="success">Đã xác nhận đi trả hàng</Text>
+            )}
+            {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
+            {(isInProgress || isCompleted) && (() => {
+              const hasQcReport = hasQcReportMap[taskId];
+              const buttonLabel =
+                isCompleted
+                  ? "Cập nhật QC Report"
+                  : hasQcReport
+                    ? "Cập nhật QC Report"
+                    : "Tạo QC Report";
+              
+              return (
+                <Button
+                  type="primary"
+                  icon={<FileTextOutlined />}
+                  onClick={() => {
+                    navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+                  }}
+                >
+                  {buttonLabel}
+                </Button>
+              );
+            })()}
           </Space>
         </>
       );
@@ -757,7 +1001,7 @@ export default function TechnicianCalendar() {
                   )}
                 </Descriptions.Item>
                 <Descriptions.Item label="Thời gian">
-                  {orderDetail.startDate ? fmtDate(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDate(orderDetail.endDate) : "—"}
+                  {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="Địa chỉ giao">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
               </Descriptions>
@@ -823,23 +1067,27 @@ export default function TechnicianCalendar() {
           {t.type === "DELIVERY" && (() => {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
-      const isCompleted = status === "COMPLETED";
-      const isInProgress = status === "IN_PROGRESS";
+            const isPending = status === "PENDING";
+            const isCompleted = status === "COMPLETED";
+            const isInProgress = status === "IN_PROGRESS";
             const isConfirmed = confirmedTasks.has(taskId);
             const isLoading = confirmingDelivery[taskId];
             
             return (
               <>
-                <Button
-                  type="primary"
-                  icon={<FileTextOutlined />}
-                  onClick={() => {
-                    navigate(`/technician/tasks/handover/${taskId}`, { state: { task: t } });
-                  }}
-                >
-                  Tạo biên bản bàn giao
-                </Button>
-            {!isCompleted && !isInProgress && !isConfirmed && (
+                {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING */}
+                {!isPending && (
+                  <Button
+                    type="primary"
+                    icon={<FileTextOutlined />}
+                    onClick={() => {
+                      navigate(`/technician/tasks/handover/${taskId}`, { state: { task: t } });
+                    }}
+                  >
+                    Tạo biên bản bàn giao
+                  </Button>
+                )}
+                {!isCompleted && !isInProgress && !isConfirmed && (
                   <Button
                     type="default"
                     loading={isLoading}
@@ -848,8 +1096,52 @@ export default function TechnicianCalendar() {
                     Xác nhận giao hàng
                   </Button>
                 )}
-            {(isCompleted || isConfirmed || isInProgress) && (
+                {(isCompleted || isConfirmed || isInProgress) && (
                   <Text type="success">Đã xác nhận giao hàng</Text>
+                )}
+              </>
+            );
+          })()}
+          {isPickupTask(t) && (() => {
+            const taskId = t.taskId || t.id;
+            const status = String(t.status || "").toUpperCase();
+            const isCompleted = status === "COMPLETED";
+            const isInProgress = status === "IN_PROGRESS";
+            const isConfirmed = confirmedRetrievalTasks.has(taskId);
+            const isLoading = confirmingRetrieval[taskId];
+            const hasQcReport = hasQcReportMap[taskId];
+            const buttonLabel =
+              isCompleted
+                ? "Cập nhật QC Report"
+                : hasQcReport
+                  ? "Cập nhật QC Report"
+                  : "Tạo QC Report";
+            
+            return (
+              <>
+                {!isCompleted && !isInProgress && !isConfirmed && (
+                  <Button
+                    type="default"
+                    loading={isLoading}
+                    onClick={() => handleConfirmRetrieval(taskId)}
+                  >
+                    Xác nhận đi trả hàng
+                  </Button>
+                )}
+                {(isCompleted || isConfirmed || isInProgress) && (
+                  <Text type="success">Đã xác nhận đi trả hàng</Text>
+                )}
+                {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
+                {(isInProgress || isCompleted) && (
+                  <Button
+                    type="primary"
+                    icon={<FileTextOutlined />}
+                    onClick={() => {
+                      navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+                    }}
+                  >
+                    {buttonLabel}
+                  </Button>
                 )}
               </>
             );
@@ -905,14 +1197,25 @@ export default function TechnicianCalendar() {
               return statusMatch && taskIdMatch;
             })
             .sort((a, b) => {
-              // Ưu tiên PENDING lên đầu
-              const aIsPending = String(a.status || "").toUpperCase().includes("PENDING");
-              const bIsPending = String(b.status || "").toUpperCase().includes("PENDING");
+              const aStatus = String(a.status || "").toUpperCase();
+              const bStatus = String(b.status || "").toUpperCase();
               
-              if (aIsPending && !bIsPending) return -1;
-              if (!aIsPending && bIsPending) return 1;
+              // Ưu tiên: IN_PROGRESS > PENDING > các status khác
+              const getPriority = (status) => {
+                if (status.includes("IN_PROGRESS") || status.includes("INPROGRESS")) return 1;
+                if (status.includes("PENDING")) return 2;
+                return 3;
+              };
               
-              // Nếu cùng trạng thái (cả 2 PENDING hoặc cả 2 không PENDING), sort từ mới nhất đến cũ nhất
+              const aPriority = getPriority(aStatus);
+              const bPriority = getPriority(bStatus);
+              
+              // Nếu priority khác nhau, sort theo priority
+              if (aPriority !== bPriority) {
+                return aPriority - bPriority;
+              }
+              
+              // Nếu cùng priority (cùng nhóm status), sort từ mới nhất đến cũ nhất
               const aDate = a.date ? dayjs(a.date) : dayjs(0);
               const bDate = b.date ? dayjs(b.date) : dayjs(0);
               return bDate.valueOf() - aDate.valueOf(); // Descending: newest first

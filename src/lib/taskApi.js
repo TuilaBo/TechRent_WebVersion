@@ -132,3 +132,11 @@ export async function confirmDelivery(taskId) {
   const { data } = await api.patch(`/api/staff/tasks/${Number(taskId)}/confirm-delivery`);
   return data?.data ?? data ?? null;
 }
+
+/** PATCH /api/staff/tasks/{taskId}/confirm-retrieval – Xác nhận thu hồi
+ * Technician/support confirms they will retrieve goods for the task
+ */
+export async function confirmRetrieval(taskId) {
+  const { data } = await api.patch(`/api/staff/tasks/${Number(taskId)}/confirm-retrieval`);
+  return data?.data ?? data ?? null;
+}

@@ -26,6 +26,7 @@ import {
   getTaskById,
   normalizeTask,
   confirmDelivery,
+  confirmRetrieval,
 } from "../../lib/taskApi";
 import {
   TECH_TASK_STATUS,
@@ -47,6 +48,7 @@ const taskToDisplay = (t) => ({
   id: t.taskId ?? t.id,
   type: t.type || "",
   title: t.description || t.type || t.taskCategoryName || "Task",
+  description: t.description || "", // Keep description for pickup task detection
   date: t.plannedStart || t.createdAt || null,
   device: t.deviceName || t.taskCategoryName || "Thiết bị",
   location: t.location || "—",
@@ -95,6 +97,31 @@ const fmtOrderStatus = (s) => {
   return v;
 };
 
+/** Kiểm tra xem task có phải là PickUp/Retrieval không */
+const isPickupTask = (task) => {
+  if (!task) return false;
+  const categoryName = String(task.taskCategoryName || "").toUpperCase();
+  const type = String(task.type || "").toUpperCase();
+  const description = String(task.description || "").toUpperCase();
+  
+  // Kiểm tra type: "PICKUP", "PICK UP", "RETURN", "RETRIEVAL", etc.
+  if (type.includes("PICKUP") || type.includes("PICK UP") || type.includes("RETURN") || type.includes("RETRIEVAL")) {
+    return true;
+  }
+  
+  // Kiểm tra categoryName: "PICK UP RENTAL ORDER", "PICKUP", etc.
+  if (categoryName.includes("PICKUP") || categoryName.includes("PICK UP") || categoryName.includes("RETURN") || categoryName.includes("RETRIEVAL")) {
+    return true;
+  }
+  
+  // Kiểm tra description
+  if (description.includes("THU HỒI") || description.includes("TRẢ HÀNG") || description.includes("PICKUP") || description.includes("PICK UP")) {
+    return true;
+  }
+  
+  return false;
+};
+
 export default function SupportTask() {
   const [tasksAll, setTasksAll] = useState([]);
   const [detailTask, setDetailTask] = useState(null);
@@ -105,7 +132,9 @@ export default function SupportTask() {
   const [loading, setLoading] = useState(false);
   const [searchTaskId, setSearchTaskId] = useState("");
   const [confirmingDelivery, setConfirmingDelivery] = useState({}); // taskId -> loading
-  const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed
+  const [confirmingRetrieval, setConfirmingRetrieval] = useState({}); // taskId -> loading
+  const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed (delivery)
+  const [confirmedRetrievalTasks, setConfirmedRetrievalTasks] = useState(new Set()); // Set of taskIds that have been confirmed (retrieval)
 
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
@@ -211,6 +240,30 @@ export default function SupportTask() {
     }
   }, [loadTasks, detailTask]);
 
+  // Xác nhận đi trả hàng
+  const handleConfirmRetrieval = useCallback(async (taskId) => {
+    try {
+      setConfirmingRetrieval((prev) => ({ ...prev, [taskId]: true }));
+      await confirmRetrieval(taskId);
+      toast.success("Đã xác nhận đi lấy hàng thành công!");
+      // Đánh dấu task đã được xác nhận
+      setConfirmedRetrievalTasks((prev) => new Set([...prev, taskId]));
+      // Reload tasks để cập nhật trạng thái
+      await loadTasks();
+      // Reload detail task nếu đang mở
+      if (detailTask && (detailTask.taskId === taskId || detailTask.id === taskId)) {
+        const full = await getTaskById(taskId);
+        if (full) {
+          setDetailTask(normalizeTask(full));
+        }
+      }
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error?.message || "Không thể xác nhận đi trả hàng");
+    } finally {
+      setConfirmingRetrieval((prev) => ({ ...prev, [taskId]: false }));
+    }
+  }, [loadTasks, detailTask]);
+
   // Table columns
   const columns = useMemo(
     () => [
@@ -295,11 +348,34 @@ export default function SupportTask() {
                 </Button>
               );
             })()}
+            {isPickupTask(r) && (() => {
+              const taskId = r.taskId || r.id;
+              const status = String(r.status || "").toUpperCase();
+              const isCompleted = status === "COMPLETED";
+              const isInProgress = status === "IN_PROGRESS";
+              const isConfirmed = confirmedRetrievalTasks.has(taskId);
+              const isLoading = confirmingRetrieval[taskId];
+              
+              return (
+                <>
+                  {!isCompleted && !isInProgress && !isConfirmed && (
+                    <Button
+                      size="small"
+                      type="default"
+                      loading={isLoading}
+                      onClick={() => handleConfirmRetrieval(taskId)}
+                    >
+                      Xác nhận đi lấy hàng
+                    </Button>
+                  )}
+                </>
+              );
+            })()}
           </Space>
         ),
       },
     ],
-    [onClickTask, confirmingDelivery, handleConfirmDelivery, confirmedTasks]
+    [onClickTask, confirmingDelivery, handleConfirmDelivery, confirmedTasks, confirmingRetrieval, handleConfirmRetrieval, confirmedRetrievalTasks]
   );
 
   /** ---- UI phần chi tiết theo loại ---- */
@@ -365,6 +441,117 @@ export default function SupportTask() {
           {(isCompleted || isConfirmed || isInProgress) && (
             <Text type="success">Đã xác nhận giao hàng</Text>
           )}
+        </>
+      );
+    }
+
+    if (isPickupTask(t)) {
+      const taskId = t.taskId || t.id;
+      const status = String(t.status || "").toUpperCase();
+      const isCompleted = status === "COMPLETED";
+      const isInProgress = status === "IN_PROGRESS";
+      const isConfirmed = confirmedRetrievalTasks.has(taskId);
+      const isLoading = confirmingRetrieval[taskId];
+      
+      return (
+        <>
+          {header}
+          <Divider />
+          <Descriptions bordered size="small" column={1}>
+            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Trạng thái">
+              {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
+                <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+              ); })() : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+            {isCompleted && (
+              <>
+                <Descriptions.Item label="Thời gian bắt đầu Task">
+                  {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian kết thúc Task">
+                  {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian hoàn thành Task">
+                  {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                </Descriptions.Item>
+              </>
+            )}
+          </Descriptions>
+          {orderDetail && (
+            <>
+              <Divider />
+              <Title level={5} style={{ marginTop: 0 }}>Chi tiết đơn #{orderDetail.orderId || orderDetail.id}</Title>
+              <Descriptions bordered size="small" column={1}>
+                <Descriptions.Item label="Trạng thái">
+                  {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Khách hàng">
+                  {customerDetail ? (
+                    <>
+                      {customerDetail.fullName || customerDetail.username || "Khách hàng"}
+                      {customerDetail.phoneNumber ? ` • ${customerDetail.phoneNumber}` : ""}
+                      {customerDetail.email ? ` • ${customerDetail.email}` : ""}
+                    </>
+                  ) : (
+                    orderDetail.customerId ?? "—"
+                  )}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian">
+                  {orderDetail.startDate ? fmtDate(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDate(orderDetail.endDate) : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Địa chỉ">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
+              </Descriptions>
+              {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                <>
+                  <Divider />
+                  <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                  <List
+                    size="small"
+                    dataSource={orderDetail.orderDetails}
+                    renderItem={(d) => (
+                      <List.Item>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          {d.deviceModel?.image ? (
+                            <img src={d.deviceModel.image} alt={d.deviceModel.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }} />
+                          ) : null}
+                          <div>
+                            <div style={{ fontWeight: 600 }}>
+                              {d.deviceModel?.name || `Model #${d.deviceModelId}`} {`× ${d.quantity}`}
+                            </div>
+                            {d.deviceModel && (
+                              <div style={{ color: '#667085' }}>
+                                {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ''}
+                                Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                </>
+              )}
+            </>
+          )}
+          <Divider />
+          <Space wrap>
+            {!isCompleted && !isInProgress && !isConfirmed && (
+              <Button
+                type="default"
+                loading={isLoading}
+                onClick={() => handleConfirmRetrieval(taskId)}
+              >
+                Xác nhận đi trả hàng
+              </Button>
+            )}
+            {(isCompleted || isConfirmed || isInProgress) && (
+              <Text type="success">Đã xác nhận đi lấy hàng</Text>
+            )}
+          </Space>
         </>
       );
     }
@@ -462,11 +649,12 @@ export default function SupportTask() {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
             const isCompleted = status === "COMPLETED";
+            const isInProgress = status === "IN_PROGRESS";
             const isConfirmed = confirmedTasks.has(taskId);
             const isLoading = confirmingDelivery[taskId];
             
-            // Chỉ hiển thị nút khi chưa hoàn thành và chưa được xác nhận
-            if (isCompleted || isConfirmed) {
+            // Chỉ hiển thị nút khi chưa hoàn thành, chưa đang xử lý và chưa được xác nhận
+            if (isCompleted || isInProgress || isConfirmed) {
               return null;
             }
             
@@ -478,6 +666,31 @@ export default function SupportTask() {
               >
                 Xác nhận giao hàng
               </Button>
+            );
+          })()}
+          {isPickupTask(t) && (() => {
+            const taskId = t.taskId || t.id;
+            const status = String(t.status || "").toUpperCase();
+            const isCompleted = status === "COMPLETED";
+            const isInProgress = status === "IN_PROGRESS";
+            const isConfirmed = confirmedRetrievalTasks.has(taskId);
+            const isLoading = confirmingRetrieval[taskId];
+            
+            return (
+              <>
+                {!isCompleted && !isInProgress && !isConfirmed && (
+                  <Button
+                    type="default"
+                    loading={isLoading}
+                    onClick={() => handleConfirmRetrieval(taskId)}
+                  >
+                    Xác nhận đi trả hàng
+                  </Button>
+                )}
+                {(isCompleted || isConfirmed || isInProgress) && (
+                  <Text type="success">Đã xác nhận đi trả hàng</Text>
+                )}
+              </>
             );
           })()}
         </Space>

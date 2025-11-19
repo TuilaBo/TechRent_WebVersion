@@ -49,6 +49,7 @@ import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
 import SupportChat from "./pages/CST/SupportChat.jsx";
 import SupportTask from "./pages/CST/SupportTask.jsx";
+import SupportSettlement from "./pages/CST/SupportSettlement.jsx";
 import RequireRole from "./routes/RequireRole.jsx";
 export default function App() {
   return (
@@ -160,6 +161,7 @@ export default function App() {
           <Route index element={<SupportDesk />} />
           <Route path="desk" element={<SupportDesk />} />
           <Route path="tasks" element={<SupportTask />} />
+          <Route path="settlements" element={<SupportSettlement />} />
           <Route path="chats" element={<SupportChat />} />
           <Route path="settings" element={<div>Settings (sắp có)</div>} />
         </Route>

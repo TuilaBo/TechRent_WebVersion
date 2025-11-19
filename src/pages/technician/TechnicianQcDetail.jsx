@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import {
   Card, Descriptions, Typography, Tag, Space, Divider, Progress,
-  Checkbox, Select, Input, Upload, Button, message, Row, Col, DatePicker, Spin
+  Checkbox, Select, Input, Upload, Button, message, Row, Col, DatePicker, Spin, Modal
 } from "antd";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { InboxOutlined, ArrowLeftOutlined } from "@ant-design/icons";
@@ -10,11 +10,56 @@ import toast from "react-hot-toast";
 import { getTaskById, normalizeTask } from "../../lib/taskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { createQcReport, getQcReportsByOrderId, updateQcReport } from "../../lib/qcReportApi";
-import { getDevicesByModelId, getAvailableDevicesByModel } from "../../lib/deviceManage";
+import { getDevicesByModelId, getAvailableDevicesByModel, updateDevice, listDevices } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
+
+/** Kiểm tra xem task có phải là PickUp/Retrieval không */
+const isPickupTask = (task) => {
+  if (!task) return false;
+  const categoryName = String(task.taskCategoryName || "").toUpperCase();
+  const type = String(task.type || "").toUpperCase();
+  const description = String(task.description || "").toUpperCase();
+  
+  // Kiểm tra type: "PICKUP", "PICK UP", "RETURN", "RETRIEVAL", etc.
+  if (type.includes("PICKUP") || type.includes("PICK UP") || type.includes("RETURN") || type.includes("RETRIEVAL")) {
+    return true;
+  }
+  
+  // Kiểm tra categoryName: "PICK UP RENTAL ORDER", "PICKUP", etc.
+  if (categoryName.includes("PICKUP") || categoryName.includes("PICK UP") || categoryName.includes("RETURN") || categoryName.includes("RETRIEVAL")) {
+    return true;
+  }
+  
+  // Kiểm tra description
+  if (description.includes("THU HỒI") || description.includes("TRẢ HÀNG") || description.includes("PICKUP") || description.includes("PICK UP")) {
+    return true;
+  }
+  
+  return false;
+};
+
+/** Kiểm tra xem task có phải là Pre rental QC không */
+// eslint-disable-next-line no-unused-vars
+const isPreRentalQC = (task) => {
+  if (!task) return false;
+  const categoryName = String(task.taskCategoryName || "").toUpperCase();
+  const type = String(task.type || "").toUpperCase();
+  
+  // Kiểm tra taskCategoryName: "Pre rental QC", "PRE_RENTAL_QC", etc.
+  if (categoryName.includes("PRE") && categoryName.includes("RENTAL") && categoryName.includes("QC")) {
+    return true;
+  }
+  
+  // Kiểm tra type: "PRE_RENTAL_QC", "Pre rental QC", etc.
+  if (type.includes("PRE_RENTAL_QC") || (type.includes("PRE") && type.includes("RENTAL") && type.includes("QC"))) {
+    return true;
+  }
+  
+  return false;
+};
 
 // --- Tiện ích dịch và tô màu trạng thái ---
 const translateStatus = (status) => {
@@ -39,6 +84,12 @@ const translateStatus = (status) => {
     "RETURNED": "Đã trả hàng",
     "AVAILABLE": "Có sẵn",
     "PROCESSING": "Đang xử lý",
+    // Device Status
+    "PRE_RENTAL_QC": "Kiểm tra trước thuê",
+    "RENTING": "Đang thuê",
+    "RENTED": "Đang thuê",
+    "MAINTENANCE": "Bảo trì",
+    "BROKEN": "Hỏng",
   };
   return map[s] || status;
 };
@@ -100,6 +151,28 @@ export default function TechnicianQcDetail() {
   const [loadingQcReport, setLoadingQcReport] = useState(false);
   const [saving, setSaving] = useState(false);
   
+  // Auto-detect phase based on task type (must be declared before useEffect that uses it)
+  const detectedPhase = useMemo(() => {
+    if (!task) return "PRE_RENTAL";
+    return isPickupTask(task) ? "POST_RENTAL" : "PRE_RENTAL";
+  }, [task]);
+  const [phase, setPhase] = useState(detectedPhase);
+  // Set default result based on phase
+  const defaultResult = useMemo(() => {
+    return detectedPhase === "POST_RENTAL" ? "READY_FOR_RE_STOCK" : "READY_FOR_SHIPPING";
+  }, [detectedPhase]);
+  const [result, setResult] = useState(defaultResult);
+  const [findings, setFindings] = useState("");
+  const [accessorySnapshotFile, setAccessorySnapshotFile] = useState(null);
+  const [accessorySnapshotPreview, setAccessorySnapshotPreview] = useState("");
+  const [selectedDevicesByOrderDetail, setSelectedDevicesByOrderDetail] = useState({});
+  const [checklistDone, setChecklistDone] = useState([]);
+  // Device status update state (for POST_RENTAL only)
+  const [deviceStatusUpdated, setDeviceStatusUpdated] = useState(false);
+  const [showUpdateStatusModal, setShowUpdateStatusModal] = useState(false);
+  const [updatingDeviceStatus, setUpdatingDeviceStatus] = useState(false);
+  const [selectedDeviceStatus, setSelectedDeviceStatus] = useState("AVAILABLE");
+  
   // Fetch task and order details
   useEffect(() => {
     const loadData = async () => {
@@ -126,23 +199,93 @@ export default function TechnicianQcDetail() {
           const orderData = await getRentalOrderById(normalizedTask.orderId);
           setOrder(orderData);
 
-          // Fetch existing QC report by orderId (the correct way)
+          // Fetch existing QC report by orderId (only for matching phase)
           try {
             setLoadingQcReport(true);
             const qcReports = await getQcReportsByOrderId(normalizedTask.orderId);
+            console.log("📋 Loaded QC reports for order:", normalizedTask.orderId, qcReports);
+            console.log("📋 Current task:", { taskId: normalizedTask.taskId, id: normalizedTask.id, isPickup: isPickupTask(normalizedTask) });
+            
             if (Array.isArray(qcReports) && qcReports.length > 0) {
-              // Tìm QC report có taskId matching với task hiện tại
-              const matchingReport = qcReports.find(r => (r.taskId === normalizedTask.taskId || r.taskId === normalizedTask.id));
-              if (matchingReport) { 
-                setExistingQcReport(matchingReport);
-              } else if (qcReports.length === 1) {
-                // Nếu chỉ có 1 report, dùng nó
-                setExistingQcReport(qcReports[0]);
+              // Determine expected phase based on task type
+              const expectedPhase = isPickupTask(normalizedTask) ? "POST_RENTAL" : "PRE_RENTAL";
+              console.log("🔍 Looking for QC report with phase:", expectedPhase);
+              
+              // Normalize task IDs for comparison
+              const taskIdNum = Number(normalizedTask.taskId || normalizedTask.id);
+              const taskIdStr = String(normalizedTask.taskId || normalizedTask.id);
+              
+              // Tìm QC report có phase matching với task type
+              // Ưu tiên match theo taskId (so sánh cả number và string), nếu không có thì lấy report đầu tiên có phase matching
+              let matchingReport = qcReports.find(r => {
+                const reportPhase = String(r.phase || "").toUpperCase();
+                const reportTaskId = r.taskId;
+                const reportTaskIdNum = Number(reportTaskId);
+                const reportTaskIdStr = String(reportTaskId || "");
+                
+                // So sánh phase và taskId (cả number và string)
+                const phaseMatch = reportPhase === expectedPhase;
+                const taskIdMatch = 
+                  (!Number.isNaN(reportTaskIdNum) && !Number.isNaN(taskIdNum) && reportTaskIdNum === taskIdNum) || 
+                  (reportTaskIdStr && taskIdStr && reportTaskIdStr === taskIdStr);
+                
+                console.log("🔍 Checking report:", {
+                  reportPhase,
+                  expectedPhase,
+                  phaseMatch,
+                  reportTaskId,
+                  reportTaskIdNum,
+                  reportTaskIdStr,
+                  taskIdNum,
+                  taskIdStr,
+                  taskIdMatch,
+                  match: phaseMatch && taskIdMatch
+                });
+                
+                return phaseMatch && taskIdMatch;
+              });
+              
+              // Nếu không tìm thấy theo taskId, lấy report đầu tiên có phase matching
+              if (!matchingReport) {
+                console.log("⚠️ No report found with matching taskId, trying to find by phase only");
+                matchingReport = qcReports.find(r => {
+                  const reportPhase = String(r.phase || "").toUpperCase();
+                  const match = reportPhase === expectedPhase;
+                  console.log("🔍 Checking report by phase only:", { reportPhase, expectedPhase, match, report: r });
+                  return match;
+                });
               }
+              
+              if (matchingReport) {
+                console.log("✅ Found matching QC report:", matchingReport);
+                console.log("✅ Report details:", {
+                  qcReportId: matchingReport.qcReportId || matchingReport.id,
+                  phase: matchingReport.phase,
+                  taskId: matchingReport.taskId,
+                  orderId: matchingReport.orderId,
+                  hasDevices: Array.isArray(matchingReport.devices),
+                  devicesCount: Array.isArray(matchingReport.devices) ? matchingReport.devices.length : 0,
+                  hasOrderDetailSerialNumbers: !!matchingReport.orderDetailSerialNumbers,
+                  hasFindings: !!matchingReport.findings,
+                  hasResult: !!matchingReport.result
+                });
+                setExistingQcReport(matchingReport);
+              } else {
+                console.log("⚠️ No matching QC report found for phase:", expectedPhase);
+                console.log("📋 Available reports:", qcReports.map(r => ({
+                  qcReportId: r.qcReportId || r.id,
+                  phase: r.phase,
+                  taskId: r.taskId
+                })));
+                setExistingQcReport(null);
+              }
+            } else {
+              console.log("⚠️ No QC reports found for order:", normalizedTask.orderId);
+              setExistingQcReport(null);
             }
           } catch (e) {
             // QC report không tồn tại hoặc lỗi -> không sao, sẽ tạo mới
-            console.log("No existing QC report found or error:", e?.response?.status);
+            console.error("❌ Error loading QC reports:", e);
             setExistingQcReport(null);
           } finally {
             setLoadingQcReport(false);
@@ -159,6 +302,7 @@ export default function TechnicianQcDetail() {
   }, [actualTaskId, nav]);
 
   // Fetch devices for each orderDetail based on deviceModelId
+  // For POST_RENTAL phase, get serial numbers from PRE_RENTAL QC report
   useEffect(() => {
     const fetchDevices = async () => {
       if (!order || !Array.isArray(order.orderDetails) || order.orderDetails.length === 0) {
@@ -170,6 +314,91 @@ export default function TechnicianQcDetail() {
         const devicesMap = {};
         const namesMap = {};
 
+        // If phase is POST_RENTAL, get serial numbers from PRE_RENTAL QC report
+        const isPostRental = String(phase || "").toUpperCase() === "POST_RENTAL";
+        
+        if (isPostRental && order.orderId) {
+          try {
+            // Fetch all QC reports for this order
+            const qcReports = await getQcReportsByOrderId(order.orderId);
+            const preRentalReport = Array.isArray(qcReports) 
+              ? qcReports.find(r => String(r.phase || "").toUpperCase() === "PRE_RENTAL")
+              : null;
+            
+            if (preRentalReport) {
+              // Extract serial numbers from PRE_RENTAL QC report
+              if (preRentalReport.orderDetailSerialNumbers) {
+                // Use orderDetailSerialNumbers if available
+                Object.keys(preRentalReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
+                  const serials = preRentalReport.orderDetailSerialNumbers[orderDetailId];
+                  if (Array.isArray(serials)) {
+                    // Convert serial numbers to device-like objects for compatibility
+                    devicesMap[orderDetailId] = serials.map(serial => ({
+                      serialNumber: String(serial),
+                      serial: String(serial),
+                      serialNo: String(serial),
+                      id: String(serial),
+                      deviceId: String(serial),
+                    }));
+                  }
+                });
+              } else if (Array.isArray(preRentalReport.devices)) {
+                // Group devices by deviceModelId, then map to orderDetails
+                const devicesByModel = {};
+                preRentalReport.devices.forEach((d) => {
+                  const modelId = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
+                  const serial = d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id;
+                  if (modelId && serial) {
+                    if (!devicesByModel[modelId]) devicesByModel[modelId] = [];
+                    devicesByModel[modelId].push(String(serial));
+                  }
+                });
+                
+                // Map to orderDetails
+                order.orderDetails.forEach((od) => {
+                  const orderDetailId = od.orderDetailId || od.id;
+                  const modelId = Number(od.deviceModelId ?? NaN);
+                  const quantity = Number(od.quantity ?? 1);
+                  if (orderDetailId && modelId && devicesByModel[modelId]) {
+                    const serials = devicesByModel[modelId].slice(0, quantity);
+                    devicesMap[orderDetailId] = serials.map(serial => ({
+                      serialNumber: String(serial),
+                      serial: String(serial),
+                      serialNo: String(serial),
+                      id: String(serial),
+                      deviceId: String(serial),
+                    }));
+                  }
+                });
+              }
+              
+              // Fetch model names
+              const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+              const modelPromises = modelIds.map(async (modelId) => {
+                try {
+                  const model = await getDeviceModelById(modelId);
+                  return [modelId, model?.deviceName || model?.name || null];
+                } catch {
+                  return [modelId, null];
+                }
+              });
+              const modelResults = await Promise.all(modelPromises);
+              modelResults.forEach(([modelId, name]) => {
+                if (modelId != null && name) namesMap[modelId] = name;
+              });
+              
+              setDevicesByOrderDetail(devicesMap);
+              setModelNameById((prev) => ({ ...prev, ...namesMap }));
+              setLoadingDevices(false);
+              return; // Early return for POST_RENTAL
+            }
+          } catch (e) {
+            console.warn("Không thể lấy QC report PRE_RENTAL, sẽ dùng API devices:", e);
+            // Fall through to normal device fetching
+          }
+        }
+
+        // Normal flow: fetch devices from API (for PRE_RENTAL or if PRE_RENTAL report not found)
         // Lấy startDate và endDate từ order
         const startDate = order.startDate || order.rentalStartDate;
         const endDate = order.endDate || order.rentalEndDate;
@@ -246,7 +475,7 @@ export default function TechnicianQcDetail() {
     };
 
     fetchDevices();
-  }, [order]);
+  }, [order, phase]);
 
   /** ---------- MOCK INVENTORY TRONG KHO ----------
    * Map: orderDetailId -> danh sách serial/asset code có sẵn
@@ -260,10 +489,26 @@ export default function TechnicianQcDetail() {
     []
   );
 
-  // ----- STATES -----
-  const [checklistDone, setChecklistDone] = useState([]);
-  const [phase, setPhase] = useState("PRE_RENTAL");
-  const [result, setResult] = useState("READY_FOR_SHIPPING");
+  // Update phase and result when task changes or when existing report is loaded
+  useEffect(() => {
+    // Nếu có existing report, dùng phase từ report
+    if (existingQcReport && existingQcReport.phase) {
+      const reportPhase = String(existingQcReport.phase || "").toUpperCase();
+      console.log("🔄 Setting phase from existing report:", reportPhase);
+      setPhase(reportPhase);
+    } else {
+      // Nếu không có existing report, dùng detectedPhase
+      setPhase(detectedPhase);
+    }
+  }, [detectedPhase, existingQcReport]);
+  
+  // Reset result to default when phase changes (chỉ khi không có existing report)
+  useEffect(() => {
+    if (!existingQcReport) {
+      const newDefaultResult = detectedPhase === "POST_RENTAL" ? "READY_FOR_RE_STOCK" : "READY_FOR_SHIPPING";
+      setResult(newDefaultResult);
+    }
+  }, [detectedPhase, existingQcReport]);
 
   // Allowed results per phase (labels in Vietnamese, values giữ nguyên để gửi API)
   const resultOptions = useMemo(() => {
@@ -289,36 +534,122 @@ export default function TechnicianQcDetail() {
       setResult(resultOptions[0]?.value || "");
     }
   }, [phase, resultOptions, result]);
-  const [findings, setFindings] = useState("");
-  // Ảnh chụp phụ kiện: chọn 1 ảnh để upload kèm báo cáo
-  const [accessorySnapshotFile, setAccessorySnapshotFile] = useState(null);
-  const [accessorySnapshotPreview, setAccessorySnapshotPreview] = useState("");
 
-  // Chọn thiết bị từ kho theo từng orderDetailId:
-  // selectedDevicesByOrderDetail = { orderDetailId: ["SN-001", "SN-002"], ... }
-  const [selectedDevicesByOrderDetail, setSelectedDevicesByOrderDetail] = useState({});
-
-  // Load existing QC report data into form when it's available
+  // Load existing QC report data into form when it's available (form fields only)
+  // This works for both PRE_RENTAL and POST_RENTAL reports
   useEffect(() => {
     if (existingQcReport) {
-      // Populate form fields with existing QC report data
-      if (existingQcReport.phase) {
-        setPhase(String(existingQcReport.phase).toUpperCase());
-      }
-      if (existingQcReport.result) {
-        setResult(String(existingQcReport.result).toUpperCase());
-      }
-      if (existingQcReport.findings) {
-        setFindings(String(existingQcReport.findings));
-      }
-      if (existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl) {
-        setAccessorySnapshotPreview(existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl);
+      console.log("🔄 Loading existing QC report data into form:", existingQcReport);
+      const reportPhase = String(existingQcReport.phase || "").toUpperCase();
+      const currentPhase = String(phase || "").toUpperCase();
+      
+      // Set phase từ report nếu chưa match (quan trọng để đảm bảo phase đúng)
+      if (reportPhase && reportPhase !== currentPhase) {
+        console.log("🔄 Phase mismatch, updating phase from report:", reportPhase, "current:", currentPhase);
+        setPhase(reportPhase);
       }
       
-      // Build orderDetailSerialNumbers from devices array in response
-      if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
-        const serialMap = {};
+      // Populate form fields with existing QC report data (works for both PRE_RENTAL and POST_RENTAL)
+      // Điền result
+      if (existingQcReport.result) {
+        const resultValue = String(existingQcReport.result).toUpperCase();
+        console.log("✅ Setting result:", resultValue);
+        setResult(resultValue);
+      }
+      
+      // Điền findings
+      if (existingQcReport.findings) {
+        const findingsValue = String(existingQcReport.findings);
+        console.log("✅ Setting findings:", findingsValue);
+        setFindings(findingsValue);
+      }
+      
+      // Điền accessory snapshot
+      if (existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl) {
+        const url = existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl;
+        console.log("✅ Setting accessory snapshot URL:", url);
+        setAccessorySnapshotPreview(url);
+      }
+    }
+  }, [existingQcReport, phase]);
 
+  // Load serial numbers from existing QC report (separate useEffect to ensure order is ready)
+  useEffect(() => {
+    if (existingQcReport && order && Array.isArray(order.orderDetails) && order.orderDetails.length > 0) {
+      console.log("📦 Loading serial numbers from existing QC report");
+      console.log("📦 Order details:", order.orderDetails);
+      
+      // Build selectedDevicesByOrderDetail from existing QC report
+      // This logic works for both PRE_RENTAL and POST_RENTAL reports
+      const serialMap = {};
+      
+      // Priority 1: Use orderDetailSerialNumbers if available (most reliable)
+      if (existingQcReport.orderDetailSerialNumbers && typeof existingQcReport.orderDetailSerialNumbers === 'object') {
+        console.log("📦 Loading devices from orderDetailSerialNumbers:", existingQcReport.orderDetailSerialNumbers);
+        Object.keys(existingQcReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
+          const serials = existingQcReport.orderDetailSerialNumbers[orderDetailId];
+          if (Array.isArray(serials)) {
+            serialMap[String(orderDetailId)] = serials.map(String);
+          }
+        });
+      }
+      
+      // Priority 2: Use orderDetailId (single) + devices array
+      else if (existingQcReport.orderDetailId && Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
+        console.log("📦 Loading devices from orderDetailId + devices array");
+        const reportOrderDetailId = Number(existingQcReport.orderDetailId);
+        const serials = existingQcReport.devices
+          .map(d => d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id)
+          .filter(Boolean)
+          .map(String);
+        
+        if (serials.length > 0) {
+          // Map serial numbers vào orderDetailId từ report
+          serialMap[String(reportOrderDetailId)] = serials;
+          
+          // Nếu có orderDetails, cũng map vào các orderDetails có cùng deviceModelId
+          const ods = Array.isArray(order?.orderDetails) ? order.orderDetails : [];
+          if (ods.length > 0) {
+            // Lấy deviceModelId từ devices trong report
+            const deviceModelIds = new Set(
+              existingQcReport.devices
+                .map(d => Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN))
+                .filter(id => !Number.isNaN(id))
+            );
+            
+            // Map vào các orderDetails có cùng deviceModelId
+            ods.forEach((od) => {
+              const odId = String(od.orderDetailId || od.id);
+              const modelId = Number(od.deviceModelId ?? NaN);
+              const quantity = Number(od.quantity ?? 1);
+              
+              // Nếu orderDetailId khớp hoặc deviceModelId khớp, map serial numbers
+              if (odId === String(reportOrderDetailId) || (deviceModelIds.has(modelId) && !serialMap[odId])) {
+                // Nếu chưa có serial numbers cho orderDetail này, map từ devices
+                if (!serialMap[odId]) {
+                  const matchingSerials = existingQcReport.devices
+                    .filter(d => {
+                      const dModelId = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
+                      return !Number.isNaN(dModelId) && dModelId === modelId;
+                    })
+                    .map(d => d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id)
+                    .filter(Boolean)
+                    .map(String)
+                    .slice(0, quantity);
+                  
+                  if (matchingSerials.length > 0) {
+                    serialMap[odId] = matchingSerials;
+                  }
+                }
+              }
+            });
+          }
+        }
+      }
+      
+      // Priority 3: Use devices array only (group by deviceModelId)
+      else if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
+        console.log("📦 Loading devices from devices array (grouped by model)");
         // 1) Gom nhóm devices theo deviceModelId -> danh sách serial
         const groupByModel = existingQcReport.devices.reduce((acc, d) => {
           const mid = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
@@ -341,21 +672,132 @@ export default function TechnicianQcDetail() {
             serialMap[String(odId)] = pool.slice(0, Math.max(1, quantity));
           }
         });
-
-        setSelectedDevicesByOrderDetail(serialMap);
-      } else if (existingQcReport.orderDetailSerialNumbers) {
-        // Fallback to orderDetailSerialNumbers if devices array not available
-        const serialMap = {};
-        Object.keys(existingQcReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
-          const serials = existingQcReport.orderDetailSerialNumbers[orderDetailId];
-          if (Array.isArray(serials)) {
-            serialMap[orderDetailId] = serials.map(String);
-          }
-        });
-        setSelectedDevicesByOrderDetail(serialMap);
       }
+      
+      // Set selectedDevicesByOrderDetail if we found any serial numbers
+      if (Object.keys(serialMap).length > 0) {
+        console.log("✅ Setting selectedDevicesByOrderDetail:", serialMap);
+        console.log("✅ Serial map details:", Object.keys(serialMap).map(key => ({
+          orderDetailId: key,
+          serials: serialMap[key],
+          count: serialMap[key].length
+        })));
+        setSelectedDevicesByOrderDetail(serialMap);
+      } else {
+        console.warn("⚠️ No serial numbers found in existing QC report");
+        console.warn("⚠️ Report structure:", {
+          hasOrderDetailSerialNumbers: !!existingQcReport.orderDetailSerialNumbers,
+          hasOrderDetailId: !!existingQcReport.orderDetailId,
+          hasDevices: Array.isArray(existingQcReport.devices),
+          devicesCount: Array.isArray(existingQcReport.devices) ? existingQcReport.devices.length : 0
+        });
+      }
+    } else if (String(phase || "").toUpperCase() === "POST_RENTAL" && order?.orderId && !existingQcReport) {
+      // For POST_RENTAL phase without existing report, pre-fill serials from PRE_RENTAL report
+      // This is only for creating NEW POST_RENTAL reports
+      console.log("📋 POST_RENTAL without existing report, loading serials from PRE_RENTAL");
+      const loadPreRentalSerials = async () => {
+        try {
+          const qcReports = await getQcReportsByOrderId(order.orderId);
+          const preRentalReport = Array.isArray(qcReports) 
+            ? qcReports.find(r => String(r.phase || "").toUpperCase() === "PRE_RENTAL")
+            : null;
+          
+          if (preRentalReport) {
+            console.log("✅ Found PRE_RENTAL report, extracting serials:", preRentalReport);
+            const serialMap = {};
+            
+            if (preRentalReport.orderDetailSerialNumbers) {
+              // Use orderDetailSerialNumbers if available
+              Object.keys(preRentalReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
+                const serials = preRentalReport.orderDetailSerialNumbers[orderDetailId];
+                if (Array.isArray(serials)) {
+                  serialMap[String(orderDetailId)] = serials.map(String);
+                }
+              });
+            } else if (Array.isArray(preRentalReport.devices)) {
+              // Group devices by deviceModelId, then map to orderDetails
+              const devicesByModel = {};
+              preRentalReport.devices.forEach((d) => {
+                const modelId = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
+                const serial = d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id;
+                if (modelId && serial) {
+                  if (!devicesByModel[modelId]) devicesByModel[modelId] = [];
+                  devicesByModel[modelId].push(String(serial));
+                }
+              });
+              
+              // Map to orderDetails
+              const ods = Array.isArray(order?.orderDetails) ? order.orderDetails : [];
+              ods.forEach((od) => {
+                const orderDetailId = od.orderDetailId || od.id;
+                const modelId = Number(od.deviceModelId ?? NaN);
+                const quantity = Number(od.quantity ?? 1);
+                if (orderDetailId && modelId && devicesByModel[modelId]) {
+                  serialMap[String(orderDetailId)] = devicesByModel[modelId].slice(0, quantity).map(String);
+                }
+              });
+            }
+            
+            if (Object.keys(serialMap).length > 0) {
+              console.log("✅ Pre-filled serials from PRE_RENTAL:", serialMap);
+              setSelectedDevicesByOrderDetail(serialMap);
+            }
+          }
+        } catch (e) {
+          console.warn("Không thể load serial từ PRE_RENTAL report:", e);
+        }
+      };
+      
+      loadPreRentalSerials();
     }
-  }, [existingQcReport, order]);
+  }, [existingQcReport, order, phase]);
+
+  // Kiểm tra device status sau khi selectedDevicesByOrderDetail đã được set (cho POST_RENTAL)
+  useEffect(() => {
+    const checkDeviceStatusForPostRental = async () => {
+      // Chỉ kiểm tra cho POST_RENTAL phase và khi đã có existingQcReport với result READY_FOR_RE_STOCK
+      if (String(phase || "").toUpperCase() !== "POST_RENTAL") return;
+      if (!existingQcReport) return;
+      if (String(existingQcReport.result || "").toUpperCase() !== "READY_FOR_RE_STOCK") return;
+      if (deviceStatusUpdated) return; // Đã kiểm tra rồi
+      
+      // Đợi một chút để đảm bảo selectedDevicesByOrderDetail đã được set
+      const serials = Object.values(selectedDevicesByOrderDetail).flat().map(String);
+      if (serials.length === 0) return; // Chưa có serial numbers
+      
+      try {
+        const allDevices = await listDevices();
+        const devices = Array.isArray(allDevices) 
+          ? serials.map(serial => 
+              allDevices.find(d => {
+                const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+                return deviceSerial === String(serial).toUpperCase();
+              })
+            ).filter(Boolean)
+          : [];
+        
+        // Kiểm tra xem tất cả devices đã có status AVAILABLE chưa
+        const allAvailable = devices.length > 0 && devices.every(d => {
+          const status = String(d.status || "").toUpperCase();
+          return status === "AVAILABLE";
+        });
+        
+        if (allAvailable) {
+          setDeviceStatusUpdated(true);
+        }
+      } catch (e) {
+        console.warn("Không thể kiểm tra status thiết bị:", e);
+      }
+    };
+    
+    // Delay một chút để đảm bảo selectedDevicesByOrderDetail đã được set
+    const timer = setTimeout(() => {
+      checkDeviceStatusForPostRental();
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [selectedDevicesByOrderDetail, existingQcReport, phase, deviceStatusUpdated]);
 
   // Get order details from order
   const orderDetails = useMemo(() => {
@@ -412,6 +854,104 @@ export default function TechnicianQcDetail() {
       const picked = selectedDevicesByOrderDetail[orderDetailId] || [];
       return picked.length === quantity;
     });
+  };
+
+  /** Cập nhật status thiết bị về AVAILABLE sau POST_RENTAL QC */
+  const handleUpdateDeviceStatus = async () => {
+    if (!orderDetails.length || !selectedDevicesByOrderDetail) {
+      message.error("Không có thông tin thiết bị để cập nhật");
+      return;
+    }
+
+    try {
+      setUpdatingDeviceStatus(true);
+      
+      // Lấy tất cả serial numbers từ selectedDevicesByOrderDetail
+      const allSerialNumbers = [];
+      Object.values(selectedDevicesByOrderDetail).forEach((serials) => {
+        if (Array.isArray(serials)) {
+          allSerialNumbers.push(...serials.map(String));
+        }
+      });
+
+      if (allSerialNumbers.length === 0) {
+        message.error("Không có serial numbers để cập nhật");
+        return;
+      }
+
+      // Lấy danh sách tất cả devices để tìm theo serial number
+      const allDevices = await listDevices();
+      const devicesToUpdate = [];
+
+      // Tìm devices theo serial numbers
+      allSerialNumbers.forEach((serial) => {
+        const device = Array.isArray(allDevices) 
+          ? allDevices.find((d) => {
+              const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+              return deviceSerial === String(serial).toUpperCase();
+            })
+          : null;
+        
+        if (device) {
+          const deviceId = device.deviceId || device.id;
+          const deviceModelId = device.deviceModelId || device.modelId || device.device_model_id;
+          // Lấy serialNumber từ device object để giữ nguyên khi update
+          const deviceSerialNumber = device.serialNumber || device.serial || device.serialNo || serial;
+          if (deviceId && deviceModelId) {
+            devicesToUpdate.push({ deviceId, serial, deviceModelId, serialNumber: deviceSerialNumber });
+          } else if (deviceId) {
+            console.warn(`Device ${deviceId} (serial: ${serial}) không có deviceModelId, bỏ qua`);
+          }
+        }
+      });
+
+      if (devicesToUpdate.length === 0) {
+        message.warning("Không tìm thấy thiết bị nào với serial numbers đã chọn hoặc thiết bị không có deviceModelId");
+        return;
+      }
+
+      // Cập nhật status của từng device theo status được chọn
+      const updatePromises = devicesToUpdate.map(async ({ deviceId, serial, deviceModelId, serialNumber }) => {
+        try {
+          // Backend yêu cầu deviceModelId không được null
+          // Giữ nguyên serialNumber để không bị mất khi update
+          await updateDevice(deviceId, { 
+            status: String(selectedDeviceStatus || "AVAILABLE").toUpperCase(),
+            deviceModelId: Number(deviceModelId),
+            serialNumber: String(serialNumber || serial)
+          });
+          return { success: true, deviceId, serial };
+        } catch (e) {
+          console.error(`Failed to update device ${deviceId} (serial: ${serial}):`, e);
+          return { success: false, deviceId, serial, error: e };
+        }
+      });
+
+      const results = await Promise.all(updatePromises);
+      const successCount = results.filter((r) => r.success).length;
+      const failCount = results.length - successCount;
+
+      if (successCount > 0) {
+        const statusLabel = translateStatus(selectedDeviceStatus);
+        toast.success(`Đã cập nhật status ${successCount} thiết bị về "${statusLabel}"`);
+        setDeviceStatusUpdated(true);
+        setShowUpdateStatusModal(false);
+        
+        // Navigate back sau khi cập nhật thành công
+        setTimeout(() => {
+          nav(-1);
+        }, 1500);
+      }
+
+      if (failCount > 0) {
+        message.warning(`${failCount} thiết bị không thể cập nhật status`);
+      }
+    } catch (e) {
+      console.error("Error updating device status:", e);
+      toast.error(e?.response?.data?.message || e?.message || "Không thể cập nhật status thiết bị");
+    } finally {
+      setUpdatingDeviceStatus(false);
+    }
   };
 
   const onSave = async () => {
@@ -536,14 +1076,38 @@ export default function TechnicianQcDetail() {
       
       if (existingQcReport && qcReportId) {
         console.log("Calling updateQcReport...");
+        console.log("Existing QC Report:", existingQcReport);
+        console.log("Order Details:", orderDetails);
+        console.log("Selected Devices:", selectedDevicesByOrderDetail);
+        
         // Remove taskId from update payload (not needed for update)
+        // Đảm bảo orderDetailSerialNumbers có đầy đủ orderDetailId từ orderDetails
+        const finalOrderDetailSerialNumbers = {};
+        orderDetails.forEach((orderDetail) => {
+          const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
+          const serialNumbers = selectedDevicesByOrderDetail[orderDetailId] || 
+                                selectedDevicesByOrderDetail[orderDetail.orderDetailId] ||
+                                selectedDevicesByOrderDetail[orderDetail.id] ||
+                                [];
+          if (serialNumbers.length > 0) {
+            finalOrderDetailSerialNumbers[orderDetailId] = serialNumbers.map(String);
+          }
+        });
+        
+        // Nếu không có serial numbers từ selectedDevicesByOrderDetail, dùng từ payload
+        const orderDetailSerialNumbersToUse = Object.keys(finalOrderDetailSerialNumbers).length > 0
+          ? finalOrderDetailSerialNumbers
+          : payload.orderDetailSerialNumbers;
+        
         const updatePayload = {
-          orderDetailSerialNumbers: payload.orderDetailSerialNumbers,
+          orderDetailSerialNumbers: orderDetailSerialNumbersToUse,
           phase: payload.phase,
           result: payload.result,
           findings: payload.findings,
           accessoryFile: payload.accessoryFile,
         };
+        
+        console.log("Update QC Report Payload:", updatePayload);
         await updateQcReport(qcReportId, updatePayload);
         console.log("updateQcReport succeeded");
         toast.success("Đã cập nhật QC report thành công!");
@@ -554,10 +1118,20 @@ export default function TechnicianQcDetail() {
         toast.success("Đã tạo QC report thành công!");
       }
       
-      // Navigate back sau khi thành công
-      setTimeout(() => {
-        nav(-1);
-      }, 1500);
+      // Nếu là POST_RENTAL và result là READY_FOR_RE_STOCK, hiện modal cập nhật status
+      const isPostRental = String(phase || "").toUpperCase() === "POST_RENTAL";
+      const isReadyForRestock = String(result || "").toUpperCase() === "READY_FOR_RE_STOCK";
+      
+      if (isPostRental && isReadyForRestock && !deviceStatusUpdated) {
+        // Hiện modal để cập nhật status thiết bị
+        setShowUpdateStatusModal(true);
+        // Không navigate ngay, đợi user cập nhật status
+      } else {
+        // Navigate back sau khi thành công
+        setTimeout(() => {
+          nav(-1);
+        }, 1500);
+      }
     } catch (e) {
       console.error("Create QC report error:", e);
       console.error("Error details:", {
@@ -610,13 +1184,13 @@ export default function TechnicianQcDetail() {
       </Space>
 
       {/* Thông tin task và đơn hàng */}
-      <Card title="Thông tin Task" className="mb-3">
+      <Card title="Thông tin Nhiệm vụ" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Mã Task">{task.taskId || task.id}</Descriptions.Item>
+          <Descriptions.Item label="Mã nhiệm vụ">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
           <Descriptions.Item label="Mô tả">{task.description || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Trạng thái Task">
+          <Descriptions.Item label="Trạng thái của nhiệm vụ">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
             </Tag>
@@ -634,6 +1208,15 @@ export default function TechnicianQcDetail() {
       {existingQcReport && (
         <Card className="mb-3" title="Báo cáo QC hiện có">
           <Descriptions bordered size="small" column={2}>
+            <Descriptions.Item label="Mã QC Report">
+              {existingQcReport.qcReportId || existingQcReport.id || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Mã đơn hàng">
+              {existingQcReport.orderId || order?.orderId || order?.id || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Mã chi tiết đơn">
+              {existingQcReport.orderDetailId || (orderDetails.length > 0 ? orderDetails.map(od => od.orderDetailId || od.id).join(", ") : "—")}
+            </Descriptions.Item>
             <Descriptions.Item label="Người tạo">
               {existingQcReport.createdBy || "—"}
             </Descriptions.Item>
@@ -658,8 +1241,10 @@ export default function TechnicianQcDetail() {
         <Card
           title={
             <Space>
-              Chọn thiết bị từ kho
-              <Button onClick={autoPick}>Gợi ý đủ số lượng</Button>
+              {isPickupTask(task) ? "Thiết bị trong đơn" : "Chọn thiết bị từ kho"}
+              {!isPickupTask(task) && (
+                <Button onClick={autoPick}>Gợi ý đủ số lượng</Button>
+              )}
             </Space>
           }
           className="mb-3"
@@ -690,6 +1275,7 @@ export default function TechnicianQcDetail() {
 
               const picked = selectedDevicesByOrderDetail[orderDetailId] || [];
               const ok = picked.length === quantity;
+              const isPickup = isPickupTask(task);
 
               return (
                 <Col xs={24} md={12} key={orderDetailId}>
@@ -697,7 +1283,7 @@ export default function TechnicianQcDetail() {
                     size="small"
                     title={
                       <Space>
-                        <Text strong>Chọn thiết bị </Text>
+                        <Text strong>{isPickup ? "Thiết bị trong đơn" : "Chọn thiết bị"}</Text>
                         <Tag color={ok ? "green" : "gold"}>
                           {picked.length}/{quantity} thiết bị
                         </Tag>
@@ -706,12 +1292,16 @@ export default function TechnicianQcDetail() {
                   >
                     <div style={{ marginBottom: 8 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        Model: {modelNameById[deviceModelId] || `#${deviceModelId}`} • Số lượng: {quantity}
+                        Mẫu thiết bị: {modelNameById[deviceModelId] || `#${deviceModelId}`} • Số lượng: {quantity}
                       </Text>
                       <div style={{ marginTop: 4 }}>
                         {loadingDevices ? (
                           <Text type="secondary" style={{ fontSize: 11 }}>
                             <Spin size="small" style={{ marginRight: 4 }} /> Đang tải...
+                          </Text>
+                        ) : isPickup ? (
+                          <Text type="info" style={{ fontSize: 11 }}>
+                            ℹ Thiết bị đã được giao trong đơn
                           </Text>
                         ) : serialNumbersFromDevices.length > 0 ? (
                           <Text type="success" style={{ fontSize: 11 }}>
@@ -728,33 +1318,81 @@ export default function TechnicianQcDetail() {
                         )}
                       </div>
                     </div>
-                    <Select
-                      mode="multiple"
-                      placeholder={
-                        loadingDevices
-                          ? "Đang tải..."
-                          : `Chọn ${quantity} số serial`
-                      }
-                      style={{ width: "100%" }}
-                      value={picked.map(String)}
-                      onChange={(vals) => onChangeOrderDetailPick(orderDetailId, quantity, vals)}
-                      options={serialOptions}
-                      maxTagCount="responsive"
-                      showSearch
-                      disabled={loadingDevices}
-                      loading={loadingDevices}
-                      filterOption={(input, option) =>
-                        (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
-                      }
-                    />
+                    {isPickup ? (
+                      <div>
+                        {picked.length > 0 ? (
+                          <div style={{ 
+                            padding: 12, 
+                            backgroundColor: '#f5f5f5', 
+                            borderRadius: 6,
+                            border: '1px solid #d9d9d9'
+                          }}>
+                            <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
+                              Danh sách thiết bị đã giao:
+                            </Text>
+                            <Space wrap size={[8, 8]}>
+                              {picked.map((serial, idx) => (
+                                <Tag 
+                                  key={idx} 
+                                  color="blue" 
+                                  style={{ 
+                                    fontSize: 13, 
+                                    padding: '4px 12px',
+                                    margin: 0
+                                  }}
+                                >
+                                  {serial}
+                                </Tag>
+                              ))}
+                            </Space>
+                          </div>
+                        ) : (
+                          <div style={{ 
+                            padding: 12, 
+                            backgroundColor: '#fffbe6', 
+                            borderRadius: 6,
+                            border: '1px solid #ffe58f'
+                          }}>
+                            <Text type="warning" style={{ fontSize: 12 }}>
+                              ⚠ Chưa có thông tin serial numbers từ QC report trước thuê
+                            </Text>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <Select
+                        mode="multiple"
+                        placeholder={
+                          loadingDevices
+                            ? "Đang tải..."
+                            : `Chọn ${quantity} số serial`
+                        }
+                        style={{ width: "100%" }}
+                        value={picked.map(String)}
+                        onChange={(vals) => onChangeOrderDetailPick(orderDetailId, quantity, vals)}
+                        options={serialOptions}
+                        maxTagCount="responsive"
+                        showSearch
+                        disabled={loadingDevices}
+                        loading={loadingDevices}
+                        filterOption={(input, option) =>
+                          (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                        }
+                      />
+                    )}
                   </Card>
                 </Col>
               );
             })}
           </Row>
-          {!isPickComplete() && (
+          {!isPickupTask(task) && !isPickComplete() && (
             <div style={{ marginTop: 8 }}>
               <Text type="warning">*Vui lòng chọn đủ số lượng thiết bị cho mỗi loại sản phẩm.</Text>
+            </div>
+          )}
+          {isPickupTask(task) && (
+            <div style={{ marginTop: 8 }}>
+          
             </div>
           )}
         </Card>
@@ -765,7 +1403,7 @@ export default function TechnicianQcDetail() {
       )}
 
       {/* QC Report Form */}
-      <Card title="Báo cáo Quality Control (QC)" className="mb-3">
+      <Card title="Báo cáo chất lượng của thiết bị (QC)" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="large">
           <Row gutter={16}>
             <Col xs={24} md={12}>
@@ -783,9 +1421,6 @@ export default function TechnicianQcDetail() {
                   ]}
                   disabled
                 />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Giai đoạn được xác định bởi hệ thống và không thể chỉnh sửa.
-                </Text>
               </div>
             </Col>
             <Col xs={24} md={12}>
@@ -912,7 +1547,79 @@ export default function TechnicianQcDetail() {
         >
           {existingQcReport ? "Cập nhật QC Report" : "Lưu kết quả QC"}
         </Button>
+        {/* Hiển thị nút cập nhật status khi POST_RENTAL và chưa cập nhật */}
+        {String(phase || "").toUpperCase() === "POST_RENTAL" && 
+         existingQcReport && 
+         !deviceStatusUpdated && (
+          <Button
+            type="default"
+            onClick={() => setShowUpdateStatusModal(true)}
+            disabled={loading || loadingQcReport || saving}
+          >
+            Cập nhật status thiết bị
+          </Button>
+        )}
       </Space>
+
+      {/* Modal cập nhật status thiết bị */}
+      <Modal
+        title="Cập nhật trạng thái thiết bị"
+        open={showUpdateStatusModal}
+        onOk={handleUpdateDeviceStatus}
+        onCancel={() => {
+          setShowUpdateStatusModal(false);
+          // Nếu đã lưu QC report thành công, cho phép navigate back
+          if (existingQcReport || !saving) {
+            setTimeout(() => {
+              nav(-1);
+            }, 500);
+          }
+        }}
+        okText="Cập nhật"
+        cancelText="Bỏ qua"
+        okButtonProps={{ loading: updatingDeviceStatus }}
+        width={600}
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <div>
+            <Text>
+              Sau khi QC POST_RENTAL thành công, bạn cần cập nhật trạng thái các thiết bị để có thể cho thuê lại hoặc xử lý tiếp.
+            </Text>
+          </div>
+          
+          <div>
+            <Text strong style={{ display: "block", marginBottom: 8 }}>
+              Chọn trạng thái thiết bị <Text type="danger">*</Text>
+            </Text>
+            <Select
+              value={selectedDeviceStatus}
+              onChange={setSelectedDeviceStatus}
+              style={{ width: "100%" }}
+              options={[
+                { label: "Có sẵn", value: "AVAILABLE" },
+                { label: "Kiểm tra trước thuê", value: "PRE_RENTAL_QC" },
+                { label: "Đang thuê", value: "RENTED" },
+                { label: "Bảo trì", value: "MAINTENANCE" },
+                { label: "Hỏng", value: "BROKEN" },
+              ]}
+            />
+          </div>
+
+          <div>
+            <Text strong>Danh sách thiết bị sẽ được cập nhật:</Text>
+            <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+              {Object.values(selectedDevicesByOrderDetail).flat().map((serial, idx) => (
+                <li key={idx}>
+                  <Text code>{serial}</Text>
+                </li>
+              ))}
+            </ul>
+          </div>
+          
+          <div>
+          </div>
+        </Space>
+      </Modal>
     </div>
   );
 }

@@ -130,12 +130,19 @@ export default function AdminTransactions() {
     });
   }, [transactions, paymentMethod, transactionType, invoiceStatus, dateRange, search]);
 
-  const totalAmount = useMemo(
+  const totalAmountIn = useMemo(
     () =>
-      filteredTransactions.reduce(
-        (sum, tx) => sum + Number(tx.amount || 0),
-        0
-      ),
+      filteredTransactions
+        .filter((tx) => String(tx.transactionType || "").toUpperCase() === "TRANSACTION_IN")
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
+    [filteredTransactions]
+  );
+
+  const totalAmountOut = useMemo(
+    () =>
+      filteredTransactions
+        .filter((tx) => String(tx.transactionType || "").toUpperCase() === "TRANSACTION_OUT")
+        .reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
     [filteredTransactions]
   );
 
@@ -206,13 +213,7 @@ export default function AdminTransactions() {
       width: 160,
     },
     {
-      title: "Invoice ID",
-      dataIndex: "invoiceId",
-      key: "invoiceId",
-      width: 120,
-    },
-    {
-      title: "Rental Order ID",
+      title: "Mã đơn hàng",
       dataIndex: "rentalOrderId",
       key: "rentalOrderId",
       width: 140,
@@ -244,18 +245,26 @@ export default function AdminTransactions() {
           <Row gutter={[16, 16]}>
             <Col xs={24} md={6}>
               <Statistic
-                title="Tổng giao dịch (lọc)"
+                title="Tổng giao dịch"
                 value={filteredTransactions.length}
               />
             </Col>
             <Col xs={24} md={6}>
               <Statistic
-                title="Tổng số tiền (lọc)"
-                value={formatCurrency(totalAmount)}
+                title="Tổng tiền vào"
+                value={formatCurrency(totalAmountIn)}
+                valueStyle={{ color: '#3f8600' }}
               />
             </Col>
-            <Col xs={24} md={12}>
-              <Text type="secondary">
+            <Col xs={24} md={6}>
+              <Statistic
+                title="Tổng tiền ra"
+                value={formatCurrency(totalAmountOut)}
+                valueStyle={{ color: '#cf1322' }}
+              />
+            </Col>
+            <Col xs={24} md={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
                 * Số liệu thống kê dựa trên bộ lọc hiện tại.
               </Text>
             </Col>

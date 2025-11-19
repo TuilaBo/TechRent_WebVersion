@@ -44,7 +44,6 @@ import {
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import {
   createContractFromOrder,
-  getMyContracts,
   normalizeContract,
   listContractsByCustomer,
   listContractsByOrder,
@@ -776,19 +775,6 @@ export default function OperatorOrders() {
     }
   };
 
-  const fetchContracts = async () => {
-    try {
-      setContractsLoading(true);
-      const list = await getMyContracts();
-      const normalized = Array.isArray(list) ? list.map(normalizeContract) : [];
-      setContracts(normalized);
-    } catch (e) {
-      console.error("Failed to fetch contracts:", e);
-    } finally {
-      setContractsLoading(false);
-    }
-  };
-
   const viewDetail = async (orderId) => {
     try {
       setLoadingDetail(true);
@@ -800,7 +786,7 @@ export default function OperatorOrders() {
       try {
         const invoice = await getInvoiceByRentalOrderId(orderId);
         setInvoiceInfo(invoice || null);
-      } catch (invoiceErr) {
+      } catch {
         // Invoice might not exist yet, that's okay
         console.log("No invoice found for order:", orderId);
         setInvoiceInfo(null);
@@ -1235,7 +1221,6 @@ export default function OperatorOrders() {
       const normalized = normalizeContract(updatedContract);
       setContractDetail(normalized);
 
-      await fetchContracts();
       if (detail?.orderId) {
         await fetchOrderContracts(detail.orderId, detail?.customerId);
       }
@@ -1651,11 +1636,15 @@ export default function OperatorOrders() {
               </Descriptions.Item>
 
               <Descriptions.Item label="Ngày tạo đơn">
-                {dayjs(detail.createdAt).format("YYYY-MM-DD HH:mm")}
+                {dayjs(detail.createdAt).format("DD/MM/YYYY HH:mm")}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Ngày bắt đầu thuê">{dayjs(detail.startDate).format("YYYY-MM-DD")}</Descriptions.Item>
-              <Descriptions.Item label="Ngày kết thúc thuê">{dayjs(detail.endDate).format("YYYY-MM-DD")}</Descriptions.Item>
+              <Descriptions.Item label="Ngày bắt đầu thuê">
+                {detail.startDate ? dayjs(detail.startDate).format("DD/MM/YYYY HH:mm") : "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Ngày kết thúc thuê">
+                {detail.endDate ? dayjs(detail.endDate).format("DD/MM/YYYY HH:mm") : "—"}
+              </Descriptions.Item>
               <Descriptions.Item label="Số ngày">{detailDays} ngày</Descriptions.Item>
               <Descriptions.Item label="Địa chỉ giao">{detail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>

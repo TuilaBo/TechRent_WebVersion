@@ -295,7 +295,10 @@ export default function OperatorTasks() {
     if (upper.includes("PENDING")) return { color: "orange", label: "Đang chờ" };
     if (upper.includes("PROCESSING")) return { color: "purple", label: "Đang xử lý" };
     if (upper.includes("READY_FOR_DELIVERY")) return { color: "processing", label: "Sẵn sàng giao" };
+    if (upper.includes("DELIVERING")) return { color: "cyan", label: "Đang giao" };
     if (upper.includes("DELIVERY_CONFIRMED")) return { color: "blue", label: "Đã xác nhận giao" };
+    if (upper.includes("IN_USE")) return { color: "geekblue", label: "Đang sử dụng" };
+    if (upper.includes("COMPLETED")) return { color: "green", label: "Hoàn tất" };
     if (upper.includes("CONFIRM")) return { color: "blue", label: "Đã xác nhận" };
     if (upper.includes("CANCEL")) return { color: "red", label: "Đã hủy" };
     if (upper.includes("DONE") || upper.includes("COMPLETE")) return { color: "green", label: "Hoàn tất" };
@@ -705,27 +708,6 @@ export default function OperatorTasks() {
             value={completedCount}
             valueStyle={{ color: "#3f8600", fontSize: 20, fontWeight: "bold" }}
           />
-        );
-      },
-    },
-    {
-      title: "Tỷ lệ hoàn thành",
-      key: "completionRate",
-      width: 150,
-      align: "center",
-      render: (_, record) => {
-        const total = record.totalTaskCount || record.totalTasks || 0;
-        const completed = record.completedTaskCount || record.completionCount || 0;
-        const rate = total > 0 ? ((completed / total) * 100).toFixed(1) : 0;
-        return (
-          <div>
-            <div style={{ fontSize: 16, fontWeight: "bold", color: "#1890ff" }}>
-              {rate}%
-            </div>
-            <div style={{ fontSize: 12, color: "#999" }}>
-              {completed}/{total} task
-            </div>
-          </div>
         );
       },
     },

@@ -490,6 +490,13 @@ export default function TechnicianHandover() {
           <Col xs={24} md={12}>
             <div style={{ marginBottom: 16 }}>
               <Text strong>Mã PIN *</Text>
+              {customerEmail && (
+                <div style={{ marginTop: 4, marginBottom: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Email khách hàng nhận mã PIN: <Text strong style={{ color: '#1890ff' }}>{customerEmail}</Text>
+                  </Text>
+                </div>
+              )}
               <Space.Compact style={{ width: "100%", marginTop: 8 }}>
                 <Input
                   value={pinCode}

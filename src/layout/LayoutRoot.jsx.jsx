@@ -1,6 +1,6 @@
 // src/layout/LayoutRoot.jsx
 import { useEffect, useRef, useState, Suspense, lazy } from "react";
-import { Layout, Button, Card } from "antd";
+import { Layout, Button, Card, App as AntApp } from "antd";
 import { CustomerServiceOutlined, CloseOutlined } from "@ant-design/icons";
 import { Outlet } from "react-router-dom";
 import FooterBar from "../shared/FooterBar.jsx";
@@ -10,10 +10,11 @@ import { useAuth } from "../context/AuthContext";
 const ChatWidget = lazy(() => import("../components/ChatWidget.jsx"));
 const { Content } = Layout;
 
-export default function LayoutRoot() {
+function LayoutContent() {
   const headerRef = useRef(null);
   const [chatOpen, setChatOpen] = useState(false);
   const { isAuthenticated } = useAuth();
+  const { notification } = AntApp.useApp();
   const [showNudge, setShowNudge] = useState(false);
   const nudgeHideTimerRef = useRef(null);
 
@@ -88,6 +89,21 @@ export default function LayoutRoot() {
     nudgeHideTimerRef.current = setTimeout(() => setShowNudge(false), 5000);
     return () => nudgeHideTimerRef.current && clearTimeout(nudgeHideTimerRef.current);
   }, [showNudge]);
+
+  useEffect(() => {
+    const handleToast = (event) => {
+      const detail = event.detail || {};
+      notification.open({
+        message: detail.title || "Thông báo",
+        description: detail.description || "",
+        placement: detail.placement || "bottomRight",
+        duration: detail.duration ?? 4.5,
+        key: detail.key,
+      });
+    };
+    window.addEventListener("customer-toast", handleToast);
+    return () => window.removeEventListener("customer-toast", handleToast);
+  }, [notification]);
 
   return (
     <Layout className="min-h-screen bg-gray-50 text-gray-900">
@@ -175,5 +191,13 @@ export default function LayoutRoot() {
       </div>
       )}
     </Layout>
+  );
+}
+
+export default function LayoutRoot() {
+  return (
+    <AntApp>
+      <LayoutContent />
+    </AntApp>
   );
 }

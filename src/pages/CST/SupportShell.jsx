@@ -26,6 +26,7 @@ export default function SupportShell() {
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith("/support/desk")) return "desk";
     if (location.pathname.startsWith("/support/tasks")) return "tasks";
+    if (location.pathname.startsWith("/support/settlements")) return "settlements";
     if (location.pathname.startsWith("/support/chats")) return "chats";
     if (location.pathname.startsWith("/support/kb")) return "kb";
     if (location.pathname.startsWith("/support/settings")) return "settings";
@@ -72,6 +73,11 @@ export default function SupportShell() {
               label: <Link to="/support/tasks">Công việc</Link>,
             },
             {
+              key: "settlements",
+              icon: <FileTextOutlined />,
+              label: <Link to="/support/settlements">Giải quyết và tranh chấp</Link>,
+            },
+            {
               key: "chats",
               icon: <MessageOutlined />,
               label: <Link to="/support/chats">Live Chats</Link>,
@@ -97,12 +103,6 @@ export default function SupportShell() {
             borderBottom: "1px solid #f0f0f0",
           }}
         >
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="Tìm ticket, phiên chat, khách hàng…"
-            style={{ maxWidth: 420 }}
-          />
           <Space style={{ marginLeft: "auto" }}>
             <Tooltip title="Làm mới">
               <Button icon={<ReloadOutlined />} />
