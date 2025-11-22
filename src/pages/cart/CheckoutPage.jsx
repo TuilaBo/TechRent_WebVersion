@@ -426,24 +426,6 @@ export default function Checkout() {
                       </div>
                     </div>
                   )}
-<<<<<<< HEAD
-
-                  {/* THỜI GIAN NHẬN HÀNG */}
-                  <Form.Item
-                    label="Thời gian nhận hàng"
-                    name="receiveAt"
-                    rules={[{ required: true, message: "Chọn thời gian nhận hàng" }]}
-                  >
-                    <DatePicker showTime style={{ width: "100%" }} />
-                  </Form.Item>
-                </Card>
-
-                <div className="mt-4">
-                  <Button type="primary" size="large" htmlType="submit" block>
-                   Tạo đơn thuê 
-                  </Button>
-                </div>
-=======
                   {!isAddressValid && (
                     <div style={{ color: "#ef4444", marginTop: 8, fontSize: 13 }}>
                       Vui lòng chọn hoặc nhập địa chỉ giao hàng.
@@ -459,7 +441,6 @@ export default function Checkout() {
                     size="large"
                   />
                 </Form.Item>
->>>>>>> dev
               </Form>
             </Card>
             {/* Address Modal */}
