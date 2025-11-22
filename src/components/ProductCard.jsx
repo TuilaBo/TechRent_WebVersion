@@ -1,155 +1,362 @@
-import React from "react";
+// src/components/ProductCard.jsx
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-const products = [
-  {
-    id: 1,
-    title: "Meta Quest 3",
-    description: "Kính VR hiện đại, trải nghiệm nhập vai chân thực.",
-    image:
-      "https://images.unsplash.com/photo-1588421357574-87938a86fa28?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=VR",
-  },
-  {
-    id: 2,
-    title: "MacBook Pro M3 14”",
-    description: "Laptop mạnh mẽ, hiệu năng cao cho công việc sáng tạo.",
-    image:
-      "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=MB",
-  },
-  {
-    id: 3,
-    title: "Sony A7 IV",
-    description: "Máy ảnh mirrorless chuyên nghiệp, chất lượng vượt trội.",
-    image:
-      "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=Cam",
-  },
-  {
-    id: 4,
-    title: "DJI Mini 4 Pro",
-    description: "Flycam nhỏ gọn, quay phim 4K siêu mượt.",
-    image:
-      "https://images.unsplash.com/photo-1512820790803-83ca734da794?q=80&w=1200&auto=format&fit=crop",
-    avatar: "https://via.placeholder.com/40?text=DJI",
-  },
-];
+import { Button, Skeleton, Empty, Tag } from "antd";
+import { ShoppingCartOutlined } from "@ant-design/icons";
+import toast from "react-hot-toast"; // <-- chỉ giữ toast API
+import { useAuth } from "../context/AuthContext";
+import { getDeviceModels, normalizeModel, fmtVND } from "../lib/deviceModelsApi";
+import { getBrandById } from "../lib/deviceManage";
+import { addToCart, getCartCount } from "../lib/cartUtils";
 
 export default function ProductCard() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
 
-  const goDetail = (id) => {
-    navigate(`/devices/${id}`);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  // anti-spam theo item
+  const [addingMap, setAddingMap] = useState({}); // { [id]: true }
+  const [justAdded, setJustAdded] = useState({}); // { [id]: true } để animate
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        const list = await getDeviceModels();
+        const mapped = list.map(normalizeModel);
+        // enrich brand name from brandId if missing
+        const enriched = await Promise.all(
+          mapped.map(async (it) => {
+            if (!it.brand && it.brandId) {
+              try {
+                const b = await getBrandById(it.brandId);
+                const name = b?.brandName ?? b?.name ?? "";
+                return { ...it, brand: name };
+              } catch {
+                return it;
+              }
+            }
+            return it;
+          })
+        );
+        setItems(enriched);
+      } catch (e) {
+        setErr(
+          e?.response?.data?.message ||
+            e?.message ||
+            "Không thể tải danh sách thiết bị."
+        );
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (err) toast.error(err);
+  }, [err]);
+
+  const goDetail = (id) => navigate(`/devices/${id}`);
+
+  const handleAdd = async (e, it) => {
+    e.stopPropagation();
+
+    if (!isAuthenticated) {
+      toast((t) => (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <b>Vui lòng đăng nhập để thêm vào giỏ hàng</b>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => {
+                toast.dismiss(t.id);
+                navigate("/login");
+              }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 6,
+                border: "1px solid #111827",
+                background: "#111827",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              Đăng nhập
+            </button>
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                color: "#111827",
+                cursor: "pointer",
+              }}
+            >
+              Để sau
+            </button>
+          </div>
+        </div>
+      ));
+      return;
+    }
+
+    if (addingMap[it.id]) return;
+
+    try {
+      setAddingMap((m) => ({ ...m, [it.id]: true }));
+      const result = await addToCart(it.id, 1);
+
+      if (result.success) {
+        setJustAdded((s) => ({ ...s, [it.id]: true }));
+        setTimeout(() => {
+          setJustAdded((s) => {
+            const { [it.id]: _, ...rest } = s;
+            return rest;
+          });
+        }, 700);
+
+        toast.success(
+          (t) => (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>
+                <b>{it.name}</b> đã thêm vào giỏ •{" "}
+                <b>{fmtVND(it.pricePerDay)}/ngày</b>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    navigate("/cart");
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #111827",
+                    background: "#111827",
+                    color: "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  Xem giỏ hàng
+                </button>
+                <button
+                  onClick={() => toast.dismiss(t.id)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #e5e7eb",
+                    background: "#fff",
+                    color: "#111827",
+                    cursor: "pointer",
+                  }}
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          ),
+          { duration: 2500 }
+        );
+
+        // báo cho header cập nhật badge + bump
+        try {
+          const count = getCartCount();
+          window.dispatchEvent(
+            new CustomEvent("cart:updated", { detail: { count } })
+          );
+        } catch {
+          // ignore
+        }
+      } else {
+        toast.error(result.error || "Không thể thêm vào giỏ hàng");
+      }
+    } catch {
+      toast.error("Có lỗi xảy ra khi thêm vào giỏ hàng");
+    } finally {
+      setAddingMap((m) => ({ ...m, [it.id]: false }));
+    }
   };
 
+  if (loading) {
+    return (
+      <div style={{ padding: 40, maxWidth: 1200, margin: "0 auto" }}>
+        <Skeleton active paragraph={{ rows: 8 }} />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ padding: "40px 20px", maxWidth: "1200px", margin: "0 auto" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "40px", color: "#1a1a1a", fontSize: "28px", fontWeight: "700", letterSpacing: "1px" }}>
-        Sản phẩm nổi bật
+    <div
+      style={{
+        padding: "40px 20px",
+        maxWidth: "1200px",
+        margin: "0 auto",
+      }}
+    >
+      <h2
+        style={{
+          textAlign: "center",
+          marginBottom: 40,
+          color: "#1a1a1a",
+          fontSize: 28,
+          fontWeight: "bold",
+          letterSpacing: 1,
+        }}
+      >
+        Sản phẩm
       </h2>
 
-      <div className="product-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px" }}>
-        {products.map((item) => (
-          <div
-            key={item.id}
-            onClick={() => goDetail(item.id)}
-            onKeyDown={(e) => e.key === "Enter" && goDetail(item.id)}
-            role="button"
-            tabIndex={0}
-            style={{
-              background: "#ffffff",
-              borderRadius: "16px",
-              overflow: "hidden",
-              boxShadow: "0 8px 16px rgba(0, 0, 0, 0.08)",
-              transition: "all 0.3s ease",
-              cursor: "pointer",
-              position: "relative",
-            }}
-            className="custom-card"
-          >
-            <div style={{ height: "200px", overflow: "hidden", position: "relative" }}>
-              <img
-                alt={item.title}
-                src={item.image}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  transition: "transform 0.5s ease",
-                }}
-                className="card-img"
-              />
+      {items.length === 0 ? (
+        <Empty description="Chưa có mẫu thiết bị" />
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: 20,
+          }}
+        >
+          {items.map((it) => (
+            <div
+              key={it.id}
+              onClick={() => goDetail(it.id)}
+              onKeyDown={(e) => e.key === "Enter" && goDetail(it.id)}
+              role="button"
+              tabIndex={0}
+              data-card
+              className={justAdded[it.id] ? "added" : ""}
+              style={{
+                background: "#fff",
+                borderRadius: 12,
+                overflow: "hidden",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                transition: "all .25s cubic-bezier(0.4, 0, 0.2, 1)",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 340,
+                border: "1px solid rgba(0,0,0,.05)",
+              }}
+            >
+              <div style={{ position: "relative", height: 180, overflow: "hidden", background: "#f5f5f5" }}>
+                <img
+                  alt={it.name}
+                  src={it.image || "https://placehold.co/800x600?text=No+Image"}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    transition: "transform .3s ease",
+                  }}
+                />
+              </div>
+
               <div
                 style={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  height: "100%",
-                  background: "linear-gradient(to top, rgba(0,0,0,0.3), transparent)",
-                  opacity: 0,
-                  transition: "opacity 0.3s ease",
+                  padding: "12px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  flex: 1,
                 }}
-                className="overlay"
-              />
-            </div>
-            <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <img
-                  src={item.avatar}
-                  alt="avatar"
-                  style={{ width: "40px", height: "40px", borderRadius: "50%", border: "1px solid #f0f0f0" }}
-                />
-                <h3 style={{ fontSize: "16px", fontWeight: "600", color: "#333", margin: 0 }}>
-                  {item.title}
+              >
+                {it.brand && (
+                  <div style={{ marginBottom: 2 }}>
+                    <Tag 
+                      style={{ 
+                        border: "none", 
+                        background: "rgba(0,0,0,0.05)", 
+                        color: "#666",
+                        fontSize: 11,
+                        padding: "2px 10px",
+                        borderRadius: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {it.brand}
+                    </Tag>
+                  </div>
+                )}
+                <h3
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: "#1a1a1a",
+                    margin: 0,
+                    lineHeight: 1.3,
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {it.name}
                 </h3>
               </div>
-              <p style={{ color: "#666", fontSize: "13px", lineHeight: "1.4", margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                {item.description}
-              </p>
-            </div>
-            <div
-              style={{
-                position: "absolute",
-                bottom: "16px",
-                right: "16px",
-                display: "flex",
-                gap: "12px",
-                opacity: 0,
-                transition: "opacity 0.3s ease",
-              }}
-              className="actions"
-            >
-              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#eb2f96", fontSize: "18px" }}>❤️</button>
-              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#1890ff", fontSize: "18px" }}>🛒</button>
-              <button style={{ background: "none", border: "none", cursor: "pointer", color: "#52c41a", fontSize: "18px" }}>🔗</button>
-            </div>
-          </div>
-        ))}
-      </div>
 
-      <style jsx>{`
-        .custom-card:hover {
-          transform: translateY(-8px);
-          box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+              <div
+                style={{
+                  padding: "0 14px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 12, color: "#888", fontWeight: 500 }}>Giá thuê</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "#000", lineHeight: 1.2 }}>
+                    {fmtVND(it.pricePerDay)}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#999", fontWeight: 500 }}>/ngày</span>
+                </div>
+                <Button
+                  type="primary"
+                  size="middle"
+                  style={{ 
+                    background: "#000",
+                    borderColor: "#000",
+                    color: "#fff", 
+                    borderRadius: 10,
+                    fontWeight: 700,
+                    fontSize: 13,
+                    height: 40,
+                    padding: "0 16px",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                  }}
+                  icon={<ShoppingCartOutlined />}
+                  loading={!!addingMap[it.id]}
+                  disabled={!!addingMap[it.id]}
+                  onClick={(e) => handleAdd(e, it)}
+                >
+                  {addingMap[it.id] ? "Đang thêm" : "Thuê ngay"}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <style>{`
+        [data-card]:hover { 
+          transform: translateY(-6px); 
+          box-shadow: 0 8px 24px rgba(0,0,0,0.12); 
+          border-color: rgba(0,0,0,0.1);
         }
-        .custom-card:hover .card-img {
-          transform: scale(1.08);
-        }
-        .custom-card:hover .overlay {
-          opacity: 1;
-        }
-        .custom-card:hover .actions {
-          opacity: 1;
-        }
-        .custom-card:focus {
-          outline: 2px solid #1890ff;
-        }
-        @media (min-width: 1200px) {
-          .product-grid {
-            grid-template-columns: repeat(4, 1fr);
-          }
+        [data-card]:hover img { transform: scale(1.08); }
+        [data-card]:focus { outline: 2px solid #000; outline-offset: 2px; }
+        [data-card]:active { transform: translateY(-2px); }
+
+        /* pulse khi add */
+        .added { animation: card-pulse 700ms cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes card-pulse {
+          0%   { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
+          50%  { box-shadow: 0 0 0 8px rgba(0,0,0,0.1); transform: scale(1.02); }
+          100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); transform: scale(1); }
         }
       `}</style>
     </div>

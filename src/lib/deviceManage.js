@@ -1,0 +1,204 @@
+// src/lib/deviceManage.js
+import { api } from "./api";
+
+/* ------------------------- helpers ------------------------- */
+
+// Một số BE trả 204 (No Content) cho DELETE → không có data.
+// Hàm này hợp nhất mọi trường hợp và ném lỗi có thông điệp dễ hiểu.
+async function safeDelete(url) {
+  try {
+    const res = await api.delete(url);
+    // coi 200/204 là thành công
+    if (!res || res.status === 204 || res.status === 200) return true;
+    return true;
+  } catch (err) {
+    const msg =
+      err?.response?.data?.message ||
+      err?.response?.data?.details ||
+      err?.message ||
+      "Xoá thất bại";
+    throw new Error(msg);
+  }
+}
+
+/* ------------------ Device Categories ------------------ */
+
+export async function listDeviceCategories() {
+  const { data } = await api.get("/api/device-categories");
+  return data?.data ?? data ?? [];
+}
+export async function createDeviceCategory(payload) {
+  const { data } = await api.post("/api/device-categories", payload);
+  return data?.data ?? data;
+}
+export async function updateDeviceCategory(id, payload) {
+  const { data } = await api.put(`/api/device-categories/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+export async function deleteDeviceCategory(id) {
+  return safeDelete(`/api/device-categories/${Number(id)}`);
+}
+
+/* ---------------------- Device Models ---------------------- */
+
+export async function listDeviceModels() {
+  const { data } = await api.get("/api/device-models");
+  return data?.data ?? data ?? [];
+}
+export async function createDeviceModel(payload) {
+  // Hỗ trợ multipart khi có ảnh (payload.imageFile là File)
+  const file = payload?.imageFile instanceof File ? payload.imageFile : null;
+  if (file) {
+    const requestObj = {
+      deviceName: payload.deviceName,
+      brandId: payload.brandId,
+      specifications: payload.specifications ?? "",
+      description: payload.description ?? "",
+      deviceCategoryId: payload.deviceCategoryId,
+      deviceValue: Number(payload.deviceValue ?? 0),
+      pricePerDay: Number(payload.pricePerDay ?? 0),
+      depositPercent: Number(payload.depositPercent ?? 0),
+      active: !!payload.active,
+    };
+    const fd = new FormData();
+    fd.append("request", new Blob([JSON.stringify(requestObj)], { type: "application/json" }));
+    fd.append("image", file, file.name || "device-model.jpg");
+    const { data } = await api.post("/api/device-models", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data?.data ?? data;
+  }
+  const { data } = await api.post("/api/device-models", payload);
+  return data?.data ?? data;
+}
+export async function updateDeviceModel(id, payload) {
+  // Nếu có ảnh mới → gửi multipart; ngược lại gửi JSON như cũ
+  const file = payload?.imageFile instanceof File ? payload.imageFile : null;
+  if (file) {
+    const requestObj = {
+      deviceName: payload.deviceName,
+      brandId: payload.brandId,
+      specifications: payload.specifications ?? "",
+      description: payload.description ?? "",
+      deviceCategoryId: payload.deviceCategoryId,
+      deviceValue: Number(payload.deviceValue ?? 0),
+      pricePerDay: Number(payload.pricePerDay ?? 0),
+      depositPercent: Number(payload.depositPercent ?? 0),
+      active: !!payload.active,
+    };
+    const fd = new FormData();
+    fd.append("request", new Blob([JSON.stringify(requestObj)], { type: "application/json" }));
+    fd.append("image", file, file.name || "device-model.jpg");
+    const { data } = await api.put(`/api/device-models/${Number(id)}`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data?.data ?? data;
+  }
+  const { data } = await api.put(`/api/device-models/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+export async function deleteDeviceModel(id) {
+  return safeDelete(`/api/device-models/${Number(id)}`);
+}
+
+/* ------------------------- Devices ------------------------- */
+
+export async function listDevices() {
+  const { data } = await api.get("/api/devices");
+  return data?.data ?? data ?? [];
+}
+export async function getDevicesByModelId(deviceModelId) {
+  const { data } = await api.get(`/api/devices/model/${Number(deviceModelId)}`);
+  return data?.data ?? data ?? [];
+}
+
+/** Lấy danh sách thiết bị khả dụng theo model trong khoảng thời gian */
+export async function getAvailableDevicesByModel(deviceModelId, start, end) {
+  // Format: start và end phải là string date-time dạng "2025-11-12T09:00:00"
+  const { data } = await api.get(`/api/devices/model/${Number(deviceModelId)}`, {
+    params: {
+      start,
+      end,
+    },
+  });
+  return data?.data ?? data ?? [];
+}
+export async function createDevice(payload) {
+  const { data } = await api.post("/api/devices", payload);
+  return data?.data ?? data;
+}
+export async function updateDevice(id, payload) {
+  const { data } = await api.put(`/api/devices/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+export async function deleteDevice(id) {
+  return safeDelete(`/api/devices/${Number(id)}`);
+}
+
+/* ------------------ Accessory Categories ------------------ */
+
+export async function listAccessoryCategories() {
+  const { data } = await api.get("/api/accessory-categories");
+  return data?.data ?? data ?? [];
+}
+export async function createAccessoryCategory(payload) {
+  const { data } = await api.post("/api/accessory-categories", payload);
+  return data?.data ?? data;
+}
+export async function updateAccessoryCategory(id, payload) {
+  const { data } = await api.put(`/api/accessory-categories/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+export async function deleteAccessoryCategory(id) {
+  return safeDelete(`/api/accessory-categories/${Number(id)}`);
+}
+
+/* ------------------------- Accessories ------------------------- */
+
+export async function listAccessories() {
+  const { data } = await api.get("/api/accessories");
+  return data?.data ?? data ?? [];
+}
+export async function createAccessory(payload) {
+  const { data } = await api.post("/api/accessories", payload);
+  return data?.data ?? data;
+}
+export async function updateAccessory(id, payload) {
+  const { data } = await api.put(`/api/accessories/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+export async function deleteAccessory(id) {
+  return safeDelete(`/api/accessories/${Number(id)}`);
+}
+
+/* ---------------------------- Brands ---------------------------- */
+
+// GET /api/brands – List brands
+export async function listBrands() {
+  const { data } = await api.get("/api/brands");
+  return data?.data ?? data ?? [];
+}
+
+// GET /api/brands/{id} – Get brand by ID
+export async function getBrandById(id) {
+  const { data } = await api.get(`/api/brands/${Number(id)}`);
+  return data?.data ?? data ?? null;
+}
+
+// POST /api/brands – Create brand
+// body: { brandName: string, description?: string, active?: boolean }
+export async function createBrand(payload) {
+  const { data } = await api.post("/api/brands", payload);
+  return data?.data ?? data;
+}
+
+// PUT /api/brands/{id} – Update brand
+export async function updateBrand(id, payload) {
+  const { data } = await api.put(`/api/brands/${Number(id)}`, payload);
+  return data?.data ?? data;
+}
+
+// DELETE /api/brands/{id} – Delete brand
+export async function deleteBrand(id) {
+  return safeDelete(`/api/brands/${Number(id)}`);
+}

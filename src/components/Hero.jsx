@@ -1,46 +1,101 @@
 import { Button } from "antd";
-import { ArrowRightOutlined } from "@ant-design/icons";
+import React from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function Hero() {
+  const navigate = useNavigate();
+
+  const scrollToProducts = () => {
+    try {
+      const el = document.getElementById("home-products");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        // fallback: về home rồi scroll
+        navigate("/");
+        setTimeout(() => {
+          const el2 = document.getElementById("home-products");
+          if (el2) el2.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 50);
+      }
+    } catch {}
+  };
+
   return (
     <div
       id="hero-banner"
-      className="relative h-[520px] rounded-3xl overflow-hidden flex items-center justify-center text-center"
+      className="relative min-h-[460px] h-[56vw] max-h-[520px] rounded-3xl overflow-hidden flex items-center justify-center text-center"
       style={{
-        backgroundImage:
-          "url(https://theme.hstatic.net/200000038580/1001314180/14/slideshow_1.jpg?v=52)",
+        backgroundImage: "url('/Banner.jpg')",
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
     >
-      {/* Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-transparent" />
+      {/* Overlay gradient trắng/xám (giữ mạnh hơn để text nổi rõ) */}
+      <div className="absolute inset-0" style={{background: "linear-gradient(120deg, rgba(255,255,255,0.94) 60%, rgba(255,255,255,0.79) 100%)"}} />
 
-      {/* Nội dung */}
-      <div className="relative z-10 max-w-2xl px-4">
+      {/* Nội dung nằm trực tiếp trên banner */}
+      <div
+        className="relative z-10 max-w-2xl w-full px-4 flex flex-col items-center justify-center"
+        style={{ marginTop: 36, marginBottom: 40 }}
+      >
         <h1
-          className="text-4xl md:text-5xl font-extrabold drop-shadow-xl leading-tight animate-fade-in"
-          style={{ color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,.45)" }}
+          style={{
+            fontSize: '2.5rem',
+            fontWeight: 800,
+            lineHeight: 1.25,
+            marginBottom: 18,
+            color: '#101012',
+            letterSpacing: -1,
+            textShadow: 'none',
+            animation: 'fadeIn 0.9s ease',
+          }}
         >
-          Thuê thiết bị công nghệ hiện đại
+          Thuê thiết bị công nghệ nhanh chóng
         </h1>
-        <p
-          className="mt-4 text-lg animate-fade-in-delay"
-          style={{ color: "#fff", textShadow: "0 2px 8px rgba(0,0,0,.4)" }}
+        <div
+          style={{
+            fontSize: 19,
+            color: '#333',
+            marginBottom: 10,
+            fontWeight: 500,
+            animation: 'fadeIn 1.15s',
+          }}
         >
-          VR, Camera, Gaming, Laptop và hơn thế nữa — nhanh chóng & uy tín.
-        </p>
+          Camera, Laptop và hơn thế nữa — nhanh chóng & uy tín.
+        </div>
+
+        {/* CTA Button */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8, marginBottom: 8 }}>
+          <Button
+            type="primary"
+            size="large"
+            onClick={scrollToProducts}
+            style={{
+              borderRadius: 50,
+              background: '#000',
+              border: 'none',
+              fontWeight: 600,
+              padding: '0 30px',
+              height: 46,
+              transition: 'background .2s, color .2s',
+            }}
+            onMouseOver={e => { e.target.style.background='#fff'; e.target.style.color='#000'; }}
+            onMouseOut={e => { e.target.style.background='#000'; e.target.style.color='#fff'; }}
+          >
+            Khám phá sản phẩm
+          </Button>
+        </div>
       </div>
 
-      {/* Ép trắng (nếu có rule global dùng !important) */}
       <style>{`
-        #hero-banner h1, #hero-banner p { color: #fff !important; }
+        @media (max-width: 600px){
+          #hero-banner h1 { font-size: 1.6rem !important; }
+        }
         @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(12px); }
+          from { opacity: 0; transform: translateY(24px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in { animation: fadeIn 0.8s ease forwards; }
-        .animate-fade-in-delay { animation: fadeIn 1s ease forwards; }
       `}</style>
     </div>
   );

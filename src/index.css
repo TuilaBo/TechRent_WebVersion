@@ -1,3 +1,4 @@
+/* ==== index.css (đầu file) ==== */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,88 +6,25 @@
 /* Ngăn scroll ngang do full-bleed dùng 100vw */
 html, body { overflow-x: hidden; }
 
-/* Container hẹp kiểu TGDD/CellphoneS */
+/* Container */
 .page-shell {
-  max-width: 1200px;@tailwind base;
-  @tailwind components;
-  @tailwind utilities;
-  
-  /* Ngăn scroll ngang do full-bleed dùng 100vw */
-  html, body { overflow-x: hidden; }
-  
-  /* Container hẹp kiểu TGDD/CellphoneS */
-  .page-shell {
-    max-width: 1200px;
-    margin-inline: auto;
-    padding-inline: 12px;
-  }
-  
-  /* CategoryGrid không có margin/padding dưới */
-  .category-grid { margin: 0 !important; padding: 0 !important; }
-  .category-grid > * { margin-bottom: 0 !important; }
-  .category-grid .ant-card,
-  .category-grid .ant-card-body { margin: 0 !important; padding-bottom: 0 !important; }
-  .category-grid .ant-row { margin-bottom: 0 !important; }
-  
-  /* Hero không có margin-top nội bộ */
-  .home-hero { margin-top: 0 !important; }
-  .home-hero .ant-card-body { padding-top: 0 !important; }
-  
-  /* Nếu vẫn thấy vạch mảnh → bỏ border-bottom */
-  .category-grid { border-bottom: 0 !important; }
-  
-  /* Full-bleed: phủ 100% viewport, phá khỏi .page-shell */
-  .full-bleed {
-    width: 100vw;
-    position: relative;
-    left: 50%;
-    right: 50%;
-    margin-left: -50vw;
-    margin-right: -50vw;
-  }
-  
-  .full-bleed .ant-card,
-  .full-bleed .ant-card-body {
-    border-radius: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-  
-  /* Category bar không để lại khe dưới */
-  .category-grid-wrap { margin: 0 !important; padding: 0 !important; }
-  .category-grid-wrap .ant-card,
-  .category-grid-wrap .ant-card-body { margin: 0 !important; padding: 0 !important; }
-  
-  /* AntD Menu thường có margin/border dưới */
-  .category-grid-wrap .ant-menu { margin: 0 !important; border: 0 !important; }
-  .category-menu-center .ant-menu-overflow { margin: 0 !important; }
-  .category-menu-center .ant-menu,
-  .category-menu-center .ant-menu-submenu,
-  .category-menu-center .ant-menu-item { border-bottom: 0 !important; }
-  
-  /* Nếu header/category có border/shadow → tắt để dính hẳn */
-  .header-no-seam,
-  .category-no-seam { border-bottom: 0 !important; box-shadow: none !important; }
-  
+  max-width: 1200px;
   margin-inline: auto;
   padding-inline: 12px;
 }
 
-/* CategoryGrid không có margin/padding dưới */
+/* Các rule còn lại… (không lặp lại) */
 .category-grid { margin: 0 !important; padding: 0 !important; }
 .category-grid > * { margin-bottom: 0 !important; }
 .category-grid .ant-card,
 .category-grid .ant-card-body { margin: 0 !important; padding-bottom: 0 !important; }
 .category-grid .ant-row { margin-bottom: 0 !important; }
 
-/* Hero không có margin-top nội bộ */
 .home-hero { margin-top: 0 !important; }
 .home-hero .ant-card-body { padding-top: 0 !important; }
 
-/* Nếu vẫn thấy vạch mảnh → bỏ border-bottom */
 .category-grid { border-bottom: 0 !important; }
 
-/* Full-bleed: phủ 100% viewport, phá khỏi .page-shell */
 .full-bleed {
   width: 100vw;
   position: relative;
@@ -95,7 +33,6 @@ html, body { overflow-x: hidden; }
   margin-left: -50vw;
   margin-right: -50vw;
 }
-
 .full-bleed .ant-card,
 .full-bleed .ant-card-body {
   border-radius: 0 !important;
@@ -103,18 +40,27 @@ html, body { overflow-x: hidden; }
   padding-right: 0 !important;
 }
 
-/* Category bar không để lại khe dưới */
 .category-grid-wrap { margin: 0 !important; padding: 0 !important; }
 .category-grid-wrap .ant-card,
 .category-grid-wrap .ant-card-body { margin: 0 !important; padding: 0 !important; }
 
-/* AntD Menu thường có margin/border dưới */
 .category-grid-wrap .ant-menu { margin: 0 !important; border: 0 !important; }
 .category-menu-center .ant-menu-overflow { margin: 0 !important; }
 .category-menu-center .ant-menu,
 .category-menu-center .ant-menu-submenu,
 .category-menu-center .ant-menu-item { border-bottom: 0 !important; }
 
-/* Nếu header/category có border/shadow → tắt để dính hẳn */
 .header-no-seam,
 .category-no-seam { border-bottom: 0 !important; box-shadow: none !important; }
+
+.header-icons { display:flex; align-items:center; gap:12px; }
+.header-icon {
+  width: 36px; height: 36px; border-radius: 9999px;
+  border: 1px solid rgba(255,255,255,.25);
+  display:flex; align-items:center; justify-content:center;
+  transition: transform .15s ease, background-color .15s ease, opacity .15s ease;
+  cursor:pointer;
+}
+.header-icon:hover { background-color: rgba(255,255,255,.10); transform: translateY(-1px); }
+.header-icons .ant-badge { line-height: 1; }
+/* react-hot-toast container */

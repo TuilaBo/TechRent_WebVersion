@@ -1,378 +1,419 @@
-// src/pages/kyc/KycPage.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Steps,
-  Card,
-  Form,
-  Input,
-  DatePicker,
-  Select,
-  Upload,
-  Button,
-  Typography,
-  Row,
-  Col,
-  Space,
-  Result,
+  Steps, Card, Form, Input, DatePicker, Select, Upload, Button,
+  Typography, Row, Col, Space, Result, Spin, message,
 } from "antd";
-import {
-  UserOutlined,
-  IdcardOutlined,
-  CheckCircleTwoTone,
-  InboxOutlined,
-  CameraOutlined,
-} from "@ant-design/icons";
+import { IdcardOutlined, CheckCircleTwoTone, InboxOutlined, CameraOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
+import toast from "react-hot-toast";
+import { useNavigate, useLocation } from "react-router-dom";
+import { uploadKycDocumentsBatch, getMyKyc } from "../../lib/kycApi";
+import { createRentalOrder } from "../../lib/rentalOrdersApi";
+import { saveCartToStorage } from "../../lib/cartUtils";
+import { extractIdFieldsFE } from "../../../utils/kycOcrFE";
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 const { Dragger } = Upload;
 
 export default function KycPage() {
-  const [step, setStep] = useState(0);
-  const [form] = Form.useForm();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const search = new URLSearchParams(location.search || "");
+  const returnTo = search.get("return") || "/checkout";
+  const PENDING_ORDER_STORAGE_KEY = "pending-order-payload";
 
-  // Chỉ để hiển thị UI upload (không upload lên server)
+  // 0 = Upload → 1 = Nhập thông tin → 2 = Xem lại & Gửi
+  const [step, setStep] = useState(0);
+
   const [front, setFront] = useState([]);
   const [back, setBack] = useState([]);
   const [selfie, setSelfie] = useState([]);
-  const [done, setDone] = useState(false);
 
-  const next = () => setStep((s) => s + 1);
-  const prev = () => setStep((s) => s - 1);
+  const [submitting, setSubmitting] = useState(false);
+  const [ocring, setOcring] = useState(false);
 
-  /**
-   * Panel upload: Ảnh fill-full khung, cao mặc định 260px.
-   * - showUploadList=false để không hiện thumbnail mặc định của AntD
-   * - dùng backgroundImage + cover để lấp đầy khung
-   */
-  const UploadPanel = ({
-    label,
-    icon = <InboxOutlined />,
-    fileList,
-    setFileList,
-    height = 260, // bạn có thể tăng 280/300 nếu muốn
-  }) => {
-    const getPreviewUrl = (fl) => {
-      const f = fl?.[0];
-      if (!f) return "";
-      return f.thumbUrl || f.url || (f.originFileObj ? URL.createObjectURL(f.originFileObj) : "");
+  const [kycStatus, setKycStatus] = useState(null);
+  const [loadingKyc, setLoadingKyc] = useState(true);
+
+  // ✅ GIỮ FORM LUÔN MOUNTED
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoadingKyc(true);
+        const res = await getMyKyc();
+        const kyc = res?.data || res;
+        setKycStatus(kyc?.kycStatus || null);
+      } finally {
+        setLoadingKyc(false);
+      }
     };
-    const url = getPreviewUrl(fileList);
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (kycStatus === "APPROVED" && returnTo) {
+      const t = setTimeout(() => navigate(returnTo), 800);
+      return () => clearTimeout(t);
+    }
+  }, [kycStatus, returnTo, navigate]);
+
+  const UploadPanel = ({ label, icon, fileList, setFileList, height = 260 }) => {
+    const f = fileList?.[0];
+    const url = f ? f.thumbUrl || f.url || (f.originFileObj ? URL.createObjectURL(f.originFileObj) : "") : "";
 
     return (
-      <>
-        <Text strong className="block mb-2">{label}</Text>
+      <div className="upload-panel-wrapper">
+        <Text strong className="block mb-2" style={{ color: "#000" }}>{label}</Text>
         <Dragger
           multiple={false}
           fileList={fileList}
           showUploadList={false}
-          beforeUpload={() => false}  // UI-only
+          beforeUpload={() => false}
           onChange={({ fileList: fl }) => setFileList(fl.slice(-1))}
           accept=".jpg,.jpeg,.png,.webp"
           listType="picture-card"
-          className="w-full"
+          className="w-full relative group" // Added group for hover effect
           style={{
-            height,
-            minHeight: height,
-            padding: 0,
-            borderRadius: 10,
-            backgroundImage: url ? `url(${url})` : undefined,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            backgroundRepeat: "no-repeat",
+            height, minHeight: height, padding: 0, borderRadius: 10, border: "1px solid #ddd",
+            backgroundImage: url ? `url(${url})` : undefined, backgroundSize: "cover",
+            backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundColor: "#fff",
+            cursor: url ? 'pointer' : 'default', // Change cursor on hover when image is present
           }}
         >
+          {/* This overlay will appear on hover when an image is uploaded */}
+          {url && (
+            <div 
+              className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 flex items-center justify-center transition-all duration-300"
+              style={{ borderRadius: 10 }}
+            >
+              <Text className="text-white opacity-0 group-hover:opacity-100 font-semibold">Nhấp để thay đổi ảnh</Text>
+            </div>
+          )}
+
+          {/* This content shows when no image is uploaded */}
           {!url && (
             <>
-              <p className="ant-upload-drag-icon">{icon}</p>
-              <p className="ant-upload-text">Kéo thả hoặc bấm để chọn</p>
-              <p className="ant-upload-hint">1 ảnh</p>
+              <p className="ant-upload-drag-icon" style={{ color: "#000" }}>{icon}</p>
+              <p className="ant-upload-text" style={{ color: "#000" }}>Kéo thả hoặc bấm để chọn</p>
+              <p className="ant-upload-hint" style={{ color: "#666" }}>1 ảnh</p>
             </>
           )}
         </Dragger>
-      </>
+        {/* The "Chọn lại ảnh" button is now removed */}
+      </div>
     );
   };
+
+  if (loadingKyc) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (kycStatus === "APPROVED") {
+    return (
+      <div className="min-h-screen bg-white">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Title level={2} style={{ marginBottom: 8, color: "#000" }}>Xác minh danh tính (KYC)</Title>
+          <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20, background: "#fff" }} style={{ borderColor: "#ddd" }}>
+            <Result
+              status="success"
+              title="KYC đã được phê duyệt"
+              subTitle="Tài khoản của bạn đã được xác minh thành công!"
+              extra={
+                <Space>
+                  <Button onClick={() => (window.location.href = "/")}>Về trang chủ</Button>
+                  <Button type="primary" onClick={() => navigate(returnTo)} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
+                    Tiếp tục đặt đơn
+                  </Button>
+                </Space>
+              }
+            />
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // OCR (có thể gọi lại ở bước 1)
+  const doOCR = async () => {
+    const frontFile = front?.[0]?.originFileObj || front?.[0]?.file;
+    const backFile  = back?.[0]?.originFileObj  || back?.[0]?.file;
+    if (!frontFile && !backFile) return message.warning("Hãy chọn ít nhất ảnh mặt trước (tốt nhất thêm mặt sau).");
+
+    setOcring(true);
+    try {
+      const f = await extractIdFieldsFE(frontFile, backFile);
+      form.setFieldsValue({
+        fullName:  f.fullName  || undefined,
+        idNumber:  f.idNumber  || undefined,
+        idType:    f.idType    || "CCCD",
+        dob:       f.dobISO       ? dayjs(f.dobISO)       : undefined,
+        expirationDate: f.issueDateISO ? dayjs(f.issueDateISO) : undefined,
+        address:   f.address   || undefined,
+      });
+      message.success("Đã tự điền từ ảnh. Kiểm tra lại giúp mình nhé.");
+    } catch (e) {
+      console.error(e);
+      message.error("OCR thất bại. Hãy thử ảnh rõ, thẳng và đủ sáng.");
+    } finally {
+      setOcring(false);
+    }
+  };
+
+  // Bước 0 → chạy OCR → qua bước 1 để user kiểm tra/điền tay
+  const continueFromStep0 = async () => {
+    const frontFile = front?.[0]?.originFileObj || front?.[0]?.file;
+    const backFile  = back?.[0]?.originFileObj  || back?.[0]?.file;
+    if (!frontFile && !backFile) return message.warning("Hãy chọn ít nhất ảnh mặt trước (tốt nhất thêm mặt sau).");
+
+    setOcring(true);
+    try {
+      const f = await extractIdFieldsFE(frontFile, backFile);
+      form.setFieldsValue({
+        fullName:  f.fullName  || undefined,
+        idNumber:  f.idNumber  || undefined,
+        idType:    f.idType    || "CCCD",
+        dob:       f.dobISO       ? dayjs(f.dobISO)       : undefined,
+        expirationDate: f.issueDateISO ? dayjs(f.issueDateISO) : undefined,
+        address:   f.address   || undefined,
+      });
+      message.success("Đã tự điền từ ảnh. Vui lòng kiểm tra và bổ sung.");
+    } catch (e) {
+      console.error(e);
+      message.error("OCR thất bại. Bạn có thể điền tay ở bước tiếp theo.");
+    } finally {
+      setOcring(false);
+      setStep(1);
+    }
+  };
+
+  // ✅ Form luôn mounted — chỉ ẩn/hiện theo step
+  const formSection = (
+    <div style={{ display: step === 1 ? "block" : "none" }}>
+      <Form form={form} layout="vertical" preserve>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item label="Họ tên" name="fullName" rules={[{ required: true, message: "Vui lòng nhập họ tên" }]}>
+              <Input placeholder="VD: LÊ THỊ HỒNG VƯƠNG" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item label="Số CCCD/CMND" name="idNumber" rules={[{ required: true, message: "Vui lòng nhập số giấy tờ" }]}>
+              <Input placeholder="001183000001" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item label="Loại giấy tờ" name="idType" rules={[{ required: true, message: "Chọn loại giấy tờ" }]} initialValue="CMND">
+              <Select>
+                <Option value="CCCD">CCCD</Option>
+                <Option value="CMND">CMND</Option>
+                <Option value="PASSPORT">Passport</Option>
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item label="Ngày sinh" name="dob">
+              <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item label="Ngày hết hạn" name="expirationDate">
+              <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item label="Địa chỉ thường trú" name="address">
+              <Input placeholder="Số nhà/đường, phường/xã, quận/huyện, tỉnh/thành" />
+            </Form.Item>
+          </Col>
+        </Row>
+      </Form>
+
+      <Space className="mt-1" wrap>
+        <Button onClick={() => setStep(0)}>Quay lại</Button>
+        
+        <Button type="primary" onClick={() => setStep(2)} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
+          Tiếp tục
+        </Button>
+      </Space>
+    </div>
+  );
+
+  const submitAll = async () => {
+    try {
+      // ✅ validate các field bắt buộc dù đang ẩn
+      await form.validateFields(["fullName", "idNumber", "idType"]);
+
+      const v = form.getFieldsValue(true); // lấy tất cả field, kể cả đang ẩn
+      setSubmitting(true);
+
+      await uploadKycDocumentsBatch({
+        front:  front?.[0]?.originFileObj || front?.[0]?.file || null,
+        back:   back?.[0]?.originFileObj  || back?.[0]?.file  || null,
+        selfie: selfie?.[0]?.originFileObj|| selfie?.[0]?.file|| null,
+
+        fullName:            (v.fullName || "").trim(),
+        identificationCode:  (v.idNumber || "").trim(),
+        typeOfIdentification:(v.idType   || "").trim(),
+        birthday:            v.dob ? dayjs(v.dob).format("YYYY-MM-DD") : "",
+        expirationDate:      v.expirationDate ? dayjs(v.expirationDate).format("YYYY-MM-DD") : "",
+        permanentAddress:    (v.address || "").trim(),
+      });
+
+      const pendingOrderRaw = sessionStorage.getItem(PENDING_ORDER_STORAGE_KEY);
+      if (pendingOrderRaw) {
+        sessionStorage.removeItem(PENDING_ORDER_STORAGE_KEY);
+        let pendingPayload = null;
+        try {
+          pendingPayload = JSON.parse(pendingOrderRaw);
+        } catch {
+          pendingPayload = null;
+        }
+
+        if (pendingPayload) {
+          try {
+            await toast.promise(
+              createRentalOrder(pendingPayload),
+              {
+                loading: "Đang tạo đơn sau khi hoàn tất KYC...",
+                success: "Đã tạo đơn thuê thành công!",
+                error: "Đặt đơn thất bại. Vui lòng thử lại.",
+              }
+            );
+            saveCartToStorage([]);
+            navigate("/orders");
+            return;
+          } catch (orderErr) {
+            console.error(orderErr);
+            toast.error(
+              orderErr?.response?.data?.message ||
+                orderErr?.message ||
+                "Không thể tạo đơn sau khi KYC. Vui lòng đặt lại từ giỏ hàng."
+            );
+            navigate("/cart");
+            return;
+          }
+        }
+      }
+
+      toast.success("Đã gửi thông tin KYC");
+      setTimeout(() => navigate(returnTo), 800);
+    } catch (e) {
+      if (e?.errorFields) return; // lỗi validate
+      toast.error(e?.response?.data?.message || e?.message || "Gửi KYC thất bại");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+    const reviewSection = (
+    <div style={{ display: step === 2 ? "block" : "none" }}>
+      <div className="max-w-4xl mx-auto">
+        <Card type="inner" title="Xem lại thông tin" className="mb-3" style={{ borderColor: "#ddd" }}>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <Title level={5}>Thông tin đã nhập</Title>
+              <Row gutter={[8, 8]}>
+                {(() => {
+                  const v = form.getFieldsValue(true);
+                  const row = (label, value) => (
+                    <React.Fragment key={label}>
+                      <Col span={8}><Text type="secondary" style={{ color: "#666" }}>{label}</Text></Col>
+                      <Col span={16}><Text strong style={{ color: "#000" }}>{value || "—"}</Text></Col>
+                    </React.Fragment>
+                  );
+                  return (
+                    <>
+                      {row("Họ tên", v.fullName)}
+                      {row("Số giấy tờ", v.idNumber)}
+                      {row("Loại giấy tờ", v.idType)}
+                      {row("Ngày sinh", v.dob ? dayjs(v.dob).format("YYYY-MM-DD") : "")}
+                      {row("Ngày hết hạn", v.expirationDate ? dayjs(v.expirationDate).format("YYYY-MM-DD") : "")}
+                      {row("Địa chỉ", v.address)}
+                    </>
+                  );
+                })()}
+              </Row>
+            </Col>
+            <Col xs={24} md={12}>
+              <Title level={5}>Ảnh đã tải lên</Title>
+              <Row gutter={[8, 8]}>
+                {[ { label: 'Mặt trước', file: front[0] }, { label: 'Mặt sau', file: back[0] }, { label: 'Selfie', file: selfie[0] } ].map(({ label, file }) => {
+                  const url = file ? (file.thumbUrl || file.url || (file.originFileObj ? URL.createObjectURL(file.originFileObj) : "")) : "";
+                  return (
+                    <Col span={8} key={label}>
+                      <Text type="secondary" className="block text-center mb-1" style={{ fontSize: 12 }}>{label}</Text>
+                      <div style={{ height: 80, background: '#f0f0f0', borderRadius: 8, overflow: 'hidden' }}>
+                        {url ? <img src={url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div className="flex items-center justify-center h-full"><Text type="secondary" style={{ fontSize: 11 }}>Chưa có ảnh</Text></div>}
+                      </div>
+                    </Col>
+                  );
+                })}
+              </Row>
+            </Col>
+          </Row>
+        </Card>
+
+        <Space>
+          <Button onClick={() => setStep(1)}>Sửa thông tin</Button>
+          <Button onClick={() => setStep(0)}>Chọn lại ảnh</Button>
+          <Button type="primary" loading={submitting} onClick={submitAll} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
+            Gửi xác minh
+          </Button>
+        </Space>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Title level={2} style={{ marginBottom: 8 }}>
-          Xác minh danh tính (KYC)
-        </Title>
-        <Text type="secondary">
-          Hoàn tất các bước sau để xác minh tài khoản và tiếp tục thuê thiết bị.
+        <Title level={2} style={{ marginBottom: 8, color: "#000" }}>Xác minh danh tính (KYC)</Title>
+        <Text type="secondary" style={{ color: "#666" }}>
+          Hoàn tất các bước sau để xác minh tài khoản và tiếp tục thuê thiết bị . 
         </Text>
 
-        <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20 }}>
+        <Card className="rounded-xl mt-4" bodyStyle={{ padding: 20, background: "#fff" }} style={{ borderColor: "#ddd" }}>
           <Steps
             current={step}
             items={[
-              { title: "Tải giấy tờ", icon: <IdcardOutlined /> },
-              { title: "Thông tin", icon: <UserOutlined /> },
-              { title: "Xác nhận", icon: <CheckCircleTwoTone twoToneColor="#52c41a" /> },
+              { title: "Tải giấy tờ", icon: <IdcardOutlined style={{ color: "#000" }} /> },
+              { title: "Nhập thông tin", icon: <IdcardOutlined style={{ color: "#000" }} /> },
+              { title: "Xác nhận & gửi", icon: <CheckCircleTwoTone twoToneColor="#52c41a" style={{ fontSize: 20 }} /> },
             ]}
-            responsive
-            size="small"
-            style={{ marginBottom: 16 }}
+            responsive size="small" style={{ marginBottom: 16 }}
           />
 
-          {/* BƯỚC 1: UPLOAD GIẤY TỜ (đứng trước) */}
+          {/* STEP 0 */}
           {step === 0 && (
-            <div className="max-w-5xl mx-auto">
-              <Row gutter={16}>
-                <Col xs={24} md={8}>
-                  <UploadPanel
-                    label="Mặt trước"
-                    icon={<InboxOutlined />}
-                    fileList={front}
-                    setFileList={setFront}
-                    height={260}
-                  />
-                </Col>
-                <Col xs={24} md={8}>
-                  <UploadPanel
-                    label="Mặt sau"
-                    icon={<InboxOutlined />}
-                    fileList={back}
-                    setFileList={setBack}
-                    height={260}
-                  />
-                </Col>
-                <Col xs={24} md={8}>
-                  <UploadPanel
-                    label="Selfie cầm giấy tờ"
-                    icon={<CameraOutlined />}
-                    fileList={selfie}
-                    setFileList={setSelfie}
-                    height={260}
-                  />
-                </Col>
-              </Row>
-
-              <Space className="mt-3">
-                <Button type="primary" onClick={next}>
-                  Tiếp tục
-                </Button>
-              </Space>
-            </div>
-          )}
-
-          {/* BƯỚC 2: THÔNG TIN (không validate) */}
-          {step === 1 && (
-            <div className="max-w-3xl mx-auto">
-              <Form form={form} layout="vertical" requiredMark={false}>
+            <Spin spinning={ocring}>
+              <div className="max-w-5xl mx-auto">
                 <Row gutter={16}>
-                  <Col xs={24} md={12}>
-                    <Form.Item label="Họ và tên" name="fullName">
-                      <Input placeholder="Nguyễn Văn A" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Form.Item label="Số giấy tờ" name="idNumber">
-                      <Input placeholder="CCCD/CMND/Passport" />
-                    </Form.Item>
-                  </Col>
+                  <Col xs={24} md={8}><UploadPanel label="Mặt trước" icon={<InboxOutlined style={{ color: "#000" }} />} fileList={front} setFileList={setFront} /></Col>
+                  <Col xs={24} md={8}><UploadPanel label="Mặt sau"   icon={<InboxOutlined style={{ color: "#000" }} />} fileList={back}  setFileList={setBack}  /></Col>
+                  <Col xs={24} md={8}><UploadPanel label="Selfie cầm giấy tờ" icon={<CameraOutlined style={{ color: "#000" }} />} fileList={selfie} setFileList={setSelfie} /></Col>
                 </Row>
-
-                <Row gutter={16}>
-                  <Col xs={24} md={8}>
-                    <Form.Item label="Loại giấy tờ" name="idType" initialValue="cccd">
-                      <Select>
-                        <Option value="cccd">Căn cước công dân</Option>
-                        <Option value="cmnd">Chứng minh nhân dân</Option>
-                        <Option value="passport">Hộ chiếu</Option>
-                      </Select>
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item label="Ngày sinh" name="dob">
-                      <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item label="Ngày cấp" name="issueDate">
-                      <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
-                    </Form.Item>
-                  </Col>
-                </Row>
-
-                <Form.Item label="Địa chỉ (trên giấy tờ)" name="address">
-                  <Input placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" />
-                </Form.Item>
-
-                <Space>
-                  <Button onClick={prev}>Quay lại</Button>
-                  <Button type="primary" onClick={next}>
+                <Space className="mt-3" wrap>
+                  <Button type="primary" onClick={continueFromStep0} loading={ocring} style={{ background: "#000", borderColor: "#000", color: "#fff" }}>
                     Tiếp tục
                   </Button>
+                  <Button onClick={() => setStep(1)} disabled={ocring}>Điền tay (bỏ qua OCR)</Button>
                 </Space>
-              </Form>
-            </div>
+              </div>
+            </Spin>
           )}
 
-          {/* BƯỚC 3: XÁC NHẬN */}
-          {step === 2 && !done && (
-            <div className="max-w-4xl mx-auto">
-              <Row gutter={16}>
-                <Col xs={24} md={14}>
-                  <Card type="inner" title="Xem lại thông tin" className="mb-3">
-                    <Row gutter={[8, 8]}>
-                      <Col span={8}>
-                        <Text type="secondary">Họ tên</Text>
-                      </Col>
-                      <Col span={16}>
-                        <Text strong>{form.getFieldValue("fullName") || "—"}</Text>
-                      </Col>
+          {/* STEP 1 (always mounted, only hidden/visible) */}
+          {formSection}
 
-                      <Col span={8}>
-                        <Text type="secondary">Số giấy tờ</Text>
-                      </Col>
-                      <Col span={16}>
-                        <Text>{form.getFieldValue("idNumber") || "—"}</Text>
-                      </Col>
-
-                      <Col span={8}>
-                        <Text type="secondary">Loại giấy tờ</Text>
-                      </Col>
-                      <Col span={16}>
-                        <Text>
-                          {form.getFieldValue("idType") === "cccd"
-                            ? "Căn cước công dân"
-                            : form.getFieldValue("idType") === "cmnd"
-                            ? "Chứng minh nhân dân"
-                            : form.getFieldValue("idType") === "passport"
-                            ? "Hộ chiếu"
-                            : "—"}
-                        </Text>
-                      </Col>
-
-                      <Col span={8}>
-                        <Text type="secondary">Ngày sinh</Text>
-                      </Col>
-                      <Col span={16}>
-                        <Text>
-                          {form.getFieldValue("dob")?.format?.("DD/MM/YYYY") || "—"}
-                        </Text>
-                      </Col>
-
-                      <Col span={8}>
-                        <Text type="secondary">Ngày cấp</Text>
-                      </Col>
-                      <Col span={16}>
-                        <Text>
-                          {form.getFieldValue("issueDate")?.format?.("DD/MM/YYYY") || "—"}
-                        </Text>
-                      </Col>
-
-                      <Col span={8}>
-                        <Text type="secondary">Địa chỉ</Text>
-                      </Col>
-                      <Col span={16}>
-                        <Text>{form.getFieldValue("address") || "—"}</Text>
-                      </Col>
-                    </Row>
-                  </Card>
-
-                  <Space>
-                    <Button onClick={prev}>Quay lại</Button>
-                    <Button type="primary" onClick={() => setDone(true)}>
-                      Gửi xác minh
-                    </Button>
-                  </Space>
-                </Col>
-
-                <Col xs={24} md={10}>
-                  <Card type="inner" title="Ảnh đã tải lên">
-                    <div className="grid grid-cols-2 gap-8">
-                      <div>
-                        <Text type="secondary">Mặt trước</Text>
-                        {front[0] && (
-                          <div
-                            style={{
-                              width: "100%",
-                              paddingTop: "66%",
-                              borderRadius: 8,
-                              backgroundImage: `url(${
-                                front[0].thumbUrl ||
-                                front[0].url ||
-                                (front[0].originFileObj
-                                  ? URL.createObjectURL(front[0].originFileObj)
-                                  : "")
-                              })`,
-                              backgroundSize: "cover",
-                              backgroundPosition: "center",
-                              backgroundRepeat: "no-repeat",
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      <div>
-                        <Text type="secondary">Mặt sau</Text>
-                        {back[0] && (
-                          <div
-                            style={{
-                              width: "100%",
-                              paddingTop: "66%",
-                              borderRadius: 8,
-                              backgroundImage: `url(${
-                                back[0].thumbUrl ||
-                                back[0].url ||
-                                (back[0].originFileObj
-                                  ? URL.createObjectURL(back[0].originFileObj)
-                                  : "")
-                              })`,
-                              backgroundSize: "cover",
-                              backgroundPosition: "center",
-                              backgroundRepeat: "no-repeat",
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      <div className="col-span-2">
-                        <Text type="secondary">Selfie</Text>
-                        {selfie[0] && (
-                          <div
-                            style={{
-                              width: "100%",
-                              paddingTop: "56%",
-                              borderRadius: 8,
-                              backgroundImage: `url(${
-                                selfie[0].thumbUrl ||
-                                selfie[0].url ||
-                                (selfie[0].originFileObj
-                                  ? URL.createObjectURL(selfie[0].originFileObj)
-                                  : "")
-                              })`,
-                              backgroundSize: "cover",
-                              backgroundPosition: "center",
-                              backgroundRepeat: "no-repeat",
-                            }}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </Card>
-                </Col>
-              </Row>
-            </div>
-          )}
-
-          {/* HOÀN TẤT (UI) */}
-          {done && (
-            <Result
-              status="success"
-              title="Đã gửi thông tin KYC"
-              subTitle="Chúng tôi sẽ kiểm tra và phản hồi sớm nhất. Cảm ơn bạn!"
-              extra={
-                <Button type="primary" onClick={() => (window.location.href = "/")}>
-                  Về trang chủ
-                </Button>
-              }
-            />
-          )}
+          {/* STEP 2 */}
+          {reviewSection}
         </Card>
       </div>
     </div>

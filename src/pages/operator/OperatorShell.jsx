@@ -1,13 +1,16 @@
 // src/pages/operator/OperatorShell.jsx
 import React, { useState } from "react";
-import { Layout, Menu, Avatar } from "antd";
+import { Layout, Menu, Avatar, Dropdown } from "antd";
 import {
   DashboardOutlined,
   ProfileOutlined,
   ScheduleOutlined,
   ContainerOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
+import { useAuthStore } from "../../store/authStore";
 
 const { Sider, Header, Content } = Layout;
 
@@ -15,11 +18,14 @@ export default function OperatorShell() {
   const nav = useNavigate();
   const loc = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const logout = useAuthStore((s) => s.logout);
 
   const selected = (() => {
     if (loc.pathname.startsWith("/operator/orders")) return "orders";
     if (loc.pathname.startsWith("/operator/tasks")) return "tasks";
     if (loc.pathname.startsWith("/operator/shifts")) return "shifts";
+    if (loc.pathname.startsWith("/operator/contracts")) return "contracts";
+    if (loc.pathname === "/operator/kyc") return "kyc";
     return "dashboard";
   })();
 
@@ -52,7 +58,7 @@ export default function OperatorShell() {
             { key: "dashboard", icon: <DashboardOutlined />, label: "Tổng quan", onClick: () => nav("/operator") },
             { key: "orders", icon: <ProfileOutlined />, label: "Quản lý đơn", onClick: () => nav("/operator/orders") },
             { key: "tasks", icon: <ContainerOutlined />, label: "Nhiệm vụ", onClick: () => nav("/operator/tasks") },
-            { key: "shifts", icon: <ScheduleOutlined />, label: "Ca làm", onClick: () => nav("/operator/shifts") },
+            { key: "kyc", icon: <ProfileOutlined />, label: "KYC", onClick: () => nav("/operator/kyc") },
           ]}
         />
       </Sider>
@@ -67,7 +73,26 @@ export default function OperatorShell() {
             padding: "0 16px",
           }}
         >
-          <Avatar src="https://i.pravatar.cc/150?img=12" />
+          <Dropdown
+            menu={{
+              items: [
+                { key: "profile", label: "Hồ sơ", onClick: () => nav("/profile") },
+                { type: "divider" },
+                {
+                  key: "logout",
+                  label: "Đăng xuất",
+                  onClick: () => {
+                    logout();
+                    toast.success("Đã đăng xuất");
+                    nav("/login");
+                  },
+                },
+              ],
+            }}
+            trigger={["click"]}
+          >
+            <Avatar src="https://i.pravatar.cc/150?img=12" style={{ cursor: "pointer" }} />
+          </Dropdown>
         </Header>
         <Content style={{ padding: 16 }}>
           <Outlet />
