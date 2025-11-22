@@ -30,6 +30,20 @@ api.interceptors.request.use((config) => {
     }
   }
   
+  // Log handover report requests để debug evidenceUrls
+  if (config.url?.includes('/api/staff/handover-reports') && config.method === 'post') {
+    console.log("🔍 API Interceptor - Handover Report Request:");
+    console.log("  URL:", config.url);
+    console.log("  Method:", config.method);
+    console.log("  Headers:", config.headers);
+    if (config.data) {
+      console.log("  Request Data:", JSON.stringify(config.data, null, 2));
+      console.log("  evidenceUrls:", config.data.evidenceUrls);
+      console.log("  evidenceUrls type:", typeof config.data.evidenceUrls, Array.isArray(config.data.evidenceUrls));
+      console.log("  evidenceUrls length:", config.data.evidenceUrls?.length);
+    }
+  }
+  
   return config;
 });
 

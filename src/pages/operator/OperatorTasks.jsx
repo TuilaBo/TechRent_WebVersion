@@ -294,9 +294,9 @@ export default function OperatorTasks() {
     if (!upper) return { color: "default", label: "—" };
     if (upper.includes("PENDING")) return { color: "orange", label: "Đang chờ" };
     if (upper.includes("PROCESSING")) return { color: "purple", label: "Đang xử lý" };
-    if (upper.includes("READY_FOR_DELIVERY")) return { color: "processing", label: "Sẵn sàng giao" };
+    if (upper.includes("READY_FOR_DELIVERY")) return { color: "processing", label: "Sẵn sàng giao hàng" };
     if (upper.includes("DELIVERING")) return { color: "cyan", label: "Đang giao" };
-    if (upper.includes("DELIVERY_CONFIRMED")) return { color: "blue", label: "Đã xác nhận giao" };
+    if (upper.includes("DELIVERY_CONFIRMED")) return { color: "blue", label: "Sẵn sàng giao hàng" };
     if (upper.includes("IN_USE")) return { color: "geekblue", label: "Đang sử dụng" };
     if (upper.includes("COMPLETED")) return { color: "green", label: "Hoàn tất" };
     if (upper.includes("CONFIRM")) return { color: "blue", label: "Đã xác nhận" };

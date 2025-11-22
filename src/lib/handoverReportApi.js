@@ -15,6 +15,37 @@ export async function sendHandoverPin(orderId) {
 }
 
 /**
+ * POST /api/staff/handover-reports/{handoverReportId}/pin
+ * Gửi mã PIN cho handover report cụ thể
+ * @param {number} handoverReportId - ID của handover report
+ * @returns {Promise<Object>} Response từ API (thường là empty object {})
+ */
+export async function sendHandoverReportPin(handoverReportId) {
+  const { data } = await api.post(`/api/staff/handover-reports/${Number(handoverReportId)}/pin`);
+  return unwrap(data) ?? {};
+}
+
+/**
+ * PATCH /api/staff/handover-reports/{handoverReportId}/signature
+ * Cập nhật chữ ký nhân viên cho handover report
+ * @param {number} handoverReportId - ID của handover report
+ * @param {Object} body - Dữ liệu chữ ký
+ * @param {string} body.pinCode - Mã PIN để xác thực
+ * @param {string} body.staffSignature - Chữ ký nhân viên (base64 hoặc URL)
+ * @returns {Promise<Object>} Response từ API
+ */
+export async function updateHandoverReportSignature(handoverReportId, body) {
+  const { data } = await api.patch(
+    `/api/staff/handover-reports/${Number(handoverReportId)}/signature`,
+    {
+      pinCode: String(body.pinCode || ""),
+      staffSignature: String(body.staffSignature || ""),
+    }
+  );
+  return unwrap(data);
+}
+
+/**
  * POST /api/staff/handover-reports
  * Tạo handover report (biên bản bàn giao)
  * @param {Object} body - Dữ liệu handover report
@@ -24,28 +55,29 @@ export async function sendHandoverPin(orderId) {
  * @param {string} body.handoverDateTime - Thời gian bàn giao (ISO string)
  * @param {string} body.handoverLocation - Địa điểm bàn giao
  * @param {string} body.customerSignature - Chữ ký khách hàng (base64 hoặc URL)
- * @param {string} body.pinCode - Mã PIN
  * @param {Array<Object>} body.items - Danh sách thiết bị
  * @param {string} body.items[].itemName - Tên thiết bị
  * @param {string} body.items[].itemCode - Mã thiết bị
  * @param {string} body.items[].unit - Đơn vị
  * @param {number} body.items[].orderedQuantity - Số lượng đặt
  * @param {number} body.items[].deliveredQuantity - Số lượng giao
- * @param {Array<File>} body.evidences - Mảng các file bằng chứng (ảnh, PDF, etc.)
+ * @param {Array<Object>} body.deviceQualityInfos - Thông tin chất lượng thiết bị
+ * @param {string} body.deviceQualityInfos[].deviceSerialNumber - Serial number của thiết bị
+ * @param {string} body.deviceQualityInfos[].qualityStatus - Trạng thái chất lượng
+ * @param {string} body.deviceQualityInfos[].qualityDescription - Mô tả chất lượng
+ * @param {string} body.deviceQualityInfos[].deviceModelName - Tên model thiết bị
+ * @param {Array<string>} body.evidenceUrls - Danh sách URL ảnh bằng chứng (base64 hoặc URL)
  * @returns {Promise<Object>} Response từ API
  */
 export async function createHandoverReport(body) {
-  const fd = new FormData();
-  
-  // Phần JSON data
+  // Tách data và evidences như Swagger (multipart/form-data)
   const dataObj = {
-    taskId: Number(body.taskId),
+    taskId: Number(body.taskId || 0),
     customerInfo: String(body.customerInfo || ""),
     technicianInfo: String(body.technicianInfo || ""),
     handoverDateTime: String(body.handoverDateTime || ""),
     handoverLocation: String(body.handoverLocation || ""),
     customerSignature: String(body.customerSignature || ""),
-    pinCode: String(body.pinCode || ""),
     items: Array.isArray(body.items) ? body.items.map((item) => ({
       itemName: String(item.itemName || ""),
       itemCode: String(item.itemCode || ""),
@@ -53,21 +85,60 @@ export async function createHandoverReport(body) {
       orderedQuantity: Number(item.orderedQuantity || 0),
       deliveredQuantity: Number(item.deliveredQuantity || 0),
     })) : [],
+    deviceQualityInfos: Array.isArray(body.deviceQualityInfos) ? body.deviceQualityInfos.map((info) => ({
+      deviceSerialNumber: String(info.deviceSerialNumber || ""),
+      qualityStatus: String(info.qualityStatus || ""),
+      qualityDescription: String(info.qualityDescription || ""),
+      deviceModelName: String(info.deviceModelName || ""),
+    })) : [],
   };
   
-  fd.append("data", new Blob([JSON.stringify(dataObj)], { type: "application/json" }));
+  // Ưu tiên dùng File objects nếu có, nếu không thì dùng base64 URLs
+  const evidenceFiles = Array.isArray(body.evidenceFiles) ? body.evidenceFiles : [];
+  const evidenceUrls = Array.isArray(body.evidenceUrls) ? body.evidenceUrls : [];
   
-  // Phần files bằng chứng (evidences)
-  if (Array.isArray(body.evidences) && body.evidences.length > 0) {
-    body.evidences.forEach((file, index) => {
-      if (file instanceof File) {
-        fd.append("evidences", file, file.name || `evidence_${index}.jpg`);
-      }
+  // Debug: Log payload để kiểm tra
+  console.log("🔍 createHandoverReport - dataObj:", JSON.stringify(dataObj, null, 2));
+  console.log("🔍 createHandoverReport - evidenceFiles:", evidenceFiles.map(f => ({ name: f.name, size: f.size, type: f.type })));
+  console.log("🔍 createHandoverReport - evidenceUrls:", evidenceUrls.length > 0 ? `${evidenceUrls.length} base64 URLs` : "empty");
+  
+  // Gửi dạng multipart/form-data như Swagger
+  const formData = new FormData();
+  formData.append("data", JSON.stringify(dataObj));
+  
+  // Append evidences - ưu tiên File objects, nếu không có thì dùng base64 URLs
+  if (evidenceFiles.length > 0) {
+    // Gửi File objects (backend sẽ tự upload lên Cloudinary)
+    evidenceFiles.forEach((file) => {
+      formData.append("evidences", file);
     });
+    console.log("🔍 Using File objects for evidences");
+  } else if (evidenceUrls.length > 0) {
+    // Fallback: gửi base64 URLs nếu không có File objects
+    evidenceUrls.forEach((url) => {
+      formData.append("evidences", url);
+    });
+    console.log("🔍 Using base64 URLs for evidences");
   }
   
-  const { data } = await api.post("/api/staff/handover-reports", fd, {
-    headers: { "Content-Type": "multipart/form-data" },
+  console.log("🔍 FormData entries:");
+  for (let pair of formData.entries()) {
+    const value = pair[1];
+    if (value instanceof File) {
+      console.log("  ", pair[0], ":", `File(${value.name}, ${value.size} bytes, ${value.type})`);
+    } else {
+      // Truncate long base64 strings for logging
+      const displayValue = typeof value === 'string' && value.length > 100 
+        ? value.substring(0, 100) + '...' 
+        : value;
+      console.log("  ", pair[0], ":", displayValue);
+    }
+  }
+  
+  const { data } = await api.post("/api/staff/handover-reports", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
   });
   
   return unwrap(data);
@@ -100,3 +171,67 @@ export async function getHandoverReportsByOrderId(orderId) {
   return unwrap(data) ?? [];
 }
 
+/**
+ * GET /api/staff/handover-reports/order/{orderId}/task/{taskId}
+ * Lấy handover report theo orderId và taskId
+ * @param {number} orderId - ID của đơn hàng
+ * @param {number} taskId - ID của task
+ * @returns {Promise<Object>} Response từ API
+ */
+export async function getHandoverReportByOrderIdAndTaskId(orderId, taskId) {
+  const { data } = await api.get(`/api/staff/handover-reports/order/${Number(orderId)}/task/${Number(taskId)}`);
+  return unwrap(data);
+}
+
+// =========================
+// CUSTOMER APIs
+// =========================
+
+/**
+ * POST /api/customers/handover-reports/{handoverReportId}/pin
+ * Gửi mã PIN cho customer qua email
+ * @param {number} handoverReportId - ID của handover report
+ * @param {Object} body - Dữ liệu gửi PIN
+ * @param {string} body.email - Email của customer để nhận mã PIN
+ * @returns {Promise<Object>} Response từ API (thường là empty object {})
+ */
+export async function sendCustomerHandoverReportPin(handoverReportId, body) {
+  const { data } = await api.post(
+    `/api/customers/handover-reports/${Number(handoverReportId)}/pin`,
+    {
+      email: String(body.email || ""),
+    }
+  );
+  return unwrap(data) ?? {};
+}
+
+/**
+ * PATCH /api/customers/handover-reports/{handoverReportId}/signature
+ * Cập nhật chữ ký customer cho handover report
+ * @param {number} handoverReportId - ID của handover report
+ * @param {Object} body - Dữ liệu chữ ký
+ * @param {string} body.pinCode - Mã PIN để xác thực
+ * @param {string} body.customerSignature - Chữ ký customer (base64 hoặc URL)
+ * @returns {Promise<Object>} Response từ API
+ */
+export async function updateCustomerHandoverReportSignature(handoverReportId, body) {
+  const { data } = await api.patch(
+    `/api/customers/handover-reports/${Number(handoverReportId)}/signature`,
+    {
+      pinCode: String(body.pinCode || ""),
+      customerSignature: String(body.customerSignature || ""),
+    }
+  );
+  return unwrap(data);
+}
+
+/**
+ * GET /api/customers/handover-reports/orders/{orderId}
+ * Lấy danh sách handover reports theo orderId (cho customer)
+ * @param {number} orderId - ID của đơn hàng
+ * @returns {Promise<Array>} Danh sách handover reports
+ */
+export async function getCustomerHandoverReportsByOrderId(orderId) {
+  const { data } = await api.get(`/api/customers/handover-reports/orders/${Number(orderId)}`);
+  return unwrap(data) ?? [];
+}

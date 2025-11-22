@@ -958,27 +958,6 @@ export default function OperatorOrders() {
 
         <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
           <div style="flex:1;text-align:center">
-            <div><b>ĐẠI DIỆN BÊN A</b></div>
-            <div style="height:72px;display:flex;align-items:center;justify-content:center">
-              ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
-            </div>
-            <div>
-              ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
-            </div>
-          </div>
-          <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
               ${(() => {
@@ -994,6 +973,27 @@ export default function OperatorOrders() {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
                   return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                }
+                return "(Ký, ghi rõ họ tên)";
+              })()}
+            </div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN A</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                }
+                return "";
+              })()}
+            </div>
+            <div>
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}

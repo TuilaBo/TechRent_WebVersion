@@ -18,6 +18,11 @@ import { getMyKyc } from "../../lib/kycApi";
 import { createPayment, getInvoiceByRentalOrderId } from "../../lib/Payment";
 import { listTasks } from "../../lib/taskApi";
 import { getSettlementByOrderId, respondSettlement } from "../../lib/settlementApi";
+import { 
+  getCustomerHandoverReportsByOrderId,
+  sendCustomerHandoverReportPin,
+  updateCustomerHandoverReportSignature
+} from "../../lib/handoverReportApi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
@@ -464,6 +469,286 @@ function augmentContractContent(detail) {
 }
 
 /* =========================
+ * Handover Report Helpers
+ * ========================= */
+function parseInfoString(infoStr) {
+  if (!infoStr) return { name: "", phone: "", email: "" };
+  const parts = infoStr.split("•").map(s => s.trim()).filter(Boolean);
+  return {
+    name: parts[0] || "",
+    phone: parts[1] || "",
+    email: parts[2] || "",
+  };
+}
+
+function translateRole(role) {
+  const r = String(role || "").toUpperCase();
+  if (r === "TECHNICIAN") return "Kỹ thuật viên";
+  return role;
+}
+
+function translateHandoverStatus(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "STAFF_SIGNED") return "Nhân viên đã ký";
+  if (s === "CUSTOMER_SIGNED") return "Đã ký khách hàng";
+  if (s === "BOTH_SIGNED") return "2 bên đã ký";
+  if (s === "PENDING_STAFF_SIGNATURE") return "Chờ nhân viên ký";
+  if (s === "COMPLETED") return "Hoàn thành";
+  return status || "—";
+}
+
+function buildPrintableHandoverReportHtml(report) {
+  const customerInfo = parseInfoString(report.customerInfo);
+  const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
+  const customerName = customerInfo.name || "—";
+  const technicianName = technicianInfo.name || "—";
+  
+  const itemsRows = (report.items || []).map((item, idx) => `
+    <tr>
+      <td style="text-align:center">${idx + 1}</td>
+      <td>${item.itemName || "—"}</td>
+      <td>${item.itemCode || "—"}</td>
+      <td style="text-align:center">${item.unit || "—"}</td>
+      <td style="text-align:center">${item.orderedQuantity || 0}</td>
+      <td style="text-align:center">${item.deliveredQuantity || 0}</td>
+    </tr>
+  `).join("");
+  
+  const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
+    <tr>
+      <td style="text-align:center">${idx + 1}</td>
+      <td>${q.deviceModelName || "—"}</td>
+      <td>${q.deviceSerialNumber || "—"}</td>
+      <td>${q.qualityStatus === "GOOD" ? "Tốt" : q.qualityStatus === "FAIR" ? "Khá" : q.qualityStatus === "POOR" ? "Kém" : q.qualityStatus || "—"}</td>
+      <td>${q.qualityDescription || "—"}</td>
+    </tr>
+  `).join("");
+  
+  const techniciansList = (report.technicians || []).map(t => {
+    const name = t.fullName || t.username || `Nhân viên #${t.staffId}`;
+    const phone = t.phoneNumber || "";
+    return `<li><strong>${name}</strong>${phone ? `<br/>Số điện thoại: ${phone}` : ""}</li>`;
+  }).join("");
+  
+  return `
+    <style>
+      .print-pdf-root,
+      .print-pdf-root * {
+        font-family: Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif !important;
+        -webkit-font-smoothing: antialiased !important;
+        -moz-osx-font-smoothing: grayscale !important;
+        text-rendering: optimizeLegibility !important;
+      }
+      .print-pdf-root h1, .print-pdf-root h2, .print-pdf-root h3 { margin: 8px 0 6px; font-weight: 700; }
+      .print-pdf-root h3 { font-size: 14px; text-transform: uppercase; }
+      .print-pdf-root p { margin: 6px 0; }
+      .print-pdf-root ol, .print-pdf-root ul { margin: 6px 0 6px 18px; padding: 0; }
+      .print-pdf-root li { margin: 3px 0; }
+      .print-pdf-root .kv { margin-bottom: 10px; }
+      .print-pdf-root .kv div { margin: 2px 0; }
+      .print-pdf-root table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+      .print-pdf-root table th, .print-pdf-root table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      .print-pdf-root table th { background-color: #f5f5f5; font-weight: 600; }
+    </style>
+    <div class="print-pdf-root"
+         style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
+      ${NATIONAL_HEADER_HTML}
+      
+      <h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>
+      
+      <section class="kv">
+        <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
+        <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
+        <div><b>Mã task:</b> #${report.taskId || "—"}</div>
+        <div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
+        <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>
+        <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
+      </section>
+      
+      <h3>Thông tin khách hàng</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${customerName}</div>
+        ${customerInfo.phone ? `<div><b>Số điện thoại:</b> ${customerInfo.phone}</div>` : ""}
+        ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
+      </section>
+      
+      <h3>Thông tin kỹ thuật viên</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${technicianName}</div>
+        ${technicianInfo.phone ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>` : ""}
+        ${technicianInfo.email ? `<div><b>Email:</b> ${technicianInfo.email}</div>` : ""}
+      </section>
+      
+      <h3>Danh sách thiết bị bàn giao</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Tên thiết bị</th>
+            <th>Mã thiết bị (Serial Number)</th>
+            <th style="width:80px">Đơn vị</th>
+            <th style="width:80px;text-align:center">SL đặt</th>
+            <th style="width:80px;text-align:center">SL giao</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsRows || "<tr><td colspan='6' style='text-align:center'>Không có thiết bị</td></tr>"}
+        </tbody>
+      </table>
+      
+      ${qualityRows ? `
+      <h3>Thông tin chất lượng thiết bị</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Tên model</th>
+            <th>Serial Number</th>
+            <th>Trạng thái chất lượng</th>
+            <th>Mô tả</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${qualityRows}
+        </tbody>
+      </table>
+      ` : ""}
+      
+      ${techniciansList ? `
+      <h3>Kỹ thuật viên tham gia</h3>
+      <ul>
+        ${techniciansList}
+      </ul>
+      ` : ""}
+      
+      ${report.createdByStaff ? `
+      <h3>Người tạo biên bản</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${report.createdByStaff.fullName || report.createdByStaff.username || `Nhân viên #${report.createdByStaff.staffId}`}</div>
+        ${report.createdByStaff.email ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>` : ""}
+        ${report.createdByStaff.phoneNumber ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>` : ""}
+        ${report.createdByStaff.role ? `<div><b>Vai trò:</b> ${translateRole(report.createdByStaff.role)}</div>` : ""}
+      </section>
+      ` : ""}
+      
+      ${(report.evidenceUrls || []).length > 0 ? `
+      <h3>Ảnh bằng chứng</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
+        ${report.evidenceUrls.map((url, idx) => {
+          // Kiểm tra xem là base64 hay URL
+          const isBase64 = url.startsWith("data:image");
+          const imgSrc = isBase64 ? url : url;
+          return `
+          <div style="flex:0 0 auto;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">Bằng chứng ${idx + 1}</div>
+            <img 
+              src="${imgSrc}" 
+              alt="Bằng chứng ${idx + 1}"
+              style="
+                max-width:200px;
+                max-height:200px;
+                border:1px solid #ddd;
+                border-radius:4px;
+                display:block;
+                object-fit:contain;
+              "
+              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
+            />
+            <div style="display:none;padding:8px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;max-width:200px;font-size:10px;color:#666">
+              Không thể tải ảnh<br/>
+              <a href="${url}" target="_blank" style="color:#1890ff">Xem link</a>
+            </div>
+          </div>
+        `;
+        }).join("")}
+      </div>
+      ` : ""}
+      
+      <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+        <div style="flex:1;text-align:center">
+          <div><b>KHÁCH HÀNG</b></div>
+          <div style="height:72px;display:flex;align-items:center;justify-content:center">
+            ${report.customerSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
+          </div>
+          <div>
+            ${report.customerSigned 
+              ? `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>` 
+              : "(Ký, ghi rõ họ tên)"}
+          </div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div><b>NHÂN VIÊN</b></div>
+          <div style="height:72px;display:flex;align-items:center;justify-content:center">
+            ${report.staffSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
+          </div>
+          <div>
+            ${report.staffSigned 
+              ? `<div style="color:#52c41a;font-weight:600">${technicianName} đã ký</div>` 
+              : "(Ký, ghi rõ họ tên)"}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function elementToPdfBlobHandover(el) {
+  if (document.fonts && document.fonts.ready) {
+    await document.fonts.ready;
+  }
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+    letterRendering: true,
+    onclone: (clonedDoc) => {
+      const clonedBody = clonedDoc.body;
+      if (clonedBody) {
+        clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        clonedBody.style.webkitFontSmoothing = "antialiased";
+        clonedBody.style.mozOsxFontSmoothing = "grayscale";
+      }
+      const allElements = clonedDoc.querySelectorAll('*');
+      allElements.forEach(elem => {
+        if (elem.style) {
+          elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        }
+      });
+    },
+  });
+
+  const pdf = new jsPDF("p", "pt", "a4");
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const ratio = pageWidth / canvas.width;
+
+  const pageCanvas = document.createElement("canvas");
+  const ctx = pageCanvas.getContext("2d");
+
+  let renderedHeight = 0;
+  while (renderedHeight < canvas.height) {
+    const sliceHeight = Math.min(pageHeight / ratio, canvas.height - renderedHeight);
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeight;
+    ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+    ctx.drawImage(
+      canvas,
+      0, renderedHeight, canvas.width, sliceHeight,
+      0, 0, canvas.width, sliceHeight
+    );
+    const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+    if (renderedHeight > 0) pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
+    renderedHeight += sliceHeight;
+  }
+  return pdf.output("blob");
+}
+
+/* =========================
  * 4) MAP ORDER (chuẩn hoá từ BE)
  * ========================= */
 async function mapOrderFromApi(order) {
@@ -582,6 +867,8 @@ export default function MyOrders() {
   const [contractCustomer, setContractCustomer] = useState(null);
 
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
+  const [contractPdfPreviewUrl, setContractPdfPreviewUrl] = useState(""); // For inline preview
+  const [selectedContract, setSelectedContract] = useState(null);
 
   // PDF (FE render)
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
@@ -612,6 +899,21 @@ export default function MyOrders() {
   const [settlementLoading, setSettlementLoading] = useState(false);
   const [settlementActionLoading, setSettlementActionLoading] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
+  // Handover reports
+  const [handoverReports, setHandoverReports] = useState([]);
+  const [handoverReportsLoading, setHandoverReportsLoading] = useState(false);
+  const [handoverPdfModalOpen, setHandoverPdfModalOpen] = useState(false);
+  const [handoverPdfBlobUrl, setHandoverPdfBlobUrl] = useState("");
+  const [handoverPdfPreviewUrl, setHandoverPdfPreviewUrl] = useState(""); // For inline preview
+  const [handoverPdfGenerating, setHandoverPdfGenerating] = useState(false);
+  const [selectedHandoverReport, setSelectedHandoverReport] = useState(null);
+  const handoverPrintRef = useRef(null);
+  // Handover signing
+  const [signingHandover, setSigningHandover] = useState(false);
+  const [handoverSignModalOpen, setHandoverSignModalOpen] = useState(false);
+  const [currentHandoverReportId, setCurrentHandoverReportId] = useState(null);
+  const [handoverPinSent, setHandoverPinSent] = useState(false);
+  const [handoverSigning, setHandoverSigning] = useState(false);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
   const [processingReturn, setProcessingReturn] = useState(false);
@@ -817,6 +1119,26 @@ export default function MyOrders() {
       checkCloseToReturn();
     }
   }, [orders, returnModalOpen, extendModalOpen]);
+
+  // Auto select and preview first handover report when reports are loaded
+  useEffect(() => {
+    if (handoverReports.length > 0 && !selectedHandoverReport) {
+      const firstReport = handoverReports[0];
+      setSelectedHandoverReport(firstReport);
+      previewHandoverReportAsPdf(firstReport);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoverReports]);
+
+  // Auto select and preview first contract when contracts are loaded
+  useEffect(() => {
+    if (contracts.length > 0 && !selectedContract) {
+      const firstContract = contracts[0];
+      setSelectedContract(firstContract);
+      previewContractAsPdfInline(firstContract);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contracts]);
 
   const loadCustomerProfile = async () => {
     try {
@@ -1267,6 +1589,7 @@ export default function MyOrders() {
       }
       await loadOrderContracts(idNum);
       await loadOrderSettlement(idNum);
+      await loadOrderHandoverReports(idNum);
     } catch (err) {
       console.error("Error loading order details:", err);
     }
@@ -1377,6 +1700,256 @@ export default function MyOrders() {
       return null;
     } finally {
       setSettlementLoading(false);
+    }
+  };
+
+  const loadOrderHandoverReports = async (orderId) => {
+    if (!orderId) {
+      setHandoverReports([]);
+      return [];
+    }
+    try {
+      setHandoverReportsLoading(true);
+      const reports = await getCustomerHandoverReportsByOrderId(orderId);
+      const reportsArray = Array.isArray(reports) ? reports : [];
+      setHandoverReports(reportsArray);
+      return reportsArray;
+    } catch (e) {
+      console.error("Failed to fetch handover reports by orderId:", e);
+      setHandoverReports([]);
+      return [];
+    } finally {
+      setHandoverReportsLoading(false);
+    }
+  };
+
+  // Check if there are unsigned handover reports
+  const hasUnsignedHandoverReports = useMemo(() => {
+    return handoverReports.some(report => {
+      const status = String(report?.status || "").toUpperCase();
+      return status === "STAFF_SIGNED" && !report?.customerSigned;
+    });
+  }, [handoverReports]);
+
+  // Preview handover report PDF (for modal)
+  const handlePreviewHandoverPdf = async (report) => {
+    try {
+      setHandoverPdfGenerating(true);
+      setSelectedHandoverReport(report);
+      
+      if (handoverPdfBlobUrl) {
+        URL.revokeObjectURL(handoverPdfBlobUrl);
+        setHandoverPdfBlobUrl("");
+      }
+      
+      if (handoverPrintRef.current) {
+        handoverPrintRef.current.style.visibility = "visible";
+        handoverPrintRef.current.style.opacity = "1";
+        handoverPrintRef.current.style.left = "-99999px";
+        handoverPrintRef.current.style.top = "-99999px";
+        handoverPrintRef.current.style.width = "794px";
+        handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        
+        const allElements = handoverPrintRef.current.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style) {
+            el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+            el.style.webkitFontSmoothing = "antialiased";
+            el.style.mozOsxFontSmoothing = "grayscale";
+          }
+        });
+        
+        handoverPrintRef.current.offsetHeight;
+        
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
+        
+        handoverPrintRef.current.style.visibility = "hidden";
+        handoverPrintRef.current.style.opacity = "0";
+        
+        const url = URL.createObjectURL(blob);
+        setHandoverPdfBlobUrl(url);
+        setHandoverPdfModalOpen(true);
+      }
+    } catch (e) {
+      console.error("Error generating handover PDF:", e);
+      message.error("Không thể tạo bản xem trước PDF");
+    } finally {
+      setHandoverPdfGenerating(false);
+    }
+  };
+
+  // Preview handover report PDF (for inline preview)
+  const previewHandoverReportAsPdf = async (report) => {
+    if (!report) return message.warning("Chưa chọn biên bản.");
+    
+    try {
+      setHandoverPdfGenerating(true);
+      setSelectedHandoverReport(report);
+      
+      if (handoverPdfPreviewUrl) {
+        URL.revokeObjectURL(handoverPdfPreviewUrl);
+        setHandoverPdfPreviewUrl("");
+      }
+      
+      if (handoverPrintRef.current) {
+        handoverPrintRef.current.style.visibility = "visible";
+        handoverPrintRef.current.style.opacity = "1";
+        handoverPrintRef.current.style.left = "-99999px";
+        handoverPrintRef.current.style.top = "-99999px";
+        handoverPrintRef.current.style.width = "794px";
+        handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        
+        const allElements = handoverPrintRef.current.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style) {
+            el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+            el.style.webkitFontSmoothing = "antialiased";
+            el.style.mozOsxFontSmoothing = "grayscale";
+          }
+        });
+        
+        handoverPrintRef.current.offsetHeight;
+        
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
+        
+        handoverPrintRef.current.style.visibility = "hidden";
+        handoverPrintRef.current.style.opacity = "0";
+        
+        const url = URL.createObjectURL(blob);
+        setHandoverPdfPreviewUrl(url);
+      }
+    } catch (e) {
+      console.error("Error generating handover PDF:", e);
+      message.error("Không thể tạo bản xem trước PDF");
+    } finally {
+      setHandoverPdfGenerating(false);
+    }
+  };
+
+  // Download handover report PDF
+  const handleDownloadHandoverPdf = async (report) => {
+    try {
+      setHandoverPdfGenerating(true);
+      
+      if (handoverPrintRef.current) {
+        handoverPrintRef.current.style.visibility = "visible";
+        handoverPrintRef.current.style.opacity = "1";
+        handoverPrintRef.current.style.left = "-99999px";
+        handoverPrintRef.current.style.top = "-99999px";
+        handoverPrintRef.current.style.width = "794px";
+        handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        
+        const allElements = handoverPrintRef.current.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style) {
+            el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+            el.style.webkitFontSmoothing = "antialiased";
+            el.style.mozOsxFontSmoothing = "grayscale";
+          }
+        });
+        
+        handoverPrintRef.current.offsetHeight;
+        
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
+        
+        handoverPrintRef.current.style.visibility = "hidden";
+        handoverPrintRef.current.style.opacity = "0";
+        
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `handover-report-${report.handoverReportId || report.id || "report"}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 0);
+      }
+    } catch (e) {
+      console.error("Error downloading handover PDF:", e);
+      message.error("Không thể tải PDF");
+    } finally {
+      setHandoverPdfGenerating(false);
+    }
+  };
+
+  // Handle sign handover report
+  const handleSignHandoverReport = async (reportId) => {
+    if (!reportId) {
+      message.error("ID biên bản không hợp lệ");
+      return;
+    }
+    if (!customerProfile?.email) {
+      message.error("Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin cá nhân.");
+      return;
+    }
+    setCurrentHandoverReportId(reportId);
+    setHandoverSignModalOpen(true);
+    setHandoverPinSent(false);
+  };
+
+  // Send PIN for handover report
+  const sendHandoverPin = async () => {
+    if (!currentHandoverReportId || !customerProfile?.email) {
+      message.error("Không tìm thấy email để gửi mã PIN.");
+      return;
+    }
+    try {
+      setSigningHandover(true);
+      await sendCustomerHandoverReportPin(currentHandoverReportId, { email: customerProfile.email });
+      message.success("Đã gửi mã PIN đến email của bạn!");
+      setHandoverPinSent(true);
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Không gửi được mã PIN.");
+    } finally {
+      setSigningHandover(false);
+    }
+  };
+
+  // Sign handover report
+  const handleSignHandover = async (values) => {
+    if (!currentHandoverReportId) {
+      message.error("Không tìm thấy biên bản để ký.");
+      return;
+    }
+    try {
+      setHandoverSigning(true);
+      const customerSignature = customerProfile?.fullName || customerProfile?.name || customerProfile?.email || "";
+      await updateCustomerHandoverReportSignature(currentHandoverReportId, {
+        pinCode: values.pinCode,
+        customerSignature: customerSignature,
+      });
+      message.success("Ký biên bản bàn giao thành công!");
+      setHandoverSignModalOpen(false);
+      setCurrentHandoverReportId(null);
+      setHandoverPinSent(false);
+      // Reload handover reports
+      if (current?.id) {
+        await loadOrderHandoverReports(current.id);
+      }
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Không thể ký biên bản.");
+    } finally {
+      setHandoverSigning(false);
     }
   };
 
@@ -1594,27 +2167,6 @@ export default function MyOrders() {
 
         <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
           <div style="flex:1;text-align:center">
-            <div><b>ĐẠI DIỆN BÊN A</b></div>
-            <div style="height:72px;display:flex;align-items:center;justify-content:center">
-              ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
-            </div>
-            <div>
-              ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
-            </div>
-          </div>
-          <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
               ${(() => {
@@ -1630,6 +2182,27 @@ export default function MyOrders() {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
                   return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                }
+                return "(Ký, ghi rõ họ tên)";
+              })()}
+            </div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN A</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                }
+                return "";
+              })()}
+            </div>
+            <div>
+              ${(() => {
+                const status = String(detail.status || "").toUpperCase();
+                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -1769,6 +2342,97 @@ export default function MyOrders() {
       setPdfGenerating(false);
     }
   }
+
+  // Preview contract PDF inline (for Card preview)
+  const previewContractAsPdfInline = async (contract) => {
+    if (!contract) return message.warning("Chưa chọn hợp đồng.");
+    
+    try {
+      setPdfGenerating(true);
+      setSelectedContract(contract);
+      
+      if (contractPdfPreviewUrl) {
+        URL.revokeObjectURL(contractPdfPreviewUrl);
+        setContractPdfPreviewUrl("");
+      }
+      
+      // If contract has URL, use it directly (but still set selected contract)
+      if (contract.contractUrl) {
+        setContractPdfPreviewUrl(contract.contractUrl);
+        setPdfGenerating(false);
+        return;
+      }
+      
+      // Also check current.contractUrl as fallback
+      if (current?.contractUrl) {
+        setContractPdfPreviewUrl(current.contractUrl);
+        setPdfGenerating(false);
+        return;
+      }
+      
+      // Otherwise, generate from HTML
+      const detail = augmentContractContent(contract);
+      
+      let customer = contractCustomer || customerProfile;
+      let kyc = null;
+
+      try {
+        if (!customer) {
+          const customerData = await fetchMyCustomerProfile();
+          customer = normalizeCustomer(customerData || {});
+        }
+      } catch (e) {
+        console.error("Failed to fetch customer profile:", e);
+      }
+
+      try {
+        const kycData = await getMyKyc();
+        kyc = kycData || null;
+      } catch (e) {
+        console.error("Failed to fetch KYC data:", e);
+      }
+
+      if (printRef.current) {
+        printRef.current.style.visibility = "visible";
+        printRef.current.style.opacity = "1";
+        printRef.current.style.left = "-99999px";
+        printRef.current.style.top = "-99999px";
+        printRef.current.style.width = "794px";
+        printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        
+        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
+        
+        const allElements = printRef.current.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style) {
+            el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+            el.style.webkitFontSmoothing = "antialiased";
+            el.style.mozOsxFontSmoothing = "grayscale";
+          }
+        });
+        
+        printRef.current.offsetHeight;
+        
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const blob = await elementToPdfBlob(printRef.current);
+        
+        printRef.current.style.visibility = "hidden";
+        printRef.current.style.opacity = "0";
+        
+        const url = URL.createObjectURL(blob);
+        setContractPdfPreviewUrl(url);
+      }
+    } catch (e) {
+      console.error("Error generating contract PDF:", e);
+      message.error("Không thể tạo bản xem trước PDF");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
 
   // Polling fallback: detect orders entering 'processing'
   const seenProcessingRef = useRef(new Set());
@@ -2087,6 +2751,18 @@ export default function MyOrders() {
           clearContractPreviewState();
           setDetailTab("overview");
           setSettlementInfo(null);
+          // Clear handover preview
+          if (handoverPdfPreviewUrl) {
+            URL.revokeObjectURL(handoverPdfPreviewUrl);
+            setHandoverPdfPreviewUrl("");
+          }
+          setSelectedHandoverReport(null);
+          // Clear contract preview
+          if (contractPdfPreviewUrl && !contractPdfPreviewUrl.startsWith('http')) {
+            URL.revokeObjectURL(contractPdfPreviewUrl);
+          }
+          setContractPdfPreviewUrl("");
+          setSelectedContract(null);
         }}
         styles={{
           body: { padding: 0, background: "#f5f7fa" },
@@ -2181,6 +2857,27 @@ export default function MyOrders() {
             </div>
           );
         })()}
+        {current && hasUnsignedHandoverReports && (
+          <div
+            style={{
+              padding: "16px 24px",
+              borderBottom: "1px solid #e8e8e8",
+              background: "#fff",
+            }}
+          >
+            <Alert
+              type="info"
+              showIcon
+              message={`Đơn #${current.displayId ?? current.id} có biên bản bàn giao cần ký`}
+              description="Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
+              action={
+                <Button type="link" onClick={() => setDetailTab("handover")} style={{ padding: 0 }}>
+                  Xem biên bản
+                </Button>
+              }
+            />
+          </div>
+        )}
         {current && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
           <div
             style={{
@@ -2393,6 +3090,20 @@ export default function MyOrders() {
                       ) : contracts.length > 0 ? (
                         <Table
                           rowKey="id"
+                          onRow={(record) => ({
+                            onClick: () => {
+                              const isSameContract = selectedContract?.id === record.id;
+                              setSelectedContract(record);
+                              // Auto preview when selecting a different contract or if no preview exists
+                              if (!isSameContract || !contractPdfPreviewUrl) {
+                                previewContractAsPdfInline(record);
+                              }
+                            },
+                            style: { cursor: 'pointer' }
+                          })}
+                          rowClassName={(record) => 
+                            selectedContract?.id === record.id ? 'ant-table-row-selected' : ''
+                          }
                           columns={[
                             { title: "Mã hợp đồng", dataIndex: "id", width: 100, render: (v) => <Text strong>#{v}</Text> },
                             { title: "Số hợp đồng", dataIndex: "number", width: 120, render: (v) => v || "—" },
@@ -2424,9 +3135,20 @@ export default function MyOrders() {
                                 <Space size="small">
                                   <Button
                                     size="small"
-                                    icon={<FilePdfOutlined />}
+                                    icon={<EyeOutlined />}
+                                    onClick={() => {
+                                      setSelectedContract(record);
+                                      previewContractAsPdfInline(record);
+                                    }}
+                                    loading={pdfGenerating && selectedContract?.id === record.id}
+                                  >
+                                    Xem PDF
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    icon={<DownloadOutlined />}
                                     onClick={() => handleDownloadContract(record)}
-                                    loading={pdfGenerating}
+                                    loading={pdfGenerating && selectedContract?.id === record.id}
                                   >
                                     Tải PDF
                                   </Button>
@@ -2508,43 +3230,72 @@ export default function MyOrders() {
                       }
                     >
                       <Space style={{ marginBottom: 16 }} wrap>
-                      <Button icon={<ExpandOutlined />} onClick={() => {
-                        const url = current.contractUrl || pdfPreviewUrl;
-                        return url ? window.open(url, "_blank", "noopener") : message.warning("Không có URL hợp đồng");
-                      }}>
-                        Xem toàn màn hình
-                      </Button>
-
-                      {(() => {
-                        const href = current.contractUrl || pdfPreviewUrl;
-                        if (href) {
-                          return (
-                            <>
-                              <Button type="primary" icon={<DownloadOutlined />} href={href} target="_blank" rel="noopener">
-                                Tải hợp đồng
-                              </Button>
-                              <Button icon={<PrinterOutlined />} onClick={() => printPdfUrl(href)}>
-                                In hợp đồng (PDF)
-                              </Button>
-                            </>
-                          );
-                        }
-                        return null;
-                      })()}
-
-                      {/* HTML → PDF nếu không có contractUrl từ BE */}
-                      {!(current.contractUrl || pdfPreviewUrl) && (
-                        <>
-                          <Button onClick={previewContractAsPdf} loading={pdfGenerating}>
-                            Xem trước hợp đồng PDF 
-                          </Button>
-                          <Button type="primary" onClick={downloadContractAsPdf} loading={pdfGenerating}>
-                            Tạo & tải hợp đồng PDF 
-                          </Button>
-                        </>
-                      )}
-
-
+                        {selectedContract && (
+                          <>
+                            <Button 
+                              icon={<ExpandOutlined />} 
+                              onClick={() => {
+                                const url = contractPdfPreviewUrl || selectedContract.contractUrl || pdfPreviewUrl;
+                                return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
+                              }}
+                            >
+                              Xem toàn màn hình
+                            </Button>
+                            {contractPdfPreviewUrl && (
+                              <>
+                                <Button 
+                                  type="primary" 
+                                  icon={<DownloadOutlined />} 
+                                  onClick={() => {
+                                    if (selectedContract) {
+                                      handleDownloadContract(selectedContract);
+                                    }
+                                  }}
+                                  loading={pdfGenerating}
+                                >
+                                  Tải hợp đồng
+                                </Button>
+                                <Button 
+                                  icon={<PrinterOutlined />} 
+                                  onClick={() => {
+                                    const url = contractPdfPreviewUrl;
+                                    if (url) {
+                                      printPdfUrl(url);
+                                    } else {
+                                      message.warning("Không có PDF để in");
+                                    }
+                                  }}
+                                >
+                                  In hợp đồng (PDF)
+                                </Button>
+                              </>
+                            )}
+                          </>
+                        )}
+                        {!contractPdfPreviewUrl && selectedContract && (
+                          <>
+                            <Button 
+                              onClick={() => previewContractAsPdfInline(selectedContract)} 
+                              loading={pdfGenerating}
+                            >
+                              Xem trước hợp đồng PDF
+                            </Button>
+                            <Button 
+                              type="primary" 
+                              onClick={() => {
+                                if (selectedContract) {
+                                  handleDownloadContract(selectedContract);
+                                }
+                              }} 
+                              loading={pdfGenerating}
+                            >
+                              Tạo & tải hợp đồng PDF
+                            </Button>
+                          </>
+                        )}
+                        {!selectedContract && (
+                          <Text type="secondary">Vui lòng chọn một hợp đồng từ danh sách để xem PDF</Text>
+                        )}
                       </Space>
 
                       <div
@@ -2558,20 +3309,236 @@ export default function MyOrders() {
                           boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
                         }}
                       >
-                      {current.contractUrl || pdfPreviewUrl ? (
-                        <iframe
-                          key={current.contractUrl || pdfPreviewUrl}
-                          title="ContractPreview"
-                          src={current.contractUrl || pdfPreviewUrl}
-                          style={{ width: "100%", height: "100%", border: "none" }}
-                        />
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <Text type="secondary"><FilePdfOutlined /> Không có URL hợp đồng để hiển thị.</Text>
-                        </div>
-                      )}
+                        {contractPdfPreviewUrl ? (
+                          <iframe
+                            key={contractPdfPreviewUrl}
+                            title="ContractPreview"
+                            src={contractPdfPreviewUrl}
+                            style={{ width: "100%", height: "100%", border: "none" }}
+                          />
+                        ) : (
+                          <div className="h-full flex items-center justify-center">
+                            <Text type="secondary">
+                              <FilePdfOutlined /> {selectedContract ? "Nhấn 'Xem trước hợp đồng PDF' để hiển thị" : "Chưa chọn hợp đồng để hiển thị."}
+                            </Text>
+                          </div>
+                        )}
                       </div>
                     </Card>
+                  </div>
+                ),
+              },
+              {
+                key: "handover",
+                label: "Biên bản bàn giao",
+                children: (
+                  <div style={{ padding: 24 }}>
+                    {handoverReportsLoading ? (
+                      <Card>
+                        <Text>Đang tải biên bản bàn giao...</Text>
+                      </Card>
+                    ) : handoverReports.length > 0 ? (
+                      <>
+                      <Card
+                        style={{
+                          marginBottom: 24,
+                          borderRadius: 12,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                          border: "1px solid #e8e8e8",
+                        }}
+                        title={
+                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                            Danh sách biên bản bàn giao
+                          </Title>
+                        }
+                      >
+                        <Table
+                          rowKey="handoverReportId"
+                          onRow={(record) => ({
+                            onClick: () => {
+                              const isSameReport = selectedHandoverReport?.handoverReportId === record.handoverReportId;
+                              setSelectedHandoverReport(record);
+                              // Auto preview when selecting a different report or if no preview exists
+                              if (!isSameReport || !handoverPdfPreviewUrl) {
+                                previewHandoverReportAsPdf(record);
+                              }
+                            },
+                            style: { cursor: 'pointer' }
+                          })}
+                          rowClassName={(record) => 
+                            selectedHandoverReport?.handoverReportId === record.handoverReportId ? 'ant-table-row-selected' : ''
+                          }
+                          columns={[
+                            { title: "Mã biên bản", dataIndex: "handoverReportId", width: 120, render: (v) => <Text strong>#{v}</Text> },
+                            {
+                              title: "Trạng thái", dataIndex: "status", width: 160,
+                              render: (status) => {
+                                const s = String(status || "").toUpperCase();
+                                const color = s === "STAFF_SIGNED" ? "green" : s === "CUSTOMER_SIGNED" ? "blue" : s === "COMPLETED" || s === "BOTH_SIGNED" ? "green" : "orange";
+                                const label = translateHandoverStatus(status);
+                                return <Tag color={color}>{label}</Tag>;
+                              },
+                            },
+                            { title: "Thời gian bàn giao", dataIndex: "handoverDateTime", width: 180, render: (v) => formatDateTime(v) },
+                            { title: "Địa điểm", dataIndex: "handoverLocation", width: 250, ellipsis: true },
+                            {
+                              title: "Thao tác",
+                              key: "actions",
+                              width: 180,
+                              render: (_, record) => {
+                                const status = String(record.status || "").toUpperCase();
+                                const isStaffSigned = status === "STAFF_SIGNED" || status === "BOTH_SIGNED";
+                                const isCustomerSigned = record.customerSigned === true || status === "CUSTOMER_SIGNED" || status === "BOTH_SIGNED" || status === "COMPLETED";
+                                const canSign = isStaffSigned && !isCustomerSigned;
+                                
+                                return (
+                                  <Space size="small" wrap>
+                                    <Button
+                                      size="small"
+                                      icon={<EyeOutlined />}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedHandoverReport(record);
+                                        previewHandoverReportAsPdf(record);
+                                      }}
+                                      loading={handoverPdfGenerating && selectedHandoverReport?.handoverReportId === record.handoverReportId}
+                                    >
+                                      Xem PDF
+                                    </Button>
+                                    {canSign && (
+                                      <Button
+                                        size="small"
+                                        type="primary"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleSignHandoverReport(record.handoverReportId);
+                                        }}
+                                      >
+                                        Ký
+                                      </Button>
+                                    )}
+                                  </Space>
+                                );
+                              },
+                            }
+                          ]}
+                          dataSource={handoverReports}
+                          pagination={false}
+                          size="small"
+                          scroll={{ x: 890 }}
+                        />
+                      </Card>
+
+                      <Card
+                        style={{
+                          borderRadius: 12,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                          border: "1px solid #e8e8e8",
+                        }}
+                        title={
+                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                            Biên bản bàn giao PDF
+                          </Title>
+                        }
+                      >
+                        <Space style={{ marginBottom: 16 }} wrap>
+                          {selectedHandoverReport && (
+                            <>
+                              <Button 
+                                icon={<ExpandOutlined />} 
+                                onClick={() => {
+                                  const url = handoverPdfPreviewUrl || handoverPdfBlobUrl;
+                                  return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
+                                }}
+                              >
+                                Xem toàn màn hình
+                              </Button>
+                              {handoverPdfPreviewUrl && (
+                                <>
+                                  <Button 
+                                    type="primary" 
+                                    icon={<DownloadOutlined />} 
+                                    onClick={() => {
+                                      if (selectedHandoverReport) {
+                                        handleDownloadHandoverPdf(selectedHandoverReport);
+                                      }
+                                    }}
+                                    loading={handoverPdfGenerating}
+                                  >
+                                    Tải biên bản
+                                  </Button>
+                                  <Button 
+                                    icon={<PrinterOutlined />} 
+                                    onClick={() => {
+                                      const url = handoverPdfPreviewUrl;
+                                      if (url) {
+                                        printPdfUrl(url);
+                                      } else {
+                                        message.warning("Không có PDF để in");
+                                      }
+                                    }}
+                                  >
+                                    In biên bản (PDF)
+                                  </Button>
+                                </>
+                              )}
+                            </>
+                          )}
+                          {!handoverPdfPreviewUrl && selectedHandoverReport && (
+                            <>
+                              <Button 
+                                onClick={() => previewHandoverReportAsPdf(selectedHandoverReport)} 
+                                loading={handoverPdfGenerating}
+                              >
+                                Xem trước biên bản PDF
+                              </Button>
+                              <Button 
+                                type="primary" 
+                                onClick={() => handleDownloadHandoverPdf(selectedHandoverReport)} 
+                                loading={handoverPdfGenerating}
+                              >
+                                Tạo & tải biên bản PDF
+                              </Button>
+                            </>
+                          )}
+                          {!selectedHandoverReport && (
+                            <Text type="secondary">Vui lòng chọn một biên bản từ danh sách để xem PDF</Text>
+                          )}
+                        </Space>
+
+                        <div
+                          style={{
+                            height: 460,
+                            border: "1px solid #e8e8e8",
+                            borderRadius: 10,
+                            overflow: "hidden",
+                            background: "#fafafa",
+                            marginTop: 12,
+                            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          {handoverPdfPreviewUrl ? (
+                            <iframe
+                              key={handoverPdfPreviewUrl}
+                              title="HandoverReportPreview"
+                              src={handoverPdfPreviewUrl}
+                              style={{ width: "100%", height: "100%", border: "none" }}
+                            />
+                          ) : (
+                            <div className="h-full flex items-center justify-center">
+                              <Text type="secondary">
+                                <FilePdfOutlined /> {selectedHandoverReport ? "Nhấn 'Xem trước biên bản PDF' để hiển thị" : "Chưa chọn biên bản để hiển thị."}
+                              </Text>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                      </>
+                    ) : (
+                      <Card>
+                        <Text type="secondary">Chưa có biên bản bàn giao nào được tạo cho đơn hàng này.</Text>
+                      </Card>
+                    )}
                   </div>
                 ),
               },
@@ -3143,6 +4110,113 @@ export default function MyOrders() {
         </Form>
       </Modal>
 
+      {/* Modal xem trước PDF biên bản bàn giao */}
+      <Modal
+        title="Xem trước biên bản bàn giao"
+        open={handoverPdfModalOpen}
+        onCancel={() => {
+          setHandoverPdfModalOpen(false);
+          if (handoverPdfBlobUrl) {
+            URL.revokeObjectURL(handoverPdfBlobUrl);
+            setHandoverPdfBlobUrl("");
+          }
+          setSelectedHandoverReport(null);
+        }}
+        width="90%"
+        style={{ top: 20 }}
+        footer={[
+          <Button
+            key="download"
+            icon={<DownloadOutlined />}
+            onClick={() => {
+              if (selectedHandoverReport) {
+                handleDownloadHandoverPdf(selectedHandoverReport);
+              }
+            }}
+            loading={handoverPdfGenerating}
+          >
+            Tải PDF
+          </Button>,
+          <Button
+            key="close"
+            onClick={() => {
+              setHandoverPdfModalOpen(false);
+              if (handoverPdfBlobUrl) {
+                URL.revokeObjectURL(handoverPdfBlobUrl);
+                setHandoverPdfBlobUrl("");
+              }
+              setSelectedHandoverReport(null);
+            }}
+          >
+            Đóng
+          </Button>,
+        ]}
+      >
+        {handoverPdfBlobUrl ? (
+          <iframe
+            src={handoverPdfBlobUrl}
+            style={{ width: "100%", height: "80vh", border: "none" }}
+            title="Handover PDF Preview"
+          />
+        ) : (
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <Text>Đang tạo PDF...</Text>
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal ký biên bản bàn giao */}
+      <Modal
+        title="Ký biên bản bàn giao"
+        open={handoverSignModalOpen}
+        onCancel={() => {
+          setHandoverSignModalOpen(false);
+          setCurrentHandoverReportId(null);
+          setHandoverPinSent(false);
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form layout="vertical" onFinish={handoverPinSent ? handleSignHandover : sendHandoverPin}>
+          {!handoverPinSent ? (
+            <>
+              <Text>Email nhận mã PIN: <strong>{customerProfile?.email || "Chưa cập nhật"}</strong></Text>
+              <Divider />
+              <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+                <Button
+                  onClick={() => {
+                    setHandoverSignModalOpen(false);
+                    setCurrentHandoverReportId(null);
+                    setHandoverPinSent(false);
+                  }}
+                >
+                  Hủy
+                </Button>
+                <Button type="primary" htmlType="submit" loading={signingHandover} disabled={!customerProfile?.email}>
+                  Gửi mã PIN
+                </Button>
+              </Space>
+            </>
+          ) : (
+            <>
+              <Form.Item
+                label="Mã PIN"
+                name="pinCode"
+                rules={[{ required: true, message: "Vui lòng nhập mã PIN" }, { min: 6, message: "Ít nhất 6 ký tự" }]}
+              >
+                <Input placeholder="Nhập mã PIN" maxLength={10} />
+              </Form.Item>
+              <Space style={{ justifyContent: "space-between", width: "100%" }}>
+                <Button onClick={() => setHandoverPinSent(false)}>Quay lại</Button>
+                <Button type="primary" htmlType="submit" loading={handoverSigning}>
+                  Ký biên bản
+                </Button>
+              </Space>
+            </>
+          )}
+        </Form>
+      </Modal>
+
       {/* Modal xác nhận trả hàng */}
       <Modal
         title="Xác nhận trả hàng"
@@ -3300,6 +4374,30 @@ export default function MyOrders() {
       <div style={{ position:"fixed", left:-9999, top:-9999, background:"#fff" }}>
         <div ref={printRef} />
       </div>
+
+      {/* Container ẩn để render handover report PDF */}
+      <div
+        ref={handoverPrintRef}
+        style={{
+          position: "fixed",
+          left: "-99999px",
+          top: "-99999px",
+          width: "794px",
+          height: "auto",
+          backgroundColor: "#ffffff",
+          fontFamily: "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif",
+          visibility: "hidden",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -9999,
+          overflow: "hidden",
+          border: "none",
+          margin: 0,
+          padding: 0,
+          webkitFontSmoothing: "antialiased",
+          mozOsxFontSmoothing: "grayscale"
+        }}
+      />
 
       <style>{`
         .modern-table .ant-table-thead > tr > th {

@@ -1,5 +1,5 @@
 // src/pages/technician/TechnicianCalendar.jsx
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   Card,
   List,
@@ -15,6 +15,7 @@ import {
   Select,
   Table,
   Input,
+  Modal,
 } from "antd";
 import {
   EnvironmentOutlined,
@@ -22,10 +23,15 @@ import {
   InboxOutlined,
   FileTextOutlined,
   ReloadOutlined,
+  FilePdfOutlined,
+  DownloadOutlined,
+  EyeOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
   listTasks,
   getTaskById,
@@ -41,6 +47,10 @@ import {
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel, fmtVND } from "../../lib/deviceModelsApi";
+import { 
+  getHandoverReportByOrderIdAndTaskId,
+  getHandoverReportsByOrderId
+} from "../../lib/handoverReportApi";
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -151,6 +161,387 @@ const isPickupTask = (task) => {
   return false;
 };
 
+// PDF Helpers - Tham khảo từ TechnicianHandover.jsx
+// ĐÃ SCOPE STYLE VÀO .print-pdf-root ĐỂ KHÔNG ẢNH HƯỞNG UI BÊN NGOÀI
+const GLOBAL_PRINT_CSS = `
+  <style>
+    .print-pdf-root,
+    .print-pdf-root * {
+      font-family: Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif !important;
+      -webkit-font-smoothing: antialiased !important;
+      -moz-osx-font-smoothing: grayscale !important;
+      text-rendering: optimizeLegibility !important;
+    }
+
+    .print-pdf-root h1,
+    .print-pdf-root h2,
+    .print-pdf-root h3 {
+      margin: 8px 0 6px;
+      font-weight: 700;
+    }
+
+    .print-pdf-root h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    .print-pdf-root p {
+      margin: 6px 0;
+    }
+
+    .print-pdf-root ol,
+    .print-pdf-root ul {
+      margin: 6px 0 6px 18px;
+      padding: 0;
+    }
+
+    .print-pdf-root li {
+      margin: 3px 0;
+    }
+
+    .print-pdf-root .kv {
+      margin-bottom: 10px;
+    }
+
+    .print-pdf-root .kv div {
+      margin: 2px 0;
+    }
+
+    .print-pdf-root table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+    }
+
+    .print-pdf-root table th,
+    .print-pdf-root table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .print-pdf-root table th {
+      background-color: #f5f5f5;
+      font-weight: 600;
+    }
+
+    .print-pdf-root .equipment-item {
+      display: block;
+      margin: 4px 0;
+    }
+
+    .print-pdf-root .equipment-item::before {
+      content: "• ";
+    }
+  </style>
+`;
+
+const NATIONAL_HEADER_HTML = `
+  <div style="text-align:center; margin-bottom:12px">
+    <div style="font-weight:700; font-size:14px; letter-spacing:.3px; text-transform:uppercase">
+      CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+    </div>
+    <div style="font-size:13px; margin-top:2px">
+      Độc lập – Tự do – Hạnh phúc
+    </div>
+    <div style="width:220px; height:0; border-top:1px solid #111; margin:6px auto 0"></div>
+  </div>
+`;
+
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  try {
+    return dayjs(iso).format("DD/MM/YYYY HH:mm");
+  } catch {
+    return iso;
+  }
+}
+
+function parseInfoString(infoStr) {
+  if (!infoStr) return { name: "", phone: "", email: "" };
+  const parts = infoStr.split("•").map(s => s.trim()).filter(Boolean);
+  return {
+    name: parts[0] || "",
+    phone: parts[1] || "",
+    email: parts[2] || "",
+  };
+}
+
+function translateRole(role) {
+  const r = String(role || "").toUpperCase();
+  if (r === "TECHNICIAN") return "Kỹ thuật viên";
+  return role;
+}
+
+function translateHandoverStatus(status) {
+  const s = String(status || "").toUpperCase();
+  const map = {
+    DRAFT: "Nháp",
+    PENDING: "Chờ ký",
+    PENDING_STAFF_SIGNATURE: "Chờ nhân viên ký",
+    STAFF_SIGNED: "Nhân viên đã ký",
+    CUSTOMER_SIGNED: "Đã ký khách hàng",
+    BOTH_SIGNED: "2 bên đã ký",
+    COMPLETED: "Hoàn thành",
+    CANCELLED: "Đã hủy",
+  };
+  return map[s] || status;
+}
+
+function buildPrintableHandoverReportHtml(report) {
+  const customerInfo = parseInfoString(report.customerInfo);
+  const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
+  const customerName = customerInfo.name || "—";
+  const technicianName = technicianInfo.name || "—";
+  
+  const itemsRows = (report.items || []).map((item, idx) => `
+    <tr>
+      <td style="text-align:center">${idx + 1}</td>
+      <td>${item.itemName || "—"}</td>
+      <td>${item.itemCode || "—"}</td>
+      <td style="text-align:center">${item.unit || "—"}</td>
+      <td style="text-align:center">${item.orderedQuantity || 0}</td>
+      <td style="text-align:center">${item.deliveredQuantity || 0}</td>
+    </tr>
+  `).join("");
+  
+  const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
+    <tr>
+      <td style="text-align:center">${idx + 1}</td>
+      <td>${q.deviceModelName || "—"}</td>
+      <td>${q.deviceSerialNumber || "—"}</td>
+      <td>${q.qualityStatus === "GOOD" ? "Tốt" : q.qualityStatus === "FAIR" ? "Khá" : q.qualityStatus === "POOR" ? "Kém" : q.qualityStatus || "—"}</td>
+      <td>${q.qualityDescription || "—"}</td>
+    </tr>
+  `).join("");
+  
+  const techniciansList = (report.technicians || []).map(t => {
+    const name = t.fullName || t.username || `Nhân viên #${t.staffId}`;
+    const phone = t.phoneNumber || "";
+    return `<li><strong>${name}</strong>${phone ? `<br/>Số điện thoại: ${phone}` : ""}</li>`;
+  }).join("");
+  
+  return `
+    ${GLOBAL_PRINT_CSS}
+    <div class="print-pdf-root"
+         style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
+      ${NATIONAL_HEADER_HTML}
+      
+      <h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>
+      
+      <section class="kv">
+        <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
+        <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
+        <div><b>Mã task:</b> #${report.taskId || "—"}</div>
+        <div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
+        <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>
+        <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
+      </section>
+      
+      <h3>Thông tin khách hàng</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${customerName}</div>
+        ${customerInfo.phone ? `<div><b>Số điện thoại:</b> ${customerInfo.phone}</div>` : ""}
+        ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
+      </section>
+      
+      <h3>Thông tin kỹ thuật viên</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${technicianName}</div>
+        ${technicianInfo.phone ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>` : ""}
+        ${technicianInfo.email ? `<div><b>Email:</b> ${technicianInfo.email}</div>` : ""}
+      </section>
+      
+      <h3>Danh sách thiết bị bàn giao</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Tên thiết bị</th>
+            <th>Mã thiết bị (Serial Number)</th>
+            <th style="width:80px">Đơn vị</th>
+            <th style="width:80px;text-align:center">SL đặt</th>
+            <th style="width:80px;text-align:center">SL giao</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsRows || "<tr><td colspan='6' style='text-align:center'>Không có thiết bị</td></tr>"}
+        </tbody>
+      </table>
+      
+      ${qualityRows ? `
+      <h3>Thông tin chất lượng thiết bị</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Tên model</th>
+            <th>Serial Number</th>
+            <th>Trạng thái chất lượng</th>
+            <th>Mô tả</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${qualityRows}
+        </tbody>
+      </table>
+      ` : ""}
+      
+      ${techniciansList ? `
+      <h3>Kỹ thuật viên tham gia</h3>
+      <ul>
+        ${techniciansList}
+      </ul>
+      ` : ""}
+      
+      ${report.createdByStaff ? `
+      <h3>Người tạo biên bản</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${report.createdByStaff.fullName || report.createdByStaff.username || `Nhân viên #${report.createdByStaff.staffId}`}</div>
+        ${report.createdByStaff.email ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>` : ""}
+        ${report.createdByStaff.phoneNumber ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>` : ""}
+        ${report.createdByStaff.role ? `<div><b>Vai trò:</b> ${translateRole(report.createdByStaff.role)}</div>` : ""}
+      </section>
+      ` : ""}
+      
+      ${(report.evidenceUrls || []).length > 0 ? `
+      <h3>Ảnh bằng chứng</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
+        ${report.evidenceUrls.map((url, idx) => {
+          // Kiểm tra xem là base64 hay URL
+          const isBase64 = url.startsWith("data:image");
+          const imgSrc = isBase64 ? url : url;
+          return `
+          <div style="flex:0 0 auto;margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">Bằng chứng ${idx + 1}</div>
+            <img 
+              src="${imgSrc}" 
+              alt="Bằng chứng ${idx + 1}"
+              style="
+                max-width:200px;
+                max-height:200px;
+                border:1px solid #ddd;
+                border-radius:4px;
+                display:block;
+                object-fit:contain;
+              "
+              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
+            />
+            <div style="display:none;padding:8px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;max-width:200px;font-size:10px;color:#666">
+              Không thể tải ảnh<br/>
+              <a href="${url}" target="_blank" style="color:#1890ff">Xem link</a>
+            </div>
+          </div>
+        `;
+        }).join("")}
+      </div>
+      ` : ""}
+      
+      <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+        <div style="flex:1;text-align:center">
+          <div><b>KHÁCH HÀNG</b></div>
+          <div style="height:72px;display:flex;align-items:center;justify-content:center">
+            ${report.customerSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
+          </div>
+          <div>
+            ${report.customerSigned 
+              ? `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>` 
+              : "(Ký, ghi rõ họ tên)"}
+          </div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div><b>NHÂN VIÊN</b></div>
+          <div style="height:72px;display:flex;align-items:center;justify-content:center">
+            ${report.staffSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
+          </div>
+          <div>
+            ${report.staffSigned 
+              ? `<div style="color:#52c41a;font-weight:600">${technicianName} đã ký</div>` 
+              : "(Ký, ghi rõ họ tên)"}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function elementToPdfBlob(el) {
+  // Đảm bảo font được load bằng cách kiểm tra font availability
+  const checkFont = () => {
+    if (document.fonts && document.fonts.check) {
+      // Kiểm tra các font có sẵn
+      const fonts = [
+        '12px Arial',
+        '12px Helvetica',
+        '12px "Times New Roman"',
+        '12px "DejaVu Sans"'
+      ];
+      return fonts.some(font => document.fonts.check(font));
+    }
+    return true; // Nếu không hỗ trợ font checking, giả định font có sẵn
+  };
+  
+  // Đợi font được load
+  if (document.fonts && document.fonts.ready) {
+    await document.fonts.ready;
+  }
+  await new Promise(resolve => setTimeout(resolve, 300));
+  
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+    letterRendering: true,
+    onclone: (clonedDoc) => {
+      // Đảm bảo font được áp dụng trong cloned document
+      const clonedBody = clonedDoc.body;
+      if (clonedBody) {
+        clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        clonedBody.style.webkitFontSmoothing = "antialiased";
+        clonedBody.style.mozOsxFontSmoothing = "grayscale";
+      }
+      // Áp dụng font cho tất cả phần tử
+      const allElements = clonedDoc.querySelectorAll('*');
+      allElements.forEach(elem => {
+        if (elem.style) {
+          elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        }
+      });
+    },
+  });
+
+  const pdf = new jsPDF("p", "pt", "a4");
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const ratio = pageWidth / canvas.width;
+
+  const pageCanvas = document.createElement("canvas");
+  const ctx = pageCanvas.getContext("2d");
+
+  let renderedHeight = 0;
+  while (renderedHeight < canvas.height) {
+    const sliceHeight = Math.min(
+      pageHeight / ratio,
+      canvas.height - renderedHeight
+    );
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeight;
+    ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+    ctx.drawImage(
+      canvas,
+      0, renderedHeight, canvas.width, sliceHeight,
+      0, 0, canvas.width, sliceHeight
+    );
+    const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+    if (renderedHeight > 0) pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
+    renderedHeight += sliceHeight;
+  }
+  return pdf.output("blob");
+}
+
 export default function TechnicianCalendar() {
   const [tasksAll, setTasksAll] = useState([]);
   const [detailTask, setDetailTask] = useState(null); // task được click (đầy đủ từ API detail)
@@ -159,14 +550,26 @@ export default function TechnicianCalendar() {
   const [orderDetail, setOrderDetail] = useState(null);
   const [customerDetail, setCustomerDetail] = useState(null);
   const [filterStatus, setFilterStatus] = useState("ALL");
+  const [filterType, setFilterType] = useState("ALL");
+  const [filterOrderId, setFilterOrderId] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchTaskId, setSearchTaskId] = useState("");
   // Map: taskId -> hasQcReport (boolean)
   const [hasQcReportMap, setHasQcReportMap] = useState({});
+  // Map: taskId -> handoverReport (object or null)
+  const [handoverReportMap, setHandoverReportMap] = useState({});
+  // Map: orderId -> handoverReports (array)
+  const [handoverReportsByOrder, setHandoverReportsByOrder] = useState({});
   const [confirmingDelivery, setConfirmingDelivery] = useState({}); // taskId -> loading
   const [confirmingRetrieval, setConfirmingRetrieval] = useState({}); // taskId -> loading
   const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed (delivery)
   const [confirmedRetrievalTasks, setConfirmedRetrievalTasks] = useState(new Set()); // Set of taskIds that have been confirmed (retrieval)
+  // PDF states
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState("");
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const printRef = useRef(null);
 
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
@@ -269,6 +672,27 @@ export default function TechnicianCalendar() {
       
       await Promise.all(qcReportChecks);
       setHasQcReportMap(qcReportMap);
+
+      // Check which DELIVERY tasks have handover reports
+      const deliveryTasks = allTasks.filter((task) => task.type === "DELIVERY");
+      const handoverReportMapNew = {};
+      const handoverChecks = deliveryTasks.map(async (task) => {
+        const taskId = task.taskId || task.id;
+        const orderId = task.orderId;
+        if (taskId && orderId) {
+          try {
+            const report = await getHandoverReportByOrderIdAndTaskId(orderId, taskId);
+            if (report) {
+              handoverReportMapNew[taskId] = report;
+            }
+          } catch {
+            // No handover report exists - that's fine
+            handoverReportMapNew[taskId] = null;
+          }
+        }
+      });
+      await Promise.all(handoverChecks);
+      setHandoverReportMap((prev) => ({ ...prev, ...handoverReportMapNew }));
     } catch (e) {
       toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
     } finally {
@@ -280,6 +704,154 @@ export default function TechnicianCalendar() {
     loadTasks();
   }, [loadTasks]);
 
+  // Load handover report for a specific task
+  const loadHandoverReport = useCallback(async (taskId, orderId) => {
+    if (!taskId || !orderId) return;
+    try {
+      const report = await getHandoverReportByOrderIdAndTaskId(orderId, taskId);
+      if (report) {
+        setHandoverReportMap((prev) => ({ ...prev, [taskId]: report }));
+      }
+    } catch (e) {
+      // No handover report exists - that's fine
+      setHandoverReportMap((prev) => ({ ...prev, [taskId]: null }));
+    }
+  }, []);
+
+  // Load all handover reports for an order
+  const loadHandoverReportsByOrder = useCallback(async (orderId) => {
+    if (!orderId) return;
+    try {
+      const reports = await getHandoverReportsByOrderId(orderId);
+      setHandoverReportsByOrder((prev) => ({ ...prev, [orderId]: Array.isArray(reports) ? reports : [] }));
+    } catch (e) {
+      setHandoverReportsByOrder((prev) => ({ ...prev, [orderId]: [] }));
+    }
+  }, []);
+
+  // Handle preview PDF
+  const handlePreviewPdf = useCallback(async (report) => {
+    try {
+      setPdfGenerating(true);
+      setSelectedReport(report);
+      
+      // Revoke old blob URL
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl("");
+      }
+      
+      if (printRef.current) {
+        // Tạm thời hiển thị container để render
+        printRef.current.style.visibility = "visible";
+        printRef.current.style.opacity = "1";
+        printRef.current.style.left = "-99999px";
+        printRef.current.style.top = "-99999px";
+        printRef.current.style.width = "794px";
+        printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        
+        printRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        
+        // Đảm bảo font được áp dụng cho tất cả phần tử và đợi render
+        const allElements = printRef.current.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style) {
+            el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+            el.style.webkitFontSmoothing = "antialiased";
+            el.style.mozOsxFontSmoothing = "grayscale";
+          }
+        });
+        
+        // Force reflow để đảm bảo style được áp dụng
+        printRef.current.offsetHeight;
+        
+        // Đợi font được load và render
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const blob = await elementToPdfBlob(printRef.current);
+        
+        // Ẩn lại container sau khi render xong
+        printRef.current.style.visibility = "hidden";
+        printRef.current.style.opacity = "0";
+        
+        const url = URL.createObjectURL(blob);
+        setPdfBlobUrl(url);
+        setPdfModalOpen(true);
+      }
+    } catch (e) {
+      console.error("Error generating PDF:", e);
+      toast.error("Không thể tạo bản xem trước PDF");
+    } finally {
+      setPdfGenerating(false);
+    }
+  }, [pdfBlobUrl]);
+
+  // Handle download PDF
+  const handleDownloadPdf = useCallback(async (report) => {
+    try {
+      setPdfGenerating(true);
+      
+      // Revoke old blob URL
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl("");
+      }
+      
+      if (printRef.current) {
+        // Tạm thời hiển thị container để render
+        printRef.current.style.visibility = "visible";
+        printRef.current.style.opacity = "1";
+        printRef.current.style.left = "-99999px";
+        printRef.current.style.top = "-99999px";
+        printRef.current.style.width = "794px";
+        printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        
+        printRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        
+        // Đảm bảo font được áp dụng cho tất cả phần tử và đợi render
+        const allElements = printRef.current.querySelectorAll('*');
+        allElements.forEach(el => {
+          if (el.style) {
+            el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+            el.style.webkitFontSmoothing = "antialiased";
+            el.style.mozOsxFontSmoothing = "grayscale";
+          }
+        });
+        
+        // Force reflow để đảm bảo style được áp dụng
+        printRef.current.offsetHeight;
+        
+        // Đợi font được load và render
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const blob = await elementToPdfBlob(printRef.current);
+        
+        // Ẩn lại container sau khi render xong
+        printRef.current.style.visibility = "hidden";
+        printRef.current.style.opacity = "0";
+        
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `handover-report-${report.handoverReportId || report.id || "report"}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 0);
+      }
+    } catch (e) {
+      console.error("Error downloading PDF:", e);
+      toast.error("Không thể tải PDF");
+    } finally {
+      setPdfGenerating(false);
+    }
+  }, [pdfBlobUrl]);
+
   // Click item trên bảng → mở Drawer
   const onClickTask = useCallback(async (task) => {
     try {
@@ -290,7 +862,15 @@ export default function TechnicianCalendar() {
         // fetch order by ID if exists
         const oid = normalized?.orderId;
         setOrderDetail(null);
-        if (oid) viewOrderDetail(oid);
+        if (oid) {
+          viewOrderDetail(oid);
+          // Load handover reports for this order
+          await loadHandoverReportsByOrder(oid);
+          // Load handover report for this specific task if it's a DELIVERY task
+          if (normalized.type === "DELIVERY" && normalized.taskId) {
+            await loadHandoverReport(normalized.taskId || normalized.id, oid);
+          }
+        }
       } else {
         setDetailTask(task);
       }
@@ -300,7 +880,7 @@ export default function TechnicianCalendar() {
       setDetailTask(task); // Fallback to display task
       setDrawerOpen(true);
     }
-  }, []);
+  }, [loadHandoverReport, loadHandoverReportsByOrder]);
 
   // Xác nhận giao hàng
   const handleConfirmDelivery = useCallback(async (taskId) => {
@@ -442,11 +1022,13 @@ export default function TechnicianCalendar() {
               const isInProgress = status === "IN_PROGRESS";
               const isConfirmed = confirmedTasks.has(taskId);
               const isLoading = confirmingDelivery[taskId];
+              const handoverReport = handoverReportMap[taskId];
+              const hasHandoverReport = !!handoverReport;
               
               return (
                 <>
-                  {/* Chỉ hiển thị nút "Tạo biên bản" khi không phải PENDING */}
-                  {!isPending && (
+                  {/* Chỉ hiển thị nút "Tạo biên bản" khi không phải PENDING, không phải COMPLETED và chưa có handover report */}
+                  {!isPending && !isCompleted && !hasHandoverReport && (
                     <Button
                       size="small"
                       type="primary"
@@ -456,6 +1038,19 @@ export default function TechnicianCalendar() {
                       }}
                     >
                       Tạo biên bản
+                    </Button>
+                  )}
+                  {/* Hiển thị nút "Xem biên bản" nếu đã có handover report */}
+                  {hasHandoverReport && (
+                    <Button
+                      size="small"
+                      type="default"
+                      icon={<EyeOutlined />}
+                      onClick={() => {
+                        handlePreviewPdf(handoverReport);
+                      }}
+                    >
+                      Xem biên bản
                     </Button>
                   )}
                   {!isCompleted && !isInProgress && !isConfirmed && (
@@ -518,7 +1113,7 @@ export default function TechnicianCalendar() {
         ),
       },
     ],
-    [navigate, onClickTask, hasQcReportMap, confirmingDelivery, handleConfirmDelivery, confirmedTasks, confirmingRetrieval, handleConfirmRetrieval, confirmedRetrievalTasks, isPickupTask]
+    [navigate, onClickTask, hasQcReportMap, confirmingDelivery, handleConfirmDelivery, confirmedTasks, confirmingRetrieval, handleConfirmRetrieval, confirmedRetrievalTasks, isPickupTask, handoverReportMap, handlePreviewPdf]
   );
 
   
@@ -787,9 +1382,72 @@ export default function TechnicianCalendar() {
             </>
           )}
           <Divider />
+          {/* Hiển thị handover report nếu có */}
+          {(() => {
+            const handoverReport = handoverReportMap[taskId];
+            const orderReports = orderDetail ? handoverReportsByOrder[orderDetail.orderId || orderDetail.id] : null;
+            const reportsToShow = handoverReport ? [handoverReport] : (orderReports || []);
+            
+            if (reportsToShow.length > 0) {
+              return (
+                <>
+                  <Title level={5} style={{ marginTop: 0 }}>Biên bản bàn giao</Title>
+                  <List
+                    dataSource={reportsToShow}
+                    renderItem={(report) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            key="preview"
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => handlePreviewPdf(report)}
+                          >
+                            Xem PDF
+                          </Button>,
+                          <Button
+                            key="download"
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            onClick={() => handleDownloadPdf(report)}
+                            loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
+                          >
+                            Tải PDF
+                          </Button>,
+                        ]}
+                      >
+                        <List.Item.Meta
+                          title={
+                            <Space>
+                              <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
+                              <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
+                                {translateHandoverStatus(report.status)}
+                              </Tag>
+                            </Space>
+                          }
+                          description={
+                            <Space direction="vertical" size={4}>
+                              <Text type="secondary">
+                                Thời gian: {formatDateTime(report.handoverDateTime)}
+                              </Text>
+                              <Text type="secondary">
+                                Địa điểm: {report.handoverLocation || "—"}
+                              </Text>
+                            </Space>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                  <Divider />
+                </>
+              );
+            }
+            return null;
+          })()}
           <Space wrap>
-            {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING */}
-            {!isPending && (
+            {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING, không phải COMPLETED và chưa có handover report */}
+            {!isPending && !isCompleted && !handoverReportMap[taskId] && (
               <Button
                 type="primary"
                 icon={<FileTextOutlined />}
@@ -808,9 +1466,6 @@ export default function TechnicianCalendar() {
               >
                 Xác nhận giao hàng
               </Button>
-            )}
-            {(isCompleted || isConfirmed || isInProgress) && (
-              <Text type="success">Đã xác nhận giao hàng</Text>
             )}
           </Space>
         </>
@@ -1044,11 +1699,11 @@ export default function TechnicianCalendar() {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
             const hasQcReport = hasQcReportMap[taskId];
-            const isCompleted = status === "COMPLETED";
+            const isCompletedInner = status === "COMPLETED";
             
             // Nếu COMPLETED: chỉ hiển thị nút nếu đã có QC report (chỉ cho update)
             // Nếu chưa COMPLETED: hiển thị nút tạo/cập nhật như bình thường
-            if (isCompleted && !hasQcReport) {
+            if (isCompletedInner && !hasQcReport) {
               return null; // Không hiển thị nút khi COMPLETED nhưng chưa có QC report
             }
             
@@ -1068,15 +1723,15 @@ export default function TechnicianCalendar() {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
             const isPending = status === "PENDING";
-            const isCompleted = status === "COMPLETED";
+            const isCompletedInner = status === "COMPLETED";
             const isInProgress = status === "IN_PROGRESS";
             const isConfirmed = confirmedTasks.has(taskId);
             const isLoading = confirmingDelivery[taskId];
             
             return (
               <>
-                {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING */}
-                {!isPending && (
+                {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING và không phải COMPLETED */}
+                {!isPending && !isCompletedInner && (
                   <Button
                     type="primary"
                     icon={<FileTextOutlined />}
@@ -1087,7 +1742,7 @@ export default function TechnicianCalendar() {
                     Tạo biên bản bàn giao
                   </Button>
                 )}
-                {!isCompleted && !isInProgress && !isConfirmed && (
+                {!isCompletedInner && !isInProgress && !isConfirmed && (
                   <Button
                     type="default"
                     loading={isLoading}
@@ -1096,7 +1751,7 @@ export default function TechnicianCalendar() {
                     Xác nhận giao hàng
                   </Button>
                 )}
-                {(isCompleted || isConfirmed || isInProgress) && (
+                {(isCompletedInner || isConfirmed || isInProgress) && (
                   <Text type="success">Đã xác nhận giao hàng</Text>
                 )}
               </>
@@ -1105,13 +1760,13 @@ export default function TechnicianCalendar() {
           {isPickupTask(t) && (() => {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
-            const isCompleted = status === "COMPLETED";
+            const isCompletedInner = status === "COMPLETED";
             const isInProgress = status === "IN_PROGRESS";
             const isConfirmed = confirmedRetrievalTasks.has(taskId);
             const isLoading = confirmingRetrieval[taskId];
             const hasQcReport = hasQcReportMap[taskId];
             const buttonLabel =
-              isCompleted
+              isCompletedInner
                 ? "Cập nhật QC Report"
                 : hasQcReport
                   ? "Cập nhật QC Report"
@@ -1119,7 +1774,7 @@ export default function TechnicianCalendar() {
             
             return (
               <>
-                {!isCompleted && !isInProgress && !isConfirmed && (
+                {!isCompletedInner && !isInProgress && !isConfirmed && (
                   <Button
                     type="default"
                     loading={isLoading}
@@ -1128,11 +1783,11 @@ export default function TechnicianCalendar() {
                     Xác nhận đi trả hàng
                   </Button>
                 )}
-                {(isCompleted || isConfirmed || isInProgress) && (
+                {(isCompletedInner || isConfirmed || isInProgress) && (
                   <Text type="success">Đã xác nhận đi trả hàng</Text>
                 )}
                 {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
-                {(isInProgress || isCompleted) && (
+                {(isInProgress || isCompletedInner) && (
                   <Button
                     type="primary"
                     icon={<FileTextOutlined />}
@@ -1180,6 +1835,29 @@ export default function TechnicianCalendar() {
             { label: "Đã hoàn thành", value: TECH_TASK_STATUS.COMPLETED },
           ]}
         />
+        <span>Lọc loại:</span>
+        <Select
+          style={{ width: 250 }}
+          value={filterType}
+          onChange={setFilterType}
+          options={[
+            { label: "Tất cả", value: "ALL" },
+            { label: "Pre rental QC (check QC trước giao)", value: "PRE_RENTAL_QC" },
+            { label: "Pick up rental order (Thu hồi thiết bị)", value: "PICKUP" },
+            { label: "CHECK QC outbound", value: "QC" },
+            { label: "CHECK BIÊN BẢN", value: "HANDOVER_CHECK" },
+            { label: "BẢO TRÌ THIẾT BỊ", value: "MAINTAIN" },
+            { label: "ĐI GIAO THIẾT BỊ", value: "DELIVERY" },
+          ]}
+        />
+        <Input.Search
+          placeholder="Tìm theo mã đơn hàng"
+          allowClear
+          value={filterOrderId}
+          onChange={(e) => setFilterOrderId(e.target.value)}
+          onSearch={setFilterOrderId}
+          style={{ width: 200 }}
+        />
       </Space>
 
       <Card>
@@ -1194,7 +1872,21 @@ export default function TechnicianCalendar() {
               // Filter by task ID
               const taskIdMatch = !searchTaskId.trim() || 
                 String(t.id || t.taskId || "").includes(String(searchTaskId.trim()));
-              return statusMatch && taskIdMatch;
+              // Filter by type
+              let typeMatch = true;
+              if (filterType !== "ALL") {
+                if (filterType === "PRE_RENTAL_QC") {
+                  typeMatch = isPreRentalQC(t);
+                } else if (filterType === "PICKUP") {
+                  typeMatch = isPickupTask(t);
+                } else {
+                  typeMatch = String(t.type || "").toUpperCase() === String(filterType).toUpperCase();
+                }
+              }
+              // Filter by order ID
+              const orderIdMatch = !filterOrderId.trim() || 
+                String(t.orderId || "").includes(String(filterOrderId.trim()));
+              return statusMatch && taskIdMatch && typeMatch && orderIdMatch;
             })
             .sort((a, b) => {
               const aStatus = String(a.status || "").toUpperCase();
@@ -1232,6 +1924,85 @@ export default function TechnicianCalendar() {
       >
         {renderDetailBody(detailTask)}
       </Drawer>
+
+      {/* PDF Preview Modal */}
+      <Modal
+        title="Xem trước biên bản bàn giao"
+        open={pdfModalOpen}
+        onCancel={() => {
+          setPdfModalOpen(false);
+          if (pdfBlobUrl) {
+            URL.revokeObjectURL(pdfBlobUrl);
+            setPdfBlobUrl("");
+          }
+          setSelectedReport(null);
+        }}
+        width="90%"
+        style={{ top: 20 }}
+        footer={[
+          <Button
+            key="download"
+            icon={<DownloadOutlined />}
+            onClick={() => {
+              if (selectedReport) {
+                handleDownloadPdf(selectedReport);
+              }
+            }}
+            loading={pdfGenerating}
+          >
+            Tải PDF
+          </Button>,
+          <Button
+            key="close"
+            onClick={() => {
+              setPdfModalOpen(false);
+              if (pdfBlobUrl) {
+                URL.revokeObjectURL(pdfBlobUrl);
+                setPdfBlobUrl("");
+              }
+              setSelectedReport(null);
+            }}
+          >
+            Đóng
+          </Button>,
+        ]}
+      >
+        {pdfBlobUrl ? (
+          <iframe
+            src={pdfBlobUrl}
+            style={{ width: "100%", height: "80vh", border: "none" }}
+            title="PDF Preview"
+          />
+        ) : (
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <Text>Đang tạo PDF...</Text>
+          </div>
+        )}
+      </Modal>
+
+      {/* Hidden div for PDF generation */}
+      <div
+        ref={printRef}
+        style={{
+          position: "fixed",
+          left: "-99999px",
+          top: "-99999px",
+          width: "794px",
+          height: "auto",
+          backgroundColor: "#ffffff",
+          fontFamily: "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif",
+          visibility: "hidden",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -9999,
+          overflow: "hidden",
+          border: "none",
+          margin: 0,
+          padding: 0,
+          webkitFontSmoothing: "antialiased",
+          mozOsxFontSmoothing: "grayscale"
+        }}
+      />
     </>
   );
 }
