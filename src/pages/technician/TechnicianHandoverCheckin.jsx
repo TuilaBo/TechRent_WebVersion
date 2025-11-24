@@ -1,4 +1,4 @@
-// src/pages/technician/TechnicianHandover.jsx
+// src/pages/technician/TechnicianHandoverCheckin.jsx
 import React, { useState, useEffect, useRef } from "react";
 import {
   Card,
@@ -41,7 +41,7 @@ import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
-  createHandoverReportCheckout,
+  createHandoverReportCheckin,
   getHandoverReportById,
   sendHandoverReportPin,
   updateHandoverReportSignature,
@@ -404,138 +404,13 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
     });
   }
 
-  // Build deviceConditions map by deviceId for quick lookup
-  const deviceConditionsByDeviceId = {};
-  if (Array.isArray(report.deviceConditions)) {
-    report.deviceConditions.forEach(dc => {
-      if (dc.deviceId) {
-        if (!deviceConditionsByDeviceId[dc.deviceId]) {
-          deviceConditionsByDeviceId[dc.deviceId] = [];
-        }
-        deviceConditionsByDeviceId[dc.deviceId].push(dc);
-      }
-    });
-  }
-
-  // Helper function to get conditions and images for a device
-  const getDeviceConditionsHtml = (deviceId) => {
-    const deviceConditions = deviceConditionsByDeviceId[deviceId] || [];
-    if (deviceConditions.length === 0) {
-      return { conditions: "—", images: "—" };
-    }
-
-    // Use Set to track unique conditions and images to avoid duplicates
-    const uniqueConditions = new Set();
-    const uniqueImages = new Set();
-    
-    deviceConditions.forEach(dc => {
-      const snapshots = dc.baselineSnapshots || dc.snapshots || [];
-      if (snapshots.length === 0) return;
-      
-      // Prioritize HANDOVER_OUT snapshot, fallback to QC_BEFORE, then others
-      const handoverOutSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "HANDOVER_OUT");
-      const qcBeforeSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "QC_BEFORE");
-      const selectedSnapshot = handoverOutSnapshot || qcBeforeSnapshot || snapshots[0];
-      
-      // Collect conditions from selected snapshot
-      const conditionDetails = selectedSnapshot.conditionDetails || [];
-      conditionDetails.forEach(cd => {
-        const conditionDef = conditionMap[cd.conditionDefinitionId];
-        const conditionName = conditionDef?.name || `Điều kiện #${cd.conditionDefinitionId}`;
-        const severity = cd.severity === "LOW" ? "Thấp" : cd.severity === "MEDIUM" ? "Trung bình" : cd.severity === "HIGH" ? "Cao" : cd.severity === "CRITICAL" ? "Rất nặng" : cd.severity || "—";
-        // Use conditionDefinitionId + severity as unique key
-        const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
-        if (!uniqueConditions.has(uniqueKey)) {
-          uniqueConditions.add(uniqueKey);
-        }
-      });
-      
-      // Collect images from selected snapshot
-      if (Array.isArray(selectedSnapshot.images)) {
-        selectedSnapshot.images.forEach(img => {
-          // Use image URL as unique key
-          const imgKey = img;
-          if (!uniqueImages.has(imgKey)) {
-            uniqueImages.add(imgKey);
-          }
-        });
-      }
-    });
-
-    // Convert Set to Array and build HTML
-    const conditionsArray = Array.from(uniqueConditions).map(key => {
-      const [conditionDefId, severity] = key.split("_");
-      const conditionDef = conditionMap[conditionDefId];
-      const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
-      const severityText = severity === "LOW" ? "Thấp" : severity === "MEDIUM" ? "Trung bình" : severity === "HIGH" ? "Cao" : severity === "CRITICAL" ? "Rất nặng" : severity || "—";
-      return `${conditionName} (${severityText})`;
-    });
-    
-    const conditionsHtml = conditionsArray.length > 0 
-      ? conditionsArray.map(c => `<div>${c}</div>`).join("")
-      : "—";
-    
-    const imagesArray = Array.from(uniqueImages);
-    const imagesHtml = imagesArray.length > 0
-      ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${imagesArray.map((img, imgIdx) => {
-            const imgSrc = img.startsWith("data:image") ? img : img;
-            return `
-              <img 
-                src="${imgSrc}" 
-                alt="Ảnh ${imgIdx + 1}"
-                style="
-                  max-width:80px;
-                  max-height:80px;
-                  border:1px solid #ddd;
-                  border-radius:4px;
-                  object-fit:contain;
-                "
-                onerror="this.style.display='none';"
-              />
-            `;
-          }).join("")}
-        </div>`
-      : "—";
-
-    return { conditions: conditionsHtml, images: imagesHtml };
-  };
-
-  // Build items table - prioritize new format with deviceSerialNumber and deviceModelName
+  // Build items table - support both old format (itemName, itemCode) and new format (allocationId)
   const itemsRows = (report.items || [])
     .map((item, idx) => {
-      // Get device conditions and images by deviceId
-      const deviceId = item.deviceId;
-      const { conditions, images } = deviceId ? getDeviceConditionsHtml(deviceId) : { conditions: "—", images: "—" };
-
-      // Newest format: use deviceSerialNumber and deviceModelName directly from items
-      if (item.deviceSerialNumber && item.deviceModelName) {
-        return `
-          <tr>
-            <td>${idx + 1}</td>
-            <td>${item.deviceModelName}</td>
-            <td>${item.deviceSerialNumber}</td>
-            <td style="text-align:center">cái</td>
-            <td style="text-align:center">1</td>
-            <td style="text-align:center">1</td>
-            <td>${conditions}</td>
-            <td>${images}</td>
-          </tr>
-        `;
-      }
-      
       // New format: use allocationId to get device info
       if (item.allocationId) {
         const deviceInfo = allocationMap[item.allocationId];
         if (deviceInfo) {
-          // Try to get deviceId from deviceInfo or find by allocationId
-          let lookupDeviceId = deviceInfo.deviceId;
-          if (!lookupDeviceId && Array.isArray(report.deviceConditions)) {
-            const dc = report.deviceConditions.find(d => d.allocationId === item.allocationId);
-            if (dc) lookupDeviceId = dc.deviceId;
-          }
-          const { conditions, images } = lookupDeviceId ? getDeviceConditionsHtml(lookupDeviceId) : { conditions: "—", images: "—" };
-          
           return `
             <tr>
               <td>${idx + 1}</td>
@@ -544,8 +419,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
               <td style="text-align:center">${deviceInfo.unit}</td>
               <td style="text-align:center">${deviceInfo.quantity}</td>
               <td style="text-align:center">${deviceInfo.quantity}</td>
-              <td>${conditions}</td>
-              <td>${images}</td>
             </tr>
           `;
         } else {
@@ -575,8 +448,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
                 }
               }
               
-              const { conditions, images } = deviceCondition.deviceId ? getDeviceConditionsHtml(deviceCondition.deviceId) : { conditions: "—", images: "—" };
-              
               return `
                 <tr>
                   <td>${idx + 1}</td>
@@ -585,8 +456,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
                   <td style="text-align:center">cái</td>
                   <td style="text-align:center">1</td>
                   <td style="text-align:center">1</td>
-                  <td>${conditions}</td>
-                  <td>${images}</td>
                 </tr>
               `;
             }
@@ -601,8 +470,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
               <td style="text-align:center">cái</td>
               <td style="text-align:center">1</td>
               <td style="text-align:center">1</td>
-              <td>—</td>
-              <td>—</td>
             </tr>
           `;
         }
@@ -616,8 +483,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
           <td style="text-align:center">${item.unit || "cái"}</td>
           <td style="text-align:center">${item.orderedQuantity || 0}</td>
           <td style="text-align:center">${item.deliveredQuantity || 0}</td>
-          <td>—</td>
-          <td>—</td>
         </tr>
       `;
     })
@@ -666,7 +531,7 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
       ${NATIONAL_HEADER_HTML}
       
       <div style="text-align:center;margin-bottom:12px">
-        <div style="font-size:22px;font-weight:700;letter-spacing:.5px">BIÊN BẢN BÀN GIAO</div>
+        <div style="font-size:22px;font-weight:700;letter-spacing:.5px">BIÊN BẢN THU HỒI</div>
         <div style="color:#666">Số: #${report.handoverReportId || report.id || "—"}</div>
       </div>
       <hr style="border:none;border-top:1px solid #e8e8e8;margin:12px 0 16px"/>
@@ -702,10 +567,10 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
         }
       </section>
       
-      <h3>Thông tin bàn giao</h3>
+      <h3>Thông tin thu hồi</h3>
       <section class="kv">
-        <div><b>Thời gian bàn giao:</b> ${handoverDate}</div>
-        <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>
+        <div><b>Thời gian thu hồi:</b> ${handoverDate}</div>
+        <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>
         ${
           deliveryDate !== "—"
             ? `<div><b>Thời gian giao hàng:</b> ${deliveryDate}</div>`
@@ -713,7 +578,7 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
         }
       </section>
       
-      <h3>Danh sách thiết bị bàn giao</h3>
+      <h3>Danh sách thiết bị thu hồi</h3>
       <table>
         <thead>
           <tr>
@@ -723,14 +588,12 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
-            <th>Điều kiện</th>
-            <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
         <tbody>
           ${
             itemsRows ||
-            "<tr><td colspan='8' style='text-align:center'>Không có thiết bị</td></tr>"
+            "<tr><td colspan='6' style='text-align:center'>Không có thiết bị</td></tr>"
           }
         </tbody>
       </table>
@@ -768,6 +631,62 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
           : ""
       }
       
+      ${
+        (report.discrepancies || []).length > 0
+          ? `
+      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Loại sự cố</th>
+            <th>Thiết bị (Serial Number)</th>
+            <th>Điều kiện</th>
+            <th>Ghi chú nhân viên</th>
+            <th>Ghi chú khách hàng</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(report.discrepancies || []).map((disc, idx) => {
+            // Try to get serial number from deviceId
+            let deviceSerial = "—";
+            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+              for (const od of order.orderDetails) {
+                if (od.allocations && Array.isArray(od.allocations)) {
+                  for (const allocation of od.allocations) {
+                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                    if (deviceId === disc.deviceId) {
+                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                      break;
+                    }
+                  }
+                  if (deviceSerial && deviceSerial !== "—") break;
+                }
+              }
+            }
+            
+            const conditionDef = conditionMap[disc.conditionDefinitionId];
+            const conditionName = conditionDef?.name || `Điều kiện #${disc.conditionDefinitionId}`;
+            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
+            
+            return `
+              <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${discrepancyType}</td>
+                <td>${deviceSerial}</td>
+                <td>${conditionName}</td>
+                <td>${disc.staffNote || "—"}</td>
+                <td>${disc.customerNote || "—"}</td>
+              </tr>
+            `;
+          }).join("") || "<tr><td colspan='6' style='text-align:center'>Không có sự cố nào</td></tr>"}
+        </tbody>
+      </table>
+      `
+          : ""
+      }
       
       ${
         report.createdByStaff
@@ -977,7 +896,7 @@ const getStatusColor = (status) => {
   }
 };
 
-export default function TechnicianHandover() {
+export default function TechnicianHandoverCheckin() {
   const nav = useNavigate();
   const { taskId: paramTaskId } = useParams();
   const { state } = useLocation();
@@ -1023,12 +942,13 @@ export default function TechnicianHandover() {
   const [evidenceFiles, setEvidenceFiles] = useState([]); // Array of File objects
   const [evidenceUrls, setEvidenceUrls] = useState([]); // Array of URLs (base64 or server URLs)
   
-  // Device conditions state
-  const [deviceConditions, setDeviceConditions] = useState([]);
+  // Discrepancies state (for checkin)
+  const [discrepancies, setDiscrepancies] = useState([]);
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
   const [deviceCategoryMap, setDeviceCategoryMap] = useState({}); // deviceModelId -> deviceCategoryId
   const [devicesMap, setDevicesMap] = useState({}); // serialNumber -> deviceId
+  const [orderDetailsMap, setOrderDetailsMap] = useState({}); // orderDetailId -> orderDetail
 
   // Fetch task and order details
   useEffect(() => {
@@ -1088,7 +1008,8 @@ export default function TechnicianHandover() {
             setHandoverLocation(orderData.shippingAddress);
           }
 
-          // Fetch QC report PRE_RENTAL to get serial numbers and deviceConditions
+          // Note: For checkin, we don't need to load PRE_RENTAL QC report
+          // Devices are already allocated in the order
           let qcReportDevices = [];
           let preRentalQcReport = null;
           try {
@@ -1446,7 +1367,7 @@ export default function TechnicianHandover() {
     }
 
     if (!handoverLocation.trim()) {
-      toast.error("Vui lòng nhập địa điểm bàn giao");
+      toast.error("Vui lòng nhập địa điểm thu hồi");
       return;
     }
 
@@ -1494,24 +1415,28 @@ export default function TechnicianHandover() {
         }
       }
 
-      // Convert deviceConditions: serial number -> deviceId
-      const deviceConditionsPayload = [];
-      for (const condition of deviceConditions) {
-        if (!condition.deviceId || !condition.conditionDefinitionId || !condition.severity) {
-          continue; // Skip incomplete conditions
+      // Convert discrepancies: serial number -> deviceId, orderDetailId
+      const discrepanciesPayload = [];
+      for (const discrepancy of discrepancies) {
+        if (!discrepancy.deviceId || !discrepancy.conditionDefinitionId || !discrepancy.discrepancyType) {
+          continue; // Skip incomplete discrepancies
         }
         
-        // condition.deviceId là serial number, cần convert sang deviceId
-        const deviceId = devicesMap[String(condition.deviceId)];
-        if (deviceId) {
-          deviceConditionsPayload.push({
+        // discrepancy.deviceId là serial number, cần convert sang deviceId
+        const deviceId = devicesMap[String(discrepancy.deviceId)];
+        const orderDetailId = discrepancy.orderDetailId;
+        
+        if (deviceId && orderDetailId) {
+          discrepanciesPayload.push({
+            discrepancyType: String(discrepancy.discrepancyType || "DAMAGE"),
+            conditionDefinitionId: Number(discrepancy.conditionDefinitionId),
+            orderDetailId: Number(orderDetailId),
             deviceId: Number(deviceId),
-            conditionDefinitionId: Number(condition.conditionDefinitionId),
-            severity: String(condition.severity),
-            images: Array.isArray(condition.images) ? condition.images.map(String) : [],
+            staffNote: String(discrepancy.staffNote || ""),
+            customerNote: String(discrepancy.customerNote || ""),
           });
         } else {
-          console.warn(`Could not find deviceId for serial: ${condition.deviceId}`);
+          console.warn(`Could not find deviceId or orderDetailId for discrepancy:`, discrepancy);
         }
       }
 
@@ -1530,16 +1455,16 @@ export default function TechnicianHandover() {
         handoverLocation: handoverLocation.trim(),
         customerSignature: customerSignature.trim(),
         items: itemsWithEvidence,
-        deviceConditions: deviceConditionsPayload,
+        discrepancies: discrepanciesPayload,
       };
 
-      console.log("🔍 TechnicianHandover - Payload before API call:", {
+      console.log("🔍 TechnicianHandoverCheckin - Payload before API call:", {
         ...payload,
         itemsCount: payload.items.length,
-        deviceConditionsCount: payload.deviceConditions.length,
+        discrepanciesCount: payload.discrepancies.length,
       });
 
-      const result = await createHandoverReportCheckout(payload);
+      const result = await createHandoverReportCheckin(payload);
       const reportId =
         result?.handoverReportId ||
         result?.id ||
@@ -1552,7 +1477,7 @@ export default function TechnicianHandover() {
       }
 
       setHandoverReportId(reportId);
-      toast.success("Đã tạo biên bản bàn giao thành công!");
+      toast.success("Đã tạo biên bản thu hồi thành công!");
 
       // Fetch handover report data
       let reportData = null;
@@ -1591,7 +1516,7 @@ export default function TechnicianHandover() {
         e?.response?.data?.message ||
           e?.response?.data?.details ||
           e?.message ||
-          "Không thể tạo biên bản bàn giao"
+          "Không thể tạo biên bản thu hồi"
       );
     } finally {
       setSaving(false);
@@ -1607,7 +1532,7 @@ export default function TechnicianHandover() {
       setHandoverReports(Array.isArray(reports) ? reports : []);
     } catch (e) {
       console.error("Error loading handover reports:", e);
-      toast.error("Không thể tải danh sách biên bản bàn giao");
+      toast.error("Không thể tải danh sách biên bản thu hồi");
       setHandoverReports([]);
     } finally {
       setLoadingReports(false);
@@ -1638,7 +1563,7 @@ export default function TechnicianHandover() {
         staffSignature: staffSignature.trim(),
       });
       toast.success(
-        "Đã ký biên bản bàn giao thành công! Trạng thái: STAFF_SIGNED"
+        "Đã ký biên bản thu hồi thành công! Trạng thái: STAFF_SIGNED"
       );
 
       if (order?.orderId || order?.id) {
@@ -1653,7 +1578,7 @@ export default function TechnicianHandover() {
         e?.response?.data?.message ||
           e?.response?.data?.details ||
           e?.message ||
-          "Không thể ký biên bản bàn giao"
+          "Không thể ký biên bản thu hồi"
       );
     } finally {
       setSigning(false);
@@ -1912,9 +1837,9 @@ export default function TechnicianHandover() {
           Quay lại
         </Button>
         <Title level={3} style={{ margin: 0 }}>
-          Tạo biên bản bàn giao
+          Tạo biên bản thu hồi
         </Title>
-        <Tag color="blue">HANDOVER REPORT</Tag>
+        <Tag color="orange">HANDOVER CHECKIN</Tag>
       </Space>
 
       {/* Thông tin task và đơn hàng */}
@@ -1941,7 +1866,7 @@ export default function TechnicianHandover() {
       </Card>
 
       {/* Form tạo handover report */}
-      <Card title="Thông tin bàn giao" className="mb-3">
+      <Card title="Thông tin thu hồi" className="mb-3">
         <Row gutter={[16, 16]}>
           <Col xs={24} md={8}>
             <div style={{ marginBottom: 16 }}>
@@ -1989,7 +1914,7 @@ export default function TechnicianHandover() {
           </Col>
           <Col xs={24} md={12}>
             <div style={{ marginBottom: 16 }}>
-              <Text strong>Thời gian bàn giao *</Text>
+              <Text strong>Thời gian thu hồi *</Text>
               <DatePicker
                 showTime
                 value={handoverDateTime}
@@ -2001,7 +1926,7 @@ export default function TechnicianHandover() {
           </Col>
           <Col xs={24} md={12}>
             <div style={{ marginBottom: 16 }}>
-              <Text strong>Địa điểm bàn giao *</Text>
+              <Text strong>Địa điểm thu hồi *</Text>
               <Input
                 value={handoverLocation}
                 onChange={(e) => setHandoverLocation(e.target.value)}
@@ -2035,74 +1960,77 @@ export default function TechnicianHandover() {
         />
       </Card>
 
-      {/* Device Conditions Section */}
-      <Card title="Điều kiện thiết bị (Device Conditions)" className="mb-3">
+      {/* Discrepancies Section */}
+      <Card title="Sự cố/Chênh lệch (Discrepancies)" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Thông tin điều kiện thiết bị sẽ được tự động điền từ QC report PRE_RENTAL (nếu có)
+              Ghi nhận các sự cố hoặc chênh lệch khi thu hồi thiết bị
             </Text>
             <Button
               type="dashed"
               onClick={() => {
-                // Get available serial numbers from items
-                const availableSerials = items
-                  .map(item => {
-                    const codes = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
-                    return codes;
-                  })
-                  .flat();
-                
-                if (availableSerials.length === 0) {
-                  message.warning("Vui lòng đợi thiết bị được load trước khi thêm điều kiện");
+                if (!order || !Array.isArray(order.orderDetails) || order.orderDetails.length === 0) {
+                  message.warning("Vui lòng đợi thông tin đơn hàng được load");
                   return;
                 }
                 
-                setDeviceConditions([
-                  ...deviceConditions,
+                setDiscrepancies([
+                  ...discrepancies,
                   {
+                    discrepancyType: "DAMAGE",
                     deviceId: null,
+                    orderDetailId: null,
                     conditionDefinitionId: null,
-                    severity: "",
-                    images: [],
+                    staffNote: "",
+                    customerNote: "",
                   },
                 ]);
               }}
             >
-              + Thêm điều kiện
+              + Thêm sự cố
             </Button>
           </div>
           
-          {deviceConditions.length === 0 ? (
+          {discrepancies.length === 0 ? (
             <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-              Chưa có điều kiện nào được thêm. Nhấn nút "Thêm điều kiện" để bắt đầu.
+              Chưa có sự cố nào được ghi nhận. Nhấn nút "Thêm sự cố" để bắt đầu.
             </Text>
           ) : (
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
-              {deviceConditions.map((condition, index) => {
-                // Get available serial numbers from items
-                const availableSerials = items
-                  .map(item => {
-                    const codes = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
-                    return codes;
-                  })
-                  .flat();
+              {discrepancies.map((discrepancy, index) => {
+                // Get available order details
+                const orderDetailOptions = order && Array.isArray(order.orderDetails)
+                  ? order.orderDetails.map(od => ({
+                      label: `${od.deviceModel?.deviceName || od.deviceModel?.name || `Model #${od.deviceModelId}`} (SL: ${od.quantity})`,
+                      value: od.orderDetailId || od.id,
+                    }))
+                  : [];
                 
-                // Find device info by serial to get deviceModelId
-                const selectedSerial = condition.deviceId;
-                let deviceModelId = null;
-                if (selectedSerial && order && Array.isArray(order.orderDetails)) {
-                  // Find which orderDetail contains this serial
-                  for (const od of order.orderDetails) {
-                    const codes = (items.find(i => i.itemCode?.includes(selectedSerial))?.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
-                    if (codes.includes(selectedSerial)) {
-                      deviceModelId = od.deviceModelId;
-                      break;
-                    }
-                  }
-                }
+                // Get available serial numbers from items for selected orderDetail
+                const selectedOrderDetail = order && Array.isArray(order.orderDetails)
+                  ? order.orderDetails.find(od => (od.orderDetailId || od.id) === discrepancy.orderDetailId)
+                  : null;
                 
-                // Get deviceCategoryId from map
+                const availableSerials = selectedOrderDetail
+                  ? items
+                      .filter(item => {
+                        // Find item that matches this orderDetail
+                        const itemModelId = order.orderDetails.find(od => {
+                          const codes = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
+                          return codes.length > 0;
+                        });
+                        return itemModelId;
+                      })
+                      .map(item => {
+                        const codes = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
+                        return codes;
+                      })
+                      .flat()
+                  : [];
+                
+                // Get deviceCategoryId from selected orderDetail
+                const deviceModelId = selectedOrderDetail?.deviceModelId;
                 const deviceCategoryId = deviceModelId ? deviceCategoryMap[deviceModelId] : null;
                 
                 // Filter conditions by deviceCategoryId
@@ -2114,14 +2042,14 @@ export default function TechnicianHandover() {
                   <Card
                     key={index}
                     size="small"
-                    title={`Điều kiện #${index + 1}`}
+                    title={`Sự cố #${index + 1}`}
                     extra={
                       <Button
                         type="text"
                         danger
                         size="small"
                         onClick={() => {
-                          setDeviceConditions(deviceConditions.filter((_, i) => i !== index));
+                          setDiscrepancies(discrepancies.filter((_, i) => i !== index));
                         }}
                       >
                         Xóa
@@ -2132,21 +2060,68 @@ export default function TechnicianHandover() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
+                            Loại sự cố <Text type="danger">*</Text>
+                          </Text>
+                          <Select
+                            style={{ width: "100%" }}
+                            placeholder="Chọn loại sự cố"
+                            value={discrepancy.discrepancyType}
+                            onChange={(value) => {
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
+                                discrepancyType: value,
+                              };
+                              setDiscrepancies(newDiscrepancies);
+                            }}
+                            options={[
+                              { label: "Hư hỏng (DAMAGE)", value: "DAMAGE" },
+                              { label: "Mất mát (LOSS)", value: "LOSS" },
+                              { label: "Khác (OTHER)", value: "OTHER" },
+                            ]}
+                          />
+                        </div>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <div style={{ marginBottom: 12 }}>
+                          <Text strong style={{ display: "block", marginBottom: 4 }}>
+                            Chi tiết đơn hàng <Text type="danger">*</Text>
+                          </Text>
+                          <Select
+                            style={{ width: "100%" }}
+                            placeholder="Chọn chi tiết đơn hàng"
+                            value={discrepancy.orderDetailId}
+                            onChange={(value) => {
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
+                                orderDetailId: value,
+                                deviceId: null, // Reset when orderDetail changes
+                              };
+                              setDiscrepancies(newDiscrepancies);
+                            }}
+                            options={orderDetailOptions}
+                          />
+                        </div>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <div style={{ marginBottom: 12 }}>
+                          <Text strong style={{ display: "block", marginBottom: 4 }}>
                             Thiết bị (Serial Number) <Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}
                             placeholder="Chọn thiết bị"
-                            value={condition.deviceId ? String(condition.deviceId) : null}
+                            value={discrepancy.deviceId ? String(discrepancy.deviceId) : null}
                             onChange={(value) => {
-                              const newConditions = [...deviceConditions];
-                              newConditions[index] = {
-                                ...newConditions[index],
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
                                 deviceId: value,
-                                conditionDefinitionId: null, // Reset when device changes
                               };
-                              setDeviceConditions(newConditions);
+                              setDiscrepancies(newDiscrepancies);
                             }}
+                            disabled={!discrepancy.orderDetailId}
                             options={availableSerials.map(serial => ({
                               label: serial,
                               value: serial,
@@ -2162,17 +2137,17 @@ export default function TechnicianHandover() {
                           <Select
                             style={{ width: "100%" }}
                             placeholder="Chọn điều kiện"
-                            value={condition.conditionDefinitionId}
+                            value={discrepancy.conditionDefinitionId}
                             onChange={(value) => {
-                              const newConditions = [...deviceConditions];
-                              newConditions[index] = {
-                                ...newConditions[index],
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
                                 conditionDefinitionId: value,
                               };
-                              setDeviceConditions(newConditions);
+                              setDiscrepancies(newDiscrepancies);
                             }}
                             loading={loadingConditions}
-                            disabled={!condition.deviceId || loadingConditions}
+                            disabled={!discrepancy.deviceId || loadingConditions}
                             options={filteredConditions.map(c => ({
                               label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
                               value: c.id,
@@ -2183,69 +2158,41 @@ export default function TechnicianHandover() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Mức độ nghiêm trọng (Severity) <Text type="danger">*</Text>
+                            Ghi chú nhân viên
                           </Text>
-                          <Select
-                            style={{ width: "100%" }}
-                            placeholder="Chọn mức độ"
-                            value={condition.severity}
-                            onChange={(value) => {
-                              const newConditions = [...deviceConditions];
-                              newConditions[index] = {
-                                ...newConditions[index],
-                                severity: value,
+                          <Input.TextArea
+                            rows={3}
+                            placeholder="Nhập ghi chú của nhân viên"
+                            value={discrepancy.staffNote}
+                            onChange={(e) => {
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
+                                staffNote: e.target.value,
                               };
-                              setDeviceConditions(newConditions);
+                              setDiscrepancies(newDiscrepancies);
                             }}
-                            options={[
-                              { label: "Nhẹ (LOW)", value: "LOW" },
-                              { label: "Trung bình (MEDIUM)", value: "MEDIUM" },
-                              { label: "Nặng (HIGH)", value: "HIGH" },
-                              { label: "Rất nặng (CRITICAL)", value: "CRITICAL" },
-                            ]}
                           />
                         </div>
                       </Col>
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Ảnh bằng chứng
+                            Ghi chú khách hàng
                           </Text>
-                          <Upload
-                            multiple
-                            accept=".jpg,.jpeg,.png,.webp"
-                            beforeUpload={() => false}
-                            listType="picture-card"
-                            fileList={condition.images?.map((img, imgIdx) => ({
-                              uid: `img-${index}-${imgIdx}`,
-                              name: `image-${imgIdx + 1}.jpg`,
-                              status: "done",
-                              url: typeof img === "string" ? img : (img?.url || img?.thumbUrl || ""),
-                            })) || []}
-                            onChange={async ({ fileList }) => {
-                              const newConditions = [...deviceConditions];
-                              const imageUrls = await Promise.all(
-                                fileList.map(async (f) => {
-                                  if (f.originFileObj) {
-                                    return await fileToBase64(f.originFileObj);
-                                  }
-                                  return f.thumbUrl || f.url || "";
-                                })
-                              );
-                              newConditions[index] = {
-                                ...newConditions[index],
-                                images: imageUrls.filter(Boolean),
+                          <Input.TextArea
+                            rows={3}
+                            placeholder="Nhập ghi chú của khách hàng"
+                            value={discrepancy.customerNote}
+                            onChange={(e) => {
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
+                                customerNote: e.target.value,
                               };
-                              setDeviceConditions(newConditions);
+                              setDiscrepancies(newDiscrepancies);
                             }}
-                          >
-                            {((condition.images?.length || 0) < 5) && (
-                              <div>
-                                <InboxOutlined />
-                                <div style={{ marginTop: 8 }}>Tải ảnh</div>
-                              </div>
-                            )}
-                          </Upload>
+                          />
                         </div>
                       </Col>
                     </Row>
@@ -2343,7 +2290,7 @@ export default function TechnicianHandover() {
       {/* Form ký handover report - Hiển thị sau khi tạo thành công */}
       {showSignatureForm && handoverReportId && (
         <Card
-          title="Ký biên bản bàn giao"
+          title="Ký biên bản thu hồi"
           className="mb-3"
           style={{ borderColor: "#52c41a" }}
         >
@@ -2414,7 +2361,7 @@ export default function TechnicianHandover() {
               onClick={handleSubmit}
               loading={saving}
             >
-              Tạo biên bản bàn giao
+              Tạo biên bản thu hồi
             </Button>
             <Button onClick={() => nav(-1)}>Hủy</Button>
           </Space>
@@ -2423,7 +2370,7 @@ export default function TechnicianHandover() {
 
       {/* Danh sách handover reports - Hiển thị sau khi ký thành công */}
       {showReportsList && (
-        <Card title="Danh sách biên bản bàn giao" className="mb-3">
+        <Card title="Danh sách biên bản thu hồi" className="mb-3">
           {loadingReports ? (
             <div style={{ textAlign: "center", padding: "40px 0" }}>
               <Spin size="large" />
@@ -2450,7 +2397,7 @@ export default function TechnicianHandover() {
                   render: (v) => (v ? `#${v}` : "—"),
                 },
                 {
-                  title: "Thời gian bàn giao",
+                  title: "Thời gian thu hồi",
                   dataIndex: "handoverDateTime",
                   key: "handoverDateTime",
                   width: 180,
@@ -2514,7 +2461,7 @@ export default function TechnicianHandover() {
             />
           ) : (
             <div style={{ textAlign: "center", padding: "40px 0" }}>
-              <Text type="secondary">Chưa có biên bản bàn giao nào</Text>
+              <Text type="secondary">Chưa có biên bản thu hồi nào</Text>
             </div>
           )}
           <Divider />
@@ -2534,7 +2481,7 @@ export default function TechnicianHandover() {
 
       {/* Modal preview PDF */}
       <Modal
-        title={`Biên bản bàn giao #${
+        title={`Biên bản thu hồi #${
           selectedReport?.handoverReportId || selectedReport?.id || ""
         }`}
         open={pdfModalOpen}

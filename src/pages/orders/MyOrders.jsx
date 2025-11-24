@@ -23,6 +23,7 @@ import {
   sendCustomerHandoverReportPin,
   updateCustomerHandoverReportSignature
 } from "../../lib/handoverReportApi";
+import { getConditionDefinitions } from "../../lib/condition.js";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
@@ -497,22 +498,418 @@ function translateHandoverStatus(status) {
   return status || "—";
 }
 
-function buildPrintableHandoverReportHtml(report) {
+function buildPrintableHandoverReportHtml(report, order = null, conditionDefinitions = []) {
   const customerInfo = parseInfoString(report.customerInfo);
   const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
   const customerName = customerInfo.name || "—";
   const technicianName = technicianInfo.name || "—";
   
-  const itemsRows = (report.items || []).map((item, idx) => `
-    <tr>
-      <td style="text-align:center">${idx + 1}</td>
-      <td>${item.itemName || "—"}</td>
-      <td>${item.itemCode || "—"}</td>
-      <td style="text-align:center">${item.unit || "—"}</td>
-      <td style="text-align:center">${item.orderedQuantity || 0}</td>
-      <td style="text-align:center">${item.deliveredQuantity || 0}</td>
-    </tr>
-  `).join("");
+  // Map condition definitions by ID for quick lookup
+  const conditionMap = {};
+  conditionDefinitions.forEach(cd => {
+    conditionMap[cd.id || cd.conditionDefinitionId] = cd;
+  });
+  
+  // Build allocation map from order if available
+  const allocationMap = {};
+  if (order && Array.isArray(order.orderDetails)) {
+    order.orderDetails.forEach(od => {
+      if (od.allocations && Array.isArray(od.allocations)) {
+        od.allocations.forEach(allocation => {
+          if (allocation.allocationId) {
+            allocationMap[allocation.allocationId] = {
+              deviceModelName: od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—",
+              serialNumber: allocation.device?.serialNumber || allocation.serialNumber || "—",
+              deviceId: allocation.device?.deviceId || allocation.deviceId || null,
+              unit: "cái",
+              quantity: od.quantity || 1,
+            };
+          }
+        });
+      }
+    });
+  }
+  
+  // Build device map from deviceConditions to supplement allocationMap
+  const deviceConditionMap = {};
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach(dc => {
+      if (dc.allocationId && dc.deviceId) {
+        // Try to get serial number from baselineSnapshots or deviceSerial
+        let serialNumber = dc.deviceSerial || "—";
+        if (!serialNumber && dc.baselineSnapshots && Array.isArray(dc.baselineSnapshots)) {
+          // Try to find serial number in snapshots (if available)
+          const firstSnapshot = dc.baselineSnapshots[0];
+          if (firstSnapshot && firstSnapshot.deviceSerial) {
+            serialNumber = firstSnapshot.deviceSerial;
+          }
+        }
+        
+        // If allocationId not in allocationMap, add it from deviceConditions
+        if (!allocationMap[dc.allocationId]) {
+          allocationMap[dc.allocationId] = {
+            deviceId: dc.deviceId,
+            serialNumber: serialNumber,
+            deviceModelName: "—", // Will try to get from order if available
+            unit: "cái",
+            quantity: 1,
+          };
+        } else {
+          // Update existing entry with deviceId and serialNumber if missing
+          if (!allocationMap[dc.allocationId].deviceId) {
+            allocationMap[dc.allocationId].deviceId = dc.deviceId;
+          }
+          if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
+            allocationMap[dc.allocationId].serialNumber = serialNumber;
+          }
+        }
+        
+        // Also create a deviceId -> allocationId map for lookup
+        deviceConditionMap[dc.deviceId] = {
+          allocationId: dc.allocationId,
+          serialNumber: serialNumber,
+        };
+      }
+    });
+  }
+  
+  // Try to enrich allocationMap with device info from order allocations by deviceId
+  // First, create a deviceId -> device info map from order allocations
+  const deviceInfoFromOrder = {};
+  if (order && Array.isArray(order.orderDetails)) {
+    order.orderDetails.forEach(od => {
+      const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+      if (od.allocations && Array.isArray(od.allocations)) {
+        od.allocations.forEach(allocation => {
+          const deviceId = allocation.device?.deviceId || allocation.deviceId;
+          const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
+          if (deviceId) {
+            deviceInfoFromOrder[deviceId] = {
+              serialNumber: serialNumber || "—",
+              deviceModelName: deviceModelName,
+              allocationId: allocation.allocationId,
+            };
+          }
+        });
+      }
+    });
+  }
+  
+  // Now enrich allocationMap using deviceId from deviceConditions
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach(dc => {
+      if (dc.allocationId && dc.deviceId) {
+        const deviceInfo = deviceInfoFromOrder[dc.deviceId];
+        if (deviceInfo && allocationMap[dc.allocationId]) {
+          // Update with device info from order
+          if (!allocationMap[dc.allocationId].deviceModelName || allocationMap[dc.allocationId].deviceModelName === "—") {
+            allocationMap[dc.allocationId].deviceModelName = deviceInfo.deviceModelName;
+          }
+          if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
+            allocationMap[dc.allocationId].serialNumber = deviceInfo.serialNumber;
+          }
+        }
+      }
+    });
+  }
+  
+  // Also try to find device info for items that have allocationId but not in allocationMap yet
+  if (Array.isArray(report.items)) {
+    report.items.forEach(item => {
+      if (item.allocationId && !allocationMap[item.allocationId]) {
+        // Try to find by allocationId in order
+        if (order && Array.isArray(order.orderDetails)) {
+          order.orderDetails.forEach(od => {
+            if (od.allocations && Array.isArray(od.allocations)) {
+              od.allocations.forEach(allocation => {
+                if (allocation.allocationId === item.allocationId) {
+                  const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                  const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
+                  const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+                  
+                  allocationMap[item.allocationId] = {
+                    deviceId: deviceId,
+                    serialNumber: serialNumber || "—",
+                    deviceModelName: deviceModelName,
+                    unit: "cái",
+                    quantity: od.quantity || 1,
+                  };
+                }
+              });
+            }
+          });
+        }
+        
+        // If still not found, try to find from deviceConditions by allocationId
+        if (!allocationMap[item.allocationId] && Array.isArray(report.deviceConditions)) {
+          const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
+          if (deviceCondition && deviceCondition.deviceId) {
+            const deviceInfo = deviceInfoFromOrder[deviceCondition.deviceId];
+            if (deviceInfo) {
+              allocationMap[item.allocationId] = {
+                deviceId: deviceCondition.deviceId,
+                serialNumber: deviceInfo.serialNumber,
+                deviceModelName: deviceInfo.deviceModelName,
+                unit: "cái",
+                quantity: 1,
+              };
+            } else {
+              // Fallback: use deviceCondition data
+              let serialNumber = deviceCondition.deviceSerial || "—";
+              if (!serialNumber && deviceCondition.baselineSnapshots && Array.isArray(deviceCondition.baselineSnapshots)) {
+                const firstSnapshot = deviceCondition.baselineSnapshots[0];
+                if (firstSnapshot && firstSnapshot.deviceSerial) {
+                  serialNumber = firstSnapshot.deviceSerial;
+                }
+              }
+              
+              // Try to find device model name from order details by deviceId
+              let deviceModelName = "—";
+              if (order && Array.isArray(order.orderDetails)) {
+                for (const od of order.orderDetails) {
+                  if (od.allocations && Array.isArray(od.allocations)) {
+                    for (const allocation of od.allocations) {
+                      const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                      if (deviceId === deviceCondition.deviceId) {
+                        deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+                        break;
+                      }
+                    }
+                    if (deviceModelName !== "—") break;
+                  }
+                }
+              }
+              
+              allocationMap[item.allocationId] = {
+                deviceId: deviceCondition.deviceId,
+                serialNumber: serialNumber,
+                deviceModelName: deviceModelName,
+                unit: "cái",
+                quantity: 1,
+              };
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  // Build deviceConditions map by deviceId for quick lookup
+  const deviceConditionsByDeviceId = {};
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach(dc => {
+      if (dc.deviceId) {
+        if (!deviceConditionsByDeviceId[dc.deviceId]) {
+          deviceConditionsByDeviceId[dc.deviceId] = [];
+        }
+        deviceConditionsByDeviceId[dc.deviceId].push(dc);
+      }
+    });
+  }
+
+  // Helper function to get conditions and images for a device
+  const getDeviceConditionsHtml = (deviceId) => {
+    const deviceConditions = deviceConditionsByDeviceId[deviceId] || [];
+    if (deviceConditions.length === 0) {
+      return { conditions: "—", images: "—" };
+    }
+
+    // Use Set to track unique conditions and images to avoid duplicates
+    const uniqueConditions = new Set();
+    const uniqueImages = new Set();
+    
+    deviceConditions.forEach(dc => {
+      const snapshots = dc.baselineSnapshots || dc.snapshots || [];
+      if (snapshots.length === 0) return;
+      
+      // Prioritize HANDOVER_OUT snapshot, fallback to QC_BEFORE, then others
+      const handoverOutSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "HANDOVER_OUT");
+      const qcBeforeSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "QC_BEFORE");
+      const selectedSnapshot = handoverOutSnapshot || qcBeforeSnapshot || snapshots[0];
+      
+      // Collect conditions from selected snapshot
+      const conditionDetails = selectedSnapshot.conditionDetails || [];
+      conditionDetails.forEach(cd => {
+        const conditionDef = conditionMap[cd.conditionDefinitionId];
+        const conditionName = conditionDef?.name || `Điều kiện #${cd.conditionDefinitionId}`;
+        const severity = cd.severity === "LOW" ? "Thấp" : cd.severity === "MEDIUM" ? "Trung bình" : cd.severity === "HIGH" ? "Cao" : cd.severity === "CRITICAL" ? "Rất nặng" : cd.severity || "—";
+        // Use conditionDefinitionId + severity as unique key
+        const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
+        if (!uniqueConditions.has(uniqueKey)) {
+          uniqueConditions.add(uniqueKey);
+        }
+      });
+      
+      // Collect images from selected snapshot
+      if (Array.isArray(selectedSnapshot.images)) {
+        selectedSnapshot.images.forEach(img => {
+          // Use image URL as unique key
+          const imgKey = img;
+          if (!uniqueImages.has(imgKey)) {
+            uniqueImages.add(imgKey);
+          }
+        });
+      }
+    });
+
+    // Convert Set to Array and build HTML
+    const conditionsArray = Array.from(uniqueConditions).map(key => {
+      const [conditionDefId, severity] = key.split("_");
+      const conditionDef = conditionMap[conditionDefId];
+      const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
+      const severityText = severity === "LOW" ? "Thấp" : severity === "MEDIUM" ? "Trung bình" : severity === "HIGH" ? "Cao" : severity === "CRITICAL" ? "Rất nặng" : severity || "—";
+      return `${conditionName} (${severityText})`;
+    });
+    
+    const conditionsHtml = conditionsArray.length > 0 
+      ? conditionsArray.map(c => `<div>${c}</div>`).join("")
+      : "—";
+    
+    const imagesArray = Array.from(uniqueImages);
+    const imagesHtml = imagesArray.length > 0
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${imagesArray.map((img, imgIdx) => {
+            const imgSrc = img.startsWith("data:image") ? img : img;
+            return `
+              <img 
+                src="${imgSrc}" 
+                alt="Ảnh ${imgIdx + 1}"
+                style="
+                  max-width:80px;
+                  max-height:80px;
+                  border:1px solid #ddd;
+                  border-radius:4px;
+                  object-fit:contain;
+                "
+                onerror="this.style.display='none';"
+              />
+            `;
+          }).join("")}
+        </div>`
+      : "—";
+
+    return { conditions: conditionsHtml, images: imagesHtml };
+  };
+
+  // Build items rows - prioritize new format with deviceSerialNumber and deviceModelName
+  const itemsRows = (report.items || []).map((item, idx) => {
+    // Get device conditions and images by deviceId
+    const deviceId = item.deviceId;
+    const { conditions, images } = deviceId ? getDeviceConditionsHtml(deviceId) : { conditions: "—", images: "—" };
+
+    // Newest format: use deviceSerialNumber and deviceModelName directly from items
+    if (item.deviceSerialNumber && item.deviceModelName) {
+      return `
+        <tr>
+          <td style="text-align:center">${idx + 1}</td>
+          <td>${item.deviceModelName}</td>
+          <td>${item.deviceSerialNumber}</td>
+          <td style="text-align:center">cái</td>
+          <td style="text-align:center">1</td>
+          <td style="text-align:center">1</td>
+          <td>${conditions}</td>
+          <td>${images}</td>
+        </tr>
+      `;
+    }
+    
+    // New format: use allocationId to get device info
+    if (item.allocationId) {
+      const deviceInfo = allocationMap[item.allocationId];
+      if (deviceInfo) {
+        // Try to get deviceId from deviceInfo or find by allocationId
+        let lookupDeviceId = deviceInfo.deviceId;
+        if (!lookupDeviceId && Array.isArray(report.deviceConditions)) {
+          const dc = report.deviceConditions.find(d => d.allocationId === item.allocationId);
+          if (dc) lookupDeviceId = dc.deviceId;
+        }
+        const { conditions, images } = lookupDeviceId ? getDeviceConditionsHtml(lookupDeviceId) : { conditions: "—", images: "—" };
+        
+        return `
+          <tr>
+            <td style="text-align:center">${idx + 1}</td>
+            <td>${deviceInfo.deviceModelName}</td>
+            <td>${deviceInfo.serialNumber}</td>
+            <td style="text-align:center">${deviceInfo.unit}</td>
+            <td style="text-align:center">${deviceInfo.quantity}</td>
+            <td style="text-align:center">${deviceInfo.quantity}</td>
+            <td>${conditions}</td>
+            <td>${images}</td>
+          </tr>
+        `;
+      } else {
+        // Nếu không tìm thấy trong allocationMap, thử lấy từ deviceConditions
+        if (Array.isArray(report.deviceConditions)) {
+          const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
+          if (deviceCondition && deviceCondition.deviceId) {
+            // Thử tìm device model name từ order details
+            let deviceModelName = "—";
+            let serialNumber = deviceCondition.deviceSerial || "—";
+            
+            if (order && Array.isArray(order.orderDetails)) {
+              for (const od of order.orderDetails) {
+                if (od.allocations && Array.isArray(od.allocations)) {
+                  for (const allocation of od.allocations) {
+                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                    if (deviceId === deviceCondition.deviceId) {
+                      deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+                      if (!serialNumber || serialNumber === "—") {
+                        serialNumber = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                      }
+                      break;
+                    }
+                  }
+                  if (deviceModelName !== "—") break;
+                }
+              }
+            }
+            
+            const { conditions, images } = deviceCondition.deviceId ? getDeviceConditionsHtml(deviceCondition.deviceId) : { conditions: "—", images: "—" };
+            
+            return `
+              <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${deviceModelName}</td>
+                <td>${serialNumber}</td>
+                <td style="text-align:center">cái</td>
+                <td style="text-align:center">1</td>
+                <td style="text-align:center">1</td>
+                <td>${conditions}</td>
+                <td>${images}</td>
+              </tr>
+            `;
+          }
+        }
+        
+        // Fallback: hiển thị allocationId nếu không tìm thấy
+        return `
+          <tr>
+            <td style="text-align:center">${idx + 1}</td>
+            <td>—</td>
+            <td>— (allocationId: ${item.allocationId})</td>
+            <td style="text-align:center">cái</td>
+            <td style="text-align:center">1</td>
+            <td style="text-align:center">1</td>
+            <td>—</td>
+            <td>—</td>
+          </tr>
+        `;
+      }
+    }
+    // Old format: use itemName, itemCode
+    return `
+      <tr>
+        <td style="text-align:center">${idx + 1}</td>
+        <td>${item.itemName || "—"}</td>
+        <td>${item.itemCode || "—"}</td>
+        <td style="text-align:center">${item.unit || "—"}</td>
+        <td style="text-align:center">${item.orderedQuantity || 0}</td>
+        <td style="text-align:center">${item.deliveredQuantity || 0}</td>
+        <td>—</td>
+        <td>—</td>
+      </tr>
+    `;
+  }).join("");
   
   const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
     <tr>
@@ -529,6 +926,10 @@ function buildPrintableHandoverReportHtml(report) {
     const phone = t.phoneNumber || "";
     return `<li><strong>${name}</strong>${phone ? `<br/>Số điện thoại: ${phone}` : ""}</li>`;
   }).join("");
+  
+  // Determine handover type
+  const handoverType = String(report.handoverType || "").toUpperCase();
+  const isCheckin = handoverType === "CHECKIN";
   
   return `
     <style>
@@ -554,14 +955,17 @@ function buildPrintableHandoverReportHtml(report) {
          style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
       ${NATIONAL_HEADER_HTML}
       
-      <h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>
+      <h1 style="text-align:center; margin:16px 0">${isCheckin ? "BIÊN BẢN THU HỒI THIẾT BỊ" : "BIÊN BẢN BÀN GIAO THIẾT BỊ"}</h1>
       
       <section class="kv">
         <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
         <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
         <div><b>Mã task:</b> #${report.taskId || "—"}</div>
-        <div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
-        <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>
+        ${isCheckin 
+          ? `<div><b>Thời gian thu hồi:</b> ${formatDateTime(report.handoverDateTime)}</div>
+             <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
+          : `<div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
+             <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>`}
         <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
       </section>
       
@@ -579,7 +983,7 @@ function buildPrintableHandoverReportHtml(report) {
         ${technicianInfo.email ? `<div><b>Email:</b> ${technicianInfo.email}</div>` : ""}
       </section>
       
-      <h3>Danh sách thiết bị bàn giao</h3>
+      <h3>${isCheckin ? "Danh sách thiết bị thu hồi" : "Danh sách thiết bị bàn giao"}</h3>
       <table>
         <thead>
           <tr>
@@ -589,10 +993,12 @@ function buildPrintableHandoverReportHtml(report) {
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
+            <th>Điều kiện</th>
+            <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
         <tbody>
-          ${itemsRows || "<tr><td colspan='6' style='text-align:center'>Không có thiết bị</td></tr>"}
+          ${itemsRows || "<tr><td colspan='8' style='text-align:center'>Không có thiết bị</td></tr>"}
         </tbody>
       </table>
       
@@ -620,6 +1026,67 @@ function buildPrintableHandoverReportHtml(report) {
         ${techniciansList}
       </ul>
       ` : ""}
+      
+      ${(() => {
+        // For CHECKIN: show discrepancies
+        if (isCheckin && (report.discrepancies || []).length > 0) {
+          return `
+      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Loại sự cố</th>
+            <th>Thiết bị (Serial Number)</th>
+            <th>Điều kiện</th>
+            <th>Ghi chú nhân viên</th>
+            <th>Ghi chú khách hàng</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(report.discrepancies || []).map((disc, idx) => {
+            // Try to get serial number from deviceId
+            let deviceSerial = "—";
+            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+              for (const od of order.orderDetails) {
+                if (od.allocations && Array.isArray(od.allocations)) {
+                  for (const allocation of od.allocations) {
+                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                    if (deviceId === disc.deviceId) {
+                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                      break;
+                    }
+                  }
+                  if (deviceSerial && deviceSerial !== "—") break;
+                }
+              }
+            }
+            
+            const conditionDef = conditionMap[disc.conditionDefinitionId];
+            const conditionName = conditionDef?.name || `Điều kiện #${disc.conditionDefinitionId}`;
+            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
+            
+            return `
+              <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${discrepancyType}</td>
+                <td>${deviceSerial}</td>
+                <td>${conditionName}</td>
+                <td>${disc.staffNote || "—"}</td>
+                <td>${disc.customerNote || "—"}</td>
+              </tr>
+            `;
+          }).join("") || "<tr><td colspan='6' style='text-align:center'>Không có sự cố nào</td></tr>"}
+        </tbody>
+      </table>
+      `;
+        }
+        
+        // For CHECKOUT: deviceConditions are now shown in the items table, so no separate section needed
+        return "";
+      })()}
       
       ${report.createdByStaff ? `
       <h3>Người tạo biên bản</h3>
@@ -908,6 +1375,9 @@ export default function MyOrders() {
   const [handoverPdfGenerating, setHandoverPdfGenerating] = useState(false);
   const [selectedHandoverReport, setSelectedHandoverReport] = useState(null);
   const handoverPrintRef = useRef(null);
+  // Checkin reports (separate state for checkin)
+  const [checkinPdfPreviewUrl, setCheckinPdfPreviewUrl] = useState(""); // For inline preview
+  const [selectedCheckinReport, setSelectedCheckinReport] = useState(null);
   // Handover signing
   const [signingHandover, setSigningHandover] = useState(false);
   const [handoverSignModalOpen, setHandoverSignModalOpen] = useState(false);
@@ -1120,15 +1590,40 @@ export default function MyOrders() {
     }
   }, [orders, returnModalOpen, extendModalOpen]);
 
+  // Filter handover reports by type
+  const checkoutReports = useMemo(() => {
+    return handoverReports.filter(report => {
+      const handoverType = String(report?.handoverType || "").toUpperCase();
+      return handoverType !== "CHECKIN";
+    });
+  }, [handoverReports]);
+  
+  const checkinReports = useMemo(() => {
+    return handoverReports.filter(report => {
+      const handoverType = String(report?.handoverType || "").toUpperCase();
+      return handoverType === "CHECKIN";
+    });
+  }, [handoverReports]);
+
   // Auto select and preview first handover report when reports are loaded
   useEffect(() => {
-    if (handoverReports.length > 0 && !selectedHandoverReport) {
-      const firstReport = handoverReports[0];
+    if (checkoutReports.length > 0 && !selectedHandoverReport) {
+      const firstReport = checkoutReports[0];
       setSelectedHandoverReport(firstReport);
       previewHandoverReportAsPdf(firstReport);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handoverReports]);
+  }, [checkoutReports]);
+  
+  // Auto select and preview first checkin report when reports are loaded
+  useEffect(() => {
+    if (checkinReports.length > 0 && !selectedCheckinReport) {
+      const firstReport = checkinReports[0];
+      setSelectedCheckinReport(firstReport);
+      previewHandoverReportAsPdf(firstReport); // Reuse same function
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkinReports]);
 
   // Auto select and preview first contract when contracts are loaded
   useEffect(() => {
@@ -1722,14 +2217,30 @@ export default function MyOrders() {
       setHandoverReportsLoading(false);
     }
   };
-
-  // Check if there are unsigned handover reports
+  
+  // Check if there are unsigned handover reports (both checkout and checkin)
   const hasUnsignedHandoverReports = useMemo(() => {
     return handoverReports.some(report => {
       const status = String(report?.status || "").toUpperCase();
       return status === "STAFF_SIGNED" && !report?.customerSigned;
     });
   }, [handoverReports]);
+  
+  // Check if there are unsigned checkout reports
+  const hasUnsignedCheckoutReports = useMemo(() => {
+    return checkoutReports.some(report => {
+      const status = String(report?.status || "").toUpperCase();
+      return status === "STAFF_SIGNED" && !report?.customerSigned;
+    });
+  }, [checkoutReports]);
+  
+  // Check if there are unsigned checkin reports
+  const hasUnsignedCheckinReports = useMemo(() => {
+    return checkinReports.some(report => {
+      const status = String(report?.status || "").toUpperCase();
+      return status === "STAFF_SIGNED" && !report?.customerSigned;
+    });
+  }, [checkinReports]);
 
   // Preview handover report PDF (for modal)
   const handlePreviewHandoverPdf = async (report) => {
@@ -1742,6 +2253,46 @@ export default function MyOrders() {
         setHandoverPdfBlobUrl("");
       }
       
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, m];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
+      }
+      
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
         handoverPrintRef.current.style.opacity = "1";
@@ -1750,7 +2301,7 @@ export default function MyOrders() {
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
@@ -1789,13 +2340,66 @@ export default function MyOrders() {
   const previewHandoverReportAsPdf = async (report) => {
     if (!report) return message.warning("Chưa chọn biên bản.");
     
+    // Determine if this is a checkin report
+    const handoverType = String(report.handoverType || "").toUpperCase();
+    const isCheckin = handoverType === "CHECKIN";
+    
     try {
       setHandoverPdfGenerating(true);
-      setSelectedHandoverReport(report);
       
-      if (handoverPdfPreviewUrl) {
-        URL.revokeObjectURL(handoverPdfPreviewUrl);
-        setHandoverPdfPreviewUrl("");
+      // Set appropriate selected report and clear preview URL
+      if (isCheckin) {
+        setSelectedCheckinReport(report);
+        if (checkinPdfPreviewUrl) {
+          URL.revokeObjectURL(checkinPdfPreviewUrl);
+          setCheckinPdfPreviewUrl("");
+        }
+      } else {
+        setSelectedHandoverReport(report);
+        if (handoverPdfPreviewUrl) {
+          URL.revokeObjectURL(handoverPdfPreviewUrl);
+          setHandoverPdfPreviewUrl("");
+        }
+      }
+      
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, m];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
       }
       
       if (handoverPrintRef.current) {
@@ -1806,7 +2410,7 @@ export default function MyOrders() {
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
@@ -1839,11 +2443,53 @@ export default function MyOrders() {
       setHandoverPdfGenerating(false);
     }
   };
-
+  
   // Download handover report PDF
   const handleDownloadHandoverPdf = async (report) => {
+    if (!report) return message.warning("Chưa chọn biên bản.");
+    
     try {
       setHandoverPdfGenerating(true);
+      
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, m];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
+      }
       
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
@@ -1853,7 +2499,7 @@ export default function MyOrders() {
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
@@ -1878,7 +2524,9 @@ export default function MyOrders() {
         
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `handover-report-${report.handoverReportId || report.id || "report"}.pdf`;
+        const handoverType = String(report.handoverType || "").toUpperCase();
+        const isCheckin = handoverType === "CHECKIN";
+        a.download = `${isCheckin ? "checkin" : "handover"}-report-${report.handoverReportId || report.id || "report"}.pdf`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -2857,7 +3505,7 @@ export default function MyOrders() {
             </div>
           );
         })()}
-        {current && hasUnsignedHandoverReports && (
+        {current && (hasUnsignedCheckoutReports || hasUnsignedCheckinReports) && (
           <div
             style={{
               padding: "16px 24px",
@@ -2868,12 +3516,29 @@ export default function MyOrders() {
             <Alert
               type="info"
               showIcon
-              message={`Đơn #${current.displayId ?? current.id} có biên bản bàn giao cần ký`}
-              description="Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
+              message={`Đơn #${current.displayId ?? current.id} có biên bản cần ký`}
+              description={
+                <>
+                  {hasUnsignedCheckoutReports && hasUnsignedCheckinReports 
+                    ? "Vui lòng xem và ký biên bản bàn giao và biên bản thu hồi để hoàn tất thủ tục."
+                    : hasUnsignedCheckoutReports
+                    ? "Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
+                    : "Vui lòng xem và ký biên bản thu hồi để hoàn tất thủ tục."}
+                </>
+              }
               action={
-                <Button type="link" onClick={() => setDetailTab("handover")} style={{ padding: 0 }}>
-                  Xem biên bản
-                </Button>
+                <Space>
+                  {hasUnsignedCheckoutReports && (
+                    <Button type="link" onClick={() => setDetailTab("handover")} style={{ padding: 0 }}>
+                      Xem biên bản bàn giao
+                    </Button>
+                  )}
+                  {hasUnsignedCheckinReports && (
+                    <Button type="link" onClick={() => setDetailTab("checkin")} style={{ padding: 0 }}>
+                      Xem biên bản thu hồi
+                    </Button>
+                  )}
+                </Space>
               }
             />
           </div>
@@ -3337,7 +4002,7 @@ export default function MyOrders() {
                       <Card>
                         <Text>Đang tải biên bản bàn giao...</Text>
                       </Card>
-                    ) : handoverReports.length > 0 ? (
+                    ) : checkoutReports.length > 0 ? (
                       <>
                       <Card
                         style={{
@@ -3422,7 +4087,7 @@ export default function MyOrders() {
                               },
                             }
                           ]}
-                          dataSource={handoverReports}
+                          dataSource={checkoutReports}
                           pagination={false}
                           size="small"
                           scroll={{ x: 890 }}
@@ -3537,6 +4202,220 @@ export default function MyOrders() {
                     ) : (
                       <Card>
                         <Text type="secondary">Chưa có biên bản bàn giao nào được tạo cho đơn hàng này.</Text>
+                      </Card>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                key: "checkin",
+                label: "Biên bản thu hồi",
+                children: (
+                  <div style={{ padding: 24 }}>
+                    {handoverReportsLoading ? (
+                      <Card>
+                        <Text>Đang tải biên bản thu hồi...</Text>
+                      </Card>
+                    ) : checkinReports.length > 0 ? (
+                      <>
+                      <Card
+                        style={{
+                          marginBottom: 24,
+                          borderRadius: 12,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                          border: "1px solid #e8e8e8",
+                        }}
+                        title={
+                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                            Danh sách biên bản thu hồi
+                          </Title>
+                        }
+                      >
+                        <Table
+                          rowKey="handoverReportId"
+                          onRow={(record) => ({
+                            onClick: () => {
+                              const isSameReport = selectedCheckinReport?.handoverReportId === record.handoverReportId;
+                              setSelectedCheckinReport(record);
+                              // Auto preview when selecting a different report or if no preview exists
+                              if (!isSameReport || !checkinPdfPreviewUrl) {
+                                previewHandoverReportAsPdf(record);
+                              }
+                            },
+                            style: { cursor: 'pointer' }
+                          })}
+                          rowClassName={(record) => 
+                            selectedCheckinReport?.handoverReportId === record.handoverReportId ? 'ant-table-row-selected' : ''
+                          }
+                          columns={[
+                            { title: "Mã biên bản", dataIndex: "handoverReportId", width: 120, render: (v) => <Text strong>#{v}</Text> },
+                            {
+                              title: "Trạng thái", dataIndex: "status", width: 160,
+                              render: (status) => {
+                                const s = String(status || "").toUpperCase();
+                                const color = s === "STAFF_SIGNED" ? "green" : s === "CUSTOMER_SIGNED" ? "blue" : s === "COMPLETED" || s === "BOTH_SIGNED" ? "green" : "orange";
+                                const label = translateHandoverStatus(status);
+                                return <Tag color={color}>{label}</Tag>;
+                              },
+                            },
+                            { title: "Thời gian thu hồi", dataIndex: "handoverDateTime", width: 180, render: (v) => formatDateTime(v) },
+                            { title: "Địa điểm", dataIndex: "handoverLocation", width: 250, ellipsis: true },
+                            {
+                              title: "Thao tác",
+                              key: "actions",
+                              width: 180,
+                              render: (_, record) => {
+                                const status = String(record.status || "").toUpperCase();
+                                const isStaffSigned = status === "STAFF_SIGNED" || status === "BOTH_SIGNED";
+                                const isCustomerSigned = record.customerSigned === true || status === "CUSTOMER_SIGNED" || status === "BOTH_SIGNED" || status === "COMPLETED";
+                                const canSign = isStaffSigned && !isCustomerSigned;
+                                
+                                return (
+                                  <Space size="small" wrap>
+                                    <Button
+                                      size="small"
+                                      icon={<EyeOutlined />}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedCheckinReport(record);
+                                        previewHandoverReportAsPdf(record);
+                                      }}
+                                      loading={handoverPdfGenerating && selectedCheckinReport?.handoverReportId === record.handoverReportId}
+                                    >
+                                      Xem PDF
+                                    </Button>
+                                    {canSign && (
+                                      <Button
+                                        size="small"
+                                        type="primary"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleSignHandoverReport(record.handoverReportId);
+                                        }}
+                                      >
+                                        Ký
+                                      </Button>
+                                    )}
+                                  </Space>
+                                );
+                              },
+                            }
+                          ]}
+                          dataSource={checkinReports}
+                          pagination={false}
+                          size="small"
+                          scroll={{ x: 890 }}
+                        />
+                      </Card>
+
+                      <Card
+                        style={{
+                          borderRadius: 12,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                          border: "1px solid #e8e8e8",
+                        }}
+                        title={
+                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                            Biên bản thu hồi PDF
+                          </Title>
+                        }
+                      >
+                        <Space style={{ marginBottom: 16 }} wrap>
+                          {selectedCheckinReport && (
+                            <>
+                              <Button 
+                                icon={<ExpandOutlined />} 
+                                onClick={() => {
+                                  const url = checkinPdfPreviewUrl || handoverPdfBlobUrl;
+                                  return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
+                                }}
+                              >
+                                Xem toàn màn hình
+                              </Button>
+                              {checkinPdfPreviewUrl && (
+                                <>
+                                  <Button 
+                                    type="primary" 
+                                    icon={<DownloadOutlined />} 
+                                    onClick={() => {
+                                      if (selectedCheckinReport) {
+                                        handleDownloadHandoverPdf(selectedCheckinReport);
+                                      }
+                                    }}
+                                    loading={handoverPdfGenerating}
+                                  >
+                                    Tải biên bản
+                                  </Button>
+                                  <Button 
+                                    icon={<PrinterOutlined />} 
+                                    onClick={() => {
+                                      const url = checkinPdfPreviewUrl;
+                                      if (url) {
+                                        printPdfUrl(url);
+                                      } else {
+                                        message.warning("Không có PDF để in");
+                                      }
+                                    }}
+                                  >
+                                    In biên bản (PDF)
+                                  </Button>
+                                </>
+                              )}
+                            </>
+                          )}
+                          {!checkinPdfPreviewUrl && selectedCheckinReport && (
+                            <>
+                              <Button 
+                                onClick={() => previewHandoverReportAsPdf(selectedCheckinReport)} 
+                                loading={handoverPdfGenerating}
+                              >
+                                Xem trước biên bản PDF
+                              </Button>
+                              <Button 
+                                type="primary" 
+                                onClick={() => handleDownloadHandoverPdf(selectedCheckinReport)} 
+                                loading={handoverPdfGenerating}
+                              >
+                                Tạo & tải biên bản PDF
+                              </Button>
+                            </>
+                          )}
+                          {!selectedCheckinReport && (
+                            <Text type="secondary">Vui lòng chọn một biên bản từ danh sách để xem PDF</Text>
+                          )}
+                        </Space>
+
+                        <div
+                          style={{
+                            height: 460,
+                            border: "1px solid #e8e8e8",
+                            borderRadius: 10,
+                            overflow: "hidden",
+                            background: "#fafafa",
+                            marginTop: 12,
+                            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          {checkinPdfPreviewUrl ? (
+                            <iframe
+                              key={checkinPdfPreviewUrl}
+                              title="CheckinReportPreview"
+                              src={checkinPdfPreviewUrl}
+                              style={{ width: "100%", height: "100%", border: "none" }}
+                            />
+                          ) : (
+                            <div className="h-full flex items-center justify-center">
+                              <Text type="secondary">
+                                <FilePdfOutlined /> {selectedCheckinReport ? "Nhấn 'Xem trước biên bản PDF' để hiển thị" : "Chưa chọn biên bản để hiển thị."}
+                              </Text>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                      </>
+                    ) : (
+                      <Card>
+                        <Text type="secondary">Chưa có biên bản thu hồi nào được tạo cho đơn hàng này.</Text>
                       </Card>
                     )}
                   </div>

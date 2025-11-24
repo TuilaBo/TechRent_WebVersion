@@ -46,8 +46,107 @@ export async function updateHandoverReportSignature(handoverReportId, body) {
 }
 
 /**
+ * POST /api/staff/handover-reports/checkout
+ * Tạo handover report CHECKOUT (khi đi giao hàng)
+ * Không nhận discrepancy; nhận danh sách tình trạng thiết bị để lưu snapshot
+ * @param {Object} body - Dữ liệu handover report
+ * @param {number} body.taskId - ID của task
+ * @param {string} body.customerInfo - Thông tin khách hàng
+ * @param {string} body.technicianInfo - Thông tin kỹ thuật viên
+ * @param {string} body.handoverDateTime - Thời gian bàn giao (ISO string)
+ * @param {string} body.handoverLocation - Địa điểm bàn giao
+ * @param {string} body.customerSignature - Chữ ký khách hàng (base64 hoặc URL)
+ * @param {Array<Object>} body.items - Danh sách thiết bị
+ * @param {number} body.items[].deviceId - ID của device
+ * @param {Array<string>} body.items[].evidenceUrls - Danh sách URL ảnh bằng chứng
+ * @param {Array<Object>} body.deviceConditions - Danh sách điều kiện thiết bị
+ * @param {number} body.deviceConditions[].deviceId - ID của device
+ * @param {number} body.deviceConditions[].conditionDefinitionId - ID của condition definition
+ * @param {string} body.deviceConditions[].severity - Mức độ nghiêm trọng
+ * @param {Array<string>} body.deviceConditions[].images - Danh sách URL ảnh
+ * @returns {Promise<Object>} Response từ API
+ */
+export async function createHandoverReportCheckout(body) {
+  const dataObj = {
+    taskId: Number(body.taskId || 0),
+    customerInfo: String(body.customerInfo || ""),
+    technicianInfo: String(body.technicianInfo || ""),
+    handoverDateTime: String(body.handoverDateTime || ""),
+    handoverLocation: String(body.handoverLocation || ""),
+    customerSignature: String(body.customerSignature || ""),
+    items: Array.isArray(body.items) ? body.items.map((item) => ({
+      deviceId: Number(item.deviceId || 0),
+      evidenceUrls: Array.isArray(item.evidenceUrls) ? item.evidenceUrls.map(String) : [],
+    })) : [],
+    deviceConditions: Array.isArray(body.deviceConditions)
+      ? body.deviceConditions.map((dc) => ({
+          deviceId: Number(dc.deviceId || 0),
+          conditionDefinitionId: Number(dc.conditionDefinitionId || 0),
+          severity: String(dc.severity || ""),
+          images: Array.isArray(dc.images) ? dc.images.map(String) : [],
+        }))
+      : [],
+  };
+  
+  const { data } = await api.post("/api/staff/handover-reports/checkout", dataObj);
+  return unwrap(data);
+}
+
+/**
+ * POST /api/staff/handover-reports/checkin
+ * Tạo handover report CHECKIN (khi đi nhận hàng)
+ * Nhận discrepancy và xử lý giống hiện tại
+ * @param {Object} body - Dữ liệu handover report
+ * @param {number} body.taskId - ID của task
+ * @param {string} body.customerInfo - Thông tin khách hàng
+ * @param {string} body.technicianInfo - Thông tin kỹ thuật viên
+ * @param {string} body.handoverDateTime - Thời gian bàn giao (ISO string)
+ * @param {string} body.handoverLocation - Địa điểm bàn giao
+ * @param {string} body.customerSignature - Chữ ký khách hàng (base64 hoặc URL)
+ * @param {Array<Object>} body.items - Danh sách thiết bị
+ * @param {number} body.items[].deviceId - ID của device
+ * @param {Array<string>} body.items[].evidenceUrls - Danh sách URL ảnh bằng chứng
+ * @param {Array<Object>} body.discrepancies - Danh sách discrepancy
+ * @param {string} body.discrepancies[].discrepancyType - Loại discrepancy (DAMAGE, etc.)
+ * @param {number} body.discrepancies[].conditionDefinitionId - ID của condition definition
+ * @param {number} body.discrepancies[].orderDetailId - ID của order detail
+ * @param {number} body.discrepancies[].deviceId - ID của device
+ * @param {string} body.discrepancies[].staffNote - Ghi chú của nhân viên
+ * @param {string} body.discrepancies[].customerNote - Ghi chú của khách hàng
+ * @returns {Promise<Object>} Response từ API
+ */
+export async function createHandoverReportCheckin(body) {
+  const dataObj = {
+    taskId: Number(body.taskId || 0),
+    customerInfo: String(body.customerInfo || ""),
+    technicianInfo: String(body.technicianInfo || ""),
+    handoverDateTime: String(body.handoverDateTime || ""),
+    handoverLocation: String(body.handoverLocation || ""),
+    customerSignature: String(body.customerSignature || ""),
+    items: Array.isArray(body.items) ? body.items.map((item) => ({
+      deviceId: Number(item.deviceId || 0),
+      evidenceUrls: Array.isArray(item.evidenceUrls) ? item.evidenceUrls.map(String) : [],
+    })) : [],
+    discrepancies: Array.isArray(body.discrepancies)
+      ? body.discrepancies.map((d) => ({
+          discrepancyType: String(d.discrepancyType || ""),
+          conditionDefinitionId: Number(d.conditionDefinitionId || 0),
+          orderDetailId: Number(d.orderDetailId || 0),
+          deviceId: Number(d.deviceId || 0),
+          staffNote: String(d.staffNote || ""),
+          customerNote: String(d.customerNote || ""),
+        }))
+      : [],
+  };
+  
+  const { data } = await api.post("/api/staff/handover-reports/checkin", dataObj);
+  return unwrap(data);
+}
+
+/**
+ * @deprecated Sử dụng createHandoverReportCheckout hoặc createHandoverReportCheckin thay thế
  * POST /api/staff/handover-reports
- * Tạo handover report (biên bản bàn giao)
+ * Tạo handover report (biên bản bàn giao) - Legacy
  * @param {Object} body - Dữ liệu handover report
  * @param {number} body.taskId - ID của task
  * @param {string} body.customerInfo - Thông tin khách hàng

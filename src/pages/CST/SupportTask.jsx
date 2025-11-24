@@ -324,7 +324,7 @@ export default function SupportTask() {
         render: (_, r) => (
           <Space>
             <Button size="small" onClick={() => onClickTask(r)}>Xem</Button>
-            {r.type === "DELIVERY" && (() => {
+            {(String(r.type || "").toUpperCase() === "DELIVERY" || String(r.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(r.taskCategoryName || "").toUpperCase().includes("GIAO")) && (() => {
               const taskId = r.taskId || r.id;
               const status = String(r.status || "").toUpperCase();
               const isCompleted = status === "COMPLETED";
@@ -332,20 +332,24 @@ export default function SupportTask() {
               const isConfirmed = confirmedTasks.has(taskId);
               const isLoading = confirmingDelivery[taskId];
               
-              // Chỉ hiển thị nút khi chưa hoàn thành, chưa đang xử lý và chưa được xác nhận
-              if (isCompleted || isInProgress || isConfirmed) {
-                return null;
-              }
-              
               return (
-                <Button
-                  size="small"
-                  type="default"
-                  loading={isLoading}
-                  onClick={() => handleConfirmDelivery(taskId)}
-                >
-                  Xác nhận giao hàng
-                </Button>
+                <>
+                  {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
+                  {!isCompleted && !isInProgress && !isConfirmed && (
+                    <Button
+                      size="small"
+                      type="default"
+                      loading={isLoading}
+                      onClick={() => handleConfirmDelivery(taskId)}
+                    >
+                      Xác nhận giao hàng
+                    </Button>
+                  )}
+                  {/* Hiển thị thông báo khi đã xác nhận */}
+                  {(isCompleted || isConfirmed || isInProgress) && (
+                    <Text type="success" style={{ fontSize: 12 }}>Đã xác nhận giao hàng</Text>
+                  )}
+                </>
               );
             })()}
             {isPickupTask(r) && (() => {
@@ -391,7 +395,7 @@ export default function SupportTask() {
       </Space>
     );
 
-    if (t.type === "DELIVERY") {
+    if (String(t.type || "").toUpperCase() === "DELIVERY" || String(t.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(t.taskCategoryName || "").toUpperCase().includes("GIAO")) {
       const taskId = t.taskId || t.id;
       const status = String(t.status || "").toUpperCase();
       const isCompleted = status === "COMPLETED";
@@ -645,7 +649,7 @@ export default function SupportTask() {
         )}
         <Divider />
         <Space wrap>
-          {t.type === "DELIVERY" && (() => {
+          {(String(t.type || "").toUpperCase() === "DELIVERY" || String(t.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(t.taskCategoryName || "").toUpperCase().includes("GIAO")) && (() => {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
             const isCompleted = status === "COMPLETED";
@@ -653,19 +657,23 @@ export default function SupportTask() {
             const isConfirmed = confirmedTasks.has(taskId);
             const isLoading = confirmingDelivery[taskId];
             
-            // Chỉ hiển thị nút khi chưa hoàn thành, chưa đang xử lý và chưa được xác nhận
-            if (isCompleted || isInProgress || isConfirmed) {
-              return null;
-            }
-            
             return (
-              <Button
-                type="primary"
-                loading={isLoading}
-                onClick={() => handleConfirmDelivery(taskId)}
-              >
-                Xác nhận giao hàng
-              </Button>
+              <>
+                {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
+                {!isCompleted && !isInProgress && !isConfirmed && (
+                  <Button
+                    type="primary"
+                    loading={isLoading}
+                    onClick={() => handleConfirmDelivery(taskId)}
+                  >
+                    Xác nhận giao hàng
+                  </Button>
+                )}
+                {/* Hiển thị thông báo khi đã xác nhận */}
+                {(isCompleted || isConfirmed || isInProgress) && (
+                  <Text type="success">Đã xác nhận giao hàng</Text>
+                )}
+              </>
             );
           })()}
           {isPickupTask(t) && (() => {

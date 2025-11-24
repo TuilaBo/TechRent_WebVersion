@@ -30,6 +30,7 @@ import AdminAccounts from "./pages/admin/AdminAccounts.jsx";
 import AdminTaskCategory from "./pages/admin/AdminTaskCategory.jsx";
 import AdminTransactions from "./pages/admin/AdminTransactions.jsx";
 import AdminContract from "./pages/admin/AdminContract.jsx";
+import AdminCondition from "./pages/admin/AdminCondition.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
 import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
@@ -44,6 +45,7 @@ import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
 import TechnicianReports from "./pages/technician/TechnicianReports.jsx";
 import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
 import TechnicianHandover from "./pages/technician/TechnicianHandover.jsx";
+import TechnicianHandoverCheckin from "./pages/technician/TechnicianHandoverCheckin.jsx";
 
 import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
@@ -118,6 +120,7 @@ export default function App() {
           <Route path="accounts" element={<AdminAccounts />} />
           <Route path="transactions" element={<AdminTransactions />} />
           <Route path="task-categories" element={<AdminTaskCategory />} />
+          <Route path="conditions" element={<AdminCondition />} />
         </Route>
 
         <Route
@@ -148,6 +151,7 @@ export default function App() {
           <Route path="reports" element={<TechnicianReports />} />
           <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
           <Route path="tasks/handover/:taskId" element={<TechnicianHandover />} />
+          <Route path="tasks/handover-checkin/:taskId" element={<TechnicianHandoverCheckin />} />
         </Route>
 
         <Route

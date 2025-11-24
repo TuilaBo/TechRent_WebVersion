@@ -51,6 +51,7 @@ import {
   getHandoverReportByOrderIdAndTaskId,
   getHandoverReportsByOrderId
 } from "../../lib/handoverReportApi";
+import { getConditionDefinitions } from "../../lib/condition.js";
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -288,22 +289,426 @@ function translateHandoverStatus(status) {
   return map[s] || status;
 }
 
-function buildPrintableHandoverReportHtml(report) {
+function buildPrintableHandoverReportHtml(report, order = null, conditionDefinitions = []) {
   const customerInfo = parseInfoString(report.customerInfo);
   const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
   const customerName = customerInfo.name || "—";
   const technicianName = technicianInfo.name || "—";
   
-  const itemsRows = (report.items || []).map((item, idx) => `
-    <tr>
-      <td style="text-align:center">${idx + 1}</td>
-      <td>${item.itemName || "—"}</td>
-      <td>${item.itemCode || "—"}</td>
-      <td style="text-align:center">${item.unit || "—"}</td>
-      <td style="text-align:center">${item.orderedQuantity || 0}</td>
-      <td style="text-align:center">${item.deliveredQuantity || 0}</td>
-    </tr>
-  `).join("");
+  // Map condition definitions by ID for quick lookup
+  const conditionMap = {};
+  conditionDefinitions.forEach(cd => {
+    conditionMap[cd.id || cd.conditionDefinitionId] = cd;
+  });
+  
+  // Build allocation map from order if available
+  const allocationMap = {};
+  if (order && Array.isArray(order.orderDetails)) {
+    order.orderDetails.forEach(od => {
+      if (od.allocations && Array.isArray(od.allocations)) {
+        od.allocations.forEach(allocation => {
+          if (allocation.allocationId) {
+            allocationMap[allocation.allocationId] = {
+              deviceModelName: od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—",
+              serialNumber: allocation.device?.serialNumber || allocation.serialNumber || "—",
+              deviceId: allocation.device?.deviceId || allocation.deviceId || null,
+              unit: "cái",
+              quantity: od.quantity || 1,
+            };
+          }
+        });
+      }
+    });
+  }
+  
+  // Build device map from deviceConditions to supplement allocationMap
+  const deviceConditionMap = {};
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach(dc => {
+      if (dc.allocationId && dc.deviceId) {
+        // Try to get serial number from baselineSnapshots or deviceSerial
+        let serialNumber = dc.deviceSerial || "—";
+        if (!serialNumber && dc.baselineSnapshots && Array.isArray(dc.baselineSnapshots)) {
+          // Try to find serial number in snapshots (if available)
+          const firstSnapshot = dc.baselineSnapshots[0];
+          if (firstSnapshot && firstSnapshot.deviceSerial) {
+            serialNumber = firstSnapshot.deviceSerial;
+          }
+        }
+        
+        // If allocationId not in allocationMap, add it from deviceConditions
+        if (!allocationMap[dc.allocationId]) {
+          allocationMap[dc.allocationId] = {
+            deviceId: dc.deviceId,
+            serialNumber: serialNumber,
+            deviceModelName: "—", // Will try to get from order if available
+            unit: "cái",
+            quantity: 1,
+          };
+        } else {
+          // Update existing entry with deviceId and serialNumber if missing
+          if (!allocationMap[dc.allocationId].deviceId) {
+            allocationMap[dc.allocationId].deviceId = dc.deviceId;
+          }
+          if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
+            allocationMap[dc.allocationId].serialNumber = serialNumber;
+          }
+        }
+        
+        // Also create a deviceId -> allocationId map for lookup
+        deviceConditionMap[dc.deviceId] = {
+          allocationId: dc.allocationId,
+          serialNumber: serialNumber,
+        };
+      }
+    });
+  }
+  
+  // Try to enrich allocationMap with device info from order allocations by deviceId
+  // First, create a deviceId -> device info map from order allocations
+  const deviceInfoFromOrder = {};
+  if (order && Array.isArray(order.orderDetails)) {
+    order.orderDetails.forEach(od => {
+      const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+      if (od.allocations && Array.isArray(od.allocations)) {
+        od.allocations.forEach(allocation => {
+          const deviceId = allocation.device?.deviceId || allocation.deviceId;
+          const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
+          if (deviceId) {
+            deviceInfoFromOrder[deviceId] = {
+              serialNumber: serialNumber || "—",
+              deviceModelName: deviceModelName,
+              allocationId: allocation.allocationId,
+            };
+          }
+        });
+      }
+    });
+  }
+  
+  // Now enrich allocationMap using deviceId from deviceConditions
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach(dc => {
+      if (dc.allocationId && dc.deviceId) {
+        const deviceInfo = deviceInfoFromOrder[dc.deviceId];
+        if (deviceInfo && allocationMap[dc.allocationId]) {
+          // Update with device info from order
+          if (!allocationMap[dc.allocationId].deviceModelName || allocationMap[dc.allocationId].deviceModelName === "—") {
+            allocationMap[dc.allocationId].deviceModelName = deviceInfo.deviceModelName;
+          }
+          if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
+            allocationMap[dc.allocationId].serialNumber = deviceInfo.serialNumber;
+          }
+        }
+      }
+    });
+  }
+  
+  // Also try to find device info for items that have allocationId but not in allocationMap yet
+  if (Array.isArray(report.items)) {
+    report.items.forEach(item => {
+      if (item.allocationId && !allocationMap[item.allocationId]) {
+        // Try to find by allocationId in order
+        if (order && Array.isArray(order.orderDetails)) {
+          order.orderDetails.forEach(od => {
+            if (od.allocations && Array.isArray(od.allocations)) {
+              od.allocations.forEach(allocation => {
+                if (allocation.allocationId === item.allocationId) {
+                  const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                  const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
+                  const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+                  
+                  allocationMap[item.allocationId] = {
+                    deviceId: deviceId,
+                    serialNumber: serialNumber || "—",
+                    deviceModelName: deviceModelName,
+                    unit: "cái",
+                    quantity: od.quantity || 1,
+                  };
+                }
+              });
+            }
+          });
+        }
+        
+        // If still not found, try to find from deviceConditions by allocationId
+        if (!allocationMap[item.allocationId] && Array.isArray(report.deviceConditions)) {
+          const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
+          if (deviceCondition && deviceCondition.deviceId) {
+            const deviceInfo = deviceInfoFromOrder[deviceCondition.deviceId];
+            if (deviceInfo) {
+              allocationMap[item.allocationId] = {
+                deviceId: deviceCondition.deviceId,
+                serialNumber: deviceInfo.serialNumber,
+                deviceModelName: deviceInfo.deviceModelName,
+                unit: "cái",
+                quantity: 1,
+              };
+            } else {
+              // Fallback: use deviceCondition data
+              let serialNumber = deviceCondition.deviceSerial || "—";
+              if (!serialNumber && deviceCondition.baselineSnapshots && Array.isArray(deviceCondition.baselineSnapshots)) {
+                const firstSnapshot = deviceCondition.baselineSnapshots[0];
+                if (firstSnapshot && firstSnapshot.deviceSerial) {
+                  serialNumber = firstSnapshot.deviceSerial;
+                }
+              }
+              
+              // Try to find device model name from order details by deviceId
+              let deviceModelName = "—";
+              if (order && Array.isArray(order.orderDetails)) {
+                for (const od of order.orderDetails) {
+                  if (od.allocations && Array.isArray(od.allocations)) {
+                    for (const allocation of od.allocations) {
+                      const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                      if (deviceId === deviceCondition.deviceId) {
+                        deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+                        break;
+                      }
+                    }
+                    if (deviceModelName !== "—") break;
+                  }
+                }
+              }
+              
+              allocationMap[item.allocationId] = {
+                deviceId: deviceCondition.deviceId,
+                serialNumber: serialNumber,
+                deviceModelName: deviceModelName,
+                unit: "cái",
+                quantity: 1,
+              };
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  // Debug: Log allocationMap để kiểm tra
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 AllocationMap:', allocationMap);
+    console.log('🔍 Report items:', report.items);
+    console.log('🔍 Order data:', order);
+    console.log('🔍 DeviceConditions:', report.deviceConditions);
+  }
+  
+  // Build deviceConditions map by deviceId for quick lookup
+  const deviceConditionsByDeviceId = {};
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach(dc => {
+      if (dc.deviceId) {
+        if (!deviceConditionsByDeviceId[dc.deviceId]) {
+          deviceConditionsByDeviceId[dc.deviceId] = [];
+        }
+        deviceConditionsByDeviceId[dc.deviceId].push(dc);
+      }
+    });
+  }
+
+  // Helper function to get conditions and images for a device
+  const getDeviceConditionsHtml = (deviceId) => {
+    const deviceConditions = deviceConditionsByDeviceId[deviceId] || [];
+    if (deviceConditions.length === 0) {
+      return { conditions: "—", images: "—" };
+    }
+
+    // Use Set to track unique conditions and images to avoid duplicates
+    const uniqueConditions = new Set();
+    const uniqueImages = new Set();
+    
+    deviceConditions.forEach(dc => {
+      const snapshots = dc.baselineSnapshots || dc.snapshots || [];
+      if (snapshots.length === 0) return;
+      
+      // Prioritize HANDOVER_OUT snapshot, fallback to QC_BEFORE, then others
+      const handoverOutSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "HANDOVER_OUT");
+      const qcBeforeSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "QC_BEFORE");
+      const selectedSnapshot = handoverOutSnapshot || qcBeforeSnapshot || snapshots[0];
+      
+      // Collect conditions from selected snapshot
+      const conditionDetails = selectedSnapshot.conditionDetails || [];
+      conditionDetails.forEach(cd => {
+        const conditionDef = conditionMap[cd.conditionDefinitionId];
+        const conditionName = conditionDef?.name || `Điều kiện #${cd.conditionDefinitionId}`;
+        const severity = cd.severity === "LOW" ? "Thấp" : cd.severity === "MEDIUM" ? "Trung bình" : cd.severity === "HIGH" ? "Cao" : cd.severity === "CRITICAL" ? "Rất nặng" : cd.severity || "—";
+        // Use conditionDefinitionId + severity as unique key
+        const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
+        if (!uniqueConditions.has(uniqueKey)) {
+          uniqueConditions.add(uniqueKey);
+        }
+      });
+      
+      // Collect images from selected snapshot
+      if (Array.isArray(selectedSnapshot.images)) {
+        selectedSnapshot.images.forEach(img => {
+          // Use image URL as unique key
+          const imgKey = img;
+          if (!uniqueImages.has(imgKey)) {
+            uniqueImages.add(imgKey);
+          }
+        });
+      }
+    });
+
+    // Convert Set to Array and build HTML
+    const conditionsArray = Array.from(uniqueConditions).map(key => {
+      const [conditionDefId, severity] = key.split("_");
+      const conditionDef = conditionMap[conditionDefId];
+      const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
+      const severityText = severity === "LOW" ? "Thấp" : severity === "MEDIUM" ? "Trung bình" : severity === "HIGH" ? "Cao" : severity === "CRITICAL" ? "Rất nặng" : severity || "—";
+      return `${conditionName} (${severityText})`;
+    });
+    
+    const conditionsHtml = conditionsArray.length > 0 
+      ? conditionsArray.map(c => `<div>${c}</div>`).join("")
+      : "—";
+    
+    const imagesArray = Array.from(uniqueImages);
+    const imagesHtml = imagesArray.length > 0
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${imagesArray.map((img, imgIdx) => {
+            const imgSrc = img.startsWith("data:image") ? img : img;
+            return `
+              <img 
+                src="${imgSrc}" 
+                alt="Ảnh ${imgIdx + 1}"
+                style="
+                  max-width:80px;
+                  max-height:80px;
+                  border:1px solid #ddd;
+                  border-radius:4px;
+                  object-fit:contain;
+                "
+                onerror="this.style.display='none';"
+              />
+            `;
+          }).join("")}
+        </div>`
+      : "—";
+
+    return { conditions: conditionsHtml, images: imagesHtml };
+  };
+
+  // Build items rows - prioritize new format with deviceSerialNumber and deviceModelName
+  const itemsRows = (report.items || []).map((item, idx) => {
+    // Get device conditions and images by deviceId
+    const deviceId = item.deviceId;
+    const { conditions, images } = deviceId ? getDeviceConditionsHtml(deviceId) : { conditions: "—", images: "—" };
+
+    // Newest format: use deviceSerialNumber and deviceModelName directly from items
+    if (item.deviceSerialNumber && item.deviceModelName) {
+      return `
+        <tr>
+          <td style="text-align:center">${idx + 1}</td>
+          <td>${item.deviceModelName}</td>
+          <td>${item.deviceSerialNumber}</td>
+          <td style="text-align:center">cái</td>
+          <td style="text-align:center">1</td>
+          <td style="text-align:center">1</td>
+          <td>${conditions}</td>
+          <td>${images}</td>
+        </tr>
+      `;
+    }
+    
+    // New format: use allocationId to get device info
+    if (item.allocationId) {
+      const deviceInfo = allocationMap[item.allocationId];
+      if (deviceInfo) {
+        // Try to get deviceId from deviceInfo or find by allocationId
+        let lookupDeviceId = deviceInfo.deviceId;
+        if (!lookupDeviceId && Array.isArray(report.deviceConditions)) {
+          const dc = report.deviceConditions.find(d => d.allocationId === item.allocationId);
+          if (dc) lookupDeviceId = dc.deviceId;
+        }
+        const { conditions, images } = lookupDeviceId ? getDeviceConditionsHtml(lookupDeviceId) : { conditions: "—", images: "—" };
+        
+        return `
+          <tr>
+            <td style="text-align:center">${idx + 1}</td>
+            <td>${deviceInfo.deviceModelName}</td>
+            <td>${deviceInfo.serialNumber}</td>
+            <td style="text-align:center">${deviceInfo.unit}</td>
+            <td style="text-align:center">${deviceInfo.quantity}</td>
+            <td style="text-align:center">${deviceInfo.quantity}</td>
+            <td>${conditions}</td>
+            <td>${images}</td>
+          </tr>
+        `;
+      } else {
+        // Nếu không tìm thấy trong allocationMap, thử lấy từ deviceConditions
+        if (Array.isArray(report.deviceConditions)) {
+          const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
+          if (deviceCondition && deviceCondition.deviceId) {
+            // Thử tìm device model name từ order details
+            let deviceModelName = "—";
+            let serialNumber = deviceCondition.deviceSerial || "—";
+            
+            if (order && Array.isArray(order.orderDetails)) {
+              for (const od of order.orderDetails) {
+                if (od.allocations && Array.isArray(od.allocations)) {
+                  for (const allocation of od.allocations) {
+                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                    if (deviceId === deviceCondition.deviceId) {
+                      deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+                      if (!serialNumber || serialNumber === "—") {
+                        serialNumber = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                      }
+                      break;
+                    }
+                  }
+                  if (deviceModelName !== "—") break;
+                }
+              }
+            }
+            
+            const { conditions, images } = deviceCondition.deviceId ? getDeviceConditionsHtml(deviceCondition.deviceId) : { conditions: "—", images: "—" };
+            
+            return `
+              <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${deviceModelName}</td>
+                <td>${serialNumber}</td>
+                <td style="text-align:center">cái</td>
+                <td style="text-align:center">1</td>
+                <td style="text-align:center">1</td>
+                <td>${conditions}</td>
+                <td>${images}</td>
+              </tr>
+            `;
+          }
+        }
+        
+        // Fallback: hiển thị allocationId nếu không tìm thấy
+        return `
+          <tr>
+            <td style="text-align:center">${idx + 1}</td>
+            <td>—</td>
+            <td>— (allocationId: ${item.allocationId})</td>
+            <td style="text-align:center">cái</td>
+            <td style="text-align:center">1</td>
+            <td style="text-align:center">1</td>
+            <td>—</td>
+            <td>—</td>
+          </tr>
+        `;
+      }
+    }
+    // Old format: use itemName, itemCode
+    return `
+      <tr>
+        <td style="text-align:center">${idx + 1}</td>
+        <td>${item.itemName || "—"}</td>
+        <td>${item.itemCode || "—"}</td>
+        <td style="text-align:center">${item.unit || "—"}</td>
+        <td style="text-align:center">${item.orderedQuantity || 0}</td>
+        <td style="text-align:center">${item.deliveredQuantity || 0}</td>
+        <td>—</td>
+        <td>—</td>
+      </tr>
+    `;
+  }).join("");
   
   const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
     <tr>
@@ -327,14 +732,27 @@ function buildPrintableHandoverReportHtml(report) {
          style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
       ${NATIONAL_HEADER_HTML}
       
-      <h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>
+      ${(() => {
+        const handoverType = String(report.handoverType || "").toUpperCase();
+        const isCheckin = handoverType === "CHECKIN";
+        return isCheckin 
+          ? `<h1 style="text-align:center; margin:16px 0">BIÊN BẢN THU HỒI THIẾT BỊ</h1>`
+          : `<h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>`;
+      })()}
       
       <section class="kv">
         <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
         <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
         <div><b>Mã task:</b> #${report.taskId || "—"}</div>
-        <div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
-        <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>
+        ${(() => {
+          const handoverType = String(report.handoverType || "").toUpperCase();
+          const isCheckin = handoverType === "CHECKIN";
+          return isCheckin
+            ? `<div><b>Thời gian thu hồi:</b> ${formatDateTime(report.handoverDateTime)}</div>
+               <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
+            : `<div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
+               <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>`;
+        })()}
         <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
       </section>
       
@@ -352,7 +770,13 @@ function buildPrintableHandoverReportHtml(report) {
         ${technicianInfo.email ? `<div><b>Email:</b> ${technicianInfo.email}</div>` : ""}
       </section>
       
-      <h3>Danh sách thiết bị bàn giao</h3>
+      ${(() => {
+        const handoverType = String(report.handoverType || "").toUpperCase();
+        const isCheckin = handoverType === "CHECKIN";
+        return isCheckin
+          ? `<h3>Danh sách thiết bị thu hồi</h3>`
+          : `<h3>Danh sách thiết bị bàn giao</h3>`;
+      })()}
       <table>
         <thead>
           <tr>
@@ -362,10 +786,12 @@ function buildPrintableHandoverReportHtml(report) {
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
+            <th>Điều kiện</th>
+            <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
         <tbody>
-          ${itemsRows || "<tr><td colspan='6' style='text-align:center'>Không có thiết bị</td></tr>"}
+          ${itemsRows || "<tr><td colspan='8' style='text-align:center'>Không có thiết bị</td></tr>"}
         </tbody>
       </table>
       
@@ -393,6 +819,70 @@ function buildPrintableHandoverReportHtml(report) {
         ${techniciansList}
       </ul>
       ` : ""}
+      
+      ${(() => {
+        const handoverType = String(report.handoverType || "").toUpperCase();
+        const isCheckin = handoverType === "CHECKIN";
+        
+        // For CHECKIN: show discrepancies
+        if (isCheckin && (report.discrepancies || []).length > 0) {
+          return `
+      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Loại sự cố</th>
+            <th>Thiết bị (Serial Number)</th>
+            <th>Điều kiện</th>
+            <th>Ghi chú nhân viên</th>
+            <th>Ghi chú khách hàng</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(report.discrepancies || []).map((disc, idx) => {
+            // Try to get serial number from deviceId
+            let deviceSerial = "—";
+            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+              for (const od of order.orderDetails) {
+                if (od.allocations && Array.isArray(od.allocations)) {
+                  for (const allocation of od.allocations) {
+                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                    if (deviceId === disc.deviceId) {
+                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                      break;
+                    }
+                  }
+                  if (deviceSerial && deviceSerial !== "—") break;
+                }
+              }
+            }
+            
+            const conditionDef = conditionMap[disc.conditionDefinitionId];
+            const conditionName = conditionDef?.name || `Điều kiện #${disc.conditionDefinitionId}`;
+            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
+            
+            return `
+              <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${discrepancyType}</td>
+                <td>${deviceSerial}</td>
+                <td>${conditionName}</td>
+                <td>${disc.staffNote || "—"}</td>
+                <td>${disc.customerNote || "—"}</td>
+              </tr>
+            `;
+          }).join("") || "<tr><td colspan='6' style='text-align:center'>Không có sự cố nào</td></tr>"}
+        </tbody>
+      </table>
+      `;
+        }
+        
+        // For CHECKOUT: deviceConditions are now shown in the items table, so no separate section needed
+        return "";
+      })()}
       
       ${report.createdByStaff ? `
       <h3>Người tạo biên bản</h3>
@@ -729,6 +1219,33 @@ export default function TechnicianCalendar() {
     }
   }, []);
 
+  // Reload handover reports when drawer opens for a delivery or pickup task
+  useEffect(() => {
+    if (drawerOpen && detailTask) {
+      const taskType = String(detailTask.type || "").toUpperCase();
+      const taskCategoryName = String(detailTask.taskCategoryName || "").toUpperCase();
+      const description = String(detailTask.description || detailTask.title || "").toUpperCase();
+      const isDeliveryTask = taskType === "DELIVERY" || 
+                             taskCategoryName.includes("DELIVERY") || 
+                             taskCategoryName.includes("GIAO") ||
+                             description.includes("GIAO");
+      const isPickupTaskType = isPickupTask(detailTask);
+      
+      if ((isDeliveryTask || isPickupTaskType) && detailTask.orderId) {
+        const taskId = detailTask.taskId || detailTask.id;
+        const orderId = detailTask.orderId;
+        
+        // Load handover reports for the order (includes both CHECKOUT and CHECKIN)
+        loadHandoverReportsByOrder(orderId);
+        
+        // Load handover report for this specific task
+        if (taskId && orderId) {
+          loadHandoverReport(taskId, orderId);
+        }
+      }
+    }
+  }, [drawerOpen, detailTask, loadHandoverReport, loadHandoverReportsByOrder]);
+
   // Handle preview PDF
   const handlePreviewPdf = useCallback(async (report) => {
     try {
@@ -741,6 +1258,46 @@ export default function TechnicianCalendar() {
         setPdfBlobUrl("");
       }
       
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, normalizeModel(m)];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
+      }
+      
       if (printRef.current) {
         // Tạm thời hiển thị container để render
         printRef.current.style.visibility = "visible";
@@ -750,7 +1307,7 @@ export default function TechnicianCalendar() {
         printRef.current.style.width = "794px";
         printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        printRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        printRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         // Đảm bảo font được áp dụng cho tất cả phần tử và đợi render
         const allElements = printRef.current.querySelectorAll('*');
@@ -800,6 +1357,46 @@ export default function TechnicianCalendar() {
         setPdfBlobUrl("");
       }
       
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, normalizeModel(m)];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
+      }
+      
       if (printRef.current) {
         // Tạm thời hiển thị container để render
         printRef.current.style.visibility = "visible";
@@ -809,7 +1406,7 @@ export default function TechnicianCalendar() {
         printRef.current.style.width = "794px";
         printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        printRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        printRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         // Đảm bảo font được áp dụng cho tất cả phần tử và đợi render
         const allElements = printRef.current.querySelectorAll('*');
@@ -864,20 +1461,55 @@ export default function TechnicianCalendar() {
         setOrderDetail(null);
         if (oid) {
           viewOrderDetail(oid);
-          // Load handover reports for this order
+          // Luôn load handover reports for this order (cho tất cả tasks có orderId)
           await loadHandoverReportsByOrder(oid);
+          
           // Load handover report for this specific task if it's a DELIVERY task
-          if (normalized.type === "DELIVERY" && normalized.taskId) {
-            await loadHandoverReport(normalized.taskId || normalized.id, oid);
+          // Check both type and taskCategoryName for delivery tasks
+          const taskType = String(normalized.type || task.type || "").toUpperCase();
+          const taskCategoryName = String(normalized.taskCategoryName || task.taskCategoryName || "").toUpperCase();
+          const description = String(normalized.description || task.description || "").toUpperCase();
+          const isDeliveryTask = taskType === "DELIVERY" || 
+                                 taskCategoryName.includes("DELIVERY") || 
+                                 taskCategoryName.includes("GIAO") ||
+                                 description.includes("GIAO");
+          
+          // Load handover report cho task cụ thể nếu là delivery task
+          const taskIdToUse = normalized.taskId || normalized.id || task.taskId || task.id;
+          if (isDeliveryTask && taskIdToUse && oid) {
+            try {
+              await loadHandoverReport(taskIdToUse, oid);
+            } catch (e) {
+              console.warn("Could not load handover report for task:", e);
+              // Không hiển thị lỗi vì có thể chưa có report
+            }
           }
         }
       } else {
         setDetailTask(task);
+        // Nếu không có full task, vẫn thử load handover reports nếu có orderId
+        const oid = task?.orderId;
+        if (oid) {
+          try {
+            await loadHandoverReportsByOrder(oid);
+          } catch (e) {
+            console.warn("Could not load handover reports for order:", e);
+          }
+        }
       }
       setDrawerOpen(true);
     } catch {
       toast.error("Không tải được chi tiết task");
       setDetailTask(task); // Fallback to display task
+      // Vẫn thử load handover reports nếu có orderId
+      const oid = task?.orderId;
+      if (oid) {
+        try {
+          await loadHandoverReportsByOrder(oid);
+        } catch (e) {
+          console.warn("Could not load handover reports for order:", e);
+        }
+      }
       setDrawerOpen(true);
     }
   }, [loadHandoverReport, loadHandoverReportsByOrder]);
@@ -1014,7 +1646,7 @@ export default function TechnicianCalendar() {
                 </Button>
               );
             })()}
-            {r.type === "DELIVERY" && (() => {
+            {(String(r.type || "").toUpperCase() === "DELIVERY" || String(r.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(r.taskCategoryName || "").toUpperCase().includes("GIAO")) && (() => {
               const taskId = r.taskId || r.id;
               const status = String(r.status || "").toUpperCase();
               const isPending = status === "PENDING";
@@ -1053,6 +1685,7 @@ export default function TechnicianCalendar() {
                       Xem biên bản
                     </Button>
                   )}
+                  {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
                   {!isCompleted && !isInProgress && !isConfirmed && (
                     <Button
                       size="small"
@@ -1063,6 +1696,7 @@ export default function TechnicianCalendar() {
                       Xác nhận giao hàng
                     </Button>
                   )}
+            
                 </>
               );
             })()}
@@ -1093,17 +1727,17 @@ export default function TechnicianCalendar() {
                       Xác nhận đi láy hàng
                     </Button>
                   )}
-                  {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
+                  {/* Chỉ hiển thị nút "Tạo biên bản thu hồi" khi status là IN_PROGRESS hoặc COMPLETED */}
                   {(isInProgress || isCompleted) && (
                     <Button
                       size="small"
                       type="primary"
                       icon={<FileTextOutlined />}
                       onClick={() => {
-                        navigate(`/technician/tasks/qc/${taskId}`, { state: { task: r } });
+                        navigate(`/technician/tasks/handover-checkin/${taskId}`, { state: { task: r } });
                       }}
                     >
-                      {buttonLabel}
+                      Tạo biên bản thu hồi
                     </Button>
                   )}
                 </>
@@ -1288,7 +1922,16 @@ export default function TechnicianCalendar() {
       );
     }
 
-    if (t.type === "DELIVERY") {
+    // Check if this is a DELIVERY task (check both type and taskCategoryName)
+    const taskType = String(t.type || "").toUpperCase();
+    const taskCategoryName = String(t.taskCategoryName || "").toUpperCase();
+    const description = String(t.description || t.title || "").toUpperCase();
+    const isDeliveryTask = taskType === "DELIVERY" || 
+                           taskCategoryName.includes("DELIVERY") || 
+                           taskCategoryName.includes("GIAO") ||
+                           description.includes("GIAO");
+    
+    if (isDeliveryTask || t.type === "DELIVERY") {
       const taskId = t.taskId || t.id;
       const status = String(t.status || "").toUpperCase();
       const isPending = status === "PENDING";
@@ -1382,69 +2025,74 @@ export default function TechnicianCalendar() {
             </>
           )}
           <Divider />
-          {/* Hiển thị handover report nếu có */}
+          {/* Hiển thị handover report */}
+          <Title level={5} style={{ marginTop: 0 }}>Biên bản bàn giao</Title>
           {(() => {
             const handoverReport = handoverReportMap[taskId];
             const orderReports = orderDetail ? handoverReportsByOrder[orderDetail.orderId || orderDetail.id] : null;
-            const reportsToShow = handoverReport ? [handoverReport] : (orderReports || []);
+            // Filter chỉ lấy CHECKOUT reports cho DELIVERY tasks
+            const checkoutReports = orderReports ? orderReports.filter(r => {
+              const handoverType = String(r.handoverType || "").toUpperCase();
+              return handoverType === "CHECKOUT" || !handoverType; // Include reports without handoverType for backward compatibility
+            }) : [];
+            const reportsToShow = handoverReport ? [handoverReport] : checkoutReports;
             
             if (reportsToShow.length > 0) {
               return (
-                <>
-                  <Title level={5} style={{ marginTop: 0 }}>Biên bản bàn giao</Title>
-                  <List
-                    dataSource={reportsToShow}
-                    renderItem={(report) => (
-                      <List.Item
-                        actions={[
-                          <Button
-                            key="preview"
-                            size="small"
-                            icon={<EyeOutlined />}
-                            onClick={() => handlePreviewPdf(report)}
-                          >
-                            Xem PDF
-                          </Button>,
-                          <Button
-                            key="download"
-                            size="small"
-                            icon={<DownloadOutlined />}
-                            onClick={() => handleDownloadPdf(report)}
-                            loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
-                          >
-                            Tải PDF
-                          </Button>,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={
-                            <Space>
-                              <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
-                              <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
-                                {translateHandoverStatus(report.status)}
-                              </Tag>
-                            </Space>
-                          }
-                          description={
-                            <Space direction="vertical" size={4}>
-                              <Text type="secondary">
-                                Thời gian: {formatDateTime(report.handoverDateTime)}
-                              </Text>
-                              <Text type="secondary">
-                                Địa điểm: {report.handoverLocation || "—"}
-                              </Text>
-                            </Space>
-                          }
-                        />
-                      </List.Item>
-                    )}
-                  />
-                  <Divider />
-                </>
+                <List
+                  dataSource={reportsToShow}
+                  renderItem={(report) => (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="preview"
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={() => handlePreviewPdf(report)}
+                        >
+                          Xem PDF
+                        </Button>,
+                        <Button
+                          key="download"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => handleDownloadPdf(report)}
+                          loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
+                        >
+                          Tải PDF
+                        </Button>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space>
+                            <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
+                            <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
+                              {translateHandoverStatus(report.status)}
+                            </Tag>
+                          </Space>
+                        }
+                        description={
+                          <Space direction="vertical" size={4}>
+                            <Text type="secondary">
+                              Thời gian: {formatDateTime(report.handoverDateTime)}
+                            </Text>
+                            <Text type="secondary">
+                              Địa điểm: {report.handoverLocation || "—"}
+                            </Text>
+                          </Space>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
               );
             }
-            return null;
+            return (
+              <Text type="secondary">Chưa có biên bản bàn giao</Text>
+            );
           })()}
+          <Divider />
           <Space wrap>
             {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING, không phải COMPLETED và chưa có handover report */}
             {!isPending && !isCompleted && !handoverReportMap[taskId] && (
@@ -1565,6 +2213,72 @@ export default function TechnicianCalendar() {
             </>
           )}
           <Divider />
+          {/* Hiển thị biên bản thu hồi */}
+          <Title level={5} style={{ marginTop: 0 }}>Biên bản thu hồi</Title>
+          {(() => {
+            const orderReports = orderDetail ? handoverReportsByOrder[orderDetail.orderId || orderDetail.id] : null;
+            // Filter chỉ lấy CHECKIN reports
+            const checkinReports = orderReports ? orderReports.filter(r => {
+              const handoverType = String(r.handoverType || "").toUpperCase();
+              return handoverType === "CHECKIN";
+            }) : [];
+            
+            if (checkinReports.length > 0) {
+              return (
+                <List
+                  dataSource={checkinReports}
+                  renderItem={(report) => (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="preview"
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={() => handlePreviewPdf(report)}
+                        >
+                          Xem PDF
+                        </Button>,
+                        <Button
+                          key="download"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => handleDownloadPdf(report)}
+                          loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
+                        >
+                          Tải PDF
+                        </Button>,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space>
+                            <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
+                            <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
+                              {translateHandoverStatus(report.status)}
+                            </Tag>
+                          </Space>
+                        }
+                        description={
+                          <Space direction="vertical" size={4}>
+                            <Text type="secondary">
+                              Thời gian: {formatDateTime(report.handoverDateTime)}
+                            </Text>
+                            <Text type="secondary">
+                              Địa điểm: {report.handoverLocation || "—"}
+                            </Text>
+                          </Space>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              );
+            }
+            return (
+              <Text type="secondary">Chưa có biên bản thu hồi</Text>
+            );
+          })()}
+          <Divider />
           <Space wrap>
             {!isCompleted && !isInProgress && !isConfirmed && (
               <Button
@@ -1575,31 +2289,18 @@ export default function TechnicianCalendar() {
                 Xác nhận đi trả hàng
               </Button>
             )}
-            {(isCompleted || isConfirmed || isInProgress) && (
-              <Text type="success">Đã xác nhận đi trả hàng</Text>
+            {/* Chỉ hiển thị nút "Tạo biên bản thu hồi" khi status là IN_PROGRESS hoặc COMPLETED */}
+            {(isInProgress || isCompleted) && (
+              <Button
+                type="primary"
+                icon={<FileTextOutlined />}
+                onClick={() => {
+                  navigate(`/technician/tasks/handover-checkin/${taskId}`, { state: { task: t } });
+                }}
+              >
+                Tạo biên bản thu hồi
+              </Button>
             )}
-            {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
-            {(isInProgress || isCompleted) && (() => {
-              const hasQcReport = hasQcReportMap[taskId];
-              const buttonLabel =
-                isCompleted
-                  ? "Cập nhật QC Report"
-                  : hasQcReport
-                    ? "Cập nhật QC Report"
-                    : "Tạo QC Report";
-              
-              return (
-                <Button
-                  type="primary"
-                  icon={<FileTextOutlined />}
-                  onClick={() => {
-                    navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
-                  }}
-                >
-                  {buttonLabel}
-                </Button>
-              );
-            })()}
           </Space>
         </>
       );
@@ -1751,9 +2452,7 @@ export default function TechnicianCalendar() {
                     Xác nhận giao hàng
                   </Button>
                 )}
-                {(isCompletedInner || isConfirmed || isInProgress) && (
-                  <Text type="success">Đã xác nhận giao hàng</Text>
-                )}
+                
               </>
             );
           })()}
@@ -1782,9 +2481,6 @@ export default function TechnicianCalendar() {
                   >
                     Xác nhận đi trả hàng
                   </Button>
-                )}
-                {(isCompletedInner || isConfirmed || isInProgress) && (
-                  <Text type="success">Đã xác nhận đi trả hàng</Text>
                 )}
                 {/* Chỉ hiển thị nút "Tạo/Cập nhật QC Report" khi status là IN_PROGRESS hoặc COMPLETED */}
                 {(isInProgress || isCompletedInner) && (

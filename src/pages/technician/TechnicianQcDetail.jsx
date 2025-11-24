@@ -9,9 +9,17 @@ import { InboxOutlined, ArrowLeftOutlined } from "@ant-design/icons";
 import toast from "react-hot-toast";
 import { getTaskById, normalizeTask } from "../../lib/taskApi";
 import { getRentalOrderById } from "../../lib/rentalOrdersApi";
-import { createQcReport, getQcReportsByOrderId, updateQcReport } from "../../lib/qcReportApi";
+import { 
+  createPreRentalQcReport, 
+  createPostRentalQcReport,
+  updateQcReport,
+  getQcReportsByOrderId,
+  getPreRentalQcReportById,
+  getPostRentalQcReportById
+} from "../../lib/qcReportApi";
 import { getDevicesByModelId, getAvailableDevicesByModel, updateDevice, listDevices } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
+import { getConditionDefinitions } from "../../lib/condition";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -167,6 +175,12 @@ export default function TechnicianQcDetail() {
   const [accessorySnapshotPreview, setAccessorySnapshotPreview] = useState("");
   const [selectedDevicesByOrderDetail, setSelectedDevicesByOrderDetail] = useState({});
   const [checklistDone, setChecklistDone] = useState([]);
+  // Device conditions state
+  const [deviceConditions, setDeviceConditions] = useState([]);
+  const [conditionDefinitions, setConditionDefinitions] = useState([]);
+  const [loadingConditions, setLoadingConditions] = useState(false);
+  // Map: deviceModelId -> deviceCategoryId
+  const [deviceCategoryMap, setDeviceCategoryMap] = useState({});
   // Device status update state (for POST_RENTAL only)
   const [deviceStatusUpdated, setDeviceStatusUpdated] = useState(false);
   const [showUpdateStatusModal, setShowUpdateStatusModal] = useState(false);
@@ -570,6 +584,36 @@ export default function TechnicianQcDetail() {
         console.log("✅ Setting accessory snapshot URL:", url);
         setAccessorySnapshotPreview(url);
       }
+      
+      // Parse và load deviceConditions từ existingQcReport
+      if (Array.isArray(existingQcReport.deviceConditions) && existingQcReport.deviceConditions.length > 0) {
+        console.log("📋 Loading deviceConditions from existing report:", existingQcReport.deviceConditions);
+        const parsedDeviceConditions = [];
+        
+        existingQcReport.deviceConditions.forEach((dc) => {
+          // Mỗi deviceCondition có thể có nhiều snapshots, mỗi snapshot có nhiều conditionDetails
+          if (Array.isArray(dc.snapshots)) {
+            dc.snapshots.forEach((snapshot) => {
+              if (Array.isArray(snapshot.conditionDetails)) {
+                snapshot.conditionDetails.forEach((conditionDetail) => {
+                  parsedDeviceConditions.push({
+                    deviceId: dc.deviceSerial || String(dc.deviceId), // Use serial number as deviceId
+                    conditionDefinitionId: conditionDetail.conditionDefinitionId,
+                    severity: conditionDetail.severity,
+                    images: Array.isArray(snapshot.images) ? snapshot.images : [],
+                  });
+                });
+              }
+            });
+          }
+        });
+        
+        console.log("✅ Parsed device conditions:", parsedDeviceConditions);
+        setDeviceConditions(parsedDeviceConditions);
+      } else {
+        // Reset nếu không có deviceConditions
+        setDeviceConditions([]);
+      }
     }
   }, [existingQcReport, phase]);
 
@@ -804,6 +848,103 @@ export default function TechnicianQcDetail() {
     if (!order || !Array.isArray(order.orderDetails)) return [];
     return order.orderDetails;
   }, [order]);
+
+  // Load condition definitions when devices are selected
+  useEffect(() => {
+    const loadConditionDefinitions = async () => {
+      if (!orderDetails.length || !selectedDevicesByOrderDetail || Object.keys(selectedDevicesByOrderDetail).length === 0) {
+        setConditionDefinitions([]);
+        return;
+      }
+
+      try {
+        setLoadingConditions(true);
+        // Get all unique deviceCategoryIds from selected devices
+        const categoryIds = new Set();
+        
+        // Get deviceCategoryId from each orderDetail's deviceModelId
+        for (const orderDetail of orderDetails) {
+          const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
+          const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
+          
+          if (serials.length > 0 && orderDetail.deviceModelId) {
+            try {
+              const model = await getDeviceModelById(orderDetail.deviceModelId);
+              const categoryId = model?.deviceCategoryId || model?.categoryId;
+              if (categoryId) {
+                categoryIds.add(categoryId);
+              }
+            } catch (e) {
+              console.warn(`Failed to load model ${orderDetail.deviceModelId}:`, e);
+            }
+          }
+        }
+
+        // Build deviceCategoryMap: deviceModelId -> deviceCategoryId
+        const categoryMap = {};
+        for (const orderDetail of orderDetails) {
+          const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
+          const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
+          
+          if (serials.length > 0 && orderDetail.deviceModelId) {
+            try {
+              const model = await getDeviceModelById(orderDetail.deviceModelId);
+              const categoryId = model?.deviceCategoryId || model?.categoryId;
+              if (categoryId) {
+                categoryMap[orderDetail.deviceModelId] = categoryId;
+              }
+            } catch (e) {
+              console.warn(`Failed to load model ${orderDetail.deviceModelId}:`, e);
+            }
+          }
+        }
+        setDeviceCategoryMap(categoryMap);
+
+        // Load condition definitions for all categories
+        const allConditions = [];
+        for (const categoryId of categoryIds) {
+          try {
+            const conditions = await getConditionDefinitions({ deviceCategoryId: categoryId });
+            allConditions.push(...conditions);
+          } catch (e) {
+            console.warn(`Failed to load conditions for category ${categoryId}:`, e);
+          }
+        }
+
+        // Remove duplicates by id
+        const uniqueConditions = Array.from(
+          new Map(allConditions.map(c => [c.id, c])).values()
+        );
+        
+        setConditionDefinitions(uniqueConditions);
+      } catch (e) {
+        console.error("Error loading condition definitions:", e);
+        setConditionDefinitions([]);
+      } finally {
+        setLoadingConditions(false);
+      }
+    };
+
+    loadConditionDefinitions();
+  }, [orderDetails, selectedDevicesByOrderDetail]);
+
+  // Helper: Get available devices list for condition selection
+  const availableDevicesForConditions = useMemo(() => {
+    const devices = [];
+    Object.keys(selectedDevicesByOrderDetail).forEach((orderDetailId) => {
+      const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
+      const orderDetail = orderDetails.find(od => String(od.orderDetailId || od.id) === orderDetailId);
+      
+      serials.forEach((serial) => {
+        devices.push({
+          serial: String(serial),
+          orderDetailId,
+          deviceModelId: orderDetail?.deviceModelId,
+        });
+      });
+    });
+    return devices;
+  }, [selectedDevicesByOrderDetail, orderDetails]);
 
   const checklist = useMemo(() => {
     // Có thể lấy từ taskCategoryName hoặc từ category của order
@@ -1052,16 +1193,54 @@ export default function TechnicianQcDetail() {
         console.log(`Mapped orderDetailId ${orderDetailId} (key: "${key}"):`, serialNumbers);
       });
 
-      const payload = {
+      const currentPhase = String(phase || "PRE_RENTAL").toUpperCase();
+      const isPostRental = currentPhase === "POST_RENTAL";
+      
+      // Build deviceConditions payload
+      // Need to convert serial numbers to deviceIds
+      const allDevices = await listDevices();
+      const deviceConditionsPayload = [];
+      
+      for (const condition of deviceConditions) {
+        if (!condition.deviceId || !condition.conditionDefinitionId || !condition.severity) {
+          continue; // Skip incomplete conditions
+        }
+        
+        // Find device by serial number
+        const device = Array.isArray(allDevices)
+          ? allDevices.find(d => {
+              const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+              return deviceSerial === String(condition.deviceId).toUpperCase();
+            })
+          : null;
+        
+        if (device) {
+          const deviceId = device.deviceId || device.id;
+          deviceConditionsPayload.push({
+            deviceId: Number(deviceId),
+            conditionDefinitionId: Number(condition.conditionDefinitionId),
+            severity: String(condition.severity),
+            images: Array.isArray(condition.images) ? condition.images.map(String) : [],
+          });
+        }
+      }
+
+      // Base payload cho cả PRE và POST rental
+      const basePayload = {
         taskId: Number(actualTaskId),
         orderDetailSerialNumbers,
-        phase: String(phase || "PRE_RENTAL").toUpperCase(),
-        result: String(result || "READY_FOR_SHIPPING").toUpperCase(),
+        result: String(result || (isPostRental ? "READY_FOR_RE_STOCK" : "READY_FOR_SHIPPING")).toUpperCase(),
         findings: findings.trim(),
+        deviceConditions: deviceConditionsPayload,
         accessoryFile: accessorySnapshotFile || null,
       };
+      
+      // Thêm discrepancies cho POST-RENTAL
+      if (isPostRental) {
+        basePayload.discrepancies = []; // TODO: Thêm UI để nhập discrepancies
+      }
 
-      console.log("QC report payload:", payload);
+      console.log("QC report payload:", basePayload);
       
       // Check if updating existing report or creating new one
       const taskStatus = String(task?.status || "").toUpperCase();
@@ -1075,7 +1254,7 @@ export default function TechnicianQcDetail() {
       }
       
       if (existingQcReport && qcReportId) {
-        console.log("Calling updateQcReport...");
+        console.log("Calling update QC report...");
         console.log("Existing QC Report:", existingQcReport);
         console.log("Order Details:", orderDetails);
         console.log("Selected Devices:", selectedDevicesByOrderDetail);
@@ -1094,44 +1273,114 @@ export default function TechnicianQcDetail() {
           }
         });
         
-        // Nếu không có serial numbers từ selectedDevicesByOrderDetail, dùng từ payload
+        // Nếu không có serial numbers từ selectedDevicesByOrderDetail, dùng từ basePayload
         const orderDetailSerialNumbersToUse = Object.keys(finalOrderDetailSerialNumbers).length > 0
           ? finalOrderDetailSerialNumbers
-          : payload.orderDetailSerialNumbers;
+          : basePayload.orderDetailSerialNumbers;
         
         const updatePayload = {
+          phase: String(phase || "PRE_RENTAL").toUpperCase(),
           orderDetailSerialNumbers: orderDetailSerialNumbersToUse,
-          phase: payload.phase,
-          result: payload.result,
-          findings: payload.findings,
-          accessoryFile: payload.accessoryFile,
+          result: basePayload.result,
+          findings: basePayload.findings,
+          deviceConditions: basePayload.deviceConditions,
+          accessoryFile: basePayload.accessoryFile,
         };
         
+        // Thêm discrepancies cho POST-RENTAL update (có thể bỏ qua cho PRE_RENTAL)
+        if (isPostRental && Array.isArray(basePayload.discrepancies) && basePayload.discrepancies.length > 0) {
+          updatePayload.discrepancies = basePayload.discrepancies;
+        }
+        
         console.log("Update QC Report Payload:", updatePayload);
+        
+        // Sử dụng updateQcReport cho cả PRE_RENTAL và POST_RENTAL
         await updateQcReport(qcReportId, updatePayload);
-        console.log("updateQcReport succeeded");
+        
+        console.log("Update QC report succeeded");
         toast.success("Đã cập nhật QC report thành công!");
       } else {
-        console.log("Calling createQcReport...");
-        await createQcReport(payload);
-        console.log("createQcReport succeeded");
+        console.log("Calling create QC report...");
+        
+        // Gọi API create tương ứng với phase
+        let createdReport;
+        if (isPostRental) {
+          createdReport = await createPostRentalQcReport(basePayload);
+        } else {
+          createdReport = await createPreRentalQcReport(basePayload);
+        }
+        
+        console.log("Create QC report succeeded, response:", createdReport);
         toast.success("Đã tạo QC report thành công!");
+        
+        // Sau khi tạo thành công, load lại QC report để fill vào form
+        const newQcReportId = createdReport?.qcReportId || createdReport?.id;
+        if (newQcReportId) {
+          try {
+            console.log("Loading created QC report for editing:", newQcReportId);
+            const loadedReport = isPostRental
+              ? await getPostRentalQcReportById(newQcReportId)
+              : await getPreRentalQcReportById(newQcReportId);
+            
+            if (loadedReport) {
+              console.log("Loaded QC report:", loadedReport);
+              
+              // Set existingQcReport để form chuyển sang chế độ update
+              setExistingQcReport(loadedReport);
+              
+              // Parse deviceConditions từ response format sang input format
+              if (Array.isArray(loadedReport.deviceConditions) && loadedReport.deviceConditions.length > 0) {
+                const parsedDeviceConditions = [];
+                
+                loadedReport.deviceConditions.forEach((dc) => {
+                  // Mỗi deviceCondition có thể có nhiều snapshots, mỗi snapshot có nhiều conditionDetails
+                  if (Array.isArray(dc.snapshots)) {
+                    dc.snapshots.forEach((snapshot) => {
+                      if (Array.isArray(snapshot.conditionDetails)) {
+                        snapshot.conditionDetails.forEach((conditionDetail) => {
+                          parsedDeviceConditions.push({
+                            deviceId: dc.deviceSerial || String(dc.deviceId), // Use serial number as deviceId
+                            conditionDefinitionId: conditionDetail.conditionDefinitionId,
+                            severity: conditionDetail.severity,
+                            images: Array.isArray(snapshot.images) ? snapshot.images : [],
+                          });
+                        });
+                      }
+                    });
+                  }
+                });
+                
+                console.log("Parsed device conditions:", parsedDeviceConditions);
+                setDeviceConditions(parsedDeviceConditions);
+              }
+            }
+          } catch (e) {
+            console.error("Failed to load created QC report:", e);
+            // Không block flow nếu load thất bại
+          }
+        }
+        
+        // Sau khi tạo thành công và load report, không navigate ngay để user có thể update
+        toast.info("QC report đã được tạo. Bạn có thể cập nhật thông tin nếu cần.");
       }
       
       // Nếu là POST_RENTAL và result là READY_FOR_RE_STOCK, hiện modal cập nhật status
-      const isPostRental = String(phase || "").toUpperCase() === "POST_RENTAL";
       const isReadyForRestock = String(result || "").toUpperCase() === "READY_FOR_RE_STOCK";
       
-      if (isPostRental && isReadyForRestock && !deviceStatusUpdated) {
-        // Hiện modal để cập nhật status thiết bị
-        setShowUpdateStatusModal(true);
-        // Không navigate ngay, đợi user cập nhật status
-      } else {
-        // Navigate back sau khi thành công
-        setTimeout(() => {
-          nav(-1);
-        }, 1500);
+      // Chỉ navigate nếu đã update (không phải create mới)
+      if (existingQcReport && qcReportId) {
+        if (isPostRental && isReadyForRestock && !deviceStatusUpdated) {
+          // Hiện modal để cập nhật status thiết bị
+          setShowUpdateStatusModal(true);
+          // Không navigate ngay, đợi user cập nhật status
+        } else {
+          // Navigate back sau khi update thành công
+          setTimeout(() => {
+            nav(-1);
+          }, 1500);
+        }
       }
+      // Nếu là create mới, không navigate để user có thể tiếp tục chỉnh sửa
     } catch (e) {
       console.error("Create QC report error:", e);
       console.error("Error details:", {
@@ -1496,6 +1745,198 @@ export default function TechnicianQcDetail() {
                   Chọn lại ảnh
                 </Button>
               </div>
+            )}
+          </div>
+
+          {/* Device Conditions Section */}
+          <Divider />
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <Text strong style={{ fontSize: 16 }}>
+                Điều kiện thiết bị (Device Conditions)
+              </Text>
+              <Button
+                type="dashed"
+                onClick={() => {
+                  if (availableDevicesForConditions.length === 0) {
+                    message.warning("Vui lòng chọn thiết bị trước khi thêm điều kiện");
+                    return;
+                  }
+                  setDeviceConditions([
+                    ...deviceConditions,
+                    {
+                      deviceId: null,
+                      conditionDefinitionId: null,
+                      severity: "",
+                      images: [],
+                    },
+                  ]);
+                }}
+              >
+                + Thêm điều kiện
+              </Button>
+            </div>
+            
+            {deviceConditions.length === 0 ? (
+              <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+                Chưa có điều kiện nào được thêm. Nhấn nút "Thêm điều kiện" để bắt đầu.
+              </Text>
+            ) : (
+              <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                {deviceConditions.map((condition, index) => {
+                  // Find device info by serial
+                  const deviceInfo = availableDevicesForConditions.find(
+                    d => d.serial === condition.deviceId || d.serial === String(condition.deviceId)
+                  );
+                  
+                  // Get deviceCategoryId from map
+                  const deviceCategoryId = deviceInfo?.deviceModelId 
+                    ? deviceCategoryMap[deviceInfo.deviceModelId] 
+                    : null;
+                  
+                  // Filter conditions by deviceCategoryId
+                  const filteredConditions = deviceCategoryId
+                    ? conditionDefinitions.filter(c => c.deviceCategoryId === deviceCategoryId)
+                    : conditionDefinitions;
+
+                  return (
+                    <Card
+                      key={index}
+                      size="small"
+                      title={`Điều kiện #${index + 1}`}
+                      extra={
+                        <Button
+                          type="text"
+                          danger
+                          size="small"
+                          onClick={() => {
+                            setDeviceConditions(deviceConditions.filter((_, i) => i !== index));
+                          }}
+                        >
+                          Xóa
+                        </Button>
+                      }
+                    >
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <div style={{ marginBottom: 12 }}>
+                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                              Thiết bị (Serial Number) <Text type="danger">*</Text>
+                            </Text>
+                            <Select
+                              style={{ width: "100%" }}
+                              placeholder="Chọn thiết bị"
+                              value={condition.deviceId ? String(condition.deviceId) : null}
+                              onChange={(value) => {
+                                const newConditions = [...deviceConditions];
+                                newConditions[index] = {
+                                  ...newConditions[index],
+                                  deviceId: value,
+                                  conditionDefinitionId: null, // Reset when device changes
+                                };
+                                setDeviceConditions(newConditions);
+                              }}
+                              options={availableDevicesForConditions.map(d => ({
+                                label: d.serial,
+                                value: d.serial,
+                              }))}
+                            />
+                          </div>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <div style={{ marginBottom: 12 }}>
+                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                              Điều kiện (Condition Definition) <Text type="danger">*</Text>
+                            </Text>
+                            <Select
+                              style={{ width: "100%" }}
+                              placeholder="Chọn điều kiện"
+                              value={condition.conditionDefinitionId}
+                              onChange={(value) => {
+                                const newConditions = [...deviceConditions];
+                                newConditions[index] = {
+                                  ...newConditions[index],
+                                  conditionDefinitionId: value,
+                                };
+                                setDeviceConditions(newConditions);
+                              }}
+                              loading={loadingConditions}
+                              disabled={!condition.deviceId || loadingConditions}
+                              options={filteredConditions.map(c => ({
+                                label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
+                                value: c.id,
+                              }))}
+                            />
+                          </div>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <div style={{ marginBottom: 12 }}>
+                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                              Mức độ nghiêm trọng (Severity) <Text type="danger">*</Text>
+                            </Text>
+                            <Select
+                              style={{ width: "100%" }}
+                              placeholder="Chọn mức độ"
+                              value={condition.severity}
+                              onChange={(value) => {
+                                const newConditions = [...deviceConditions];
+                                newConditions[index] = {
+                                  ...newConditions[index],
+                                  severity: value,
+                                };
+                                setDeviceConditions(newConditions);
+                              }}
+                              options={[
+                                { label: "Nhẹ (LOW)", value: "LOW" },
+                                { label: "Trung bình (MEDIUM)", value: "MEDIUM" },
+                                { label: "Nặng (HIGH)", value: "HIGH" },
+                                { label: "Rất nặng (CRITICAL)", value: "CRITICAL" },
+                              ]}
+                            />
+                          </div>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <div style={{ marginBottom: 12 }}>
+                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                              Ảnh bằng chứng
+                            </Text>
+                            <Upload
+                              multiple
+                              accept=".jpg,.jpeg,.png,.webp"
+                              beforeUpload={() => false}
+                              listType="picture-card"
+                              fileList={condition.images?.map((img, imgIdx) => ({
+                                uid: `img-${index}-${imgIdx}`,
+                                name: `image-${imgIdx + 1}.jpg`,
+                                status: "done",
+                                url: typeof img === "string" ? img : (img?.url || img?.thumbUrl || ""),
+                              })) || []}
+                              onChange={({ fileList }) => {
+                                const newConditions = [...deviceConditions];
+                                const imageUrls = fileList
+                                  .map(f => f.thumbUrl || f.url || (f.originFileObj ? URL.createObjectURL(f.originFileObj) : ""))
+                                  .filter(Boolean);
+                                newConditions[index] = {
+                                  ...newConditions[index],
+                                  images: imageUrls,
+                                };
+                                setDeviceConditions(newConditions);
+                              }}
+                            >
+                              {((condition.images?.length || 0) < 5) && (
+                                <div>
+                                  <InboxOutlined />
+                                  <div style={{ marginTop: 8 }}>Tải ảnh</div>
+                                </div>
+                              )}
+                            </Upload>
+                          </div>
+                        </Col>
+                      </Row>
+                    </Card>
+                  );
+                })}
+              </Space>
             )}
           </div>
         </Space>

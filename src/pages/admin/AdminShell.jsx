@@ -27,6 +27,7 @@ import {
   HomeOutlined,
   TagsOutlined,
   MoneyCollectOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -51,6 +52,7 @@ export default function AdminShell() {
     if (location.pathname.startsWith("/admin/accounts")) return "accounts";
     if (location.pathname.startsWith("/admin/transactions")) return "transactions";
     if (location.pathname.startsWith("/admin/task-categories")) return "task-categories";
+    if (location.pathname.startsWith("/admin/conditions")) return "conditions";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
     return "dashboard";
   }, [location.pathname]);
@@ -147,6 +149,11 @@ export default function AdminShell() {
               key: "task-categories",
               icon: <TagsOutlined />,
               label: <Link to="/admin/task-categories">Loại công việc</Link>,
+            },
+            {
+              key: "conditions",
+              icon: <FileTextOutlined />,
+              label: <Link to="/admin/conditions">Condition Definitions</Link>,
             },
           ]}
         />
