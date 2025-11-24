@@ -1,5 +1,5 @@
 // src/pages/technician/TechnicianHandoverCheckin.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Card,
   Descriptions,
@@ -950,6 +950,16 @@ export default function TechnicianHandoverCheckin() {
   const [devicesMap, setDevicesMap] = useState({}); // serialNumber -> deviceId
   const [orderDetailsMap, setOrderDetailsMap] = useState({}); // orderDetailId -> orderDetail
 
+  const preferredTechnicianEmail = useMemo(() => {
+    if (user?.email) return user.email;
+    const infoParts = (technicianInfo || "")
+      .split("•")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const emailPart = infoParts.find((part) => /\S+@\S+\.\S+/.test(part));
+    return emailPart || "";
+  }, [user?.email, technicianInfo]);
+
   // Fetch task and order details
   useEffect(() => {
     const loadData = async () => {
@@ -1333,8 +1343,17 @@ export default function TechnicianHandoverCheckin() {
 
     try {
       setSendingPin(true);
-      await sendHandoverReportPin(handoverReportId);
-      toast.success("Đã gửi mã PIN thành công!");
+      const recipientEmail =
+        preferredTechnicianEmail || customerEmail?.trim() || "";
+      await sendHandoverReportPin(
+        handoverReportId,
+        recipientEmail || undefined
+      );
+      toast.success(
+        recipientEmail
+          ? `Đã gửi mã PIN tới ${recipientEmail}!`
+          : "Đã gửi mã PIN thành công!"
+      );
     } catch (e) {
       toast.error(
         e?.response?.data?.message || e?.message || "Không thể gửi mã PIN"
@@ -1490,8 +1509,17 @@ export default function TechnicianHandoverCheckin() {
 
       // Gửi PIN
       try {
-        await sendHandoverReportPin(reportId);
-        toast.success("Đã gửi mã PIN thành công!");
+        const recipientEmail =
+          preferredTechnicianEmail || customerEmail?.trim() || "";
+        await sendHandoverReportPin(
+          reportId,
+          recipientEmail || undefined
+        );
+        toast.success(
+          recipientEmail
+            ? `Đã gửi mã PIN tới ${recipientEmail}!`
+            : "Đã gửi mã PIN thành công!"
+        );
       } catch (e) {
         console.error("Error sending PIN:", e);
         toast.error("Không thể gửi mã PIN tự động. Vui lòng gửi thủ công.");

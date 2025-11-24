@@ -20,8 +20,15 @@ export async function sendHandoverPin(orderId) {
  * @param {number} handoverReportId - ID của handover report
  * @returns {Promise<Object>} Response từ API (thường là empty object {})
  */
-export async function sendHandoverReportPin(handoverReportId) {
-  const { data } = await api.post(`/api/staff/handover-reports/${Number(handoverReportId)}/pin`);
+export async function sendHandoverReportPin(handoverReportId, email) {
+  const url = `/api/staff/handover-reports/${Number(handoverReportId)}/pin`;
+
+  if (email) {
+    const { data } = await api.post(url, { email });
+    return unwrap(data) ?? {};
+  }
+
+  const { data } = await api.post(url);
   return unwrap(data) ?? {};
 }
 

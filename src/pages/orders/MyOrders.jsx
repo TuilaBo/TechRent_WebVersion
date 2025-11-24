@@ -1,4 +1,3 @@
-// src/pages/orders/MyOrders.jsx
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Table, Tag, Typography, Input, DatePicker, Space, Button,
@@ -310,6 +309,33 @@ function diffDays(startIso, endIso) {
   const e = new Date(endIso);
   const days = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
   return Math.max(1, days || 1);
+}
+
+function createPrintSandbox() {
+  if (typeof document === "undefined") return null;
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "-99999px";
+  container.style.top = "-99999px";
+  container.style.background = "#ffffff";
+  container.style.width = "794px";
+  container.style.minHeight = "10px";
+  container.style.zIndex = "-9999";
+  container.style.pointerEvents = "none";
+  document.body.appendChild(container);
+  return container;
+}
+
+function cleanupPrintSandbox(node) {
+  if (!node) return;
+  try {
+    node.innerHTML = "";
+    if (node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+  } catch (err) {
+    console.warn("Cleanup print sandbox error:", err);
+  }
 }
 
 /* =========================
@@ -1341,7 +1367,6 @@ export default function MyOrders() {
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
-  const printRef = useRef(null);
   const notifSocketRef = useRef(null);
   const pollingRef = useRef(null);
   const wsConnectedRef = useRef(false);
@@ -1452,6 +1477,12 @@ export default function MyOrders() {
     return daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 1;
   };
 
+  const isOrderInUse = (order) => {
+    if (!order) return false;
+    const status = String(order?.orderStatus || "").toLowerCase();
+    return status === "in_use";
+  };
+
   // Check if order has been confirmed for return
   const isReturnConfirmed = async (order) => {
     if (!order) return false;
@@ -1549,7 +1580,9 @@ export default function MyOrders() {
   useEffect(() => {
     const checkCloseToReturn = () => {
       const closeOrders = orders.filter((order) => 
-        isCloseToReturnDate(order) && !isReturnConfirmedSync(order)
+        isOrderInUse(order) &&
+        isCloseToReturnDate(order) && 
+        !isReturnConfirmedSync(order)
       );
       if (closeOrders.length > 0 && !returnModalOpen && !extendModalOpen) {
         const firstCloseOrder = closeOrders[0];
@@ -1610,20 +1643,58 @@ export default function MyOrders() {
     if (checkoutReports.length > 0 && !selectedHandoverReport) {
       const firstReport = checkoutReports[0];
       setSelectedHandoverReport(firstReport);
-      previewHandoverReportAsPdf(firstReport);
+      previewHandoverReportAsPdf(firstReport, { target: "handover" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkoutReports]);
   
-  // Auto select and preview first checkin report when reports are loaded
+  // Auto select first checkin report when reports are loaded
   useEffect(() => {
     if (checkinReports.length > 0 && !selectedCheckinReport) {
-      const firstReport = checkinReports[0];
-      setSelectedCheckinReport(firstReport);
-      previewHandoverReportAsPdf(firstReport); // Reuse same function
+      setSelectedCheckinReport(checkinReports[0]);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkinReports]);
+
+    // Clear selection when no checkin reports
+    if (checkinReports.length === 0 && selectedCheckinReport) {
+      setSelectedCheckinReport(null);
+      if (checkinPdfPreviewUrl) {
+        try {
+          URL.revokeObjectURL(checkinPdfPreviewUrl);
+        } catch {}
+        setCheckinPdfPreviewUrl("");
+      }
+    }
+  }, [checkinReports, selectedCheckinReport, checkinPdfPreviewUrl]);
+
+  // Ensure PDFs are available when switching tabs
+  useEffect(() => {
+    if (
+      detailTab === "handover" &&
+      selectedHandoverReport &&
+      !handoverPdfPreviewUrl &&
+      !handoverPdfGenerating
+    ) {
+      previewHandoverReportAsPdf(selectedHandoverReport, {
+        target: "handover",
+        skipSelection: true,
+      });
+    }
+  }, [detailTab, selectedHandoverReport, handoverPdfPreviewUrl, handoverPdfGenerating]);
+
+  useEffect(() => {
+    if (
+      detailTab === "checkin" &&
+      selectedCheckinReport &&
+      !checkinPdfPreviewUrl &&
+      !handoverPdfGenerating
+    ) {
+      previewHandoverReportAsPdf(selectedCheckinReport, {
+        target: "checkin",
+        skipSelection: true,
+      });
+    }
+  }, [detailTab, selectedCheckinReport, checkinPdfPreviewUrl, handoverPdfGenerating]);
 
   // Auto select and preview first contract when contracts are loaded
   useEffect(() => {
@@ -1996,6 +2067,7 @@ export default function MyOrders() {
     setExtendModalOpen(false);
   };
   const handleDownloadContract = async (record) => {
+    let sandbox = null;
     try {
       // 1) Có URL -> tải thẳng
       if (record?.contractUrl) {
@@ -2027,23 +2099,28 @@ export default function MyOrders() {
   
       // gộp điều khoản mở rộng rồi render HTML -> PDF
       const detail = augmentContractContent(record);
-      if (printRef.current) {
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        const blob = await elementToPdfBlob(printRef.current);
-  
-        const a = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        a.href = url;
-        a.download = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 0);
+      sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        return;
       }
+
+      sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
+      const blob = await elementToPdfBlob(sandbox);
+
+      const a = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (e) {
       console.error("Download contract error:", e);
       message.error("Không thể tạo/tải PDF.");
     } finally {
+      cleanupPrintSandbox(sandbox);
       setPdfGenerating(false);
     }
   };
@@ -2186,9 +2263,10 @@ export default function MyOrders() {
     }
     try {
       setSettlementLoading(true);
-      const settlement = await getSettlementByOrderId(orderId);
-      setSettlementInfo(settlement || null);
-      return settlement || null;
+      const settlementResponse = await getSettlementByOrderId(orderId);
+      const settlementData = settlementResponse?.data ?? settlementResponse ?? null;
+      setSettlementInfo(settlementData);
+      return settlementData;
     } catch (e) {
       console.error("Failed to fetch settlement by orderId:", e);
       setSettlementInfo(null);
@@ -2200,17 +2278,44 @@ export default function MyOrders() {
 
   const loadOrderHandoverReports = async (orderId) => {
     if (!orderId) {
+      // Clear old previews/selections when no orderId
+      if (handoverPdfPreviewUrl) {
+        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
+      }
+      if (checkinPdfPreviewUrl) {
+        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch {}
+      }
+      setHandoverPdfPreviewUrl("");
+      setCheckinPdfPreviewUrl("");
+      setSelectedHandoverReport(null);
+      setSelectedCheckinReport(null);
       setHandoverReports([]);
       return [];
     }
     try {
       setHandoverReportsLoading(true);
+      // Clear previous selections and previews before loading new data
+      if (handoverPdfPreviewUrl) {
+        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
+      }
+      if (checkinPdfPreviewUrl) {
+        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch {}
+      }
+      setHandoverPdfPreviewUrl("");
+      setCheckinPdfPreviewUrl("");
+      setSelectedHandoverReport(null);
+      setSelectedCheckinReport(null);
+
       const reports = await getCustomerHandoverReportsByOrderId(orderId);
       const reportsArray = Array.isArray(reports) ? reports : [];
       setHandoverReports(reportsArray);
       return reportsArray;
     } catch (e) {
       console.error("Failed to fetch handover reports by orderId:", e);
+      setSelectedHandoverReport(null);
+      setSelectedCheckinReport(null);
+      setHandoverPdfPreviewUrl("");
+      setCheckinPdfPreviewUrl("");
       setHandoverReports([]);
       return [];
     } finally {
@@ -2337,25 +2442,34 @@ export default function MyOrders() {
   };
 
   // Preview handover report PDF (for inline preview)
-  const previewHandoverReportAsPdf = async (report) => {
+  const previewHandoverReportAsPdf = async (report, options = {}) => {
     if (!report) return message.warning("Chưa chọn biên bản.");
     
     // Determine if this is a checkin report
     const handoverType = String(report.handoverType || "").toUpperCase();
-    const isCheckin = handoverType === "CHECKIN";
+    const isCheckinReport = handoverType === "CHECKIN";
+    const target = options.target || "auto";
+    const useCheckinPreview =
+      target === "checkin" ? true : target === "handover" ? false : isCheckinReport;
     
+    const skipSelection = options.skipSelection === true;
+
     try {
       setHandoverPdfGenerating(true);
       
       // Set appropriate selected report and clear preview URL
-      if (isCheckin) {
-        setSelectedCheckinReport(report);
+      if (useCheckinPreview) {
+        if (!skipSelection) {
+          setSelectedCheckinReport(report);
+        }
         if (checkinPdfPreviewUrl) {
           URL.revokeObjectURL(checkinPdfPreviewUrl);
           setCheckinPdfPreviewUrl("");
         }
       } else {
-        setSelectedHandoverReport(report);
+        if (!skipSelection) {
+          setSelectedHandoverReport(report);
+        }
         if (handoverPdfPreviewUrl) {
           URL.revokeObjectURL(handoverPdfPreviewUrl);
           setHandoverPdfPreviewUrl("");
@@ -2434,7 +2548,8 @@ export default function MyOrders() {
         handoverPrintRef.current.style.opacity = "0";
         
         const url = URL.createObjectURL(blob);
-        setHandoverPdfPreviewUrl(url);
+        if (useCheckinPreview) setCheckinPdfPreviewUrl(url);
+        else setHandoverPdfPreviewUrl(url);
       }
     } catch (e) {
       console.error("Error generating handover PDF:", e);
@@ -2902,6 +3017,7 @@ export default function MyOrders() {
     const rawDetail = contractDetail || (contracts[0] ? { ...contracts[0] } : null);
     if (!rawDetail) return message.warning("Đơn này chưa có dữ liệu hợp đồng.");
 
+    let sandbox = null;
     try {
       setPdfGenerating(true);
       revokeBlob(pdfBlobUrl);
@@ -2927,17 +3043,22 @@ export default function MyOrders() {
         console.error("Failed to fetch KYC data:", e);
       }
 
-      if (printRef.current) {
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        const blob = await elementToPdfBlob(printRef.current);
-        const url = URL.createObjectURL(blob);
-        setPdfBlobUrl(url);
-        setPdfModalOpen(true);
+      sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        return;
       }
+
+      sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
+      const blob = await elementToPdfBlob(sandbox);
+      const url = URL.createObjectURL(blob);
+      setPdfBlobUrl(url);
+      setPdfModalOpen(true);
     } catch (e) {
       console.error(e);
       message.error("Không tạo được bản xem trước PDF.");
     } finally {
+      cleanupPrintSandbox(sandbox);
       setPdfGenerating(false);
     }
   }
@@ -2947,6 +3068,7 @@ export default function MyOrders() {
     const rawDetail = contractDetail || (contracts[0] ? { ...contracts[0] } : null);
     if (!rawDetail) return message.warning("Đơn này chưa có dữ liệu hợp đồng.");
 
+    let sandbox = null;
     try {
       setPdfGenerating(true);
       revokeBlob(pdfBlobUrl);
@@ -2972,21 +3094,26 @@ export default function MyOrders() {
         console.error("Failed to fetch KYC data:", e);
       }
 
-      if (printRef.current) {
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        const blob = await elementToPdfBlob(printRef.current);
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        const name = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+      sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        return;
       }
+
+      sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
+      const blob = await elementToPdfBlob(sandbox);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const name = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (e) {
       console.error(e);
       message.error("Không thể tạo/tải PDF.");
     } finally {
+      cleanupPrintSandbox(sandbox);
       setPdfGenerating(false);
     }
   }
@@ -3040,17 +3167,19 @@ export default function MyOrders() {
         console.error("Failed to fetch KYC data:", e);
       }
 
-      if (printRef.current) {
-        printRef.current.style.visibility = "visible";
-        printRef.current.style.opacity = "1";
-        printRef.current.style.left = "-99999px";
-        printRef.current.style.top = "-99999px";
-        printRef.current.style.width = "794px";
-        printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+      const sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        setPdfGenerating(false);
+        return;
+      }
+
+      try {
+        sandbox.style.visibility = "visible";
+        sandbox.style.opacity = "1";
+        sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
         
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        
-        const allElements = printRef.current.querySelectorAll('*');
+        const allElements = sandbox.querySelectorAll('*');
         allElements.forEach(el => {
           if (el.style) {
             el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
@@ -3059,20 +3188,19 @@ export default function MyOrders() {
           }
         });
         
-        printRef.current.offsetHeight;
+        sandbox.offsetHeight;
         
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        const blob = await elementToPdfBlob(printRef.current);
-        
-        printRef.current.style.visibility = "hidden";
-        printRef.current.style.opacity = "0";
+        const blob = await elementToPdfBlob(sandbox);
         
         const url = URL.createObjectURL(blob);
         setContractPdfPreviewUrl(url);
+      } finally {
+        cleanupPrintSandbox(sandbox);
       }
     } catch (e) {
       console.error("Error generating contract PDF:", e);
@@ -3543,7 +3671,7 @@ export default function MyOrders() {
             />
           </div>
         )}
-        {current && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
+        {current && isOrderInUse(current) && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
           <div
             style={{
               padding: "16px 24px",
@@ -4025,7 +4153,7 @@ export default function MyOrders() {
                               setSelectedHandoverReport(record);
                               // Auto preview when selecting a different report or if no preview exists
                               if (!isSameReport || !handoverPdfPreviewUrl) {
-                                previewHandoverReportAsPdf(record);
+                                previewHandoverReportAsPdf(record, { target: "handover" });
                               }
                             },
                             style: { cursor: 'pointer' }
@@ -4064,7 +4192,7 @@ export default function MyOrders() {
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setSelectedHandoverReport(record);
-                                        previewHandoverReportAsPdf(record);
+                                        previewHandoverReportAsPdf(record, { target: "handover" });
                                       }}
                                       loading={handoverPdfGenerating && selectedHandoverReport?.handoverReportId === record.handoverReportId}
                                     >
@@ -4152,7 +4280,7 @@ export default function MyOrders() {
                           {!handoverPdfPreviewUrl && selectedHandoverReport && (
                             <>
                               <Button 
-                                onClick={() => previewHandoverReportAsPdf(selectedHandoverReport)} 
+                                onClick={() => previewHandoverReportAsPdf(selectedHandoverReport, { target: "handover" })} 
                                 loading={handoverPdfGenerating}
                               >
                                 Xem trước biên bản PDF
@@ -4239,7 +4367,7 @@ export default function MyOrders() {
                               setSelectedCheckinReport(record);
                               // Auto preview when selecting a different report or if no preview exists
                               if (!isSameReport || !checkinPdfPreviewUrl) {
-                                previewHandoverReportAsPdf(record);
+                                previewHandoverReportAsPdf(record, { target: "checkin" });
                               }
                             },
                             style: { cursor: 'pointer' }
@@ -4278,7 +4406,7 @@ export default function MyOrders() {
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setSelectedCheckinReport(record);
-                                        previewHandoverReportAsPdf(record);
+                                        previewHandoverReportAsPdf(record, { target: "checkin" });
                                       }}
                                       loading={handoverPdfGenerating && selectedCheckinReport?.handoverReportId === record.handoverReportId}
                                     >
@@ -4366,7 +4494,7 @@ export default function MyOrders() {
                           {!checkinPdfPreviewUrl && selectedCheckinReport && (
                             <>
                               <Button 
-                                onClick={() => previewHandoverReportAsPdf(selectedCheckinReport)} 
+                                onClick={() => previewHandoverReportAsPdf(selectedCheckinReport, { target: "checkin" })} 
                                 loading={handoverPdfGenerating}
                               >
                                 Xem trước biên bản PDF
@@ -4649,6 +4777,16 @@ export default function MyOrders() {
                       </Card>
                     ) : settlementInfo ? (
                       <>
+                        {(() => {
+                          const totalDeposit = Number(settlementInfo.totalDeposit || 0);
+                          const damageFee = Number(settlementInfo.damageFee || 0);
+                          const lateFee = Number(settlementInfo.lateFee || 0);
+                          const accessoryFee = Number(settlementInfo.accessoryFee || 0);
+                          const totalFees = damageFee + lateFee + accessoryFee;
+                          const depositUsed = Math.min(totalDeposit, totalFees);
+                          const finalReturnAmount = Number(settlementInfo.finalReturnAmount || 0);
+
+                          return (
                         <Card
                           style={{
                             marginBottom: 24,
@@ -4664,22 +4802,22 @@ export default function MyOrders() {
                         >
                           <Descriptions bordered column={1} size="middle">
                             <Descriptions.Item label="Tổng tiền cọc">
-                              {formatVND(settlementInfo.totalRent || 0)}
+                              {formatVND(totalDeposit)}
                             </Descriptions.Item>
                             <Descriptions.Item label="Phí hư hỏng">
-                              {formatVND(settlementInfo.damageFee || 0)}
+                              {formatVND(damageFee)}
                             </Descriptions.Item>
                             <Descriptions.Item label="Phí trễ hạn">
-                              {formatVND(settlementInfo.lateFee || 0)}
+                              {formatVND(lateFee)}
                             </Descriptions.Item>
                             <Descriptions.Item label="Phí phụ kiện">
-                              {formatVND(settlementInfo.accessoryFee || 0)}
+                              {formatVND(accessoryFee)}
                             </Descriptions.Item>
                             <Descriptions.Item label="Cọc đã dùng">
-                              {formatVND(settlementInfo.depositUsed || 0)}
+                              {formatVND(depositUsed)}
                             </Descriptions.Item>
                             <Descriptions.Item label="Số tiền hoàn lại / cần thanh toán">
-                              <Text strong>{formatVND(settlementInfo.finalAmount || 0)}</Text>
+                              <Text strong>{formatVND(finalReturnAmount)}</Text>
                             </Descriptions.Item>
                             <Descriptions.Item label="Trạng thái">
                               {(() => {
@@ -4690,6 +4828,8 @@ export default function MyOrders() {
                             </Descriptions.Item>
                           </Descriptions>
                         </Card>
+                          );
+                        })()}
 
                         <Card
                           style={{
@@ -5248,11 +5388,6 @@ export default function MyOrders() {
           );
         })()}
       </Modal>
-
-      {/* Container ẩn để render A4 rồi chụp */}
-      <div style={{ position:"fixed", left:-9999, top:-9999, background:"#fff" }}>
-        <div ref={printRef} />
-      </div>
 
       {/* Container ẩn để render handover report PDF */}
       <div

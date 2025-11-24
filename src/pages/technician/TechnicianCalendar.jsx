@@ -1052,8 +1052,8 @@ export default function TechnicianCalendar() {
   const [handoverReportsByOrder, setHandoverReportsByOrder] = useState({});
   const [confirmingDelivery, setConfirmingDelivery] = useState({}); // taskId -> loading
   const [confirmingRetrieval, setConfirmingRetrieval] = useState({}); // taskId -> loading
-  const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed (delivery)
-  const [confirmedRetrievalTasks, setConfirmedRetrievalTasks] = useState(new Set()); // Set of taskIds that have been confirmed (retrieval)
+  const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds (string) that have been confirmed (delivery)
+  const [confirmedRetrievalTasks, setConfirmedRetrievalTasks] = useState(new Set()); // Set of taskIds (string) that have been confirmed (retrieval)
   // PDF states
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState("");
@@ -1164,9 +1164,29 @@ export default function TechnicianCalendar() {
       setHasQcReportMap(qcReportMap);
 
       // Check which DELIVERY tasks have handover reports
-      const deliveryTasks = allTasks.filter((task) => task.type === "DELIVERY");
+      const deliveryTasks = allTasks.filter((task) => {
+        const type = String(task.type || "").toUpperCase();
+        const category = String(task.taskCategoryName || "").toUpperCase();
+        return (
+          type === "DELIVERY" ||
+          category.includes("DELIVERY") ||
+          category.includes("GIAO")
+        );
+      });
+
+      const pickupTasksList = allTasks.filter((task) => isPickupTask(task));
+
+      const handoverTasks = [];
+      const seenHandoverTaskIds = new Set();
+      [...deliveryTasks, ...pickupTasksList].forEach((task) => {
+        const taskId = task.taskId || task.id;
+        if (!taskId || seenHandoverTaskIds.has(taskId)) return;
+        seenHandoverTaskIds.add(taskId);
+        handoverTasks.push(task);
+      });
+
       const handoverReportMapNew = {};
-      const handoverChecks = deliveryTasks.map(async (task) => {
+      const handoverChecks = handoverTasks.map(async (task) => {
         const taskId = task.taskId || task.id;
         const orderId = task.orderId;
         if (taskId && orderId) {
@@ -1521,7 +1541,8 @@ export default function TechnicianCalendar() {
       await confirmDelivery(taskId);
       toast.success("Đã xác nhận giao hàng thành công!");
       // Đánh dấu task đã được xác nhận
-      setConfirmedTasks((prev) => new Set([...prev, taskId]));
+      const key = String(taskId);
+      setConfirmedTasks((prev) => new Set([...prev, key]));
       // Reload tasks để cập nhật trạng thái
       await loadTasks();
       // Reload detail task nếu đang mở
@@ -1545,7 +1566,8 @@ export default function TechnicianCalendar() {
       await confirmRetrieval(taskId);
       toast.success("Đã xác nhận đi lấy hàng thành công!");
       // Đánh dấu task đã được xác nhận
-      setConfirmedRetrievalTasks((prev) => new Set([...prev, taskId]));
+      const key = String(taskId);
+      setConfirmedRetrievalTasks((prev) => new Set([...prev, key]));
       // Reload tasks để cập nhật trạng thái
       await loadTasks();
       // Reload detail task nếu đang mở
@@ -1652,7 +1674,8 @@ export default function TechnicianCalendar() {
               const isPending = status === "PENDING";
               const isCompleted = status === "COMPLETED";
               const isInProgress = status === "IN_PROGRESS";
-              const isConfirmed = confirmedTasks.has(taskId);
+              const taskKey = String(taskId);
+              const isConfirmed = confirmedTasks.has(taskKey);
               const isLoading = confirmingDelivery[taskId];
               const handoverReport = handoverReportMap[taskId];
               const hasHandoverReport = !!handoverReport;
@@ -1705,15 +1728,14 @@ export default function TechnicianCalendar() {
               const status = String(r.status || "").toUpperCase();
               const isCompleted = status === "COMPLETED";
               const isInProgress = status === "IN_PROGRESS";
-              const isConfirmed = confirmedRetrievalTasks.has(taskId);
+              const taskKey = String(taskId);
+              const isConfirmed = confirmedRetrievalTasks.has(taskKey);
               const isLoading = confirmingRetrieval[taskId];
-              const hasQcReport = hasQcReportMap[taskId];
-              const buttonLabel =
-                status === "COMPLETED"
-                  ? "Cập nhật QC Report"
-                  : hasQcReport
-                    ? "Cập nhật QC Report"
-                    : "Tạo QC Report";
+              const handoverReport = handoverReportMap[taskId];
+              const hasCheckinReport =
+                handoverReport &&
+                String(handoverReport.handoverType || "").toUpperCase() ===
+                  "CHECKIN";
               
               return (
                 <>
@@ -1724,11 +1746,11 @@ export default function TechnicianCalendar() {
                       loading={isLoading}
                       onClick={() => handleConfirmRetrieval(taskId)}
                     >
-                      Xác nhận đi láy hàng
+                      Xác nhận đi lấy hàng
                     </Button>
                   )}
-                  {/* Chỉ hiển thị nút "Tạo biên bản thu hồi" khi status là IN_PROGRESS hoặc COMPLETED */}
-                  {(isInProgress || isCompleted) && (
+                  {/* Chỉ hiển thị nút "Tạo biên bản thu hồi" khi task đang xử lý và chưa có biên bản */}
+                  {isInProgress && !hasCheckinReport && (
                     <Button
                       size="small"
                       type="primary"
@@ -1738,6 +1760,19 @@ export default function TechnicianCalendar() {
                       }}
                     >
                       Tạo biên bản thu hồi
+                    </Button>
+                  )}
+                  {/* Hiển thị nút xem nếu đã có biên bản */}
+                  {hasCheckinReport && (
+                    <Button
+                      size="small"
+                      type="default"
+                      icon={<EyeOutlined />}
+                      onClick={() => {
+                        handlePreviewPdf(handoverReport);
+                      }}
+                    >
+                      Xem biên bản
                     </Button>
                   )}
                 </>
@@ -1937,7 +1972,8 @@ export default function TechnicianCalendar() {
       const isPending = status === "PENDING";
       const isCompleted = status === "COMPLETED";
       const isInProgress = status === "IN_PROGRESS";
-      const isConfirmed = confirmedTasks.has(taskId);
+      const taskKey = String(taskId);
+      const isConfirmed = confirmedTasks.has(taskKey);
       const isLoading = confirmingDelivery[taskId];
       
       return (
@@ -2125,8 +2161,19 @@ export default function TechnicianCalendar() {
       const status = String(t.status || "").toUpperCase();
       const isCompleted = status === "COMPLETED";
       const isInProgress = status === "IN_PROGRESS";
-      const isConfirmed = confirmedRetrievalTasks.has(taskId);
+      const taskKey = String(taskId);
+      const isConfirmed = confirmedRetrievalTasks.has(taskKey);
       const isLoading = confirmingRetrieval[taskId];
+      const orderReports = orderDetail
+        ? handoverReportsByOrder[orderDetail.orderId || orderDetail.id]
+        : null;
+      const checkinReports = orderReports
+        ? orderReports.filter((r) => {
+            const handoverType = String(r.handoverType || "").toUpperCase();
+            return handoverType === "CHECKIN";
+          })
+        : [];
+      const hasCheckinReport = checkinReports.length > 0;
       
       return (
         <>
@@ -2215,69 +2262,57 @@ export default function TechnicianCalendar() {
           <Divider />
           {/* Hiển thị biên bản thu hồi */}
           <Title level={5} style={{ marginTop: 0 }}>Biên bản thu hồi</Title>
-          {(() => {
-            const orderReports = orderDetail ? handoverReportsByOrder[orderDetail.orderId || orderDetail.id] : null;
-            // Filter chỉ lấy CHECKIN reports
-            const checkinReports = orderReports ? orderReports.filter(r => {
-              const handoverType = String(r.handoverType || "").toUpperCase();
-              return handoverType === "CHECKIN";
-            }) : [];
-            
-            if (checkinReports.length > 0) {
-              return (
-                <List
-                  dataSource={checkinReports}
-                  renderItem={(report) => (
-                    <List.Item
-                      actions={[
-                        <Button
-                          key="preview"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => handlePreviewPdf(report)}
-                        >
-                          Xem PDF
-                        </Button>,
-                        <Button
-                          key="download"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => handleDownloadPdf(report)}
-                          loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
-                        >
-                          Tải PDF
-                        </Button>,
-                      ]}
+          {hasCheckinReport ? (
+            <List
+              dataSource={checkinReports}
+              renderItem={(report) => (
+                <List.Item
+                  actions={[
+                    <Button
+                      key="preview"
+                      size="small"
+                      icon={<EyeOutlined />}
+                      onClick={() => handlePreviewPdf(report)}
                     >
-                      <List.Item.Meta
-                        title={
-                          <Space>
-                            <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
-                            <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
-                              {translateHandoverStatus(report.status)}
-                            </Tag>
-                          </Space>
-                        }
-                        description={
-                          <Space direction="vertical" size={4}>
-                            <Text type="secondary">
-                              Thời gian: {formatDateTime(report.handoverDateTime)}
-                            </Text>
-                            <Text type="secondary">
-                              Địa điểm: {report.handoverLocation || "—"}
-                            </Text>
-                          </Space>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
-              );
-            }
-            return (
-              <Text type="secondary">Chưa có biên bản thu hồi</Text>
-            );
-          })()}
+                      Xem PDF
+                    </Button>,
+                    <Button
+                      key="download"
+                      size="small"
+                      icon={<DownloadOutlined />}
+                      onClick={() => handleDownloadPdf(report)}
+                      loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
+                    >
+                      Tải PDF
+                    </Button>,
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={
+                      <Space>
+                        <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
+                        <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
+                          {translateHandoverStatus(report.status)}
+                        </Tag>
+                      </Space>
+                    }
+                    description={
+                      <Space direction="vertical" size={4}>
+                        <Text type="secondary">
+                          Thời gian: {formatDateTime(report.handoverDateTime)}
+                        </Text>
+                        <Text type="secondary">
+                          Địa điểm: {report.handoverLocation || "—"}
+                        </Text>
+                      </Space>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          ) : (
+            <Text type="secondary">Chưa có biên bản thu hồi</Text>
+          )}
           <Divider />
           <Space wrap>
             {!isCompleted && !isInProgress && !isConfirmed && (
@@ -2289,8 +2324,8 @@ export default function TechnicianCalendar() {
                 Xác nhận đi trả hàng
               </Button>
             )}
-            {/* Chỉ hiển thị nút "Tạo biên bản thu hồi" khi status là IN_PROGRESS hoặc COMPLETED */}
-            {(isInProgress || isCompleted) && (
+            {/* Chỉ hiển thị nút "Tạo biên bản thu hồi" khi task đang xử lý và chưa có biên bản */}
+            {isInProgress && !hasCheckinReport && (
               <Button
                 type="primary"
                 icon={<FileTextOutlined />}
@@ -2426,7 +2461,8 @@ export default function TechnicianCalendar() {
             const isPending = status === "PENDING";
             const isCompletedInner = status === "COMPLETED";
             const isInProgress = status === "IN_PROGRESS";
-            const isConfirmed = confirmedTasks.has(taskId);
+            const taskKey = String(taskId);
+            const isConfirmed = confirmedTasks.has(taskKey);
             const isLoading = confirmingDelivery[taskId];
             
             return (
@@ -2461,9 +2497,15 @@ export default function TechnicianCalendar() {
             const status = String(t.status || "").toUpperCase();
             const isCompletedInner = status === "COMPLETED";
             const isInProgress = status === "IN_PROGRESS";
-            const isConfirmed = confirmedRetrievalTasks.has(taskId);
+            const taskKey = String(taskId);
+            const isConfirmed = confirmedRetrievalTasks.has(taskKey);
             const isLoading = confirmingRetrieval[taskId];
             const hasQcReport = hasQcReportMap[taskId];
+            const handoverReport = handoverReportMap[taskId];
+            const hasCheckinReport =
+              handoverReport &&
+              String(handoverReport.handoverType || "").toUpperCase() ===
+                "CHECKIN";
             const buttonLabel =
               isCompletedInner
                 ? "Cập nhật QC Report"
@@ -2492,6 +2534,26 @@ export default function TechnicianCalendar() {
                     }}
                   >
                     {buttonLabel}
+                  </Button>
+                )}
+                {isInProgress && hasCheckinReport && (
+                  <Button
+                    type="default"
+                    icon={<EyeOutlined />}
+                    onClick={() => handlePreviewPdf(handoverReport)}
+                  >
+                    Xem biên bản thu hồi
+                  </Button>
+                )}
+                {isInProgress && !hasCheckinReport && (
+                  <Button
+                    type="primary"
+                    icon={<FileTextOutlined />}
+                    onClick={() => {
+                      navigate(`/technician/tasks/handover-checkin/${taskId}`, { state: { task: t } });
+                    }}
+                  >
+                    Tạo biên bản thu hồi
                   </Button>
                 )}
               </>

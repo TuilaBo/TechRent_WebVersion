@@ -353,41 +353,37 @@ export default function SupportSettlement() {
 
         // Fetch existing settlement
         try {
-          const existingSettlement = await getSettlementByOrderId(orderId);
-          setSettlement(existingSettlement);
-          if (existingSettlement) {
-            // Giữ nguyên dữ liệu settlement hiện có (totalRent hiện được hiểu là tổng tiền cọc)
+          const settlementResponse = await getSettlementByOrderId(orderId);
+          const settlementData = settlementResponse?.data ?? settlementResponse ?? null;
+          setSettlement(settlementData);
+
+          if (settlementData) {
             settlementForm.setFieldsValue({
-              totalRent: existingSettlement.totalRent || 0,
-              damageFee: existingSettlement.damageFee || 0,
-              lateFee: existingSettlement.lateFee || 0,
-              accessoryFee: existingSettlement.accessoryFee || 0,
-              depositUsed: existingSettlement.depositUsed || 0,
-              finalAmount: existingSettlement.finalAmount || 0,
+              totalDeposit: settlementData.totalDeposit ?? (order?.depositAmount || 0),
+              damageFee: settlementData.damageFee || 0,
+              lateFee: settlementData.lateFee || 0,
+              accessoryFee: settlementData.accessoryFee || 0,
+              finalReturnAmount: settlementData.finalReturnAmount ?? 0,
             });
           } else {
-            // Không có settlement -> mặc định tổng tiền cọc = tiền cọc của đơn
             const depositAmount = order?.depositAmount || 0;
             settlementForm.setFieldsValue({
-              totalRent: depositAmount, // dùng field totalRent để lưu "tổng tiền cọc"
+              totalDeposit: depositAmount,
               damageFee: 0,
               lateFee: 0,
               accessoryFee: 0,
-              depositUsed: 0,
-              finalAmount: depositAmount, // ban đầu hoàn lại toàn bộ cọc
+              finalReturnAmount: depositAmount,
             });
           }
         } catch {
-          // Lỗi khi load settlement -> coi như chưa có, khởi tạo theo tiền cọc
           setSettlement(null);
           const depositAmount = order?.depositAmount || 0;
           settlementForm.setFieldsValue({
-            totalRent: depositAmount,
+            totalDeposit: depositAmount,
             damageFee: 0,
             lateFee: 0,
             accessoryFee: 0,
-            depositUsed: 0,
-            finalAmount: depositAmount,
+            finalReturnAmount: depositAmount,
           });
         }
 
@@ -406,15 +402,12 @@ export default function SupportSettlement() {
   // Calculate final amount when other fields change
   const calculateFinalAmount = useCallback(() => {
     const values = settlementForm.getFieldsValue();
-    const totalRent = Number(values.totalRent || 0); // hiện đang là "tổng tiền cọc"
+    const totalDeposit = Number(values.totalDeposit || 0);
     const damageFee = Number(values.damageFee || 0);
     const lateFee = Number(values.lateFee || 0);
     const accessoryFee = Number(values.accessoryFee || 0);
-    const depositUsed = Number(values.depositUsed || 0);
-    // Số tiền cuối cùng = Tổng tiền cọc - (các loại phí + phần cọc đã dùng)
-    const finalAmount =
-      totalRent - (damageFee + lateFee + accessoryFee + depositUsed);
-    settlementForm.setFieldsValue({ finalAmount: Math.max(0, finalAmount) });
+    const finalReturnAmount = totalDeposit - (damageFee + lateFee + accessoryFee);
+    settlementForm.setFieldsValue({ finalReturnAmount });
   }, [settlementForm]);
 
   // Save settlement (create or update)
@@ -736,7 +729,7 @@ export default function SupportSettlement() {
                 <Title level={5}>Quyết toán hiện có</Title>
                 <Descriptions bordered size="small" column={1}>
                   <Descriptions.Item label="Tổng tiền cọc">
-                    {formatCurrency(settlement.totalRent || 0)}
+                    {formatCurrency(settlement.totalDeposit || 0)}
                   </Descriptions.Item>
                   <Descriptions.Item label="Phí hư hỏng">
                     {formatCurrency(settlement.damageFee || 0)}
@@ -747,12 +740,9 @@ export default function SupportSettlement() {
                   <Descriptions.Item label="Phí phụ kiện">
                     {formatCurrency(settlement.accessoryFee || 0)}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Cọc đã dùng">
-                    {formatCurrency(settlement.depositUsed || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Số tiền cuối cùng">
+                  <Descriptions.Item label="Số tiền hoàn lại / cần thanh toán">
                     <Text strong>
-                      {formatCurrency(settlement.finalAmount || 0)}
+                      {formatCurrency(settlement.finalReturnAmount || 0)}
                     </Text>
                   </Descriptions.Item>
                   <Descriptions.Item label="Trạng thái">
@@ -820,7 +810,7 @@ export default function SupportSettlement() {
           onValuesChange={calculateFinalAmount}
         >
           <Form.Item
-            name="totalRent"
+            name="totalDeposit"
             label="Tổng tiền cọc"
             rules={[{ required: true, message: "Vui lòng nhập tổng tiền cọc" }]}
           >
@@ -884,24 +874,8 @@ export default function SupportSettlement() {
           </Form.Item>
 
           <Form.Item
-            name="depositUsed"
-            label="Cọc đã dùng"
-            rules={[{ required: true, message: "Vui lòng nhập cọc đã dùng" }]}
-          >
-            <InputNumber
-              style={{ width: "100%" }}
-              formatter={(value) =>
-                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-              }
-              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
-              min={0}
-              addonAfter="VND"
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="finalAmount"
-            label="Số tiền cuối cùng"
+            name="finalReturnAmount"
+            label="Số tiền hoàn lại / cần thanh toán"
             rules={[
               { required: true, message: "Vui lòng nhập số tiền cuối cùng" },
             ]}
@@ -912,7 +886,6 @@ export default function SupportSettlement() {
                 `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
               }
               parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
-              min={0}
               addonAfter="VND"
               readOnly
             />
