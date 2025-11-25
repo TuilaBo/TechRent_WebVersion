@@ -771,7 +771,7 @@ export default function SupportSettlement() {
                       loading={confirmingRefund}
                       onClick={handleConfirmRefundPayment}
                     >
-                      Xác nhận giao dịch hoàn cọc
+                      Xác nhận đã giao dịch hoàn cọc
                     </Button>
                   </div>
                 )}

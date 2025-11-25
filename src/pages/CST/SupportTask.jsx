@@ -346,9 +346,7 @@ export default function SupportTask() {
                     </Button>
                   )}
                   {/* Hiển thị thông báo khi đã xác nhận */}
-                  {(isCompleted || isConfirmed || isInProgress) && (
-                    <Text type="success" style={{ fontSize: 12 }}>Đã xác nhận giao hàng</Text>
-                  )}
+                 
                 </>
               );
             })()}
@@ -441,9 +439,6 @@ export default function SupportTask() {
                 Xác nhận giao hàng
               </Button>
             </Space>
-          )}
-          {(isCompleted || isConfirmed || isInProgress) && (
-            <Text type="success">Đã xác nhận giao hàng</Text>
           )}
         </>
       );
@@ -670,9 +665,7 @@ export default function SupportTask() {
                   </Button>
                 )}
                 {/* Hiển thị thông báo khi đã xác nhận */}
-                {(isCompleted || isConfirmed || isInProgress) && (
-                  <Text type="success">Đã xác nhận giao hàng</Text>
-                )}
+               
               </>
             );
           })()}

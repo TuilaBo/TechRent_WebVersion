@@ -490,7 +490,75 @@ const EXTRA_CONTRACT_HTML = `
 
 function augmentContractContent(detail) {
   if (!detail) return detail;
-  const base = String(detail.contentHtml || "");
+  const originalBase = String(detail.contentHtml || detail.contractContent || "");
+  let base = originalBase;
+  
+  // Add serial numbers from allocatedDevices to device list items
+  if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
+    const serialNumbers = Array.from(
+      new Set(
+        detail.allocatedDevices
+          .map((device) => device.serialNumber)
+          .filter(Boolean)
+      )
+    );
+    
+    if (serialNumbers.length > 0) {
+      const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
+      let modifiedBase = base;
+      
+      // Pattern 1: Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
+      const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/div>)/gi;
+      modifiedBase = modifiedBase.replace(
+        equipmentDivPattern,
+        (match, openTag, deviceInfo, priceInfo, closeTag) => {
+          return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
+        }
+      );
+      
+      // Pattern 2: Match <li>... - Giá/ngày:...</li> (fallback for unformatted HTML)
+      if (modifiedBase === base) {
+        const liPattern = /(<li>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/li>)/gi;
+        modifiedBase = modifiedBase.replace(
+          liPattern,
+          (match, openTag, deviceInfo, priceInfo, closeTag) => {
+            return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
+          }
+        );
+      }
+      
+      // Pattern 3: Match any device line with "Giá/ngày" pattern (more flexible)
+      if (modifiedBase === base) {
+        // Try to match lines that contain device info and "Giá/ngày"
+        const flexiblePattern = /(\d+x\s+[^-]+?)(\s*-\s*Giá\/ngày[^<•\n]+?)(\s*-\s*Tiền cọc[^<•\n]+?)/gi;
+        modifiedBase = modifiedBase.replace(
+          flexiblePattern,
+          (match, deviceInfo, priceInfo, depositInfo) => {
+            return `${deviceInfo}${serialText}${priceInfo}${depositInfo}`;
+          }
+        );
+      }
+      
+      // Check if replacement occurred
+      if (modifiedBase !== base) {
+        base = modifiedBase;
+      } else {
+        // If no match found, try to append after the device list
+        // Try to find the closing </ul> of device list and append serial numbers section
+        const ulPattern = /(<\/ul>)(\s*<p>)/i;
+        if (ulPattern.test(base)) {
+          const serialSection = `
+<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
+          base = base.replace(ulPattern, `$1${serialSection}$2`);
+        } else {
+          // Append at the end of device section if pattern not found
+          const serialSection = `<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
+          base = base.replace(/(<\/ul>)/i, `$1${serialSection}`);
+        }
+      }
+    }
+  }
+  
   const mergedHtml = base + EXTRA_CONTRACT_HTML;
   return { ...detail, contentHtml: mergedHtml };
 }
@@ -528,7 +596,66 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
   const customerInfo = parseInfoString(report.customerInfo);
   const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
   const customerName = customerInfo.name || "—";
-  const technicianName = technicianInfo.name || "—";
+
+  const technicianEntries = (() => {
+    const raw = [];
+    const pushTech = (tech) => {
+      if (!tech) return;
+      const name =
+        tech.fullName ||
+        tech.username ||
+        tech.staffName ||
+        tech.name ||
+        technicianInfo.name ||
+        "";
+      const phone =
+        tech.phoneNumber ||
+        tech.phone ||
+        tech.contactNumber ||
+        tech.contact ||
+        "";
+      const email = tech.email || "";
+
+      if (!name && !phone && !email) return;
+      raw.push({
+        staffId: tech.staffId || tech.id || null,
+        name,
+        phone,
+        email,
+      });
+    };
+
+    if (Array.isArray(report.deliveryStaff)) {
+      report.deliveryStaff.forEach(pushTech);
+    }
+
+    if (Array.isArray(report.technicians)) {
+      report.technicians.forEach(pushTech);
+    }
+
+    if (!raw.length && (technicianInfo.name || technicianInfo.phone || technicianInfo.email)) {
+      raw.push({
+        staffId: null,
+        name: technicianInfo.name || "—",
+        phone: technicianInfo.phone || "",
+        email: technicianInfo.email || "",
+      });
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    raw.forEach((tech, idx) => {
+      const key = tech.staffId || tech.email || tech.phone || `${tech.name}-${idx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(tech);
+    });
+
+    return deduped;
+  })();
+
+  const technicianDisplayName =
+    technicianEntries[0]?.name || technicianInfo.name || "—";
   
   // Map condition definitions by ID for quick lookup
   const conditionMap = {};
@@ -756,9 +883,6 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
       // Collect conditions from selected snapshot
       const conditionDetails = selectedSnapshot.conditionDetails || [];
       conditionDetails.forEach(cd => {
-        const conditionDef = conditionMap[cd.conditionDefinitionId];
-        const conditionName = conditionDef?.name || `Điều kiện #${cd.conditionDefinitionId}`;
-        const severity = cd.severity === "LOW" ? "Thấp" : cd.severity === "MEDIUM" ? "Trung bình" : cd.severity === "HIGH" ? "Cao" : cd.severity === "CRITICAL" ? "Rất nặng" : cd.severity || "—";
         // Use conditionDefinitionId + severity as unique key
         const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
         if (!uniqueConditions.has(uniqueKey)) {
@@ -780,11 +904,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
 
     // Convert Set to Array and build HTML
     const conditionsArray = Array.from(uniqueConditions).map(key => {
-      const [conditionDefId, severity] = key.split("_");
+      const [conditionDefId] = key.split("_");
       const conditionDef = conditionMap[conditionDefId];
       const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
-      const severityText = severity === "LOW" ? "Thấp" : severity === "MEDIUM" ? "Trung bình" : severity === "HIGH" ? "Cao" : severity === "CRITICAL" ? "Rất nặng" : severity || "—";
-      return `${conditionName} (${severityText})`;
+      return `${conditionName}`;
     });
     
     const conditionsHtml = conditionsArray.length > 0 
@@ -947,12 +1070,6 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
     </tr>
   `).join("");
   
-  const techniciansList = (report.technicians || []).map(t => {
-    const name = t.fullName || t.username || `Nhân viên #${t.staffId}`;
-    const phone = t.phoneNumber || "";
-    return `<li><strong>${name}</strong>${phone ? `<br/>Số điện thoại: ${phone}` : ""}</li>`;
-  }).join("");
-  
   // Determine handover type
   const handoverType = String(report.handoverType || "").toUpperCase();
   const isCheckin = handoverType === "CHECKIN";
@@ -986,7 +1103,6 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
       <section class="kv">
         <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
         <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
-        <div><b>Mã task:</b> #${report.taskId || "—"}</div>
         ${isCheckin 
           ? `<div><b>Thời gian thu hồi:</b> ${formatDateTime(report.handoverDateTime)}</div>
              <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
@@ -1002,11 +1118,43 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
       </section>
       
-      <h3>Thông tin kỹ thuật viên</h3>
+      <h3>Kỹ thuật viên tham gia</h3>
       <section class="kv">
-        <div><b>Họ và tên:</b> ${technicianName}</div>
-        ${technicianInfo.phone ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>` : ""}
-        ${technicianInfo.email ? `<div><b>Email:</b> ${technicianInfo.email}</div>` : ""}
+        ${
+          technicianEntries.length
+            ? technicianEntries
+                .map(
+                  (tech) => `
+      <div style="margin-bottom:6px">
+        <b>${tech.name || "—"}</b>
+        ${
+          tech.phone
+            ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
+            : ""
+        }
+        ${
+          tech.email
+            ? `<br/><span>Email: ${tech.email}</span>`
+            : ""
+        }
+      </div>
+    `
+                )
+                .join("")
+            : `
+      <div><b>Họ và tên:</b> ${technicianInfo.name || "—"}</div>
+      ${
+        technicianInfo.phone
+          ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>`
+          : ""
+      }
+      ${
+        technicianInfo.email
+          ? `<div><b>Email:</b> ${technicianInfo.email}</div>`
+          : ""
+      }
+    `
+        }
       </section>
       
       <h3>${isCheckin ? "Danh sách thiết bị thu hồi" : "Danh sách thiết bị bàn giao"}</h3>
@@ -1046,18 +1194,11 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
       </table>
       ` : ""}
       
-      ${techniciansList ? `
-      <h3>Kỹ thuật viên tham gia</h3>
-      <ul>
-        ${techniciansList}
-      </ul>
-      ` : ""}
-      
       ${(() => {
         // For CHECKIN: show discrepancies
         if (isCheckin && (report.discrepancies || []).length > 0) {
           return `
-      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      <h3>Sự cố của thiết bị</h3>
       <table>
         <thead>
           <tr>
@@ -1065,6 +1206,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
             <th>Điều kiện</th>
+            <th>Phí phạt</th>
             <th>Ghi chú nhân viên</th>
             <th>Ghi chú khách hàng</th>
           </tr>
@@ -1072,8 +1214,8 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <tbody>
           ${(report.discrepancies || []).map((disc, idx) => {
             // Try to get serial number from deviceId
-            let deviceSerial = "—";
-            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+            let deviceSerial = disc.serialNumber || disc.deviceSerialNumber || "—";
+            if ((deviceSerial === "—" || !deviceSerial) && disc.deviceId && order && Array.isArray(order.orderDetails)) {
               for (const od of order.orderDetails) {
                 if (od.allocations && Array.isArray(od.allocations)) {
                   for (const allocation of od.allocations) {
@@ -1094,17 +1236,23 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                                    disc.discrepancyType === "LOSS" ? "Mất mát" : 
                                    disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
             
+            // Format penalty amount
+            const penaltyAmount = disc.penaltyAmount != null && disc.penaltyAmount !== undefined 
+              ? formatVND(Number(disc.penaltyAmount))
+              : "—";
+            
             return `
               <tr>
                 <td style="text-align:center">${idx + 1}</td>
                 <td>${discrepancyType}</td>
                 <td>${deviceSerial}</td>
                 <td>${conditionName}</td>
+                <td style="text-align:right">${penaltyAmount}</td>
                 <td>${disc.staffNote || "—"}</td>
                 <td>${disc.customerNote || "—"}</td>
               </tr>
             `;
-          }).join("") || "<tr><td colspan='6' style='text-align:center'>Không có sự cố nào</td></tr>"}
+          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
       `;
@@ -1161,22 +1309,22 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>KHÁCH HÀNG</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
+            ${report.customerSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.customerSigned 
-              ? `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>` 
+              ? `<div style="color:#000;font-weight:600">${customerName}</div>` 
               : "(Ký, ghi rõ họ tên)"}
           </div>
         </div>
         <div style="flex:1;text-align:center">
           <div><b>NHÂN VIÊN</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
+            ${report.staffSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.staffSigned 
-              ? `<div style="color:#52c41a;font-weight:600">${technicianName} đã ký</div>` 
+              ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>` 
               : "(Ký, ghi rõ họ tên)"}
           </div>
         </div>
@@ -1695,6 +1843,21 @@ export default function MyOrders() {
       });
     }
   }, [detailTab, selectedCheckinReport, checkinPdfPreviewUrl, handoverPdfGenerating]);
+
+  // Reload handover reports when switching to handover/checkin tabs (only if switching to this tab for the first time)
+  const handoverTabRef = useRef(null);
+  useEffect(() => {
+    if (current?.id && (detailTab === "handover" || detailTab === "checkin")) {
+      const orderId = current.id;
+      const previousTab = handoverTabRef.current;
+      // Only reload if switching to this tab for the first time (not on every render)
+      if (previousTab !== detailTab) {
+        loadOrderHandoverReports(orderId);
+      }
+      handoverTabRef.current = detailTab;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailTab, current?.id]);
 
   // Auto select and preview first contract when contracts are loaded
   useEffect(() => {
@@ -2294,6 +2457,10 @@ export default function MyOrders() {
     }
     try {
       setHandoverReportsLoading(true);
+      // Save IDs of currently selected reports before clearing
+      const previousCheckinId = selectedCheckinReport?.handoverReportId || selectedCheckinReport?.id;
+      const previousHandoverId = selectedHandoverReport?.handoverReportId || selectedHandoverReport?.id;
+      
       // Clear previous selections and previews before loading new data
       if (handoverPdfPreviewUrl) {
         try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
@@ -2309,6 +2476,28 @@ export default function MyOrders() {
       const reports = await getCustomerHandoverReportsByOrderId(orderId);
       const reportsArray = Array.isArray(reports) ? reports : [];
       setHandoverReports(reportsArray);
+      
+      // Try to restore previously selected reports with updated data
+      if (previousCheckinId) {
+        const updatedCheckin = reportsArray.find(r => 
+          (r.handoverReportId || r.id) === previousCheckinId &&
+          String(r.handoverType || "").toUpperCase() === "CHECKIN"
+        );
+        if (updatedCheckin) {
+          setSelectedCheckinReport(updatedCheckin);
+        }
+      }
+      
+      if (previousHandoverId) {
+        const updatedHandover = reportsArray.find(r => 
+          (r.handoverReportId || r.id) === previousHandoverId &&
+          (String(r.handoverType || "").toUpperCase() === "CHECKOUT" || !r.handoverType)
+        );
+        if (updatedHandover) {
+          setSelectedHandoverReport(updatedHandover);
+        }
+      }
+      
       return reportsArray;
     } catch (e) {
       console.error("Failed to fetch handover reports by orderId:", e);
@@ -2880,7 +3069,36 @@ export default function MyOrders() {
     const customerEmail = customer?.email || "";
     const customerPhone = customer?.phoneNumber || "";
     const identificationCode = kyc?.identificationCode || "";
-    const contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    
+    // Add serial numbers from allocatedDevices after sanitization
+    if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
+      const serialNumbers = detail.allocatedDevices
+        .map(device => device.serialNumber)
+        .filter(Boolean);
+      
+      if (serialNumbers.length > 0) {
+        const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
+        
+        // Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
+        // Pattern: match device info before "Giá/ngày" and insert serial number
+        const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]+?)(\s*-\s*Giá\/ngày[^<]+?)(<\/div>)/gi;
+        const originalContentHtml = contentHtml;
+        contentHtml = contentHtml.replace(
+          equipmentDivPattern,
+          (match, openTag, deviceInfo, priceAndDeposit, closeTag) => {
+            // Insert serial number after device info, before price info
+            return `${openTag}${deviceInfo.trim()}${serialText}${priceAndDeposit}${closeTag}`;
+          }
+        );
+        
+        // Debug: log if replacement didn't occur
+        if (contentHtml === originalContentHtml) {
+          console.warn("Serial number injection failed. HTML pattern:", contentHtml.substring(0, 200));
+        }
+      }
+    }
+    
     const termsBlock = detail.terms
       ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
       : "";
@@ -2932,10 +3150,10 @@ export default function MyOrders() {
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
-              ${(() => {
+            ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -2944,7 +3162,7 @@ export default function MyOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -2953,10 +3171,10 @@ export default function MyOrders() {
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN A</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
-              ${(() => {
+            ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -2965,7 +3183,7 @@ export default function MyOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
+                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -4048,19 +4266,6 @@ export default function MyOrders() {
                                 >
                                   Tải hợp đồng
                                 </Button>
-                                <Button 
-                                  icon={<PrinterOutlined />} 
-                                  onClick={() => {
-                                    const url = contractPdfPreviewUrl;
-                                    if (url) {
-                                      printPdfUrl(url);
-                                    } else {
-                                      message.warning("Không có PDF để in");
-                                    }
-                                  }}
-                                >
-                                  In hợp đồng (PDF)
-                                </Button>
                               </>
                             )}
                           </>
@@ -4140,9 +4345,24 @@ export default function MyOrders() {
                           border: "1px solid #e8e8e8",
                         }}
                         title={
-                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                            Danh sách biên bản bàn giao
-                          </Title>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                              Danh sách biên bản bàn giao
+                            </Title>
+                            <Button
+                              size="small"
+                              icon={<ReloadOutlined />}
+                              onClick={async () => {
+                                if (current?.id) {
+                                  await loadOrderHandoverReports(current.id);
+                                  message.success("Đã tải lại danh sách biên bản bàn giao");
+                                }
+                              }}
+                              loading={handoverReportsLoading}
+                            >
+                              Tải lại
+                            </Button>
+                          </div>
                         }
                       >
                         <Table
@@ -4260,19 +4480,7 @@ export default function MyOrders() {
                                   >
                                     Tải biên bản
                                   </Button>
-                                  <Button 
-                                    icon={<PrinterOutlined />} 
-                                    onClick={() => {
-                                      const url = handoverPdfPreviewUrl;
-                                      if (url) {
-                                        printPdfUrl(url);
-                                      } else {
-                                        message.warning("Không có PDF để in");
-                                      }
-                                    }}
-                                  >
-                                    In biên bản (PDF)
-                                  </Button>
+                                 
                                 </>
                               )}
                             </>
@@ -4354,9 +4562,24 @@ export default function MyOrders() {
                           border: "1px solid #e8e8e8",
                         }}
                         title={
-                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                            Danh sách biên bản thu hồi
-                          </Title>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                              Danh sách biên bản thu hồi
+                            </Title>
+                            <Button
+                              size="small"
+                              icon={<ReloadOutlined />}
+                              onClick={async () => {
+                                if (current?.id) {
+                                  await loadOrderHandoverReports(current.id);
+                                  message.success("Đã tải lại danh sách biên bản thu hồi");
+                                }
+                              }}
+                              loading={handoverReportsLoading}
+                            >
+                              Tải lại
+                            </Button>
+                          </div>
                         }
                       >
                         <Table
@@ -4473,19 +4696,6 @@ export default function MyOrders() {
                                     loading={handoverPdfGenerating}
                                   >
                                     Tải biên bản
-                                  </Button>
-                                  <Button 
-                                    icon={<PrinterOutlined />} 
-                                    onClick={() => {
-                                      const url = checkinPdfPreviewUrl;
-                                      if (url) {
-                                        printPdfUrl(url);
-                                      } else {
-                                        message.warning("Không có PDF để in");
-                                      }
-                                    }}
-                                  >
-                                    In biên bản (PDF)
                                   </Button>
                                 </>
                               )}
@@ -4785,6 +4995,13 @@ export default function MyOrders() {
                           const totalFees = damageFee + lateFee + accessoryFee;
                           const depositUsed = Math.min(totalDeposit, totalFees);
                           const finalReturnAmount = Number(settlementInfo.finalReturnAmount || 0);
+                          const highlightLabel =
+                            finalReturnAmount > 0
+                              ? "Bạn sẽ được hoàn lại"
+                              : finalReturnAmount < 0
+                              ? "Bạn cần thanh toán thêm"
+                              : "Không phát sinh số tiền cần hoàn/thu thêm";
+                          const highlightAmount = formatVND(Math.abs(finalReturnAmount));
 
                           return (
                         <Card
@@ -4816,9 +5033,6 @@ export default function MyOrders() {
                             <Descriptions.Item label="Cọc đã dùng">
                               {formatVND(depositUsed)}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Số tiền hoàn lại / cần thanh toán">
-                              <Text strong>{formatVND(finalReturnAmount)}</Text>
-                            </Descriptions.Item>
                             <Descriptions.Item label="Trạng thái">
                               {(() => {
                                 const key = String(settlementInfo.state || "").toLowerCase();
@@ -4827,6 +5041,37 @@ export default function MyOrders() {
                               })()}
                             </Descriptions.Item>
                           </Descriptions>
+                          <div
+                            style={{
+                              marginTop: 16,
+                              padding: "12px 16px",
+                              borderRadius: 10,
+                              background: "#f5f5f5",
+                              border: "1px solid #d0d0d0",
+                              color: "#111",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                            }}
+                          >
+                            <Text style={{ color: "#555", fontSize: 13 }}>
+                              {highlightLabel}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: finalReturnAmount === 0 ? 18 : 20,
+                                fontWeight: 600,
+                                color: "#111",
+                              }}
+                            >
+                              {highlightAmount}
+                            </Text>
+                            {finalReturnAmount < 0 && (
+                              <Text style={{ color: "#666", fontSize: 12 }}>
+                                Số tiền hiển thị là giá trị tuyệt đối bạn cần thanh toán thêm.
+                              </Text>
+                            )}
+                          </div>
                         </Card>
                           );
                         })()}

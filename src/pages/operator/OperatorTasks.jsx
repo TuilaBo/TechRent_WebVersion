@@ -202,12 +202,15 @@ export default function OperatorTasks() {
     const plannedStart = r.plannedStart ? dayjs(r.plannedStart) : null;
     const plannedEnd = r.plannedEnd ? dayjs(r.plannedEnd) : null;
 
+    // Tự động fill type từ taskCategoryName nếu type chưa có
+    const typeValue = r.type || r.taskCategoryName || "";
+
     form.setFieldsValue({
       taskCategoryId: r.taskCategoryId,
       orderId: r.orderId,
       assignedStaffIds: staffIds,
       staffRoleFilter: null,
-      type: r.type || "",
+      type: typeValue,
       description: r.description || "",
       plannedStart,
       plannedEnd,
@@ -240,13 +243,16 @@ export default function OperatorTasks() {
     try {
       if (editing) {
         // Khi update: không gửi orderId vì backend không cho phép thay đổi
+        const formatLocalDateTime = (value) =>
+          value ? dayjs(value).format("YYYY-MM-DDTHH:mm:ss") : undefined;
+
         const updatePayload = {
           taskCategoryId: vals.taskCategoryId,
           assignedStaffIds: Array.isArray(vals.assignedStaffIds) ? vals.assignedStaffIds.map(Number) : [],
           type: vals.type?.trim() || "",
           description: vals.description?.trim() || "",
-          plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
-          plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).toISOString() : undefined,
+          plannedStart: formatLocalDateTime(vals.plannedStart),
+          plannedEnd: formatLocalDateTime(vals.plannedEnd),
         };
         await updateTask(editing.taskId || editing.id, updatePayload);
         toast.success("Đã cập nhật task.");
@@ -258,8 +264,8 @@ export default function OperatorTasks() {
           assignedStaffIds: Array.isArray(vals.assignedStaffIds) ? vals.assignedStaffIds.map(Number) : [],
           type: vals.type?.trim() || "",
           description: vals.description?.trim() || "",
-          plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).toISOString() : undefined,
-          plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).toISOString() : undefined,
+          plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).format("YYYY-MM-DDTHH:mm:ss") : undefined,
+          plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).format("YYYY-MM-DDTHH:mm:ss") : undefined,
         };
         await createTask(createPayload);
         toast.success("Đã tạo task.");
@@ -854,6 +860,17 @@ export default function OperatorTasks() {
           >
             <Select
               placeholder="Chọn loại công việc"
+              onChange={(value) => {
+                // Tự động fill type từ category name khi chọn category
+                const selectedCategory = categories.find((c) => c.taskCategoryId === value);
+                if (selectedCategory && selectedCategory.name) {
+                  const currentType = form.getFieldValue("type");
+                  // Chỉ auto-fill nếu type đang trống hoặc chưa có giá trị
+                  if (!currentType || currentType.trim() === "") {
+                    form.setFieldValue("type", selectedCategory.name);
+                  }
+                }
+              }}
               options={categories.map((c) => ({
                 label: c.name,
                 value: c.taskCategoryId,

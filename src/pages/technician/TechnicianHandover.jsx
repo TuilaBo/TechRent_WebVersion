@@ -1,5 +1,5 @@
 // src/pages/technician/TechnicianHandover.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Card,
   Descriptions,
@@ -43,9 +43,11 @@ import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
   createHandoverReportCheckout,
   getHandoverReportById,
+  getHandoverReportByOrderIdAndTaskId,
   sendHandoverReportPin,
   updateHandoverReportSignature,
   getHandoverReportsByOrderId,
+  updateHandoverReportCheckout,
 } from "../../lib/handoverReportApi";
 import { getQcReportsByOrderId, getPreRentalQcReportById } from "../../lib/qcReportApi";
 import { getConditionDefinitions } from "../../lib/condition";
@@ -141,15 +143,6 @@ function formatDateTime(iso) {
   }
 }
 
-function formatDate(iso) {
-  if (!iso) return "—";
-  try {
-    return dayjs(iso).format("DD/MM/YYYY");
-  } catch {
-    return iso;
-  }
-}
-
 function translateHandoverStatus(status) {
   const s = String(status || "").toUpperCase();
   const map = {
@@ -200,7 +193,73 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
     .split(" • ")
     .filter(Boolean);
   const technicianName = technicianInfoParts[0] || "—";
-  const technicianEmail = technicianInfoParts[1] || "—";
+  const technicianPhone = technicianInfoParts[1] || "";
+  const technicianEmail = technicianInfoParts[2] || "";
+  const technicianContact = {
+    name: technicianName,
+    phone: technicianPhone,
+    email: technicianEmail,
+  };
+
+  const technicianEntries = (() => {
+    const raw = [];
+    const pushTech = (tech) => {
+      if (!tech) return;
+      const name =
+        tech.fullName ||
+        tech.username ||
+        tech.staffName ||
+        tech.name ||
+        technicianContact.name ||
+        "";
+      const phone =
+        tech.phoneNumber ||
+        tech.phone ||
+        tech.contactNumber ||
+        tech.contact ||
+        "";
+      const email = tech.email || "";
+
+      if (!name && !phone && !email) return;
+      raw.push({
+        staffId: tech.staffId || tech.id || null,
+        name,
+        phone,
+        email,
+      });
+    };
+
+    if (Array.isArray(report.deliveryStaff)) {
+      report.deliveryStaff.forEach(pushTech);
+    }
+
+    if (Array.isArray(report.technicians)) {
+      report.technicians.forEach(pushTech);
+    }
+
+    if (!raw.length && technicianContact.name && technicianContact.name !== "—") {
+      raw.push({
+        staffId: null,
+        name: technicianContact.name,
+        phone: technicianContact.phone,
+        email: technicianContact.email,
+      });
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    raw.forEach((tech, idx) => {
+      const key = tech.staffId || tech.email || tech.phone || `${tech.name}-${idx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(tech);
+    });
+
+    return deduped;
+  })();
+
+  const technicianDisplayName =
+    technicianEntries[0]?.name || technicianContact.name || "—";
 
   // Format dates
   const handoverDate = formatDateTime(report.handoverDateTime);
@@ -440,9 +499,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
       // Collect conditions from selected snapshot
       const conditionDetails = selectedSnapshot.conditionDetails || [];
       conditionDetails.forEach(cd => {
-        const conditionDef = conditionMap[cd.conditionDefinitionId];
-        const conditionName = conditionDef?.name || `Điều kiện #${cd.conditionDefinitionId}`;
-        const severity = cd.severity === "LOW" ? "Thấp" : cd.severity === "MEDIUM" ? "Trung bình" : cd.severity === "HIGH" ? "Cao" : cd.severity === "CRITICAL" ? "Rất nặng" : cd.severity || "—";
         // Use conditionDefinitionId + severity as unique key
         const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
         if (!uniqueConditions.has(uniqueKey)) {
@@ -464,11 +520,10 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
 
     // Convert Set to Array and build HTML
     const conditionsArray = Array.from(uniqueConditions).map(key => {
-      const [conditionDefId, severity] = key.split("_");
+      const [conditionDefId] = key.split("_");
       const conditionDef = conditionMap[conditionDefId];
       const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
-      const severityText = severity === "LOW" ? "Thấp" : severity === "MEDIUM" ? "Trung bình" : severity === "HIGH" ? "Cao" : severity === "CRITICAL" ? "Rất nặng" : severity || "—";
-      return `${conditionName} (${severityText})`;
+      return `${conditionName}`;
     });
     
     const conditionsHtml = conditionsArray.length > 0 
@@ -638,24 +693,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
     )
     .join("");
 
-  // Build technicians list
-  const techniciansList = (report.technicians || [])
-    .map((tech) => {
-      const name = tech.fullName || tech.username || `Nhân viên #${tech.staffId}`;
-      const phone = tech.phoneNumber || "";
-      return `
-    <li>
-      <strong>${name}</strong>
-      ${
-        phone
-          ? `<br/>Số điện thoại: ${phone}`
-          : ""
-      }
-    </li>
-  `;
-    })
-    .join("");
-
   return `
     ${GLOBAL_PRINT_CSS}
     <div id="handover-print-root" style="
@@ -673,7 +710,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
       
       <section class="kv">
         <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
-        <div><b>Mã Task:</b> #${report.taskId || "—"}</div>
         <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
       </section>
       
@@ -690,10 +726,43 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
         }
       </section>
       
-      <h3>Thông tin kỹ thuật viên</h3>
+      <h3>Kỹ thuật viên tham gia</h3>
       <section class="kv">
-        <div><b>Họ và tên:</b> ${technicianName}</div>
-        <div><b>Email:</b> ${technicianEmail}</div>
+        ${
+          technicianEntries.length
+            ? technicianEntries
+                .map(
+                  (tech) => `
+          <div style="margin-bottom:6px">
+            <b>${tech.name || "—"}</b>
+            ${
+              tech.phone
+                ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
+                : ""
+            }
+            ${
+              tech.email
+                ? `<br/><span>Email: ${tech.email}</span>`
+                : ""
+            }
+          </div>
+        `
+                )
+                .join("")
+            : `
+          <div><b>Họ và tên:</b> ${technicianContact.name || "—"}</div>
+          ${
+            technicianContact.phone
+              ? `<div><b>Số điện thoại:</b> ${technicianContact.phone}</div>`
+              : ""
+          }
+          ${
+            technicianContact.email
+              ? `<div><b>Email:</b> ${technicianContact.email}</div>`
+              : ""
+          }
+        `
+        }
         <div><b>Chữ ký nhân viên:</b> ${report.staffSignature || "—"}</div>
         ${
           report.staffSigned
@@ -758,18 +827,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
       }
       
       ${
-        techniciansList
-          ? `
-      <h3>Kỹ thuật viên tham gia</h3>
-      <ul>
-        ${techniciansList}
-      </ul>
-      `
-          : ""
-      }
-      
-      
-      ${
         report.createdByStaff
           ? `
       <h3>Người tạo biên bản</h3>
@@ -798,7 +855,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
       `
           : ""
       }
-      
       ${
         (report.evidenceUrls || []).length > 0
           ? `
@@ -845,14 +901,14 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
             ${
               report.customerSigned
-                ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>'
+                ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>'
                 : ""
             }
           </div>
           <div>
             ${
               report.customerSigned
-                ? `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`
+                ? `<div style="color:#000;font-weight:600">${customerName}</div>`
                 : "(Ký, ghi rõ họ tên)"
             }
           </div>
@@ -862,14 +918,14 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
             ${
               report.staffSigned
-                ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>'
+                ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>'
                 : ""
             }
           </div>
           <div>
             ${
               report.staffSigned
-                ? `<div style="color:#52c41a;font-weight:600">${technicianName} đã ký</div>`
+                ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>`
                 : "(Ký, ghi rõ họ tên)"
             }
           </div>
@@ -984,6 +1040,7 @@ export default function TechnicianHandover() {
   const user = useAuthStore((s) => s.user);
 
   const actualTaskId = paramTaskId || state?.task?.id || state?.task?.taskId;
+  const initialHandoverReport = state?.handoverReport;
 
   // States
   const [loading, setLoading] = useState(true);
@@ -995,7 +1052,6 @@ export default function TechnicianHandover() {
 
   // Handover report states
   const [handoverReportId, setHandoverReportId] = useState(null);
-  const [handoverReport, setHandoverReport] = useState(null);
   const [showSignatureForm, setShowSignatureForm] = useState(false);
   const [handoverReports, setHandoverReports] = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
@@ -1019,7 +1075,6 @@ export default function TechnicianHandover() {
   const [pinCode, setPinCode] = useState("");
   const [staffSignature, setStaffSignature] = useState("");
   const [items, setItems] = useState([]);
-  const [deviceQualityInfos, setDeviceQualityInfos] = useState([]);
   const [evidenceFiles, setEvidenceFiles] = useState([]); // Array of File objects
   const [evidenceUrls, setEvidenceUrls] = useState([]); // Array of URLs (base64 or server URLs)
   
@@ -1029,6 +1084,191 @@ export default function TechnicianHandover() {
   const [loadingConditions, setLoadingConditions] = useState(false);
   const [deviceCategoryMap, setDeviceCategoryMap] = useState({}); // deviceModelId -> deviceCategoryId
   const [devicesMap, setDevicesMap] = useState({}); // serialNumber -> deviceId
+  const isUpdateMode = Boolean(handoverReportId);
+  const orderRef = useRef(null);
+
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
+
+  const hydrateReportToForm = useCallback(
+    (report, options = {}) => {
+      if (!report) return;
+      const effectiveOrder = options.orderData || orderRef.current;
+
+      const deviceSerialMap = (() => {
+        const map = {};
+        if (effectiveOrder && Array.isArray(effectiveOrder.orderDetails)) {
+          effectiveOrder.orderDetails.forEach((od) => {
+            if (Array.isArray(od.allocations)) {
+              od.allocations.forEach((allocation) => {
+                const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                if (!deviceId) return;
+                const serial =
+                  allocation.device?.serialNumber ||
+                  allocation.serialNumber ||
+                  allocation.deviceSerial ||
+                  "";
+                map[Number(deviceId)] = {
+                  serial: serial || "",
+                  deviceModelId: od.deviceModelId,
+                };
+              });
+            }
+          });
+        }
+
+        if (Array.isArray(report.items)) {
+          report.items.forEach((item) => {
+            const deviceId = item.deviceId || item.device?.deviceId;
+            if (!deviceId) return;
+            const serial =
+              item.deviceSerialNumber ||
+              item.deviceSerial ||
+              item.itemCode ||
+              "";
+            const deviceModelId = item.deviceModelId || null;
+            if (!map[Number(deviceId)] || !map[Number(deviceId)].serial) {
+              map[Number(deviceId)] = {
+                serial: serial || map[Number(deviceId)]?.serial || "",
+                deviceModelId:
+                  deviceModelId || map[Number(deviceId)]?.deviceModelId || null,
+              };
+            }
+          });
+        }
+        return map;
+      })();
+
+      setHandoverReportId(report.handoverReportId || report.id || null);
+      const customerParts = (report.customerInfo || "")
+        .split("•")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      setCustomerName(customerParts[0] || "");
+      setCustomerPhone(customerParts[1] || "");
+      setCustomerEmail(customerParts[2] || "");
+      setTechnicianInfo(report.technicianInfo || "");
+      setHandoverDateTime(
+        report.handoverDateTime ? dayjs(report.handoverDateTime) : dayjs()
+      );
+      setHandoverLocation(report.handoverLocation || "");
+      setCustomerSignature(report.customerSignature || "");
+      setPinCode("");
+      const reportStatus = String(report.status || "").toUpperCase();
+      const shouldShowSignature =
+        reportStatus === "PENDING_STAFF_SIGNATURE" ||
+        reportStatus === "STAFF_PENDING" ||
+        reportStatus === "DRAFT";
+      setShowSignatureForm(shouldShowSignature);
+      setStaffSignature(report.staffSignature || user?.fullName || user?.username || "");
+
+      if (Array.isArray(report.items) && report.items.length > 0) {
+        const hydratedItems = report.items.map((item, idx) => {
+          const serialCandidates = [
+            item.deviceSerialNumber,
+            item.serialNumber,
+            item.itemCode,
+          ].filter(Boolean);
+          const uniqueSerials = Array.from(new Set(serialCandidates));
+          return {
+            itemName: item.deviceModelName || item.itemName || `Thiết bị #${idx + 1}`,
+            itemCode:
+              uniqueSerials.length > 0
+                ? uniqueSerials.join(", ")
+                : item.itemCode || "",
+            unit: item.unit || "cái",
+            orderedQuantity: item.orderedQuantity || item.quantity || 1,
+            deliveredQuantity: item.deliveredQuantity || item.quantity || 1,
+          };
+        });
+        setItems(hydratedItems);
+      } else {
+        setItems([]);
+      }
+
+      if (Array.isArray(report.evidenceUrls)) {
+        setEvidenceUrls(report.evidenceUrls.map(String));
+      } else {
+        setEvidenceUrls([]);
+      }
+      setEvidenceFiles([]);
+
+      if (Array.isArray(report.deviceConditions)) {
+        const mappedDeviceConditions = report.deviceConditions.map((dc) => {
+          const numericDeviceId = Number(dc.deviceId) || null;
+          let serial =
+            dc.deviceSerial ||
+            dc.device?.serialNumber ||
+            "";
+          const snapshots = Array.isArray(dc.baselineSnapshots)
+            ? dc.baselineSnapshots
+            : Array.isArray(dc.snapshots)
+            ? dc.snapshots
+            : Array.isArray(dc.finalSnapshots)
+            ? dc.finalSnapshots
+            : [];
+          let resolvedConditionDefinitionId = dc.conditionDefinitionId || null;
+          let resolvedSeverity = dc.severity || "";
+          let resolvedImages = Array.isArray(dc.images)
+            ? dc.images.map(String)
+            : Array.isArray(dc.snapshotImages)
+            ? dc.snapshotImages.map(String)
+            : [];
+          if (
+            (!serial || serial === String(numericDeviceId || "")) &&
+            numericDeviceId &&
+            deviceSerialMap[numericDeviceId]?.serial
+          ) {
+            serial = deviceSerialMap[numericDeviceId].serial;
+          }
+          if (!serial && snapshots.length) {
+            const snapshotWithSerial = snapshots.find(
+              (snap) => snap?.deviceSerial
+            );
+            if (snapshotWithSerial?.deviceSerial) {
+              serial = snapshotWithSerial.deviceSerial;
+            }
+
+            const snapshotWithCondition = snapshots.find(
+              (snap) => Array.isArray(snap.conditionDetails) && snap.conditionDetails.length > 0
+            );
+            if (snapshotWithCondition) {
+              const detail = snapshotWithCondition.conditionDetails[0];
+              if (!resolvedConditionDefinitionId) {
+                resolvedConditionDefinitionId = detail.conditionDefinitionId || null;
+              }
+              if (!resolvedSeverity) {
+                resolvedSeverity = detail.severity || "";
+              }
+            }
+
+            if (!resolvedImages.length) {
+              const snapshotWithImages = snapshots.find(
+                (snap) => Array.isArray(snap.images) && snap.images.length > 0
+              );
+              if (snapshotWithImages) {
+                resolvedImages = snapshotWithImages.images.map(String);
+              }
+            }
+          }
+          return {
+            deviceId:
+              serial?.trim() ||
+              (numericDeviceId ? String(numericDeviceId) : ""),
+            conditionDefinitionId: resolvedConditionDefinitionId,
+            severity: resolvedSeverity,
+            images: resolvedImages,
+          };
+        });
+        console.debug("Hydrated device conditions", mappedDeviceConditions);
+        setDeviceConditions(mappedDeviceConditions);
+      } else {
+        setDeviceConditions([]);
+      }
+    },
+    [user]
+  );
 
   // Fetch task and order details
   useEffect(() => {
@@ -1110,41 +1350,13 @@ export default function TechnicianHandover() {
                 qcReportDevices = reportToUse.devices;
               }
               
-              // Nếu có preRentalQcReport, load chi tiết để lấy deviceConditions
+              // Nếu có preRentalQcReport, load chi tiết để lấy deviceConditions (sẽ fill sau khi check existing report)
               if (preRentalQcReport?.qcReportId || preRentalQcReport?.id) {
                 try {
                   const qcReportId = preRentalQcReport.qcReportId || preRentalQcReport.id;
                   const fullPreRentalReport = await getPreRentalQcReportById(qcReportId);
                   if (fullPreRentalReport) {
                     preRentalQcReport = fullPreRentalReport;
-                    
-                    // Parse deviceConditions từ QC report và fill vào form
-                    if (Array.isArray(fullPreRentalReport.deviceConditions) && fullPreRentalReport.deviceConditions.length > 0) {
-                      const parsedDeviceConditions = [];
-                      
-                      fullPreRentalReport.deviceConditions.forEach((dc) => {
-                        // Mỗi deviceCondition có thể có nhiều snapshots, mỗi snapshot có nhiều conditionDetails
-                        if (Array.isArray(dc.snapshots)) {
-                          dc.snapshots.forEach((snapshot) => {
-                            if (Array.isArray(snapshot.conditionDetails)) {
-                              snapshot.conditionDetails.forEach((conditionDetail) => {
-                                // Tìm deviceId từ deviceSerial
-                                const deviceSerial = dc.deviceSerial || String(dc.deviceId);
-                                parsedDeviceConditions.push({
-                                  deviceId: deviceSerial, // Use serial number as deviceId (will convert to deviceId later)
-                                  conditionDefinitionId: conditionDetail.conditionDefinitionId,
-                                  severity: conditionDetail.severity,
-                                  images: Array.isArray(snapshot.images) ? snapshot.images : [],
-                                });
-                              });
-                            }
-                          });
-                        }
-                      });
-                      
-                      console.log("✅ Loaded deviceConditions from PRE_RENTAL QC report:", parsedDeviceConditions);
-                      setDeviceConditions(parsedDeviceConditions);
-                    }
                   }
                 } catch (e) {
                   console.warn("Could not load full PRE_RENTAL QC report:", e);
@@ -1233,6 +1445,108 @@ export default function TechnicianHandover() {
             const itemsData = await Promise.all(itemsPromises);
             setItems(itemsData);
           }
+
+          let existingCheckoutReport = null;
+          if (
+            initialHandoverReport &&
+            String(initialHandoverReport.handoverType || "").toUpperCase() ===
+              "CHECKOUT"
+          ) {
+            existingCheckoutReport = initialHandoverReport;
+          }
+
+          if (!existingCheckoutReport) {
+            try {
+              const fetchedReport = await getHandoverReportByOrderIdAndTaskId(
+                normalizedTask.orderId,
+                normalizedTask.taskId || normalizedTask.id
+              );
+              if (
+                fetchedReport &&
+                String(fetchedReport.handoverType || "").toUpperCase() ===
+                  "CHECKOUT"
+              ) {
+                existingCheckoutReport = fetchedReport;
+              }
+            } catch (err) {
+              console.warn("Không thể tải biên bản bàn giao hiện có:", err);
+            }
+          }
+
+          if (existingCheckoutReport) {
+            hydrateReportToForm(existingCheckoutReport, { orderData });
+          } else if (preRentalQcReport && Array.isArray(preRentalQcReport.deviceConditions) && preRentalQcReport.deviceConditions.length > 0) {
+            // Chỉ fill deviceConditions từ QC report nếu chưa có existing report
+            // Parse deviceConditions từ QC report và fill vào form
+            const parsedDeviceConditions = [];
+            const deviceSerialMap = new Map(); // deviceSerial -> parsed condition
+            
+            preRentalQcReport.deviceConditions.forEach((dc) => {
+              const deviceSerial = dc.deviceSerial || String(dc.deviceId || "");
+              if (!deviceSerial) return;
+              
+              // Nếu đã có entry cho deviceSerial này, skip hoặc merge
+              if (deviceSerialMap.has(deviceSerial)) {
+                const existing = deviceSerialMap.get(deviceSerial);
+                // Merge images từ snapshots mới
+                if (Array.isArray(dc.snapshots)) {
+                  dc.snapshots.forEach((snapshot) => {
+                    if (Array.isArray(snapshot.images)) {
+                      existing.images = [...new Set([...existing.images, ...snapshot.images])];
+                    }
+                  });
+                }
+                return;
+              }
+              
+              // Tìm snapshot đầu tiên có conditionDetails
+              let selectedConditionDetail = null;
+              const allImages = new Set();
+              
+              if (Array.isArray(dc.snapshots)) {
+                // Ưu tiên snapshot có source là QC_BEFORE hoặc BASELINE
+                const qcBeforeSnapshot = dc.snapshots.find(
+                  (s) => String(s.source || "").toUpperCase() === "QC_BEFORE" ||
+                        String(s.snapshotType || "").toUpperCase() === "BASELINE"
+                );
+                const snapshotToUse = qcBeforeSnapshot || dc.snapshots[0];
+                
+                if (snapshotToUse) {
+                  // Lấy conditionDetail đầu tiên
+                  if (Array.isArray(snapshotToUse.conditionDetails) && snapshotToUse.conditionDetails.length > 0) {
+                    selectedConditionDetail = snapshotToUse.conditionDetails[0];
+                  }
+                  
+                  // Collect images từ snapshot này
+                  if (Array.isArray(snapshotToUse.images)) {
+                    snapshotToUse.images.forEach(img => allImages.add(img));
+                  }
+                }
+                
+                // Cũng collect images từ các snapshots khác
+                dc.snapshots.forEach((snapshot) => {
+                  if (Array.isArray(snapshot.images)) {
+                    snapshot.images.forEach(img => allImages.add(img));
+                  }
+                });
+              }
+              
+              // Chỉ tạo entry nếu có conditionDetail
+              if (selectedConditionDetail) {
+                const parsedCondition = {
+                  deviceId: deviceSerial, // Use serial number as deviceId (will convert to deviceId later)
+                  conditionDefinitionId: selectedConditionDetail.conditionDefinitionId,
+                  severity: selectedConditionDetail.severity || "NONE",
+                  images: Array.from(allImages),
+                };
+                deviceSerialMap.set(deviceSerial, parsedCondition);
+                parsedDeviceConditions.push(parsedCondition);
+              }
+            });
+            
+            console.log("✅ Loaded deviceConditions from PRE_RENTAL QC report:", parsedDeviceConditions);
+            setDeviceConditions(parsedDeviceConditions);
+          }
         }
       } catch (error) {
         console.error("Error loading data:", error);
@@ -1247,7 +1561,7 @@ export default function TechnicianHandover() {
     };
 
     loadData();
-  }, [actualTaskId, nav, user]);
+  }, [actualTaskId, nav, user, hydrateReportToForm, initialHandoverReport]);
 
   // Load condition definitions and device category map when items are ready
   useEffect(() => {
@@ -1522,8 +1836,7 @@ export default function TechnicianHandover() {
         evidenceUrls: [], // Có thể để trống hoặc gán từ evidenceUrls chung
       }));
 
-      const payload = {
-        taskId: task.taskId || task.id,
+      const basePayload = {
         customerInfo: customerInfoStr,
         technicianInfo: technicianInfo.trim(),
         handoverDateTime: handoverDateTime.format("YYYY-MM-DDTHH:mm:ss.SSS[Z]"),
@@ -1531,6 +1844,32 @@ export default function TechnicianHandover() {
         customerSignature: customerSignature.trim(),
         items: itemsWithEvidence,
         deviceConditions: deviceConditionsPayload,
+      };
+
+      if (handoverReportId) {
+        const updatePayload = { ...basePayload };
+        console.log(
+          "🔁 TechnicianHandover - Update payload:",
+          JSON.stringify(updatePayload, null, 2)
+        );
+        await updateHandoverReportCheckout(handoverReportId, updatePayload);
+        toast.success("Đã cập nhật biên bản bàn giao thành công!");
+        try {
+          const refreshed = await getHandoverReportById(handoverReportId);
+        hydrateReportToForm(refreshed, { orderData: order });
+        } catch (err) {
+          console.error("Error reloading handover report:", err);
+        }
+        if (order?.orderId || order?.id) {
+          await loadHandoverReports(order.orderId || order.id);
+        }
+        nav(-1);
+        return;
+      }
+
+      const payload = {
+        ...basePayload,
+        taskId: task.taskId || task.id,
       };
 
       console.log("🔍 TechnicianHandover - Payload before API call:", {
@@ -1558,7 +1897,6 @@ export default function TechnicianHandover() {
       let reportData = null;
       try {
         reportData = await getHandoverReportById(reportId);
-        setHandoverReport(reportData);
       } catch (e) {
         console.error("Error fetching handover report:", e);
       }
@@ -1573,17 +1911,21 @@ export default function TechnicianHandover() {
       }
 
       // Hiển thị form ký
-      setShowSignatureForm(true);
-      setStaffSignature(technicianInfo.trim());
-
-      // Tự động hiển thị PDF preview nếu có reportData
       if (reportData) {
         try {
+        hydrateReportToForm(reportData, { orderData: order });
           await handlePreviewPdf(reportData);
         } catch (e) {
           console.error("Error previewing PDF:", e);
-          // Không hiển thị lỗi vì có thể user sẽ xem sau
         }
+      } else {
+        hydrateReportToForm({
+          ...basePayload,
+          handoverReportId: reportId,
+          id: reportId,
+          status: "PENDING_STAFF_SIGNATURE",
+          handoverType: "CHECKOUT",
+        }, { orderData: order });
       }
     } catch (e) {
       console.error("Create handover report error:", e);
@@ -1912,7 +2254,7 @@ export default function TechnicianHandover() {
           Quay lại
         </Button>
         <Title level={3} style={{ margin: 0 }}>
-          Tạo biên bản bàn giao
+          {isUpdateMode ? "Cập nhật biên bản bàn giao" : "Tạo biên bản bàn giao"}
         </Title>
         <Tag color="blue">HANDOVER REPORT</Tag>
       </Space>
@@ -2052,7 +2394,6 @@ export default function TechnicianHandover() {
                     return codes;
                   })
                   .flat();
-                
                 if (availableSerials.length === 0) {
                   message.warning("Vui lòng đợi thiết bị được load trước khi thêm điều kiện");
                   return;
@@ -2090,6 +2431,14 @@ export default function TechnicianHandover() {
                 
                 // Find device info by serial to get deviceModelId
                 const selectedSerial = condition.deviceId;
+                const normalizedSelectedSerial = selectedSerial ? String(selectedSerial) : "";
+                const serialOptions = Array.from(
+                  new Set(
+                    normalizedSelectedSerial && !availableSerials.includes(normalizedSelectedSerial)
+                      ? [normalizedSelectedSerial, ...availableSerials]
+                      : availableSerials
+                  )
+                );
                 let deviceModelId = null;
                 if (selectedSerial && order && Array.isArray(order.orderDetails)) {
                   // Find which orderDetail contains this serial
@@ -2132,12 +2481,12 @@ export default function TechnicianHandover() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Thiết bị (Serial Number) <Text type="danger">*</Text>
+                            Thiết bị  <Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}
                             placeholder="Chọn thiết bị"
-                            value={condition.deviceId ? String(condition.deviceId) : null}
+                            value={normalizedSelectedSerial || null}
                             onChange={(value) => {
                               const newConditions = [...deviceConditions];
                               newConditions[index] = {
@@ -2147,7 +2496,7 @@ export default function TechnicianHandover() {
                               };
                               setDeviceConditions(newConditions);
                             }}
-                            options={availableSerials.map(serial => ({
+                            options={serialOptions.map(serial => ({
                               label: serial,
                               value: serial,
                             }))}
@@ -2157,7 +2506,7 @@ export default function TechnicianHandover() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Điều kiện (Condition Definition) <Text type="danger">*</Text>
+                            Điều kiện  <Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}
@@ -2198,10 +2547,11 @@ export default function TechnicianHandover() {
                               setDeviceConditions(newConditions);
                             }}
                             options={[
-                              { label: "Nhẹ (LOW)", value: "LOW" },
-                              { label: "Trung bình (MEDIUM)", value: "MEDIUM" },
-                              { label: "Nặng (HIGH)", value: "HIGH" },
-                              { label: "Rất nặng (CRITICAL)", value: "CRITICAL" },
+                              { label: "Không có ", value: "NONE" },
+                              { label: "Nhẹ ", value: "LOW" },
+                              { label: "Trung bình ", value: "MEDIUM" },
+                              { label: "Nặng ", value: "HIGH" },
+                              { label: "Rất nặng", value: "CRITICAL" },
                             ]}
                           />
                         </div>
@@ -2258,7 +2608,7 @@ export default function TechnicianHandover() {
       </Card>
 
       {/* Ảnh bằng chứng */}
-      <Card title="Ảnh bằng chứng" className="mb-3">
+      {/* <Card title="Ảnh bằng chứng" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <Dragger
             multiple
@@ -2338,7 +2688,7 @@ export default function TechnicianHandover() {
             </div>
           )}
         </Space>
-      </Card>
+      </Card> */}
 
       {/* Form ký handover report - Hiển thị sau khi tạo thành công */}
       {showSignatureForm && handoverReportId && (
@@ -2414,7 +2764,7 @@ export default function TechnicianHandover() {
               onClick={handleSubmit}
               loading={saving}
             >
-              Tạo biên bản bàn giao
+              {isUpdateMode ? "Cập nhật biên bản bàn giao" : "Tạo biên bản bàn giao"}
             </Button>
             <Button onClick={() => nav(-1)}>Hủy</Button>
           </Space>

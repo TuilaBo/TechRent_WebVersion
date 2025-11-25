@@ -52,6 +52,7 @@ import {
 } from "../../lib/contractApi";
 import { getKycByCustomerId, updateKycStatus, normalizeKycItem } from "../../lib/kycApi";
 import { getDeviceModelById, normalizeModel as normalizeDeviceModel } from "../../lib/deviceModelsApi";
+import { getConditionDefinitions } from "../../lib/condition";
 import { getHandoverReportsByOrderId } from "../../lib/handoverReportApi";
 import { getInvoiceByRentalOrderId } from "../../lib/Payment";
 import jsPDF from "jspdf";
@@ -216,8 +217,6 @@ function formatEquipmentLayout(html = "") {
 
 function formatDatesInHtml(html = "") {
   if (!html || typeof html !== "string") return html;
-  // Format ngày ISO với thời gian thành DD/MM/YYYY
-  // Pattern: 2025-11-09T00:00 hoặc 2025-11-10T23:59:59.999
   const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
   return html.replace(datePattern, (match) => {
     try {
@@ -238,8 +237,6 @@ function formatDatesInHtml(html = "") {
 
 function formatDateLabelsInHtml(html = "") {
   if (!html || typeof html !== "string") return html;
-  // Thay thế label "Ngày bắt đầu" thành "Ngày bắt đầu thuê"
-  // Thay thế label "Ngày kết thúc" thành "Ngày kết thúc thuê"
   const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
   html = html.replace(
     new RegExp(`(Ngày${SEP}bắt${SEP}đầu)${SEP}:`, "gi"),
@@ -258,8 +255,8 @@ function sanitizeContractHtml(html = "") {
     /Brand\([^)]*brandName=([^,)]+)[^)]*\)/g,
     "$1"
   );
-  out = formatDatesInHtml(out); // Format ngày trước
-  out = formatDateLabelsInHtml(out); // Format label ngày
+  out = formatDatesInHtml(out);
+  out = formatDateLabelsInHtml(out);
   out = formatMoneyInHtml(out);
   out = formatEquipmentLayout(out);
   return out;
@@ -450,7 +447,75 @@ const EXTRA_CONTRACT_HTML = `
 
 function augmentContractContent(detail) {
   if (!detail) return detail;
-  const base = String(detail.contentHtml || "");
+  const originalBase = String(detail.contentHtml || detail.contractContent || "");
+  let base = originalBase;
+  
+  // Add serial numbers from allocatedDevices to device list items
+  if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
+    const serialNumbers = Array.from(
+      new Set(
+        detail.allocatedDevices
+          .map((device) => device.serialNumber)
+          .filter(Boolean)
+      )
+    );
+    
+    if (serialNumbers.length > 0) {
+      const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
+      let modifiedBase = base;
+      
+      // Pattern 1: Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
+      const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/div>)/gi;
+      modifiedBase = modifiedBase.replace(
+        equipmentDivPattern,
+        (match, openTag, deviceInfo, priceInfo, closeTag) => {
+          return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
+        }
+      );
+      
+      // Pattern 2: Match <li>... - Giá/ngày:...</li> (fallback for unformatted HTML)
+      if (modifiedBase === base) {
+        const liPattern = /(<li>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/li>)/gi;
+        modifiedBase = modifiedBase.replace(
+          liPattern,
+          (match, openTag, deviceInfo, priceInfo, closeTag) => {
+            return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
+          }
+        );
+      }
+      
+      // Pattern 3: Match any device line with "Giá/ngày" pattern (more flexible)
+      if (modifiedBase === base) {
+        // Try to match lines that contain device info and "Giá/ngày"
+        const flexiblePattern = /(\d+x\s+[^-]+?)(\s*-\s*Giá\/ngày[^<•\n]+?)(\s*-\s*Tiền cọc[^<•\n]+?)/gi;
+        modifiedBase = modifiedBase.replace(
+          flexiblePattern,
+          (match, deviceInfo, priceInfo, depositInfo) => {
+            return `${deviceInfo}${serialText}${priceInfo}${depositInfo}`;
+          }
+        );
+      }
+      
+      // Check if replacement occurred
+      if (modifiedBase !== base) {
+        base = modifiedBase;
+      } else {
+        // If no match found, try to append after the device list
+        // Try to find the closing </ul> of device list and append serial numbers section
+        const ulPattern = /(<\/ul>)(\s*<p>)/i;
+        if (ulPattern.test(base)) {
+          const serialSection = `
+<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
+          base = base.replace(ulPattern, `$1${serialSection}$2`);
+        } else {
+          // Append at the end of device section if pattern not found
+          const serialSection = `<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
+          base = base.replace(/(<\/ul>)/i, `$1${serialSection}`);
+        }
+      }
+    }
+  }
+  
   const mergedHtml = base + EXTRA_CONTRACT_HTML;
   return { ...detail, contentHtml: mergedHtml };
 }
@@ -585,6 +650,569 @@ const contractStatusTag = (status) => {
   }
 };
 
+/* =========================
+ * 2b) Handover report PDF helpers (shared with TechnicianCalendar)
+ * ========================= */
+const HANDOVER_PRINT_CSS = `
+  <style>
+    .handover-print-root,
+    .handover-print-root * {
+      font-family: Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif !important;
+      -webkit-font-smoothing: antialiased !important;
+      -moz-osx-font-smoothing: grayscale !important;
+    }
+    .handover-print-root h1,
+    .handover-print-root h2,
+    .handover-print-root h3 {
+      margin: 8px 0 6px;
+      font-weight: 700;
+    }
+    .handover-print-root h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    .handover-print-root p {
+      margin: 6px 0;
+    }
+    .handover-print-root ol,
+    .handover-print-root ul {
+      margin: 6px 0 6px 18px;
+      padding: 0;
+    }
+    .handover-print-root li {
+      margin: 3px 0;
+    }
+    .handover-print-root .kv {
+      margin-bottom: 10px;
+    }
+    .handover-print-root .kv div {
+      margin: 2px 0;
+    }
+    .handover-print-root table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+    }
+    .handover-print-root table th,
+    .handover-print-root table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    .handover-print-root table th {
+      background-color: #f5f5f5;
+      font-weight: 600;
+    }
+    .handover-print-root .equipment-item {
+      display: block;
+      margin: 4px 0;
+    }
+    .handover-print-root .equipment-item::before {
+      content: "• ";
+    }
+  </style>
+`;
+
+const formatHandoverDateTime = (iso) => {
+  if (!iso) return "—";
+  try {
+    return dayjs(iso).format("DD/MM/YYYY HH:mm");
+  } catch {
+    return iso;
+  }
+};
+
+const parseInfoString = (infoStr) => {
+  if (!infoStr) return { name: "", phone: "", email: "" };
+  const parts = infoStr.split("•").map((s) => s.trim()).filter(Boolean);
+  return {
+    name: parts[0] || "",
+    phone: parts[1] || "",
+    email: parts[2] || "",
+  };
+};
+
+const translateHandoverStatus = (status) => {
+  const s = String(status || "").toUpperCase();
+  const map = {
+    DRAFT: "Nháp",
+    PENDING: "Chờ ký",
+    PENDING_STAFF_SIGNATURE: "Chờ nhân viên ký",
+    STAFF_SIGNED: "Nhân viên đã ký",
+    CUSTOMER_SIGNED: "Đã ký khách hàng",
+    BOTH_SIGNED: "2 bên đã ký",
+    COMPLETED: "Hoàn thành",
+    CANCELLED: "Đã hủy",
+  };
+  return map[s] || status;
+};
+
+const translateStaffRole = (role) => {
+  const r = String(role || "").toUpperCase();
+  if (r === "TECHNICIAN") return "Kỹ thuật viên";
+  return role || "—";
+};
+
+/**
+ * FIXED VERSION – không còn bị bể template string
+ */
+function buildPrintableHandoverReportHtml(report, order = null, conditionDefinitions = []) {
+  if (!report) return "<div>Không có dữ liệu biên bản</div>";
+
+  const customerInfo = parseInfoString(report.customerInfo);
+  const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
+  const customerName = customerInfo.name || "—";
+
+  const technicianEntries = (() => {
+    const raw = [];
+    const pushTech = (tech) => {
+      if (!tech) return;
+      const name =
+        tech.fullName ||
+        tech.username ||
+        tech.staffName ||
+        tech.name ||
+        technicianInfo.name ||
+        "";
+      const phone =
+        tech.phoneNumber ||
+        tech.phone ||
+        tech.contactNumber ||
+        tech.contact ||
+        "";
+      const email = tech.email || "";
+
+      if (!name && !phone && !email) return;
+      raw.push({
+        staffId: tech.staffId || tech.id || null,
+        name,
+        phone,
+        email,
+      });
+    };
+
+    if (Array.isArray(report.deliveryStaff)) {
+      report.deliveryStaff.forEach(pushTech);
+    }
+
+    if (Array.isArray(report.technicians)) {
+      report.technicians.forEach(pushTech);
+    }
+
+    if (!raw.length && (technicianInfo.name || technicianInfo.phone || technicianInfo.email)) {
+      raw.push({
+        staffId: null,
+        name: technicianInfo.name || "—",
+        phone: technicianInfo.phone || "",
+        email: technicianInfo.email || "",
+      });
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    raw.forEach((tech, idx) => {
+      const key = tech.staffId || tech.email || tech.phone || `${tech.name}-${idx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(tech);
+    });
+
+    return deduped;
+  })();
+
+  const technicianDisplayName =
+    technicianEntries[0]?.name || technicianInfo.name || "—";
+
+  const conditionMap = {};
+  conditionDefinitions.forEach((cd) => {
+    conditionMap[cd.id || cd.conditionDefinitionId] = cd;
+  });
+
+  const allocationMap = {};
+  if (order && Array.isArray(order.orderDetails)) {
+    order.orderDetails.forEach((od) => {
+      if (od.allocations && Array.isArray(od.allocations)) {
+        od.allocations.forEach((allocation) => {
+          if (allocation.allocationId) {
+            allocationMap[allocation.allocationId] = {
+              deviceModelName:
+                od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—",
+              serialNumber:
+                allocation.device?.serialNumber || allocation.serialNumber || "—",
+              deviceId: allocation.device?.deviceId || allocation.deviceId || null,
+              unit: "cái",
+              quantity: od.quantity || 1,
+            };
+          }
+        });
+      }
+    });
+  }
+
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach((dc) => {
+      if (!dc.allocationId) return;
+      if (!allocationMap[dc.allocationId]) {
+        allocationMap[dc.allocationId] = {
+          deviceId: dc.deviceId,
+          serialNumber: dc.deviceSerial || "—",
+          deviceModelName: "—",
+          unit: "cái",
+          quantity: 1,
+        };
+      } else {
+        if (!allocationMap[dc.allocationId].deviceId) {
+          allocationMap[dc.allocationId].deviceId = dc.deviceId;
+        }
+        if (
+          !allocationMap[dc.allocationId].serialNumber ||
+          allocationMap[dc.allocationId].serialNumber === "—"
+        ) {
+          allocationMap[dc.allocationId].serialNumber = dc.deviceSerial || "—";
+        }
+      }
+    });
+  }
+
+  const deviceConditionsByDeviceId = {};
+  if (Array.isArray(report.deviceConditions)) {
+    report.deviceConditions.forEach((dc) => {
+      if (dc.deviceId) {
+        if (!deviceConditionsByDeviceId[dc.deviceId]) {
+          deviceConditionsByDeviceId[dc.deviceId] = [];
+        }
+        deviceConditionsByDeviceId[dc.deviceId].push(dc);
+      }
+    });
+  }
+
+  const getDeviceConditionsHtml = (deviceId) => {
+    const deviceConditions = deviceConditionsByDeviceId[deviceId] || [];
+    if (deviceConditions.length === 0) {
+      return { conditions: "—", images: "—" };
+    }
+
+    const uniqueConditions = new Set();
+    const uniqueImages = new Set();
+
+    deviceConditions.forEach((dc) => {
+      const snapshots = dc.baselineSnapshots || dc.snapshots || [];
+      const selectedSnapshot =
+        snapshots.find((s) => String(s.source || "").toUpperCase() === "HANDOVER_OUT") ||
+        snapshots.find((s) => String(s.source || "").toUpperCase() === "QC_BEFORE") ||
+        snapshots[0];
+
+      if (selectedSnapshot?.conditionDetails) {
+        selectedSnapshot.conditionDetails.forEach((detail) => {
+          uniqueConditions.add(`${detail.conditionDefinitionId}_${detail.severity}`);
+        });
+      }
+
+      if (Array.isArray(selectedSnapshot?.images)) {
+        selectedSnapshot.images.forEach((img) => uniqueImages.add(img));
+      }
+    });
+
+    const conditionsHtml = uniqueConditions.size
+      ? Array.from(uniqueConditions)
+          .map((key) => {
+            const [conditionDefId] = key.split("_");
+            const conditionDef = conditionMap[conditionDefId];
+            return `<div>${conditionDef?.name || `Điều kiện #${conditionDefId}`}</div>`;
+          })
+          .join("")
+      : "—";
+
+    const imagesHtml = uniqueImages.size
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${Array.from(uniqueImages)
+            .map(
+              (img, idx) => `
+              <img
+                src="${img}"
+                alt="Ảnh ${idx + 1}"
+                style="max-width:80px;max-height:80px;border:1px solid #ddd;border-radius:4px;object-fit:contain"
+                onerror="this.style.display='none';"
+              />
+            `
+            )
+            .join("")}
+        </div>`
+      : "—";
+
+    return { conditions: conditionsHtml, images: imagesHtml };
+  };
+
+  const itemsRows = (report.items || [])
+    .map((item, idx) => {
+      const deviceId = item.deviceId;
+      const { conditions, images } = deviceId
+        ? getDeviceConditionsHtml(deviceId)
+        : { conditions: "—", images: "—" };
+
+      if (item.deviceSerialNumber && item.deviceModelName) {
+        return `
+          <tr>
+            <td style="text-align:center">${idx + 1}</td>
+            <td>${item.deviceModelName}</td>
+            <td>${item.deviceSerialNumber}</td>
+            <td style="text-align:center">cái</td>
+            <td style="text-align:center">1</td>
+            <td style="text-align:center">1</td>
+            <td>${conditions}</td>
+            <td>${images}</td>
+          </tr>
+        `;
+      }
+
+      if (item.allocationId && allocationMap[item.allocationId]) {
+        const info = allocationMap[item.allocationId];
+        const lookupDeviceId =
+          info.deviceId ||
+          report.deviceConditions?.find((d) => d.allocationId === item.allocationId)?.deviceId;
+        const conditionHtml = lookupDeviceId
+          ? getDeviceConditionsHtml(lookupDeviceId)
+          : { conditions: "—", images: "—" };
+        return `
+          <tr>
+            <td style="text-align:center">${idx + 1}</td>
+            <td>${info.deviceModelName}</td>
+            <td>${info.serialNumber}</td>
+            <td style="text-align:center">${info.unit}</td>
+            <td style="text-align:center">${info.quantity}</td>
+            <td style="text-align:center">${info.quantity}</td>
+            <td>${conditionHtml.conditions}</td>
+            <td>${conditionHtml.images}</td>
+          </tr>
+        `;
+      }
+
+      return `
+        <tr>
+          <td style="text-align:center">${idx + 1}</td>
+          <td>${item.itemName || "—"}</td>
+          <td>${item.itemCode || "—"}</td>
+          <td style="text-align:center">${item.unit || "cái"}</td>
+          <td style="text-align:center">${item.orderedQuantity || 0}</td>
+          <td style="text-align:center">${item.deliveredQuantity || 0}</td>
+          <td>—</td>
+          <td>—</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const handoverType = String(report.handoverType || "").toUpperCase();
+  const isCheckin = handoverType === "CHECKIN";
+
+  return `
+    ${HANDOVER_PRINT_CSS}
+    <div class="handover-print-root" style="width:794px;margin:0 auto;background:#fff;color:#111;padding:32px 40px;box-sizing:border-box;">
+      ${NATIONAL_HEADER_HTML}
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:22px;font-weight:700;letter-spacing:.5px">
+          ${isCheckin ? "BIÊN BẢN THU HỒI THIẾT BỊ" : "BIÊN BẢN BÀN GIAO THIẾT BỊ"}
+        </div>
+        <div style="color:#666">Số: #${report.handoverReportId || report.id || "—"}</div>
+      </div>
+      <hr style="border:none;border-top:1px solid #e8e8e8;margin:12px 0 16px"/>
+
+      <section class="kv">
+        <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
+        <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
+        ${
+          isCheckin
+            ? `<div><b>Thời gian thu hồi:</b> ${formatHandoverDateTime(report.handoverDateTime)}</div>
+               <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
+            : `<div><b>Thời gian bàn giao:</b> ${formatHandoverDateTime(report.handoverDateTime)}</div>
+               <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>`
+        }
+      </section>
+
+      <h3>Thông tin khách hàng</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${customerName}</div>
+        ${customerInfo.phone ? `<div><b>Số điện thoại:</b> ${customerInfo.phone}</div>` : ""}
+        ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
+      </section>
+
+      <h3>Kỹ thuật viên tham gia</h3>
+      <section class="kv">
+        ${
+          technicianEntries.length
+            ? technicianEntries
+                .map(
+                  (tech) => `
+      <div style="margin-bottom:6px">
+        <b>${tech.name || "—"}</b>
+        ${
+          tech.phone
+            ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
+            : ""
+        }
+        ${
+          tech.email
+            ? `<br/><span>Email: ${tech.email}</span>`
+            : ""
+        }
+      </div>
+    `
+                )
+                .join("")
+            : `
+      <div><b>Họ và tên:</b> ${technicianInfo.name || "—"}</div>
+      ${
+        technicianInfo.phone
+          ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>`
+          : ""
+      }
+      ${
+        technicianInfo.email
+          ? `<div><b>Email:</b> ${technicianInfo.email}</div>`
+          : ""
+      }
+    `
+        }
+      </section>
+
+      <h3>Danh sách thiết bị ${isCheckin ? "thu hồi" : "bàn giao"}</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Tên thiết bị</th>
+            <th>Mã thiết bị (Serial Number)</th>
+            <th style="width:80px">Đơn vị</th>
+            <th style="width:80px;text-align:center">SL đặt</th>
+            <th style="width:80px;text-align:center">SL giao</th>
+            <th>Điều kiện</th>
+            <th>Ảnh bằng chứng</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsRows || "<tr><td colspan='8' style='text-align:center'>Không có thiết bị</td></tr>"}
+        </tbody>
+      </table>
+
+      ${
+        isCheckin && (report.discrepancies || []).length > 0
+          ? `
+      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Loại sự cố</th>
+            <th>Thiết bị (Serial Number)</th>
+            <th>Điều kiện</th>
+            <th>Phí phạt</th>
+            <th>Ghi chú nhân viên</th>
+            <th>Ghi chú khách hàng</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(report.discrepancies || []).map((disc, idx) => {
+            // Try to get serial number from deviceId
+            let deviceSerial = "—";
+            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+              for (const od of order.orderDetails) {
+                if (od.allocations && Array.isArray(od.allocations)) {
+                  for (const allocation of od.allocations) {
+                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                    if (deviceId === disc.deviceId) {
+                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                      break;
+                    }
+                  }
+                  if (deviceSerial && deviceSerial !== "—") break;
+                }
+              }
+            }
+            
+            const conditionDef = conditionMap[disc.conditionDefinitionId];
+            const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
+            const penaltyAmount = disc.penaltyAmount != null ? fmtVND(disc.penaltyAmount) : "—";
+            
+            return `
+              <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${discrepancyType}</td>
+                <td>${deviceSerial}</td>
+                <td>${conditionName}</td>
+                <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
+                <td>${disc.staffNote || "—"}</td>
+                <td>${disc.customerNote || "—"}</td>
+              </tr>
+            `;
+          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+        </tbody>
+      </table>
+      `
+          : ""
+      }
+
+      ${
+        report.createdByStaff
+          ? `
+      <h3>Người tạo biên bản</h3>
+      <section class="kv">
+        <div><b>Họ và tên:</b> ${
+          report.createdByStaff.fullName ||
+          report.createdByStaff.username ||
+          `Nhân viên #${report.createdByStaff.staffId}`
+        }</div>
+        ${
+          report.createdByStaff.email
+            ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>`
+            : ""
+        }
+        ${
+          report.createdByStaff.phoneNumber
+            ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>`
+            : ""
+        }
+        ${
+          report.createdByStaff.role
+            ? `<div><b>Vai trò:</b> ${translateStaffRole(report.createdByStaff.role)}</div>`
+            : ""
+        }
+      </section>`
+          : ""
+      }
+
+      ${
+        (report.evidenceUrls || []).length
+          ? `
+      <h3>Ảnh bằng chứng</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
+        ${report.evidenceUrls
+          .map(
+            (url, idx) => `
+            <div style="flex:0 0 auto;margin-bottom:8px">
+              <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">
+                Bằng chứng ${idx + 1}
+              </div>
+              <img
+                src="${url}"
+                alt="Bằng chứng ${idx + 1}"
+                style="max-width:180px;max-height:120px;border:1px solid #ddd;border-radius:4px;object-fit:contain"
+                onerror="this.style.display='none';"
+              />
+            </div>
+          `
+          )
+          .join("")}
+      </div>
+      `
+          : ""
+      }
+    </div>
+  `;
+}
+
 export default function OperatorOrders() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
@@ -622,6 +1250,11 @@ export default function OperatorOrders() {
   const [pdfBlobUrl, setPdfBlobUrl] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const printRef = useRef(null);
+  const [handoverPdfModalOpen, setHandoverPdfModalOpen] = useState(false);
+  const [handoverPdfBlobUrl, setHandoverPdfBlobUrl] = useState("");
+  const [handoverPdfGenerating, setHandoverPdfGenerating] = useState(false);
+  const [selectedHandoverReport, setSelectedHandoverReport] = useState(null);
+  const handoverPrintRef = useRef(null);
 
   const [orderDetailModels, setOrderDetailModels] = useState({});
   const [orderDetailMetaLoading, setOrderDetailMetaLoading] = useState(false);
@@ -787,7 +1420,6 @@ export default function OperatorOrders() {
         const invoice = await getInvoiceByRentalOrderId(orderId);
         setInvoiceInfo(invoice || null);
       } catch {
-        // Invoice might not exist yet, that's okay
         console.log("No invoice found for order:", orderId);
         setInvoiceInfo(null);
       }
@@ -805,7 +1437,6 @@ export default function OperatorOrders() {
             console.log("Back URL:", normalized.backUrl);
             console.log("Selfie URL:", normalized.selfieUrl);
             setKycInfo(normalized);
-            // Auto open review if documents submitted
             const st = String(normalized?.kycStatus || normalized?.status || "").toUpperCase();
             if (st === "DOCUMENTS_SUBMITTED" || st === "SUBMITTED") {
               setKycReviewOpen(true);
@@ -908,7 +1539,36 @@ export default function OperatorOrders() {
     const customerEmail = customer?.email || "";
     const customerPhone = customer?.phoneNumber || "";
     const identificationCode = kyc?.identificationCode || "";
-    const contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    
+    // Add serial numbers from allocatedDevices after sanitization
+    if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
+      const serialNumbers = detail.allocatedDevices
+        .map(device => device.serialNumber)
+        .filter(Boolean);
+      
+      if (serialNumbers.length > 0) {
+        const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
+        
+        // Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
+        // Pattern: match device info before "Giá/ngày" and insert serial number
+        const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]+?)(\s*-\s*Giá\/ngày[^<]+?)(<\/div>)/gi;
+        const originalContentHtml = contentHtml;
+        contentHtml = contentHtml.replace(
+          equipmentDivPattern,
+          (match, openTag, deviceInfo, priceAndDeposit, closeTag) => {
+            // Insert serial number after device info, before price info
+            return `${openTag}${deviceInfo.trim()}${serialText}${priceAndDeposit}${closeTag}`;
+          }
+        );
+        
+        // Debug: log if replacement didn't occur
+        if (contentHtml === originalContentHtml) {
+          console.warn("Serial number injection failed. HTML pattern:", contentHtml.substring(0, 200));
+        }
+      }
+    }
+    
     const termsBlock = detail.terms
       ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
       : "";
@@ -963,7 +1623,7 @@ export default function OperatorOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -972,7 +1632,7 @@ export default function OperatorOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -984,7 +1644,7 @@ export default function OperatorOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -993,7 +1653,7 @@ export default function OperatorOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
+                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -1171,6 +1831,128 @@ export default function OperatorOrders() {
       setTimeout(listener, 800);
     }
   }
+
+  const buildOrderWithModels = async (orderId) => {
+    if (!orderId) return null;
+    try {
+      let orderData = await getRentalOrderById(orderId);
+      if (orderData && Array.isArray(orderData.orderDetails) && orderData.orderDetails.length) {
+        const modelIds = Array.from(
+          new Set(orderData.orderDetails.map((od) => od.deviceModelId).filter(Boolean))
+        );
+        const modelPairs = await Promise.all(
+          modelIds.map(async (id) => {
+            try {
+              const m = await getDeviceModelById(id);
+              return [id, normalizeDeviceModel(m)];
+            } catch {
+              return [id, null];
+            }
+          })
+        );
+        const modelMap = Object.fromEntries(modelPairs);
+        orderData = {
+          ...orderData,
+          orderDetails: orderData.orderDetails.map((od) => ({
+            ...od,
+            deviceModel: modelMap[od.deviceModelId] || null,
+          })),
+        };
+      }
+      return orderData;
+    } catch {
+      return null;
+    }
+  };
+
+  const previewHandoverReportAsPdf = async (report) => {
+    if (!report) return message.warning("Không có biên bản để xem.");
+    try {
+      setHandoverPdfGenerating(true);
+      setSelectedHandoverReport(report);
+      revokeBlob(handoverPdfBlobUrl);
+
+      const orderData = report.orderId ? await buildOrderWithModels(report.orderId) : null;
+      let conditionDefinitions = [];
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch {
+        conditionDefinitions = [];
+      }
+
+      if (handoverPrintRef.current) {
+        handoverPrintRef.current.style.visibility = "visible";
+        handoverPrintRef.current.style.opacity = "1";
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(
+          report,
+          orderData,
+          conditionDefinitions
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const blob = await elementToPdfBlob(handoverPrintRef.current);
+
+        handoverPrintRef.current.style.visibility = "hidden";
+        handoverPrintRef.current.style.opacity = "0";
+        handoverPrintRef.current.innerHTML = "";
+
+        const url = URL.createObjectURL(blob);
+        setHandoverPdfBlobUrl(url);
+        setHandoverPdfModalOpen(true);
+      }
+    } catch (e) {
+      console.error("Preview handover PDF error:", e);
+      message.error("Không thể tạo bản xem trước biên bản.");
+    } finally {
+      setHandoverPdfGenerating(false);
+    }
+  };
+
+  const downloadHandoverReportAsPdf = async (report) => {
+    if (!report) return;
+    try {
+      setHandoverPdfGenerating(true);
+      revokeBlob(handoverPdfBlobUrl);
+
+      const orderData = report.orderId ? await buildOrderWithModels(report.orderId) : null;
+      let conditionDefinitions = [];
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch {
+        conditionDefinitions = [];
+      }
+
+      if (handoverPrintRef.current) {
+        handoverPrintRef.current.style.visibility = "visible";
+        handoverPrintRef.current.style.opacity = "1";
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(
+          report,
+          orderData,
+          conditionDefinitions
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const blob = await elementToPdfBlob(handoverPrintRef.current);
+
+        handoverPrintRef.current.style.visibility = "hidden";
+        handoverPrintRef.current.style.opacity = "0";
+        handoverPrintRef.current.innerHTML = "";
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `handover-report-${report.handoverReportId || report.id || "report"}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 0);
+      }
+    } catch (e) {
+      console.error("Download handover PDF error:", e);
+      message.error("Không thể tải biên bản.");
+    } finally {
+      setHandoverPdfGenerating(false);
+    }
+  };
 
   const viewContractDetail = async (contractId) => {
     try {
@@ -1376,6 +2158,22 @@ export default function OperatorOrders() {
     });
   }, [detail, orderDetailModels]);
 
+  const checkoutReports = useMemo(
+    () =>
+      handoverReports.filter(
+        (report) => String(report.handoverType || "").toUpperCase() !== "CHECKIN"
+      ),
+    [handoverReports]
+  );
+
+  const checkinReports = useMemo(
+    () =>
+      handoverReports.filter(
+        (report) => String(report.handoverType || "").toUpperCase() === "CHECKIN"
+      ),
+    [handoverReports]
+  );
+
   const detailDays = useMemo(() => {
     if (!detail) return 1;
     const d =
@@ -1452,7 +2250,7 @@ export default function OperatorOrders() {
       },
     ];
 
-    // Reordered: Đơn giá/ngày -> Số ngày -> Tổng tiền thuê -> Cọc/1 SP -> Số lượng -> Tổng cọc -> Tổng thanh toán
+    // Reordered: Đơn giá/ngày -> Số ngày -> Tổng tiền thuê -> Cọc/1 SP -> Số lượng -> Tổng cọc
     columns.push(
       {
         title: "Đơn giá SP/ngày",
@@ -1547,6 +2345,157 @@ export default function OperatorOrders() {
     } finally {
       setKycUpdating(false);
     }
+  };
+
+  const renderHandoverReportCards = (reports, isCheckin) => {
+    if (!reports || reports.length === 0) {
+      return (
+        <Text type="secondary">
+          Chưa có biên bản {isCheckin ? "thu hồi" : "bàn giao"} nào cho đơn này.
+        </Text>
+      );
+    }
+
+    return reports.map((report) => {
+      const key = report.handoverReportId || report.id;
+      const loadingCurrent =
+        handoverPdfGenerating &&
+        (selectedHandoverReport?.handoverReportId === report.handoverReportId ||
+          selectedHandoverReport?.id === report.id);
+      const customerInfoStr = report.customerInfo || "";
+      const parts = customerInfoStr.split(" • ").filter(Boolean);
+      const customerName = parts[0] || "—";
+      const customerPhone = parts[1] || "—";
+      const customerEmail = parts[2] || "—";
+      const titlePrefix = isCheckin ? "Biên bản thu hồi" : "Biên bản bàn giao";
+
+      return (
+        <Card
+          key={key}
+          type="inner"
+          title={`${titlePrefix} #${report.handoverReportId || report.id} • Task #${
+            report.taskId ?? "—"
+          }`}
+          style={{ marginBottom: 16 }}
+          extra={
+            <Space size="small">
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => previewHandoverReportAsPdf(report)}
+                loading={loadingCurrent}
+              >
+                Xem PDF
+              </Button>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                onClick={() => downloadHandoverReportAsPdf(report)}
+                loading={loadingCurrent}
+              >
+                Tải PDF
+              </Button>
+            </Space>
+          }
+        >
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label={isCheckin ? "Ngày thu hồi" : "Ngày bàn giao"}>
+              {report.handoverDateTime
+                ? dayjs(report.handoverDateTime).format("DD/MM/YYYY HH:mm")
+                : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label={isCheckin ? "Địa điểm thu hồi" : "Địa điểm bàn giao"}>
+              {report.handoverLocation || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Tên khách hàng">{customerName}</Descriptions.Item>
+            <Descriptions.Item label="Số điện thoại">{customerPhone}</Descriptions.Item>
+            <Descriptions.Item label="Email">{customerEmail}</Descriptions.Item>
+            <Descriptions.Item label="Thông tin nhân sự thực hiện">
+              {report.technicianInfo || "—"}
+            </Descriptions.Item>
+          </Descriptions>
+
+          <Divider dashed />
+
+          <Title level={5} style={{ fontSize: 14 }}>
+            Thiết bị {isCheckin ? "thu hồi" : "bàn giao"}
+          </Title>
+          <Table
+            rowKey={(record, idx) => `${key}-${idx}`}
+            dataSource={report.items || []}
+            pagination={false}
+            size="small"
+            columns={[
+              { title: "Tên thiết bị", dataIndex: "itemName", key: "itemName" },
+              {
+                title: "Mã thiết bị/Serial",
+                dataIndex: "itemCode",
+                key: "itemCode",
+                render: (val) => val || "—",
+              },
+              { title: "Đơn vị", dataIndex: "unit", key: "unit", width: 90 },
+              {
+                title: "SL đặt",
+                dataIndex: "orderedQuantity",
+                key: "orderedQuantity",
+                width: 100,
+                align: "center",
+              },
+              {
+                title: "SL giao",
+                dataIndex: "deliveredQuantity",
+                key: "deliveredQuantity",
+                width: 100,
+                align: "center",
+              },
+            ]}
+          />
+
+          <Divider dashed />
+
+          <Title level={5} style={{ fontSize: 14 }}>Kỹ thuật viên tham gia</Title>
+          <Space direction="vertical" size={6} style={{ width: "100%" }}>
+            {(report.technicians || []).map((tech) => (
+              <Card
+                key={`${key}-tech-${tech.staffId ?? tech.username ?? tech.fullName ?? ""}`}
+                size="small"
+              >
+                <Space direction="vertical" size={0}>
+                  <Text strong>
+                    {tech.fullName || tech.username || `Nhân sự #${tech.staffId ?? "?"}`}
+                  </Text>
+                  <Text type="secondary">Role: {tech.role || "—"}</Text>
+                  {tech.email && <Text type="secondary">Email: {tech.email}</Text>}
+                  {tech.phoneNumber && <Text type="secondary">Phone: {tech.phoneNumber}</Text>}
+                </Space>
+              </Card>
+            ))}
+            {(!report.technicians || report.technicians.length === 0) && (
+              <Text type="secondary">Không có thông tin nhân sự.</Text>
+            )}
+          </Space>
+
+          <Divider dashed />
+
+          <Title level={5} style={{ fontSize: 14 }}>Bằng chứng</Title>
+          <Space wrap>
+            {(report.evidenceUrls || []).map((url, idx) => (
+              <Image
+                key={`${key}-evidence-${idx}`}
+                src={url}
+                alt={`Evidence ${idx + 1}`}
+                width={180}
+                style={{ borderRadius: 8 }}
+                fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='120'%3E%3Crect width='180' height='120' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='12'%3ENo Image%3C/text%3E%3C/svg%3E"
+              />
+            ))}
+            {(!report.evidenceUrls || report.evidenceUrls.length === 0) && (
+              <Text type="secondary">Không có bằng chứng hình ảnh.</Text>
+            )}
+          </Space>
+        </Card>
+      );
+    });
   };
 
   // ====== UI ======
@@ -1760,127 +2709,13 @@ export default function OperatorOrders() {
             <Title level={5} style={{ marginBottom: 8 }}>Biên bản bàn giao</Title>
             {handoverLoading ? (
               <Skeleton active paragraph={{ rows: 3 }} />
-            ) : handoverReports.length > 0 ? (
-              handoverReports.map((report) => (
-                <Card
-                  key={report.handoverReportId}
-                  type="inner"
-                  title={`Biên bản #${report.handoverReportId} • Task #${report.taskId ?? "—"}`}
-                  style={{ marginBottom: 16 }}
-                >
-                  <Descriptions column={1} size="small" bordered>
-                    <Descriptions.Item label="Ngày bàn giao">
-                      {report.handoverDateTime
-                        ? dayjs(report.handoverDateTime).format("DD/MM/YYYY HH:mm")
-                        : "—"}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="Địa điểm">
-                      {report.handoverLocation || "—"}
-                    </Descriptions.Item>
-                    {(() => {
-                      // Parse customerInfo string: "Tên • SĐT • Email"
-                      const customerInfoStr = report.customerInfo || "";
-                      const parts = customerInfoStr.split(" • ").filter(Boolean);
-                      const customerName = parts[0] || "—";
-                      const customerPhone = parts[1] || "—";
-                      const customerEmail = parts[2] || "—";
-                      
-                      return (
-                        <>
-                          <Descriptions.Item label="Tên khách hàng">
-                            {customerName}
-                          </Descriptions.Item>
-                          <Descriptions.Item label="Số điện thoại">
-                            {customerPhone}
-                          </Descriptions.Item>
-                          <Descriptions.Item label="Email">
-                            {customerEmail}
-                          </Descriptions.Item>
-                        </>
-                      );
-                    })()}
-                    <Descriptions.Item label="Thông tin nhân sự thực hiện">
-                      {report.technicianInfo || "—"}
-                    </Descriptions.Item>
-                  </Descriptions>
-
-                  <Divider dashed />
-
-                  <Title level={5} style={{ fontSize: 14 }}>Thiết bị bàn giao</Title>
-                  <Table
-                    rowKey={(record, idx) => `${report.handoverReportId}-${idx}`}
-                    dataSource={report.items || []}
-                    pagination={false}
-                    size="small"
-                    columns={[
-                      { title: "Tên thiết bị", dataIndex: "itemName", key: "itemName" },
-                      {
-                        title: "Mã thiết bị/Serial",
-                        dataIndex: "itemCode",
-                        key: "itemCode",
-                        render: (val) => val || "—",
-                      },
-                      { title: "Đơn vị", dataIndex: "unit", key: "unit", width: 90 },
-                      {
-                        title: "SL đặt",
-                        dataIndex: "orderedQuantity",
-                        key: "orderedQuantity",
-                        width: 100,
-                        align: "center",
-                      },
-                      {
-                        title: "SL giao",
-                        dataIndex: "deliveredQuantity",
-                        key: "deliveredQuantity",
-                        width: 100,
-                        align: "center",
-                      },
-                    ]}
-                  />
-
-                  <Divider dashed />
-
-                  <Title level={5} style={{ fontSize: 14 }}>Kỹ thuật viên tham gia</Title>
-                  <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                    {(report.technicians || []).map((tech) => (
-                      <Card key={`${report.handoverReportId}-tech-${tech.staffId ?? tech.username ?? tech.fullName ?? ""}`} size="small">
-                        <Space direction="vertical" size={0}>
-                          <Text strong>
-                            {tech.fullName || tech.username || `Nhân sự #${tech.staffId ?? "?"}`}
-                          </Text>
-                          <Text type="secondary">Role: {tech.role || "—"}</Text>
-                          {tech.email && <Text type="secondary">Email: {tech.email}</Text>}
-                          {tech.phoneNumber && <Text type="secondary">Phone: {tech.phoneNumber}</Text>}
-                        </Space>
-                      </Card>
-                    ))}
-                    {(!report.technicians || report.technicians.length === 0) && (
-                      <Text type="secondary">Không có thông tin nhân sự.</Text>
-                    )}
-                  </Space>
-
-                  <Divider dashed />
-
-                  <Title level={5} style={{ fontSize: 14 }}>Bằng chứng</Title>
-                  <Space wrap>
-                    {(report.evidenceUrls || []).map((url, idx) => (
-                      <Image
-                        key={`${report.handoverReportId}-evidence-${idx}`}
-                        src={url}
-                        alt={`Evidence ${idx + 1}`}
-                        width={180}
-                        style={{ borderRadius: 8 }}
-                        fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='120'%3E%3Crect width='180' height='120' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='12'%3ENo Image%3C/text%3E%3C/svg%3E"
-                      />
-                    ))}
-                    {(!report.evidenceUrls || report.evidenceUrls.length === 0) && (
-                      <Text type="secondary">Không có bằng chứng hình ảnh.</Text>
-                    )}
-                  </Space>
-                </Card>
-              ))
             ) : (
-              <Text type="secondary">Chưa có biên bản bàn giao nào cho đơn này.</Text>
+              <>
+                {renderHandoverReportCards(checkoutReports, false)}
+                <Divider />
+                <Title level={5} style={{ marginBottom: 8 }}>Biên bản thu hồi</Title>
+                {renderHandoverReportCards(checkinReports, true)}
+              </>
             )}
 
             <Divider />
@@ -1888,12 +2723,10 @@ export default function OperatorOrders() {
             <Space>
               {/* Chỉ cho phép tạo hợp đồng khi trạng thái đơn là "processing" và chưa có hợp đồng nào không ở trạng thái DRAFT */}
               {String(detail.orderStatus).toUpperCase() === "PROCESSING" && (() => {
-                // Kiểm tra xem có hợp đồng nào không ở trạng thái DRAFT không
                 const hasNonDraftContract = orderContracts.some(contract => {
                   const status = String(contract.status || "").toUpperCase();
                   return status !== "DRAFT" && status !== "";
                 });
-                // Chỉ hiển thị nút nếu chưa có hợp đồng hoặc tất cả hợp đồng đều ở trạng thái DRAFT
                 return !hasNonDraftContract;
               })() && (
                 <Button icon={<FileTextOutlined />} onClick={() => doCreateContract(detail)} title="Tạo hợp đồng">
@@ -2034,6 +2867,57 @@ export default function OperatorOrders() {
         )}
       </Modal>
 
+      <Modal
+        title={`Biên bản ${
+          selectedHandoverReport &&
+          String(selectedHandoverReport.handoverType || "").toUpperCase() === "CHECKIN"
+            ? "thu hồi"
+            : "bàn giao"
+        } #${selectedHandoverReport?.handoverReportId || selectedHandoverReport?.id || ""}`}
+        open={handoverPdfModalOpen}
+        onCancel={() => {
+          setHandoverPdfModalOpen(false);
+          revokeBlob(handoverPdfBlobUrl);
+          setHandoverPdfBlobUrl("");
+          setSelectedHandoverReport(null);
+        }}
+        footer={[
+          <Button
+            key="download"
+            icon={<DownloadOutlined />}
+            onClick={() => selectedHandoverReport && downloadHandoverReportAsPdf(selectedHandoverReport)}
+            loading={handoverPdfGenerating}
+          >
+            Tải PDF
+          </Button>,
+          <Button
+            key="close"
+            onClick={() => {
+              setHandoverPdfModalOpen(false);
+              revokeBlob(handoverPdfBlobUrl);
+              setHandoverPdfBlobUrl("");
+              setSelectedHandoverReport(null);
+            }}
+          >
+            Đóng
+          </Button>,
+        ]}
+        width="90%"
+        style={{ top: 24 }}
+      >
+        {handoverPdfBlobUrl ? (
+          <iframe
+            title="HandoverPDFPreview"
+            src={handoverPdfBlobUrl}
+            style={{ width: "100%", height: "80vh", border: "none" }}
+          />
+        ) : (
+          <div style={{ textAlign: "center", padding: "40px" }}>
+            <Text>Đang tạo PDF...</Text>
+          </div>
+        )}
+      </Modal>
+
       {/* Modal xem trước PDF do FE kết xuất */}
       <Modal
         title="Xem trước PDF hợp đồng (HTML→PDF)"
@@ -2096,6 +2980,20 @@ export default function OperatorOrders() {
       <div style={{ position: "fixed", left: -9999, top: -9999, background: "#fff" }}>
         <div ref={printRef} />
       </div>
+      <div
+        ref={handoverPrintRef}
+        style={{
+          position: "fixed",
+          left: "-99999px",
+          top: "-99999px",
+          width: "794px",
+          background: "#fff",
+          visibility: "hidden",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -9999,
+        }}
+      />
 
       {/* KYC Review Modal inside Orders */}
       <Modal

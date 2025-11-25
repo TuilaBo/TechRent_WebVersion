@@ -151,6 +151,80 @@ export async function createHandoverReportCheckin(body) {
 }
 
 /**
+ * PUT /api/staff/handover-reports/checkin/{handoverReportId}
+ * Cập nhật handover report CHECKIN
+ * @param {number} handoverReportId
+ * @param {Object} body - giống createHandoverReportCheckin nhưng không có taskId
+ */
+export async function updateHandoverReportCheckin(handoverReportId, body) {
+  const dataObj = {
+    customerInfo: String(body.customerInfo || ""),
+    technicianInfo: String(body.technicianInfo || ""),
+    handoverDateTime: String(body.handoverDateTime || ""),
+    handoverLocation: String(body.handoverLocation || ""),
+    customerSignature: String(body.customerSignature || ""),
+    items: Array.isArray(body.items)
+      ? body.items.map((item) => ({
+          deviceId: Number(item.deviceId || 0),
+          evidenceUrls: Array.isArray(item.evidenceUrls) ? item.evidenceUrls.map(String) : [],
+        }))
+      : [],
+    discrepancies: Array.isArray(body.discrepancies)
+      ? body.discrepancies.map((d) => ({
+          discrepancyType: String(d.discrepancyType || ""),
+          conditionDefinitionId: Number(d.conditionDefinitionId || 0),
+          orderDetailId: Number(d.orderDetailId || 0),
+          deviceId: Number(d.deviceId || 0),
+          staffNote: String(d.staffNote || ""),
+          customerNote: String(d.customerNote || ""),
+        }))
+      : [],
+  };
+
+  const { data } = await api.put(
+    `/api/staff/handover-reports/checkin/${Number(handoverReportId)}`,
+    dataObj
+  );
+  return unwrap(data);
+}
+
+/**
+ * PUT /api/staff/handover-reports/checkout/{handoverReportId}
+ * Cập nhật handover report CHECKOUT
+ * @param {number} handoverReportId
+ * @param {Object} body - giống createHandoverReportCheckout nhưng không có taskId
+ */
+export async function updateHandoverReportCheckout(handoverReportId, body) {
+  const dataObj = {
+    customerInfo: String(body.customerInfo || ""),
+    technicianInfo: String(body.technicianInfo || ""),
+    handoverDateTime: String(body.handoverDateTime || ""),
+    handoverLocation: String(body.handoverLocation || ""),
+    customerSignature: String(body.customerSignature || ""),
+    items: Array.isArray(body.items)
+      ? body.items.map((item) => ({
+          deviceId: Number(item.deviceId || 0),
+          evidenceUrls: Array.isArray(item.evidenceUrls) ? item.evidenceUrls.map(String) : [],
+        }))
+      : [],
+    deviceConditions: Array.isArray(body.deviceConditions)
+      ? body.deviceConditions.map((dc) => ({
+          deviceId: Number(dc.deviceId || 0),
+          conditionDefinitionId: Number(dc.conditionDefinitionId || 0),
+          severity: String(dc.severity || ""),
+          images: Array.isArray(dc.images) ? dc.images.map(String) : [],
+        }))
+      : [],
+  };
+
+  const { data } = await api.put(
+    `/api/staff/handover-reports/checkout/${Number(handoverReportId)}`,
+    dataObj
+  );
+  return unwrap(data);
+}
+
+/**
  * @deprecated Sử dụng createHandoverReportCheckout hoặc createHandoverReportCheckin thay thế
  * POST /api/staff/handover-reports
  * Tạo handover report (biên bản bàn giao) - Legacy

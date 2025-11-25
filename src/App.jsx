@@ -44,6 +44,7 @@ import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
 import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
 import TechnicianReports from "./pages/technician/TechnicianReports.jsx";
 import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
+import TechnicianPostRentalQc from "./pages/technician/TechnicianPostRentalQc.jsx";
 import TechnicianHandover from "./pages/technician/TechnicianHandover.jsx";
 import TechnicianHandoverCheckin from "./pages/technician/TechnicianHandoverCheckin.jsx";
 
@@ -150,6 +151,7 @@ export default function App() {
           <Route index element={<TechnicianCalendar />} />
           <Route path="reports" element={<TechnicianReports />} />
           <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
+          <Route path="tasks/post-rental-qc/:taskId" element={<TechnicianPostRentalQc />} />
           <Route path="tasks/handover/:taskId" element={<TechnicianHandover />} />
           <Route path="tasks/handover-checkin/:taskId" element={<TechnicianHandoverCheckin />} />
         </Route>

@@ -66,14 +66,6 @@ export async function createPreRentalQcReport(body) {
  *   },
  *   result: string,
  *   findings: string,
- *   deviceConditions: [
- *     {
- *       deviceId: number,
- *       conditionDefinitionId: number,
- *       severity: string,
- *       images: string[]
- *     }
- *   ],
  *   discrepancies: [
  *     {
  *       discrepancyType: string,
@@ -96,14 +88,6 @@ export async function createPostRentalQcReport(body) {
     orderDetailSerialNumbers: body.orderDetailSerialNumbers || {},
     result: String(body.result || ""),
     findings: String(body.findings || ""),
-    deviceConditions: Array.isArray(body.deviceConditions)
-      ? body.deviceConditions.map((dc) => ({
-          deviceId: Number(dc.deviceId || 0),
-          conditionDefinitionId: Number(dc.conditionDefinitionId || 0),
-          severity: String(dc.severity || ""),
-          images: Array.isArray(dc.images) ? dc.images : [],
-        }))
-      : [],
     discrepancies: Array.isArray(body.discrepancies)
       ? body.discrepancies.map((d) => ({
           discrepancyType: String(d.discrepancyType || ""),
@@ -188,6 +172,7 @@ export async function getQcReportsByOrderId(orderId) {
 export async function updatePreRentalQcReport(qcReportId, body) {
   const fd = new FormData();
   
+  // Luôn gửi deviceConditions (kể cả array rỗng) để API có thể xóa tất cả nếu cần
   const requestObj = {
     orderDetailSerialNumbers: body.orderDetailSerialNumbers || {},
     result: String(body.result || ""),
@@ -223,14 +208,6 @@ export async function updatePreRentalQcReport(qcReportId, body) {
  *   },
  *   result: string,
  *   findings: string,
- *   deviceConditions: [
- *     {
- *       deviceId: number,
- *       conditionDefinitionId: number,
- *       severity: string,
- *       images: string[]
- *     }
- *   ],
  *   discrepancies: [
  *     {
  *       discrepancyType: string,
@@ -247,18 +224,11 @@ export async function updatePreRentalQcReport(qcReportId, body) {
 export async function updatePostRentalQcReport(qcReportId, body) {
   const fd = new FormData();
   
+  // Luôn gửi discrepancies (kể cả array rỗng) để API có thể xóa tất cả nếu cần
   const requestObj = {
     orderDetailSerialNumbers: body.orderDetailSerialNumbers || {},
     result: String(body.result || ""),
     findings: String(body.findings || ""),
-    deviceConditions: Array.isArray(body.deviceConditions)
-      ? body.deviceConditions.map((dc) => ({
-          deviceId: Number(dc.deviceId || 0),
-          conditionDefinitionId: Number(dc.conditionDefinitionId || 0),
-          severity: String(dc.severity || ""),
-          images: Array.isArray(dc.images) ? dc.images : [],
-        }))
-      : [],
     discrepancies: Array.isArray(body.discrepancies)
       ? body.discrepancies.map((d) => ({
           discrepancyType: String(d.discrepancyType || ""),
@@ -323,8 +293,9 @@ export async function createQcReport(body) {
 }
 
 /**
+ * @deprecated Sử dụng updatePreRentalQcReport hoặc updatePostRentalQcReport thay thế
  * PUT /api/technician/qc-reports/{qcReportId}
- * Cập nhật QC report
+ * Cập nhật QC report (legacy - deprecated)
  * body: {
  *   phase: "PRE_RENTAL" | "POST_RENTAL",
  *   result: string,
@@ -361,15 +332,17 @@ export async function updateQcReport(qcReportId, body) {
     result: String(body.result || ""),
     findings: String(body.findings || ""),
     orderDetailSerialNumbers: body.orderDetailSerialNumbers || {},
-    deviceConditions: Array.isArray(body.deviceConditions)
-      ? body.deviceConditions.map((dc) => ({
-          deviceId: Number(dc.deviceId || 0),
-          conditionDefinitionId: Number(dc.conditionDefinitionId || 0),
-          severity: String(dc.severity || ""),
-          images: Array.isArray(dc.images) ? dc.images : [],
-        }))
-      : [],
   };
+  
+  // Thêm deviceConditions nếu có (chủ yếu cho PRE_RENTAL)
+  if (Array.isArray(body.deviceConditions) && body.deviceConditions.length > 0) {
+    requestObj.deviceConditions = body.deviceConditions.map((dc) => ({
+      deviceId: Number(dc.deviceId || 0),
+      conditionDefinitionId: Number(dc.conditionDefinitionId || 0),
+      severity: String(dc.severity || ""),
+      images: Array.isArray(dc.images) ? dc.images : [],
+    }));
+  }
   
   // Thêm discrepancies nếu có (chủ yếu cho POST_RENTAL, có thể bỏ qua cho PRE_RENTAL)
   if (Array.isArray(body.discrepancies) && body.discrepancies.length > 0) {

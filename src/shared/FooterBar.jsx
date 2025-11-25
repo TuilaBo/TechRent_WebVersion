@@ -9,6 +9,7 @@ import {
   Divider,
   Tag,
   Input,
+  Card,
 } from "antd";
 import {
   FacebookOutlined,
@@ -21,6 +22,9 @@ import {
   ClockCircleOutlined,
   AndroidOutlined,
   SafetyCertificateOutlined,
+  ThunderboltOutlined,
+  SmileOutlined,
+  CustomerServiceOutlined,
 } from "@ant-design/icons";
 
 const { Footer } = Layout;
@@ -37,22 +41,75 @@ const pmBadgeStyle = {
 };
 
 const storeBtnStyle = {
-  borderColor: "rgba(255,255,255,0.45)",
+  borderColor: "rgba(255,255,255,0.4)",
   color: "#fff",
   borderRadius: 10,
+  height: 44,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
 };
+
+const highlightCards = [
+  {
+    icon: <SafetyCertificateOutlined style={{ fontSize: 22 }} />,
+    title: "Thiết bị chính hãng",
+    desc: "100% kiểm định trước khi giao – chứng nhận bởi TechRent.",
+  },
+  {
+    icon: <ThunderboltOutlined style={{ fontSize: 22 }} />,
+    title: "Giao nhanh 2H",
+    desc: "Có mặt tại TP.HCM trong vòng 2 giờ kể từ khi xác nhận.",
+  },
+  {
+    icon: <CustomerServiceOutlined style={{ fontSize: 22 }} />,
+    title: "Hỗ trợ đa kênh",
+    desc: "Chat, hotline, email hoạt động 08:00 – 21:00 mỗi ngày.",
+  },
+];
+
+const quickLinks = [
+  { label: "Giới thiệu", href: "#" },
+  { label: "Liên hệ", href: "#" },
+  { label: "Blog", href: "#" },
+  { label: "Tuyển dụng", href: "#" },
+];
+
+const supportLinks = [
+  { label: "Hướng dẫn thuê", href: "#" },
+  { label: "Bảo hành & đổi trả", href: "#" },
+  { label: "Câu hỏi thường gặp", href: "#" },
+  { label: "Chính sách & điều khoản", href: "#" },
+];
+
+const socialLinks = [
+  { icon: <FacebookOutlined />, label: "Facebook", href: "#" },
+  { icon: <InstagramOutlined />, label: "Instagram", href: "#" },
+  { icon: <YoutubeOutlined />, label: "Youtube", href: "#" },
+  { icon: <TwitterOutlined />, label: "Twitter", href: "#" },
+];
 
 export default function FooterBar() {
   return (
     <Footer
       style={{
         padding: 0,
-        background: "#0B1220", // ✅ navy rất đậm
+        background: "#050917",
         color: "rgba(255,255,255,0.85)",
         marginTop: 40,
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      {/* Thanh gradient mảnh trên cùng (nhận diện thương hiệu) */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "radial-gradient(circle at top, rgba(111,98,255,0.2), transparent 50%)",
+          pointerEvents: "none",
+        }}
+      />
+
       <div
         style={{
           height: 2,
@@ -61,56 +118,90 @@ export default function FooterBar() {
         }}
       />
 
-      {/* Nội dung chính */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 16px" }}>
-        <Row gutter={[24, 32]}>
-          {/* Brand & Social */}
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "48px 16px" }}>
+        <Row gutter={[24, 24]}>
+          {highlightCards.map((item) => (
+            <Col xs={24} md={8} key={item.title}>
+              <Card
+                bordered={false}
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <Space align="start" size="large">
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: "50%",
+                      background: "rgba(255,255,255,0.1)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#fff",
+                    }}
+                  >
+                    {item.icon}
+                  </div>
+                  <Space direction="vertical" size={4}>
+                    <Text style={{ color: "#fff", fontWeight: 600 }}>{item.title}</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.75)" }}>{item.desc}</Text>
+                  </Space>
+                </Space>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+
+        <Divider style={{ borderColor: "rgba(255,255,255,0.08)", margin: "36px 0" }} />
+
+        <Row gutter={[32, 32]}>
           <Col xs={24} md={8}>
-            <Space direction="vertical" size={12} style={{ display: "flex" }}>
-              <Space align="center">
-                <Title
-                  level={3}
-                  style={{ color: "#fff", margin: 0, letterSpacing: 0.2 }}
-                >
+            <Space direction="vertical" size={16} style={{ display: "flex" }}>
+              <div>
+                <Title level={3} style={{ color: "#fff", margin: 0, letterSpacing: 0.3 }}>
                   TechRent
                 </Title>
-              </Space>
-
-              <Paragraph style={{ color: "rgba(255,255,255,0.75)", margin: 0 }}>
-                Thuê thiết bị công nghệ nhanh – gọn – uy tín. Laptop, camera,
-                ... giao nhanh tại TP.HCM.
-              </Paragraph>
-
-              <Space size="middle" wrap>
-                <Tag color="blue" style={{ marginInlineEnd: 0 }}>
-                  <SafetyCertificateOutlined /> Đối tác uy tín
-                </Tag>
-              </Space>
-
-              <Space size="large">
-                <a aria-label="Facebook" href="#" style={{ color: "#8ab4ff", fontSize: 20 }}>
-                  <FacebookOutlined />
-                </a>
-                <a aria-label="Instagram" href="#" style={{ color: "#ff9bd6", fontSize: 20 }}>
-                  <InstagramOutlined />
-                </a>
+                <Text style={{ color: "rgba(255,255,255,0.75)" }}>
+                  Thuê thiết bị công nghệ nhanh – gọn – uy tín. Laptop, camera, thiết bị livestream và audio
+                  dành cho team sản xuất nội dung.
+                </Text>
+              </div>
+              <Space wrap size="large">
+                {socialLinks.map((social) => (
+                  <a
+                    key={social.label}
+                    aria-label={social.label}
+                    href={social.href}
+                    style={{
+                      color: "#fff",
+                      fontSize: 18,
+                      opacity: 0.8,
+                      transition: "opacity .2s",
+                    }}
+                  >
+                    {social.icon}
+                  </a>
+                ))}
               </Space>
             </Space>
           </Col>
 
-          {/* Links */}
           <Col xs={12} md={4}>
             <Title level={5} style={{ color: "#fff" }}>
               Về TechRent
             </Title>
             <Space direction="vertical" size={8}>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Giới thiệu
-              </Link>
-              
-              <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Liên hệ
-              </Link>
+              {quickLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  href={link.href}
+                  style={{ color: "rgba(255,255,255,0.75)" }}
+                >
+                  {link.label}
+                </Link>
+              ))}
             </Space>
           </Col>
 
@@ -119,32 +210,28 @@ export default function FooterBar() {
               Hỗ trợ
             </Title>
             <Space direction="vertical" size={8}>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Hướng dẫn thuê
-              </Link>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Bảo hành & đổi trả
-              </Link>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Câu hỏi thường gặp
-              </Link>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.75)" }}>
-                Chính sách
-              </Link>
+              {supportLinks.map((link) => (
+                <Link
+                  key={link.label}
+                  href={link.href}
+                  style={{ color: "rgba(255,255,255,0.75)" }}
+                >
+                  {link.label}
+                </Link>
+              ))}
             </Space>
           </Col>
 
-          {/* Contact */}
-          <Col xs={24} md={6}>
+          <Col xs={24} md={8}>
             <Title level={5} style={{ color: "#fff" }}>
               Liên hệ
             </Title>
             <Space direction="vertical" size={10} style={{ display: "flex" }}>
               <Space>
                 <PhoneOutlined />
-                <Text style={{ color: "#fff" }}>0937 466 461</Text>
-                <Tag color="processing" style={{ marginInlineStart: 8 }}>
-                  08:00–21:00
+                <Text style={{ color: "#fff", fontWeight: 600 }}>0937 466 461</Text>
+                <Tag color="purple" style={{ marginLeft: 8 }}>
+                  08:00 – 21:00
                 </Tag>
               </Space>
               <Space>
@@ -154,59 +241,46 @@ export default function FooterBar() {
               <Space align="start">
                 <EnvironmentOutlined />
                 <Text style={{ color: "rgba(255,255,255,0.8)" }}>
-                  Lô E2a-7, Đường D1, Khu Công nghệ cao, Phường Tăng Nhơn Phú A,
-                  TP. Thủ Đức, TP. Hồ Chí Minh
+                  Lô E2a-7, Đường D1, Khu Công nghệ cao, P. Tăng Nhơn Phú A, TP. Thủ Đức
                 </Text>
               </Space>
               <Space>
+                <ClockCircleOutlined />
+                <Text style={{ color: "rgba(255,255,255,0.8)" }}>Giao nhanh nội thành chỉ từ 2 giờ</Text>
               </Space>
-            </Space>
-          </Col>
-
-          {/* Newsletter */}
-          <Col xs={24} md={6}>
-            <Title level={5} style={{ color: "#fff" }}>Nhận tin khuyến mãi</Title>
-            <Text style={{ color: "rgba(255,255,255,0.75)" }}>
-              Nhập email để nhận ưu đãi và cập nhật sản phẩm mới.
-            </Text>
-            <Space style={{ marginTop: 12 }}>
-              <Input placeholder="Email của bạn" style={{ width: 220, background: "#0f172a", borderColor: "#1f2937", color: "#fff" }} />
-              <Button type="primary" style={{ background: "#2F6BF2", borderColor: "#2F6BF2" }}>Đăng ký</Button>
             </Space>
           </Col>
         </Row>
 
-        <Divider style={{ borderColor: "rgba(255,255,255,0.10)" }} />
+        <Divider style={{ borderColor: "rgba(255,255,255,0.08)", margin: "32px 0" }} />
 
-        {/* Payments & Apps */}
-        <Row gutter={[16, 16]} align="middle" justify="space-between">
+        <Row gutter={[24, 16]} align="middle">
           <Col xs={24} md={12}>
             <Space direction="vertical" size={6}>
-              <Text style={{ color: "rgba(255,255,255,0.7)" }}>
-                Chấp nhận thanh toán
-              </Text>
+              <Text style={{ color: "rgba(255,255,255,0.75)" }}>Chấp nhận thanh toán</Text>
               <Space size="middle" wrap>
                 <div style={pmBadgeStyle}>PayOs</div>
                 <div style={pmBadgeStyle}>Momo</div>
                 <div style={pmBadgeStyle}>VNPAY</div>
+                <div style={pmBadgeStyle}>VNPay QR</div>
               </Space>
             </Space>
           </Col>
 
           <Col xs={24} md={12}>
-            <Space direction="vertical" size={6} style={{ float: "right" }}>
-              <Text style={{ color: "rgba(255,255,255,0.7)" }}>Ứng dụng di động</Text>
-              <Space>
-                <Button ghost icon={<AndroidOutlined />} style={storeBtnStyle} size="large">
-                  Google Play
-                </Button>
-              </Space>
+            <Space direction="vertical" size={6} style={{ width: "100%", alignItems: "flex-start" }}>
+              <Text style={{ color: "rgba(255,255,255,0.75)" }}>Ứng dụng di động (coming soon)</Text>
+              <Button ghost icon={<AndroidOutlined />} style={storeBtnStyle}>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>Tải trên</div>
+                  <div style={{ fontWeight: 600 }}>Google Play</div>
+                </div>
+              </Button>
             </Space>
           </Col>
         </Row>
 
-        {/* Bottom bar */}
-        <Divider style={{ borderColor: "rgba(255,255,255,0.08)", marginTop: 24 }} />
+        <Divider style={{ borderColor: "rgba(255,255,255,0.08)", marginTop: 32 }} />
         <Row align="middle" justify="space-between">
           <Col>
             <Text style={{ color: "rgba(255,255,255,0.6)" }}>
@@ -215,9 +289,15 @@ export default function FooterBar() {
           </Col>
           <Col>
             <Space size={16}>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>Điều khoản</Link>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>Bảo mật</Link>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>Cookies</Link>
+              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>
+                Điều khoản
+              </Link>
+              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>
+                Bảo mật
+              </Link>
+              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>
+                Cookies
+              </Link>
             </Space>
           </Col>
         </Row>

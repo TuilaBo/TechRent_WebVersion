@@ -1,5 +1,5 @@
 // src/pages/technician/TechnicianHandoverCheckin.jsx
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Card,
   Descriptions,
@@ -27,7 +27,6 @@ import {
   FilePdfOutlined,
   DownloadOutlined,
   PrinterOutlined,
-  ExpandOutlined,
   EyeOutlined,
   InboxOutlined,
   DeleteOutlined,
@@ -42,12 +41,14 @@ import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
 import {
   createHandoverReportCheckin,
+  updateHandoverReportCheckin,
   getHandoverReportById,
   sendHandoverReportPin,
   updateHandoverReportSignature,
   getHandoverReportsByOrderId,
+  getHandoverReportByOrderIdAndTaskId,
 } from "../../lib/handoverReportApi";
-import { getQcReportsByOrderId, getPreRentalQcReportById } from "../../lib/qcReportApi";
+import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import { getConditionDefinitions } from "../../lib/condition";
 import { listDevices } from "../../lib/deviceManage";
 import { useAuthStore } from "../../store/authStore";
@@ -56,10 +57,10 @@ const { Title, Text } = Typography;
 const { Dragger } = Upload;
 
 // =========================
-// PDF Helpers - Tham khảo từ AdminContract.jsx
+// PDF Helpers
 // =========================
 
-// ⚠️ ĐÃ SỬA: CSS chỉ áp dụng cho #handover-print-root để không đè AntD Table
+// ⚠️ CSS chỉ áp dụng cho #handover-print-root để không đè AntD Table
 const GLOBAL_PRINT_CSS = `
   <style>
     #handover-print-root,
@@ -141,15 +142,6 @@ function formatDateTime(iso) {
   }
 }
 
-function formatDate(iso) {
-  if (!iso) return "—";
-  try {
-    return dayjs(iso).format("DD/MM/YYYY");
-  } catch {
-    return iso;
-  }
-}
-
 function translateHandoverStatus(status) {
   const s = String(status || "").toUpperCase();
   const map = {
@@ -183,6 +175,11 @@ function translateQualityStatus(status) {
   return map[s] || status;
 }
 
+function formatVND(amount) {
+  if (amount == null || amount === undefined || isNaN(Number(amount))) return "0 VNĐ";
+  return `${Number(amount).toLocaleString("vi-VN")} VNĐ`;
+}
+
 // ⚠️ ĐÃ SỬA: thêm id="handover-print-root" + GLOBAL_PRINT_CSS đứng ngoài, scope CSS
 function buildHandoverReportHtml(report, order = null, conditionDefinitions = []) {
   if (!report) return "<div>Không có dữ liệu biên bản</div>";
@@ -200,7 +197,73 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
     .split(" • ")
     .filter(Boolean);
   const technicianName = technicianInfoParts[0] || "—";
-  const technicianEmail = technicianInfoParts[1] || "—";
+  const technicianPhone = technicianInfoParts[1] || "";
+  const technicianEmail = technicianInfoParts[2] || "";
+  const technicianContact = {
+    name: technicianName,
+    phone: technicianPhone,
+    email: technicianEmail,
+  };
+
+  const technicianEntries = (() => {
+    const raw = [];
+    const pushTech = (tech) => {
+      if (!tech) return;
+      const name =
+        tech.fullName ||
+        tech.username ||
+        tech.staffName ||
+        tech.name ||
+        technicianContact.name ||
+        "";
+      const phone =
+        tech.phoneNumber ||
+        tech.phone ||
+        tech.contactNumber ||
+        tech.contact ||
+        "";
+      const email = tech.email || "";
+
+      if (!name && !phone && !email) return;
+      raw.push({
+        staffId: tech.staffId || tech.id || null,
+        name,
+        phone,
+        email,
+      });
+    };
+
+    if (Array.isArray(report.deliveryStaff)) {
+      report.deliveryStaff.forEach(pushTech);
+    }
+
+    if (Array.isArray(report.technicians)) {
+      report.technicians.forEach(pushTech);
+    }
+
+    if (!raw.length && technicianContact.name && technicianContact.name !== "—") {
+      raw.push({
+        staffId: null,
+        name: technicianContact.name,
+        phone: technicianContact.phone,
+        email: technicianContact.email,
+      });
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    raw.forEach((tech, idx) => {
+      const key = tech.staffId || tech.email || tech.phone || `${tech.name}-${idx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      deduped.push(tech);
+    });
+
+    return deduped;
+  })();
+
+  const technicianDisplayName =
+    technicianEntries[0]?.name || technicianContact.name || "—";
 
   // Format dates
   const handoverDate = formatDateTime(report.handoverDateTime);
@@ -503,24 +566,6 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
     )
     .join("");
 
-  // Build technicians list
-  const techniciansList = (report.technicians || [])
-    .map((tech) => {
-      const name = tech.fullName || tech.username || `Nhân viên #${tech.staffId}`;
-      const phone = tech.phoneNumber || "";
-      return `
-    <li>
-      <strong>${name}</strong>
-      ${
-        phone
-          ? `<br/>Số điện thoại: ${phone}`
-          : ""
-      }
-    </li>
-  `;
-    })
-    .join("");
-
   return `
     ${GLOBAL_PRINT_CSS}
     <div id="handover-print-root" style="
@@ -555,10 +600,43 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
         }
       </section>
       
-      <h3>Thông tin kỹ thuật viên</h3>
+      <h3>Kỹ thuật viên tham gia</h3>
       <section class="kv">
-        <div><b>Họ và tên:</b> ${technicianName}</div>
-        <div><b>Email:</b> ${technicianEmail}</div>
+        ${
+          technicianEntries.length
+            ? technicianEntries
+                .map(
+                  (tech) => `
+        <div style="margin-bottom:6px">
+          <b>${tech.name || "—"}</b>
+          ${
+            tech.phone
+              ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
+              : ""
+          }
+          ${
+            tech.email
+              ? `<br/><span>Email: ${tech.email}</span>`
+              : ""
+          }
+        </div>
+      `
+                )
+                .join("")
+            : `
+        <div><b>Họ và tên:</b> ${technicianContact.name || "—"}</div>
+        ${
+          technicianContact.phone
+            ? `<div><b>Số điện thoại:</b> ${technicianContact.phone}</div>`
+            : ""
+        }
+        ${
+          technicianContact.email
+            ? `<div><b>Email:</b> ${technicianContact.email}</div>`
+            : ""
+        }
+      `
+        }
         <div><b>Chữ ký nhân viên:</b> ${report.staffSignature || "—"}</div>
         ${
           report.staffSigned
@@ -621,20 +699,9 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
       }
       
       ${
-        techniciansList
-          ? `
-      <h3>Kỹ thuật viên tham gia</h3>
-      <ul>
-        ${techniciansList}
-      </ul>
-      `
-          : ""
-      }
-      
-      ${
         (report.discrepancies || []).length > 0
           ? `
-      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      <h3>Sự cố của thiết bị</h3>
       <table>
         <thead>
           <tr>
@@ -642,6 +709,7 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
             <th>Điều kiện</th>
+            <th>Phí phạt</th>
             <th>Ghi chú nhân viên</th>
             <th>Ghi chú khách hàng</th>
           </tr>
@@ -649,8 +717,8 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
         <tbody>
           ${(report.discrepancies || []).map((disc, idx) => {
             // Try to get serial number from deviceId
-            let deviceSerial = "—";
-            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+            let deviceSerial = disc.serialNumber || disc.deviceSerialNumber || "—";
+            if ((deviceSerial === "—" || !deviceSerial) && disc.deviceId && order && Array.isArray(order.orderDetails)) {
               for (const od of order.orderDetails) {
                 if (od.allocations && Array.isArray(od.allocations)) {
                   for (const allocation of od.allocations) {
@@ -666,10 +734,11 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
             }
             
             const conditionDef = conditionMap[disc.conditionDefinitionId];
-            const conditionName = conditionDef?.name || `Điều kiện #${disc.conditionDefinitionId}`;
+            const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
             const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
                                    disc.discrepancyType === "LOSS" ? "Mất mát" : 
                                    disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
+            const penaltyAmount = disc.penaltyAmount != null ? formatVND(disc.penaltyAmount) : "—";
             
             return `
               <tr>
@@ -677,11 +746,12 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
                 <td>${discrepancyType}</td>
                 <td>${deviceSerial}</td>
                 <td>${conditionName}</td>
+                <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
                 <td>${disc.staffNote || "—"}</td>
                 <td>${disc.customerNote || "—"}</td>
               </tr>
             `;
-          }).join("") || "<tr><td colspan='6' style='text-align:center'>Không có sự cố nào</td></tr>"}
+          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
       `
@@ -764,14 +834,14 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
             ${
               report.customerSigned
-                ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>'
+                ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>'
                 : ""
             }
           </div>
           <div>
             ${
               report.customerSigned
-                ? `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`
+                ? `<div style="color:#000;font-weight:600">${customerName}</div>`
                 : "(Ký, ghi rõ họ tên)"
             }
           </div>
@@ -781,14 +851,14 @@ function buildHandoverReportHtml(report, order = null, conditionDefinitions = []
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
             ${
               report.staffSigned
-                ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>'
+                ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>'
                 : ""
             }
           </div>
           <div>
             ${
               report.staffSigned
-                ? `<div style="color:#52c41a;font-weight:600">${technicianName} đã ký</div>`
+                ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>`
                 : "(Ký, ghi rõ họ tên)"
             }
           </div>
@@ -903,6 +973,7 @@ export default function TechnicianHandoverCheckin() {
   const user = useAuthStore((s) => s.user);
 
   const actualTaskId = paramTaskId || state?.task?.id || state?.task?.taskId;
+  const initialHandoverReport = state?.handoverReport;
 
   // States
   const [loading, setLoading] = useState(true);
@@ -914,7 +985,6 @@ export default function TechnicianHandoverCheckin() {
 
   // Handover report states
   const [handoverReportId, setHandoverReportId] = useState(null);
-  const [handoverReport, setHandoverReport] = useState(null);
   const [showSignatureForm, setShowSignatureForm] = useState(false);
   const [handoverReports, setHandoverReports] = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
@@ -938,17 +1008,190 @@ export default function TechnicianHandoverCheckin() {
   const [pinCode, setPinCode] = useState("");
   const [staffSignature, setStaffSignature] = useState("");
   const [items, setItems] = useState([]);
-  const [deviceQualityInfos, setDeviceQualityInfos] = useState([]);
   const [evidenceFiles, setEvidenceFiles] = useState([]); // Array of File objects
   const [evidenceUrls, setEvidenceUrls] = useState([]); // Array of URLs (base64 or server URLs)
-  
+
   // Discrepancies state (for checkin)
   const [discrepancies, setDiscrepancies] = useState([]);
+  const hasHydratedRef = useRef(false);
+  const orderRef = useRef(null);
+
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
   const [deviceCategoryMap, setDeviceCategoryMap] = useState({}); // deviceModelId -> deviceCategoryId
   const [devicesMap, setDevicesMap] = useState({}); // serialNumber -> deviceId
   const [orderDetailsMap, setOrderDetailsMap] = useState({}); // orderDetailId -> orderDetail
+  const [serialToOrderDetailMap, setSerialToOrderDetailMap] = useState({});
+  const [deviceModelMap, setDeviceModelMap] = useState({}); // deviceModelId -> deviceModel (normalized)
+  const isUpdateMode = Boolean(handoverReportId);
+
+  const hydrateReportToForm = useCallback(
+    (report, options = {}) => {
+      if (!report) return;
+      setHandoverReportId(report.handoverReportId || report.id || null);
+      const customerParts = (report.customerInfo || "")
+        .split("•")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      setCustomerName(customerParts[0] || "");
+      setCustomerPhone(customerParts[1] || "");
+      setCustomerEmail(customerParts[2] || "");
+      setTechnicianInfo(report.technicianInfo || "");
+      setHandoverDateTime(
+        report.handoverDateTime ? dayjs(report.handoverDateTime) : dayjs()
+      );
+      setHandoverLocation(report.handoverLocation || "");
+      setCustomerSignature(report.customerSignature || "");
+      setPinCode("");
+      const reportStatus = String(report.status || "").toUpperCase();
+      const shouldShowSignature =
+        reportStatus === "PENDING_STAFF_SIGNATURE" ||
+        reportStatus === "STAFF_PENDING" ||
+        reportStatus === "DRAFT";
+      setShowSignatureForm(shouldShowSignature);
+      setStaffSignature(
+        report.staffSignature || user?.fullName || user?.username || ""
+      );
+      if (Array.isArray(report.items) && report.items.length > 0) {
+        const hydratedItems = report.items.map((item, idx) => ({
+          itemName: item.itemName || item.deviceName || `Thiết bị #${idx + 1}`,
+          itemCode:
+            item.deviceSerialNumber ||
+            item.serialNumber ||
+            item.itemCode ||
+            (item.device?.serialNumber || ""),
+          unit: item.unit || "cái",
+          orderedQuantity: item.orderedQuantity || item.quantity || 1,
+          deliveredQuantity: item.deliveredQuantity || item.quantity || 1,
+          deviceId: item.deviceId || null,
+        }));
+        setItems(hydratedItems);
+        const evidenceFromReport = report.items.flatMap((item) =>
+          Array.isArray(item.evidenceUrls) ? item.evidenceUrls : []
+        );
+        setEvidenceUrls(evidenceFromReport);
+        setEvidenceFiles([]);
+      }
+
+      const effectiveOrder = options.orderData || orderRef.current;
+
+      // ✅ MAPPING DISCREPANCIES: giữ deviceId dạng số + deviceSerial để hiển thị
+      if (Array.isArray(report.discrepancies)) {
+        const mapped = report.discrepancies.map((disc) => {
+          const serialNumber =
+            disc.serialNumber ||
+            disc.deviceSerialNumber ||
+            disc.device?.serialNumber ||
+            "";
+          let numericDeviceId =
+            disc.deviceId ?? disc.device?.deviceId ?? null;
+          let orderDetailIdValue =
+            disc.orderDetailId ??
+            disc.orderDetail?.orderDetailId ??
+            disc.orderDetail?.id ??
+            null;
+          let orderDetailLabel =
+            disc.deviceModelName ||
+            disc.orderDetail?.deviceModelName ||
+            disc.orderDetail?.deviceModel?.deviceName ||
+            disc.orderDetail?.deviceModel?.name ||
+            disc.orderDetail?.deviceName ||
+            "";
+
+          if (
+            !orderDetailIdValue &&
+            numericDeviceId &&
+            effectiveOrder &&
+            Array.isArray(effectiveOrder.orderDetails)
+          ) {
+            for (const od of effectiveOrder.orderDetails) {
+              if (od.allocations && Array.isArray(od.allocations)) {
+                const found = od.allocations.find((alloc) => {
+                  const allocDeviceId =
+                    alloc.device?.deviceId || alloc.deviceId;
+                  return allocDeviceId === numericDeviceId;
+                });
+                if (found) {
+                  orderDetailIdValue = od.orderDetailId || od.id;
+                  if (!orderDetailLabel) {
+                    orderDetailLabel =
+                      od.deviceModel?.deviceName ||
+                      od.deviceModel?.name ||
+                      od.deviceName ||
+                      `Order detail #${orderDetailIdValue}`;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+
+          if (
+            !orderDetailIdValue &&
+            serialNumber &&
+            effectiveOrder &&
+            Array.isArray(effectiveOrder.orderDetails)
+          ) {
+            for (const od of effectiveOrder.orderDetails) {
+              if (od.allocations && Array.isArray(od.allocations)) {
+                const foundBySerial = od.allocations.find((alloc) => {
+                  const allocSerial =
+                    alloc.device?.serialNumber ||
+                    alloc.serialNumber ||
+                    String(alloc.device?.deviceId || alloc.deviceId || "");
+                  return (
+                    String(allocSerial).toUpperCase() ===
+                    String(serialNumber).toUpperCase()
+                  );
+                });
+                if (foundBySerial) {
+                  orderDetailIdValue = od.orderDetailId || od.id;
+                  if (!orderDetailLabel) {
+                    orderDetailLabel =
+                      od.deviceModel?.deviceName ||
+                      od.deviceModel?.name ||
+                      od.deviceName ||
+                      `Order detail #${orderDetailIdValue}`;
+                  }
+                  // Try to resolve numericDeviceId via allocation if still missing
+                  if (
+                    !numericDeviceId &&
+                    (foundBySerial.device?.deviceId || foundBySerial.deviceId)
+                  ) {
+                    numericDeviceId =
+                      foundBySerial.device?.deviceId || foundBySerial.deviceId;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+
+          return {
+            discrepancyType: disc.discrepancyType || "DAMAGE",
+            conditionDefinitionId:
+              disc.conditionDefinitionId ??
+              disc.conditionDefinition?.id ??
+              null,
+            orderDetailId: orderDetailIdValue,
+            orderDetailLabel,
+            deviceId: serialNumber || (numericDeviceId ? String(numericDeviceId) : null),
+            numericDeviceId,
+            deviceSerial: serialNumber,
+            staffNote: disc.staffNote || "",
+            customerNote: disc.customerNote || "",
+          };
+        });
+        setDiscrepancies(mapped);
+      } else {
+        setDiscrepancies([]);
+      }
+    },
+    [user]
+  );
 
   const preferredTechnicianEmail = useMemo(() => {
     if (user?.email) return user.email;
@@ -961,6 +1204,17 @@ export default function TechnicianHandoverCheckin() {
   }, [user?.email, technicianInfo]);
 
   // Fetch task and order details
+  useEffect(() => {
+    if (
+      initialHandoverReport &&
+      String(initialHandoverReport.handoverType || "").toUpperCase() === "CHECKIN" &&
+      !hasHydratedRef.current
+    ) {
+      hydrateReportToForm(initialHandoverReport);
+      hasHydratedRef.current = true;
+    }
+  }, [initialHandoverReport, hydrateReportToForm]);
+
   useEffect(() => {
     const loadData = async () => {
       if (!actualTaskId) {
@@ -1018,6 +1272,30 @@ export default function TechnicianHandoverCheckin() {
             setHandoverLocation(orderData.shippingAddress);
           }
 
+          let existingCheckinReport = null;
+          if (
+            initialHandoverReport &&
+            String(initialHandoverReport.handoverType || "").toUpperCase() === "CHECKIN"
+          ) {
+            existingCheckinReport = initialHandoverReport;
+          } else if (normalizedTask.orderId) {
+            try {
+              const report = await getHandoverReportByOrderIdAndTaskId(
+                normalizedTask.orderId,
+                normalizedTask.taskId || normalizedTask.id
+              );
+              if (report && String(report.handoverType || "").toUpperCase() === "CHECKIN") {
+                existingCheckinReport = report;
+              }
+            } catch (err) {
+              console.warn("Không thể tải biên bản thu hồi hiện có:", err);
+            }
+          }
+          if (existingCheckinReport && !hasHydratedRef.current) {
+            hydrateReportToForm(existingCheckinReport, { orderData });
+            hasHydratedRef.current = true;
+          }
+
           // Note: For checkin, we don't need to load PRE_RENTAL QC report
           // Devices are already allocated in the order
           let qcReportDevices = [];
@@ -1041,46 +1319,6 @@ export default function TechnicianHandoverCheckin() {
                 qcReportDevices = reportToUse.devices;
               }
               
-              // Nếu có preRentalQcReport, load chi tiết để lấy deviceConditions
-              if (preRentalQcReport?.qcReportId || preRentalQcReport?.id) {
-                try {
-                  const qcReportId = preRentalQcReport.qcReportId || preRentalQcReport.id;
-                  const fullPreRentalReport = await getPreRentalQcReportById(qcReportId);
-                  if (fullPreRentalReport) {
-                    preRentalQcReport = fullPreRentalReport;
-                    
-                    // Parse deviceConditions từ QC report và fill vào form
-                    if (Array.isArray(fullPreRentalReport.deviceConditions) && fullPreRentalReport.deviceConditions.length > 0) {
-                      const parsedDeviceConditions = [];
-                      
-                      fullPreRentalReport.deviceConditions.forEach((dc) => {
-                        // Mỗi deviceCondition có thể có nhiều snapshots, mỗi snapshot có nhiều conditionDetails
-                        if (Array.isArray(dc.snapshots)) {
-                          dc.snapshots.forEach((snapshot) => {
-                            if (Array.isArray(snapshot.conditionDetails)) {
-                              snapshot.conditionDetails.forEach((conditionDetail) => {
-                                // Tìm deviceId từ deviceSerial
-                                const deviceSerial = dc.deviceSerial || String(dc.deviceId);
-                                parsedDeviceConditions.push({
-                                  deviceId: deviceSerial, // Use serial number as deviceId (will convert to deviceId later)
-                                  conditionDefinitionId: conditionDetail.conditionDefinitionId,
-                                  severity: conditionDetail.severity,
-                                  images: Array.isArray(snapshot.images) ? snapshot.images : [],
-                                });
-                              });
-                            }
-                          });
-                        }
-                      });
-                      
-                      console.log("✅ Loaded deviceConditions from PRE_RENTAL QC report:", parsedDeviceConditions);
-                      setDeviceConditions(parsedDeviceConditions);
-                    }
-                  }
-                } catch (e) {
-                  console.warn("Could not load full PRE_RENTAL QC report:", e);
-                }
-              }
             }
           } catch (e) {
             console.log("No QC report found or error:", e);
@@ -1091,6 +1329,41 @@ export default function TechnicianHandoverCheckin() {
             Array.isArray(orderData.orderDetails) &&
             orderData.orderDetails.length > 0
           ) {
+            // Load all device models first
+            const deviceModelIds = Array.from(
+              new Set(
+                orderData.orderDetails
+                  .map((od) => od.deviceModelId)
+                  .filter(Boolean)
+              )
+            );
+            const deviceModelMapLocal = {};
+            await Promise.all(
+              deviceModelIds.map(async (modelId) => {
+                try {
+                  const model = await getDeviceModelById(modelId);
+                  const normalizedModel = normalizeModel(model);
+                  deviceModelMapLocal[modelId] = normalizedModel;
+                } catch (e) {
+                  console.warn(`Failed to load device model ${modelId}:`, e);
+                }
+              })
+            );
+            setDeviceModelMap(deviceModelMapLocal);
+
+            const serialMapLocal = {};
+            const orderDetailsLookup = {};
+            orderData.orderDetails.forEach((od) => {
+              const odId = od.orderDetailId || od.id;
+              if (odId) {
+                // Enrich orderDetail with deviceModel info
+                const enrichedOd = {
+                  ...od,
+                  deviceModel: deviceModelMapLocal[od.deviceModelId] || null,
+                };
+                orderDetailsLookup[odId] = enrichedOd;
+              }
+            });
             const itemsPromises = orderData.orderDetails.map(async (od) => {
               try {
                 const model = await getDeviceModelById(od.deviceModelId);
@@ -1120,6 +1393,12 @@ export default function TechnicianHandoverCheckin() {
                   serialNumbers.length > 0
                     ? serialNumbers.join(", ")
                     : normalizedModel.code || normalizedModel.sku || "";
+                serialNumbers.forEach((serial) => {
+                  if (serial) {
+                    serialMapLocal[String(serial).toUpperCase()] =
+                      od.orderDetailId || od.id;
+                  }
+                });
 
                 return {
                   itemName: normalizedModel.name || `Model #${od.deviceModelId}`,
@@ -1150,6 +1429,12 @@ export default function TechnicianHandoverCheckin() {
                   .map(String);
                 const itemCode =
                   serialNumbers.length > 0 ? serialNumbers.join(", ") : "";
+                serialNumbers.forEach((serial) => {
+                  if (serial) {
+                    serialMapLocal[String(serial).toUpperCase()] =
+                      od.orderDetailId || od.id;
+                  }
+                });
 
                 return {
                   itemName: `Model #${od.deviceModelId}`,
@@ -1163,6 +1448,8 @@ export default function TechnicianHandoverCheckin() {
 
             const itemsData = await Promise.all(itemsPromises);
             setItems(itemsData);
+            setSerialToOrderDetailMap(serialMapLocal);
+            setOrderDetailsMap(orderDetailsLookup);
           }
         }
       } catch (error) {
@@ -1178,7 +1465,7 @@ export default function TechnicianHandoverCheckin() {
     };
 
     loadData();
-  }, [actualTaskId, nav, user]);
+  }, [actualTaskId, nav, user, hydrateReportToForm, initialHandoverReport]);
 
   // Load condition definitions and device category map when items are ready
   useEffect(() => {
@@ -1363,7 +1650,7 @@ export default function TechnicianHandoverCheckin() {
     }
   };
 
-  // Handle submit - Create handover report
+  // Handle submit - Create / Update handover report
   const handleSubmit = async () => {
     if (!task?.taskId && !task?.id) {
       toast.error("Không tìm thấy task");
@@ -1407,25 +1694,21 @@ export default function TechnicianHandoverCheckin() {
         .join(" • ");
 
       // Convert items to new format: { deviceId, evidenceUrls[] }
-      // Extract deviceIds from items (itemCode contains serial numbers)
       const itemsNew = [];
       for (const item of items) {
-        // itemCode có thể là "SN-001, SN-002" hoặc single serial
-        const serialNumbers = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
+        const serialNumbers = (item.itemCode || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
         
         for (const serial of serialNumbers) {
-          // Tìm deviceId từ devicesMap
           const deviceId = devicesMap[serial];
           if (deviceId) {
-            // Tìm xem đã có item với deviceId này chưa
             const existingItem = itemsNew.find(i => i.deviceId === deviceId);
-            if (existingItem) {
-              // Nếu đã có, thêm evidenceUrls vào (nếu có)
-              // EvidenceUrls sẽ được gán chung cho tất cả items, hoặc có thể để trống
-            } else {
+            if (!existingItem) {
               itemsNew.push({
-                deviceId: deviceId,
-                evidenceUrls: [], // EvidenceUrls sẽ được gán từ evidenceUrls chung hoặc để trống
+                deviceId: Number(deviceId),
+                evidenceUrls: [],
               });
             }
           } else {
@@ -1434,37 +1717,57 @@ export default function TechnicianHandoverCheckin() {
         }
       }
 
-      // Convert discrepancies: serial number -> deviceId, orderDetailId
+      // ✅ Convert discrepancies: dùng thẳng deviceId + orderDetailId, fallback nhẹ từ deviceSerial
       const discrepanciesPayload = [];
-      for (const discrepancy of discrepancies) {
-        if (!discrepancy.deviceId || !discrepancy.conditionDefinitionId || !discrepancy.discrepancyType) {
-          continue; // Skip incomplete discrepancies
-        }
-        
-        // discrepancy.deviceId là serial number, cần convert sang deviceId
-        const deviceId = devicesMap[String(discrepancy.deviceId)];
-        const orderDetailId = discrepancy.orderDetailId;
-        
-        if (deviceId && orderDetailId) {
-          discrepanciesPayload.push({
-            discrepancyType: String(discrepancy.discrepancyType || "DAMAGE"),
-            conditionDefinitionId: Number(discrepancy.conditionDefinitionId),
-            orderDetailId: Number(orderDetailId),
-            deviceId: Number(deviceId),
-            staffNote: String(discrepancy.staffNote || ""),
-            customerNote: String(discrepancy.customerNote || ""),
-          });
-        } else {
-          console.warn(`Could not find deviceId or orderDetailId for discrepancy:`, discrepancy);
-        }
-      }
+      for (const d of discrepancies) {
+        const discrepancyType = d.discrepancyType || "DAMAGE";
+        const conditionDefinitionId = d.conditionDefinitionId;
+        let orderDetailId = d.orderDetailId;
 
-      // Distribute evidenceUrls to items (có thể gán chung hoặc để trống)
-      // Tạm thời để evidenceUrls trống trong items, vì API mới có thể yêu cầu format khác
-      const itemsWithEvidence = itemsNew.map(item => ({
-        ...item,
-        evidenceUrls: [], // Có thể để trống hoặc gán từ evidenceUrls chung
-      }));
+        if (!discrepancyType || !conditionDefinitionId) {
+          console.warn("Skipping discrepancy (missing type/condition):", d);
+          continue;
+        }
+
+        // nếu thiếu orderDetailId, thử map từ serialToOrderDetailMap (optional)
+        if (!orderDetailId && d.deviceSerial) {
+          const lookupId =
+            serialToOrderDetailMap[String(d.deviceSerial).toUpperCase()];
+          if (lookupId) {
+            orderDetailId = lookupId;
+          }
+        }
+
+        if (!orderDetailId) {
+          console.warn("Skipping discrepancy (missing orderDetailId):", d);
+          continue;
+        }
+
+        let deviceId = d.numericDeviceId;
+        if (!deviceId && d.deviceId && Number.isFinite(Number(d.deviceId))) {
+          deviceId = Number(d.deviceId);
+        }
+        if (!deviceId) {
+          const serialKey = (d.deviceSerial || d.deviceId || "").trim();
+          if (serialKey && devicesMap[serialKey]) {
+            deviceId = devicesMap[serialKey];
+          }
+        }
+
+        if (!deviceId || !Number.isFinite(Number(deviceId))) {
+          console.warn("Skipping discrepancy (missing deviceId):", d);
+          continue;
+        }
+
+        discrepanciesPayload.push({
+          discrepancyType: String(discrepancyType),
+          conditionDefinitionId: Number(conditionDefinitionId),
+          orderDetailId: Number(orderDetailId),
+          deviceId: Number(deviceId),
+          staffNote: String(d.staffNote || ""),
+          customerNote: String(d.customerNote || ""),
+        });
+      }
 
       const payload = {
         taskId: task.taskId || task.id,
@@ -1473,7 +1776,7 @@ export default function TechnicianHandoverCheckin() {
         handoverDateTime: handoverDateTime.format("YYYY-MM-DDTHH:mm:ss.SSS[Z]"),
         handoverLocation: handoverLocation.trim(),
         customerSignature: customerSignature.trim(),
-        items: itemsWithEvidence,
+        items: itemsNew,
         discrepancies: discrepanciesPayload,
       };
 
@@ -1483,6 +1786,29 @@ export default function TechnicianHandoverCheckin() {
         discrepanciesCount: payload.discrepancies.length,
       });
 
+      if (handoverReportId) {
+        const { taskId: _omitTaskId, ...updatePayload } = payload;
+        console.log(
+          "🔁 TechnicianHandoverCheckin - Update payload:",
+          JSON.stringify(updatePayload, null, 2)
+        );
+        await updateHandoverReportCheckin(handoverReportId, updatePayload);
+        toast.success("Đã cập nhật biên bản thu hồi thành công!");
+        try {
+          const refreshed = await getHandoverReportById(handoverReportId);
+          hydrateReportToForm(refreshed);
+        } catch (err) {
+          console.error("Error reloading handover report:", err);
+        }
+        if (order?.orderId || order?.id) {
+          await loadHandoverReports(order.orderId || order.id);
+        }
+        // Quay lại trang lịch kỹ thuật sau khi cập nhật thành công
+        nav(-1);
+        return;
+      }
+
+      // CREATE mode
       const result = await createHandoverReportCheckin(payload);
       const reportId =
         result?.handoverReportId ||
@@ -1495,26 +1821,29 @@ export default function TechnicianHandoverCheckin() {
         return;
       }
 
-      setHandoverReportId(reportId);
       toast.success("Đã tạo biên bản thu hồi thành công!");
 
       // Fetch handover report data
       let reportData = null;
       try {
         reportData = await getHandoverReportById(reportId);
-        setHandoverReport(reportData);
+        hydrateReportToForm(reportData);
       } catch (e) {
         console.error("Error fetching handover report:", e);
+        hydrateReportToForm({
+          ...payload,
+          handoverReportId: reportId,
+          id: reportId,
+          status: "PENDING_STAFF_SIGNATURE",
+          handoverType: "CHECKIN",
+        });
       }
 
       // Gửi PIN
       try {
         const recipientEmail =
           preferredTechnicianEmail || customerEmail?.trim() || "";
-        await sendHandoverReportPin(
-          reportId,
-          recipientEmail || undefined
-        );
+        await sendHandoverReportPin(reportId, recipientEmail || undefined);
         toast.success(
           recipientEmail
             ? `Đã gửi mã PIN tới ${recipientEmail}!`
@@ -1527,7 +1856,11 @@ export default function TechnicianHandoverCheckin() {
 
       // Hiển thị form ký
       setShowSignatureForm(true);
-      setStaffSignature(technicianInfo.trim());
+      setStaffSignature(technicianInfo.trim() || user?.fullName || user?.username || "");
+
+      if (order?.orderId || order?.id) {
+        await loadHandoverReports(order.orderId || order.id);
+      }
 
       // Tự động hiển thị PDF preview nếu có reportData
       if (reportData) {
@@ -1535,16 +1868,15 @@ export default function TechnicianHandoverCheckin() {
           await handlePreviewPdf(reportData);
         } catch (e) {
           console.error("Error previewing PDF:", e);
-          // Không hiển thị lỗi vì có thể user sẽ xem sau
         }
       }
     } catch (e) {
-      console.error("Create handover report error:", e);
+      console.error("Create/Update handover report error:", e);
       toast.error(
         e?.response?.data?.message ||
           e?.response?.data?.details ||
           e?.message ||
-          "Không thể tạo biên bản thu hồi"
+          "Không thể xử lý biên bản thu hồi"
       );
     } finally {
       setSaving(false);
@@ -1626,12 +1958,11 @@ export default function TechnicianHandoverCheckin() {
 
       // Fetch order and condition definitions
       let orderData = order || null;
-      let conditionDefinitions = [];
+      let conditionDefs = [];
       
       if (report.orderId) {
         try {
           orderData = await getRentalOrderById(report.orderId);
-          // Enrich order with device model info
           if (orderData && Array.isArray(orderData.orderDetails)) {
             const modelIds = Array.from(new Set(orderData.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
             const modelPairs = await Promise.all(
@@ -1659,7 +1990,7 @@ export default function TechnicianHandoverCheckin() {
       }
       
       try {
-        conditionDefinitions = await getConditionDefinitions();
+        conditionDefs = await getConditionDefinitions();
       } catch (e) {
         console.warn("Could not fetch condition definitions for PDF:", e);
       }
@@ -1670,7 +2001,7 @@ export default function TechnicianHandoverCheckin() {
         printRef.current.style.left = "-99999px";
         printRef.current.style.top = "-99999px";
 
-        printRef.current.innerHTML = buildHandoverReportHtml(report, orderData, conditionDefinitions);
+        printRef.current.innerHTML = buildHandoverReportHtml(report, orderData, conditionDefs);
 
         const allElements = printRef.current.querySelectorAll("*");
         allElements.forEach((el) => {
@@ -1681,7 +2012,6 @@ export default function TechnicianHandoverCheckin() {
         await new Promise((resolve) => setTimeout(resolve, 200));
         const blob = await elementToPdfBlob(printRef.current);
 
-        // ⚠️ ĐÃ SỬA: clear HTML để remove <style> khỏi DOM
         printRef.current.style.visibility = "hidden";
         printRef.current.style.opacity = "0";
         printRef.current.innerHTML = "";
@@ -1710,12 +2040,11 @@ export default function TechnicianHandoverCheckin() {
 
       // Fetch order and condition definitions
       let orderData = order || null;
-      let conditionDefinitions = [];
+      let conditionDefs = [];
       
       if (report.orderId) {
         try {
           orderData = await getRentalOrderById(report.orderId);
-          // Enrich order with device model info
           if (orderData && Array.isArray(orderData.orderDetails)) {
             const modelIds = Array.from(new Set(orderData.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
             const modelPairs = await Promise.all(
@@ -1743,7 +2072,7 @@ export default function TechnicianHandoverCheckin() {
       }
       
       try {
-        conditionDefinitions = await getConditionDefinitions();
+        conditionDefs = await getConditionDefinitions();
       } catch (e) {
         console.warn("Could not fetch condition definitions for PDF:", e);
       }
@@ -1754,7 +2083,7 @@ export default function TechnicianHandoverCheckin() {
         printRef.current.style.left = "-99999px";
         printRef.current.style.top = "-99999px";
 
-        printRef.current.innerHTML = buildHandoverReportHtml(report, orderData, conditionDefinitions);
+        printRef.current.innerHTML = buildHandoverReportHtml(report, orderData, conditionDefs);
 
         const allElements = printRef.current.querySelectorAll("*");
         allElements.forEach((el) => {
@@ -1765,7 +2094,6 @@ export default function TechnicianHandoverCheckin() {
         await new Promise((resolve) => setTimeout(resolve, 200));
         const blob = await elementToPdfBlob(printRef.current);
 
-        // ⚠️ ĐÃ SỬA: clear HTML sau khi render
         printRef.current.style.visibility = "hidden";
         printRef.current.style.opacity = "0";
         printRef.current.innerHTML = "";
@@ -1865,7 +2193,7 @@ export default function TechnicianHandoverCheckin() {
           Quay lại
         </Button>
         <Title level={3} style={{ margin: 0 }}>
-          Tạo biên bản thu hồi
+          {isUpdateMode ? "Cập nhật biên bản thu hồi" : "Tạo biên bản thu hồi"}
         </Title>
         <Tag color="orange">HANDOVER CHECKIN</Tag>
       </Space>
@@ -1989,7 +2317,7 @@ export default function TechnicianHandoverCheckin() {
       </Card>
 
       {/* Discrepancies Section */}
-      <Card title="Sự cố/Chênh lệch (Discrepancies)" className="mb-3">
+      <Card title="Sự cố của thiết bị" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -2008,6 +2336,7 @@ export default function TechnicianHandoverCheckin() {
                   {
                     discrepancyType: "DAMAGE",
                     deviceId: null,
+                    deviceSerial: "",
                     orderDetailId: null,
                     conditionDefinitionId: null,
                     staffNote: "",
@@ -2027,41 +2356,102 @@ export default function TechnicianHandoverCheckin() {
           ) : (
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
               {discrepancies.map((discrepancy, index) => {
-                // Get available order details
-                const orderDetailOptions = order && Array.isArray(order.orderDetails)
-                  ? order.orderDetails.map(od => ({
-                      label: `${od.deviceModel?.deviceName || od.deviceModel?.name || `Model #${od.deviceModelId}`} (SL: ${od.quantity})`,
-                      value: od.orderDetailId || od.id,
-                    }))
-                  : [];
+                // ✅ Build orderDetailOptions từ orderDetailsMap (nếu có) hoặc order.orderDetails
+                const orderDetailsArray =
+                  Object.keys(orderDetailsMap).length > 0
+                    ? Object.values(orderDetailsMap)
+                    : (order && Array.isArray(order.orderDetails) ? order.orderDetails : []);
+
+                const orderDetailOptions = orderDetailsArray.map((od) => {
+                  // Try to get model name from multiple sources
+                  let modelName = "";
+                  if (od.deviceModel?.name) {
+                    modelName = od.deviceModel.name;
+                  } else if (od.deviceModel?.deviceName) {
+                    modelName = od.deviceModel.deviceName;
+                  } else if (od.deviceModelId && deviceModelMap[od.deviceModelId]) {
+                    modelName = deviceModelMap[od.deviceModelId].name || deviceModelMap[od.deviceModelId].deviceName || "";
+                  }
+                  
+                  // Fallback to Model #ID if no name found
+                  const displayName = modelName || `Model #${od.deviceModelId}`;
+                  
+                  return {
+                    label: `${displayName} (SL: ${od.quantity})`,
+                    value: od.orderDetailId || od.id,
+                  };
+                });
                 
-                // Get available serial numbers from items for selected orderDetail
-                const selectedOrderDetail = order && Array.isArray(order.orderDetails)
-                  ? order.orderDetails.find(od => (od.orderDetailId || od.id) === discrepancy.orderDetailId)
-                  : null;
+                // ✅ Chọn orderDetail từ map trước, fallback sang order.orderDetails
+                const selectedOrderDetail =
+                  (discrepancy.orderDetailId && orderDetailsMap[discrepancy.orderDetailId]) ||
+                  (order && Array.isArray(order.orderDetails)
+                    ? order.orderDetails.find(
+                        (od) => (od.orderDetailId || od.id) === discrepancy.orderDetailId
+                      )
+                    : null);
                 
-                const availableSerials = selectedOrderDetail
-                  ? items
-                      .filter(item => {
-                        // Find item that matches this orderDetail
-                        const itemModelId = order.orderDetails.find(od => {
-                          const codes = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
-                          return codes.length > 0;
-                        });
-                        return itemModelId;
-                      })
-                      .map(item => {
-                        const codes = (item.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
-                        return codes;
-                      })
-                      .flat()
-                  : [];
+                // ✅ Lấy list serial: ưu tiên allocations, nếu không có thì dùng serialToOrderDetailMap
+                let availableSerials = [];
+                if (
+                  selectedOrderDetail &&
+                  Array.isArray(selectedOrderDetail.allocations) &&
+                  selectedOrderDetail.allocations.length > 0
+                ) {
+                  availableSerials = selectedOrderDetail.allocations
+                    .map(
+                      (alloc) =>
+                        alloc.device?.serialNumber ||
+                        alloc.serialNumber ||
+                        ""
+                    )
+                    .filter(Boolean);
+                } else if (discrepancy.orderDetailId) {
+                  // fallback: lookup theo serialToOrderDetailMap (keys là serial, value là orderDetailId)
+                  availableSerials = Object.entries(serialToOrderDetailMap)
+                    .filter(([, odId]) => odId === discrepancy.orderDetailId)
+                    .map(([serial]) => serial);
+                }
+
+                const serialOptions = availableSerials.map((serial) => ({
+                  label: serial,
+                  value: serial,
+                }));
+
+                // Nếu đang update mà serial hiện tại không nằm trong list, push thêm cho nó chọn được
+                if (
+                  discrepancy.deviceSerial &&
+                  !serialOptions.some(
+                    (opt) =>
+                      String(opt.value).toUpperCase() ===
+                      String(discrepancy.deviceSerial).toUpperCase()
+                  )
+                ) {
+                  serialOptions.unshift({
+                    label: discrepancy.deviceSerial,
+                    value: discrepancy.deviceSerial,
+                  });
+                }
                 
-                // Get deviceCategoryId from selected orderDetail
+                // Get model name from multiple sources
+                let modelNameForLabel = "";
+                if (selectedOrderDetail?.deviceModel?.name) {
+                  modelNameForLabel = selectedOrderDetail.deviceModel.name;
+                } else if (selectedOrderDetail?.deviceModel?.deviceName) {
+                  modelNameForLabel = selectedOrderDetail.deviceModel.deviceName;
+                } else if (selectedOrderDetail?.deviceModelId && deviceModelMap[selectedOrderDetail.deviceModelId]) {
+                  modelNameForLabel = deviceModelMap[selectedOrderDetail.deviceModelId].name || 
+                                     deviceModelMap[selectedOrderDetail.deviceModelId].deviceName || "";
+                } else if (selectedOrderDetail?.deviceName) {
+                  modelNameForLabel = selectedOrderDetail.deviceName;
+                }
+                
+                const orderDetailLabel =
+                  discrepancy.orderDetailLabel || modelNameForLabel || "";
+                
                 const deviceModelId = selectedOrderDetail?.deviceModelId;
                 const deviceCategoryId = deviceModelId ? deviceCategoryMap[deviceModelId] : null;
                 
-                // Filter conditions by deviceCategoryId
                 const filteredConditions = deviceCategoryId
                   ? conditionDefinitions.filter(c => c.deviceCategoryId === deviceCategoryId)
                   : conditionDefinitions;
@@ -2113,23 +2503,77 @@ export default function TechnicianHandoverCheckin() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Chi tiết đơn hàng <Text type="danger">*</Text>
+                            Mẫu thiết bị<Text type="danger">*</Text>
                           </Text>
-                          <Select
-                            style={{ width: "100%" }}
-                            placeholder="Chọn chi tiết đơn hàng"
-                            value={discrepancy.orderDetailId}
-                            onChange={(value) => {
-                              const newDiscrepancies = [...discrepancies];
-                              newDiscrepancies[index] = {
-                                ...newDiscrepancies[index],
-                                orderDetailId: value,
-                                deviceId: null, // Reset when orderDetail changes
-                              };
-                              setDiscrepancies(newDiscrepancies);
-                            }}
-                            options={orderDetailOptions}
-                          />
+                          {(() => {
+                            // Get final label to display
+                            let finalLabel = orderDetailLabel;
+                            if (!finalLabel && selectedOrderDetail?.deviceModelId && deviceModelMap[selectedOrderDetail.deviceModelId]) {
+                              finalLabel = deviceModelMap[selectedOrderDetail.deviceModelId].name || 
+                                          deviceModelMap[selectedOrderDetail.deviceModelId].deviceName || 
+                                          `Model #${selectedOrderDetail.deviceModelId}`;
+                            } else if (!finalLabel && selectedOrderDetail?.deviceModelId) {
+                              finalLabel = `Model #${selectedOrderDetail.deviceModelId}`;
+                            }
+                            
+                            return finalLabel ? (
+                              <Input value={finalLabel} disabled />
+                            ) : (
+                            <Select
+                              style={{ width: "100%" }}
+                              placeholder="Chọn chi tiết đơn hàng"
+                              value={discrepancy.orderDetailId}
+                              onChange={(value) => {
+                                const newDiscrepancies = [...discrepancies];
+                                
+                                // Find selected orderDetail
+                                const selectedOd = orderDetailsArray.find(
+                                  (od) => (od.orderDetailId || od.id) === value
+                                );
+                                
+                                // Get model name from multiple sources
+                                let modelName = "";
+                                if (selectedOd?.deviceModel?.name) {
+                                  modelName = selectedOd.deviceModel.name;
+                                } else if (selectedOd?.deviceModel?.deviceName) {
+                                  modelName = selectedOd.deviceModel.deviceName;
+                                } else if (selectedOd?.deviceModelId && deviceModelMap[selectedOd.deviceModelId]) {
+                                  modelName = deviceModelMap[selectedOd.deviceModelId].name || 
+                                             deviceModelMap[selectedOd.deviceModelId].deviceName || "";
+                                } else if (selectedOd?.deviceName) {
+                                  modelName = selectedOd.deviceName;
+                                }
+                                
+                                const label = modelName || `Model #${selectedOd?.deviceModelId || value}`;
+                                
+                                // ✅ Auto-fill nếu orderDetail chỉ có 1 serial
+                                const serialsForOd = Object.entries(serialToOrderDetailMap)
+                                  .filter(([, odId]) => odId === value)
+                                  .map(([serial]) => serial);
+
+                                const defaultSerial =
+                                  serialsForOd.length === 1 ? serialsForOd[0] : "";
+                                const defaultNumericDeviceId =
+                                  defaultSerial && devicesMap[defaultSerial]
+                                    ? Number(devicesMap[defaultSerial])
+                                    : null;
+
+                                newDiscrepancies[index] = {
+                                  ...newDiscrepancies[index],
+                                  orderDetailId: value,
+                                  orderDetailLabel: label,
+                                  deviceId: defaultSerial || null,
+                                  deviceSerial: defaultSerial || "",
+                                  numericDeviceId:
+                                    defaultNumericDeviceId ??
+                                    newDiscrepancies[index].numericDeviceId,
+                                };
+                                setDiscrepancies(newDiscrepancies);
+                              }}
+                              options={orderDetailOptions}
+                            />
+                            );
+                          })()}
                         </div>
                       </Col>
                       <Col xs={24} md={12}>
@@ -2140,27 +2584,29 @@ export default function TechnicianHandoverCheckin() {
                           <Select
                             style={{ width: "100%" }}
                             placeholder="Chọn thiết bị"
-                            value={discrepancy.deviceId ? String(discrepancy.deviceId) : null}
-                            onChange={(value) => {
+                            value={discrepancy.deviceSerial || discrepancy.deviceId || null}
+                            onChange={(serial) => {
                               const newDiscrepancies = [...discrepancies];
                               newDiscrepancies[index] = {
                                 ...newDiscrepancies[index],
-                                deviceId: value,
+                                deviceSerial: serial,
+                                deviceId: serial,
+                                numericDeviceId: devicesMap[serial]
+                                  ? Number(devicesMap[serial])
+                                  : newDiscrepancies[index].numericDeviceId,
                               };
                               setDiscrepancies(newDiscrepancies);
                             }}
-                            disabled={!discrepancy.orderDetailId}
-                            options={availableSerials.map(serial => ({
-                              label: serial,
-                              value: serial,
-                            }))}
+                            disabled={!discrepancy.orderDetailId && !orderDetailLabel}
+                            options={serialOptions}
+                            notFoundContent="Không có serial cho chi tiết đơn này"
                           />
                         </div>
                       </Col>
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Điều kiện (Condition Definition) <Text type="danger">*</Text>
+                            Điều kiện thiết bị <Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}
@@ -2175,7 +2621,7 @@ export default function TechnicianHandoverCheckin() {
                               setDiscrepancies(newDiscrepancies);
                             }}
                             loading={loadingConditions}
-                            disabled={!discrepancy.deviceId || loadingConditions}
+                            disabled={!discrepancy.deviceSerial || loadingConditions}
                             options={filteredConditions.map(c => ({
                               label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
                               value: c.id,
@@ -2186,7 +2632,7 @@ export default function TechnicianHandoverCheckin() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Ghi chú nhân viên
+                            Ghi chú của nhân viên
                           </Text>
                           <Input.TextArea
                             rows={3}
@@ -2206,7 +2652,7 @@ export default function TechnicianHandoverCheckin() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Ghi chú khách hàng
+                            Ghi chú của khách hàng
                           </Text>
                           <Input.TextArea
                             rows={3}
@@ -2233,7 +2679,7 @@ export default function TechnicianHandoverCheckin() {
       </Card>
 
       {/* Ảnh bằng chứng */}
-      <Card title="Ảnh bằng chứng" className="mb-3">
+      {/* <Card title="Ảnh bằng chứng" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <Dragger
             multiple
@@ -2313,7 +2759,7 @@ export default function TechnicianHandoverCheckin() {
             </div>
           )}
         </Space>
-      </Card>
+      </Card> */}
 
       {/* Form ký handover report - Hiển thị sau khi tạo thành công */}
       {showSignatureForm && handoverReportId && (
@@ -2379,7 +2825,7 @@ export default function TechnicianHandoverCheckin() {
         </Card>
       )}
 
-      {/* Submit button - Chỉ hiển thị khi chưa tạo handover report */}
+      {/* Submit button */}
       {!showSignatureForm && !showReportsList && (
         <Card>
           <Space>
@@ -2389,14 +2835,14 @@ export default function TechnicianHandoverCheckin() {
               onClick={handleSubmit}
               loading={saving}
             >
-              Tạo biên bản thu hồi
+              {isUpdateMode ? "Cập nhật biên bản thu hồi" : "Tạo biên bản thu hồi"}
             </Button>
             <Button onClick={() => nav(-1)}>Hủy</Button>
           </Space>
         </Card>
       )}
 
-      {/* Danh sách handover reports - Hiển thị sau khi ký thành công */}
+      {/* Danh sách handover reports */}
       {showReportsList && (
         <Card title="Danh sách biên bản thu hồi" className="mb-3">
           {loadingReports ? (
