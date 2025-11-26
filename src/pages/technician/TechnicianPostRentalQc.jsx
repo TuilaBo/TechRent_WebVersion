@@ -1,8 +1,20 @@
 // src/pages/technician/TechnicianPostRentalQc.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import {
-  Card, Descriptions, Typography, Tag, Space, Divider, Progress,
-  Checkbox, Select, Input, Upload, Button, message, Row, Col, DatePicker, Spin, Modal, InputNumber, Table
+  Card,
+  Descriptions,
+  Typography,
+  Tag,
+  Space,
+  Divider,
+  Select,
+  Input,
+  Upload,
+  Button,
+  message,
+  Row,
+  Col,
+  Spin,
 } from "antd";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { InboxOutlined, ArrowLeftOutlined, DeleteOutlined } from "@ant-design/icons";
@@ -15,7 +27,7 @@ import {
   getQcReportsByOrderId,
   getPostRentalQcReportById
 } from "../../lib/qcReportApi";
-import { updateDevice, listDevices } from "../../lib/deviceManage";
+import { listDevices } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getConditionDefinitions } from "../../lib/condition";
 import { fmtVND } from "../../lib/deviceModelsApi";
@@ -88,11 +100,6 @@ export default function TechnicianPostRentalQc() {
   const [discrepancies, setDiscrepancies] = useState([]);
   
   // Device status update state
-  const [deviceStatusUpdated, setDeviceStatusUpdated] = useState(false);
-  const [showUpdateStatusModal, setShowUpdateStatusModal] = useState(false);
-  const [updatingDeviceStatus, setUpdatingDeviceStatus] = useState(false);
-  const [selectedDeviceStatus, setSelectedDeviceStatus] = useState("AVAILABLE");
-  
   // Fetch task and order details
   useEffect(() => {
     const loadData = async () => {
@@ -460,93 +467,6 @@ export default function TechnicianPostRentalQc() {
     });
   };
 
-  const handleUpdateDeviceStatus = async () => {
-    if (!orderDetails.length || !selectedDevicesByOrderDetail) {
-      message.error("Không có thông tin thiết bị để cập nhật");
-      return;
-    }
-
-    try {
-      setUpdatingDeviceStatus(true);
-      
-      const allSerialNumbers = [];
-      Object.values(selectedDevicesByOrderDetail).forEach((serials) => {
-        if (Array.isArray(serials)) {
-          allSerialNumbers.push(...serials.map(String));
-        }
-      });
-
-      if (allSerialNumbers.length === 0) {
-        message.error("Không có serial numbers để cập nhật");
-        return;
-      }
-
-      const allDevices = await listDevices();
-      const devicesToUpdate = [];
-
-      allSerialNumbers.forEach((serial) => {
-        const device = Array.isArray(allDevices) 
-          ? allDevices.find((d) => {
-              const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
-              return deviceSerial === String(serial).toUpperCase();
-            })
-          : null;
-        
-        if (device) {
-          const deviceId = device.deviceId || device.id;
-          const deviceModelId = device.deviceModelId || device.modelId || device.device_model_id;
-          const deviceSerialNumber = device.serialNumber || device.serial || device.serialNo || serial;
-          if (deviceId && deviceModelId) {
-            devicesToUpdate.push({ deviceId, serial, deviceModelId, serialNumber: deviceSerialNumber });
-          }
-        }
-      });
-
-      if (devicesToUpdate.length === 0) {
-        message.warning("Không tìm thấy thiết bị nào với serial numbers đã chọn");
-        return;
-      }
-
-      const updatePromises = devicesToUpdate.map(async ({ deviceId, serial, deviceModelId, serialNumber }) => {
-        try {
-          await updateDevice(deviceId, { 
-            status: String(selectedDeviceStatus || "AVAILABLE").toUpperCase(),
-            deviceModelId: Number(deviceModelId),
-            serialNumber: String(serialNumber || serial)
-          });
-          return { success: true, deviceId, serial };
-        } catch (e) {
-          console.error(`Failed to update device ${deviceId} (serial: ${serial}):`, e);
-          return { success: false, deviceId, serial, error: e };
-        }
-      });
-
-      const results = await Promise.all(updatePromises);
-      const successCount = results.filter((r) => r.success).length;
-      const failCount = results.length - successCount;
-
-      if (successCount > 0) {
-        const statusLabel = translateStatus(selectedDeviceStatus);
-        toast.success(`Đã cập nhật status ${successCount} thiết bị về "${statusLabel}"`);
-        setDeviceStatusUpdated(true);
-        setShowUpdateStatusModal(false);
-        
-        setTimeout(() => {
-          nav(-1);
-        }, 1500);
-      }
-
-      if (failCount > 0) {
-        message.warning(`${failCount} thiết bị không thể cập nhật status`);
-      }
-    } catch (e) {
-      console.error("Error updating device status:", e);
-      toast.error(e?.response?.data?.message || e?.message || "Không thể cập nhật status thiết bị");
-    } finally {
-      setUpdatingDeviceStatus(false);
-    }
-  };
-
   const onSave = async () => {
     if (saving) return;
     
@@ -675,6 +595,9 @@ export default function TechnicianPostRentalQc() {
         } catch (e) {
           console.error("Failed to load updated report:", e);
         }
+        setTimeout(() => {
+          nav(-1);
+        }, 1500);
       } else {
         const createdReport = await createPostRentalQcReport(basePayload);
         toast.success("Đã tạo QC report thành công!");
@@ -695,18 +618,6 @@ export default function TechnicianPostRentalQc() {
         setTimeout(() => {
           nav(-1);
         }, 1500);
-      }
-      
-      const isReadyForRestock = String(result || "").toUpperCase() === "READY_FOR_RE_STOCK";
-      
-      if (existingQcReport && qcReportId) {
-        if (isReadyForRestock && !deviceStatusUpdated) {
-          setShowUpdateStatusModal(true);
-        } else {
-          setTimeout(() => {
-            nav(-1);
-          }, 1500);
-        }
       }
     } catch (e) {
       console.error("Create QC report error:", e);
@@ -759,7 +670,6 @@ export default function TechnicianPostRentalQc() {
           <Descriptions.Item label="Mã nhiệm vụ">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Mô tả">{task.description || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái của nhiệm vụ">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
@@ -1112,34 +1022,6 @@ export default function TechnicianPostRentalQc() {
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
                             <Text strong style={{ display: "block", marginBottom: 4 }}>
-                              Phí phạt (VNĐ) <Text type="danger">*</Text>
-                            </Text>
-                            <InputNumber
-                              style={{ width: "100%" }}
-                              placeholder="Nhập phí phạt"
-                              value={disc.penaltyAmount}
-                              onChange={(value) => {
-                                const newDiscrepancies = [...discrepancies];
-                                newDiscrepancies[index] = {
-                                  ...newDiscrepancies[index],
-                                  penaltyAmount: value || 0,
-                                };
-                                setDiscrepancies(newDiscrepancies);
-                              }}
-                              min={0}
-                              formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                              parser={(value) => value.replace(/\$\s?|(,*)/g, '')}
-                            />
-                            {disc.penaltyAmount > 0 && (
-                              <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: "block" }}>
-                                {fmtVND(disc.penaltyAmount)}
-                              </Text>
-                            )}
-                          </div>
-                        </Col>
-                        <Col xs={24} md={12}>
-                          <div style={{ marginBottom: 12 }}>
-                            <Text strong style={{ display: "block", marginBottom: 4 }}>
                               Ghi chú nhân viên
                             </Text>
                             <Input.TextArea
@@ -1151,26 +1033,6 @@ export default function TechnicianPostRentalQc() {
                                 newDiscrepancies[index] = {
                                   ...newDiscrepancies[index],
                                   staffNote: e.target.value,
-                                };
-                                setDiscrepancies(newDiscrepancies);
-                              }}
-                            />
-                          </div>
-                        </Col>
-                        <Col xs={24} md={12}>
-                          <div style={{ marginBottom: 12 }}>
-                            <Text strong style={{ display: "block", marginBottom: 4 }}>
-                              Ghi chú khách hàng
-                            </Text>
-                            <Input.TextArea
-                              rows={2}
-                              placeholder="Nhập ghi chú khách hàng"
-                              value={disc.customerNote}
-                              onChange={(e) => {
-                                const newDiscrepancies = [...discrepancies];
-                                newDiscrepancies[index] = {
-                                  ...newDiscrepancies[index],
-                                  customerNote: e.target.value,
                                 };
                                 setDiscrepancies(newDiscrepancies);
                               }}
@@ -1197,72 +1059,7 @@ export default function TechnicianPostRentalQc() {
         >
           {existingQcReport ? "Cập nhật QC Report" : "Lưu kết quả QC"}
         </Button>
-        {existingQcReport && !deviceStatusUpdated && (
-          <Button
-            type="default"
-            onClick={() => setShowUpdateStatusModal(true)}
-            disabled={loading || loadingQcReport || saving}
-          >
-            Cập nhật status thiết bị
-          </Button>
-        )}
       </Space>
-
-      {/* Modal cập nhật status thiết bị */}
-      <Modal
-        title="Cập nhật trạng thái thiết bị"
-        open={showUpdateStatusModal}
-        onOk={handleUpdateDeviceStatus}
-        onCancel={() => {
-          setShowUpdateStatusModal(false);
-          if (existingQcReport || !saving) {
-            setTimeout(() => {
-              nav(-1);
-            }, 500);
-          }
-        }}
-        okText="Cập nhật"
-        cancelText="Bỏ qua"
-        okButtonProps={{ loading: updatingDeviceStatus }}
-        width={600}
-      >
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <div>
-            <Text>
-              Sau khi QC POST_RENTAL thành công, bạn cần cập nhật trạng thái các thiết bị để có thể cho thuê lại hoặc xử lý tiếp.
-            </Text>
-          </div>
-          
-          <div>
-            <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Chọn trạng thái thiết bị <Text type="danger">*</Text>
-            </Text>
-            <Select
-              value={selectedDeviceStatus}
-              onChange={setSelectedDeviceStatus}
-              style={{ width: "100%" }}
-              options={[
-                { label: "Có sẵn", value: "AVAILABLE" },
-                { label: "Kiểm tra trước thuê", value: "PRE_RENTAL_QC" },
-                { label: "Đang thuê", value: "RENTED" },
-                { label: "Bảo trì", value: "MAINTENANCE" },
-                { label: "Hỏng", value: "BROKEN" },
-              ]}
-            />
-          </div>
-
-          <div>
-            <Text strong>Danh sách thiết bị sẽ được cập nhật:</Text>
-            <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-              {Object.values(selectedDevicesByOrderDetail).flat().map((serial, idx) => (
-                <li key={idx}>
-                  <Text code>{serial}</Text>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Space>
-      </Modal>
     </div>
   );
 }

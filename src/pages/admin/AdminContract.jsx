@@ -186,18 +186,18 @@ function formatEquipmentLayout(html = "") {
 
 function formatDatesInHtml(html = "") {
   if (!html || typeof html !== "string") return html;
-  // Format ngày ISO với thời gian thành DD/MM/YYYY
-  // Pattern: 2025-11-09T00:00 hoặc 2025-11-10T23:59:59.999
   const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
   return html.replace(datePattern, (match) => {
     try {
       const d = new Date(match);
       if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
+        const pad = (num) => String(num).padStart(2, "0");
+        const day = pad(d.getDate());
+        const month = pad(d.getMonth() + 1);
+        const year = d.getFullYear();
+        const hours = pad(d.getHours());
+        const minutes = pad(d.getMinutes());
+        return `${day}/${month}/${year} ${hours}:${minutes}`;
       }
     } catch (error) {
       console.error("Failed to format date in HTML:", error);
@@ -579,7 +579,7 @@ function buildPrintableHtml(detail, customer, kyc) {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -600,7 +600,7 @@ function buildPrintableHtml(detail, customer, kyc) {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}

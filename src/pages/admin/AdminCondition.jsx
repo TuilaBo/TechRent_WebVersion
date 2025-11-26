@@ -216,7 +216,7 @@ export default function AdminCondition() {
       sortDirections: ["descend", "ascend"],
     },
     {
-      title: "Tên",
+      title: "Tên tình trạng thiết bị", 
       dataIndex: "name",
       width: 200,
       ellipsis: true,
@@ -230,13 +230,13 @@ export default function AdminCondition() {
       ),
     },
     {
-      title: "Mô tả",
+      title: "Mô tả tình trạng thiết bị",
       dataIndex: "description",
       ellipsis: true,
       render: (text) => text || "—",
     },
     {
-      title: "Tỷ lệ ảnh hưởng (%)",
+      title: "Tỷ lệ ảnh hưởng đến thiết bị(%)",
       dataIndex: "impactRate",
       width: 150,
       align: "center",
@@ -251,7 +251,7 @@ export default function AdminCondition() {
         damage ? <Tag color="red">Có</Tag> : <Tag color="green">Không</Tag>,
     },
     {
-      title: "Bồi thường mặc định",
+      title: "Chi phí bồi thường mặc định",
       dataIndex: "defaultCompensation",
       width: 180,
       align: "right",
@@ -291,11 +291,11 @@ export default function AdminCondition() {
     <div className="min-h-screen bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Title level={3} style={{ marginBottom: 12 }}>
-          Quản lý Condition Definitions
+          Quản lý Tình trạng thiết bị
         </Title>
 
         <Card
-          title="Danh sách Condition Definitions"
+          title="Danh sách tình trạng thiết bị"
           extra={
             <Space>
               <Select
@@ -314,7 +314,7 @@ export default function AdminCondition() {
                 Làm mới
               </Button>
               <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-                Thêm Condition
+                Thêm tình trạng
               </Button>
             </Space>
           }
@@ -340,7 +340,7 @@ export default function AdminCondition() {
         >
           <Form form={createForm} layout="vertical" onFinish={submitCreate}>
             <Form.Item
-              label="Tên"
+              label="Tên tình trạng thiết bị"
               name="name"
               rules={[{ required: true, message: "Nhập tên condition definition" }]}
             >
@@ -360,11 +360,11 @@ export default function AdminCondition() {
                 }))}
               />
             </Form.Item>
-            <Form.Item label="Mô tả" name="description">
+            <Form.Item label="Mô tả tình trạng thiết bị" name="description">
               <TextArea rows={3} placeholder="Mô tả chi tiết về condition..." />
             </Form.Item>
             <Form.Item
-              label="Tỷ lệ ảnh hưởng (%)"
+              label="Tỷ lệ ảnh hưởng đến thiết bị(%)"
               name="impactRate"
               rules={[{ required: true, message: "Nhập tỷ lệ ảnh hưởng" }]}
             >
@@ -384,9 +384,9 @@ export default function AdminCondition() {
               <Switch checkedChildren="Có" unCheckedChildren="Không" />
             </Form.Item>
             <Form.Item
-              label="Bồi thường mặc định (VND)"
+              label="Chi phí bồi thường (VND)"
               name="defaultCompensation"
-              rules={[{ required: true, message: "Nhập bồi thường mặc định" }]}
+              rules={[{ required: true, message: "Nhập chi phí bồi thường mặc định" }]}
             >
               <InputNumber
                 min={0}
@@ -433,7 +433,7 @@ export default function AdminCondition() {
                 }))}
               />
             </Form.Item>
-            <Form.Item label="Mô tả" name="description">
+            <Form.Item label="Mô tả tình trạng thiết bị" name="description">
               <TextArea rows={3} />
             </Form.Item>
             <Form.Item
@@ -456,9 +456,9 @@ export default function AdminCondition() {
               <Switch checkedChildren="Có" unCheckedChildren="Không" />
             </Form.Item>
             <Form.Item
-              label="Bồi thường mặc định (VND)"
+              label="Chi phí bồi thường mặc định (VND)"
               name="defaultCompensation"
-              rules={[{ required: true, message: "Nhập bồi thường mặc định" }]}
+              rules={[{ required: true, message: "Nhập chi phí bồi thường mặc định" }]}
             >
               <InputNumber
                 min={0}
@@ -485,10 +485,10 @@ export default function AdminCondition() {
               <Descriptions.Item label="Danh mục thiết bị">
                 <Tag color="blue">{getCategoryName(viewingCondition.deviceCategoryId)}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="Mô tả">
+              <Descriptions.Item label="Mô tả tình trạng thiết bị">
                 {viewingCondition.description || "—"}
               </Descriptions.Item>
-              <Descriptions.Item label="Tỷ lệ ảnh hưởng">
+              <Descriptions.Item label="Tỷ lệ ảnh hưởng đến thiết bị">
                 {viewingCondition.impactRate ?? 0}%
               </Descriptions.Item>
               <Descriptions.Item label="Gây hư hỏng">
@@ -498,7 +498,7 @@ export default function AdminCondition() {
                   <Tag color="green">Không</Tag>
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="Bồi thường mặc định">
+              <Descriptions.Item label="chi phí bồi thường mặc định">
                 {Number(viewingCondition.defaultCompensation || 0).toLocaleString("vi-VN", {
                   style: "currency",
                   currency: "VND",

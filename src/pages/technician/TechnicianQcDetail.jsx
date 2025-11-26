@@ -82,6 +82,16 @@ const getStatusColor = (status) => {
 };
 const { Dragger } = Upload;
 
+// Helper: convert File -> base64 data URL (để lưu chuỗi ảnh, không dùng blob)
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
 /** Checklist mẫu theo category */
 const QC_CHECKLIST_BY_CATEGORY = {
   "VR/AR": ["Vệ sinh ống kính", "Kiểm tra theo dõi chuyển động (tracking)", "Kiểm tra pin", "Kiểm tra dây cáp", "Cập nhật phần mềm (firmware)"],
@@ -366,26 +376,72 @@ export default function TechnicianQcDetail() {
       if (Array.isArray(existingQcReport.deviceConditions) && existingQcReport.deviceConditions.length > 0) {
         console.log("📋 Loading deviceConditions from existing report:", existingQcReport.deviceConditions);
         const parsedDeviceConditions = [];
+        const deviceSerialMap = new Map(); // deviceSerial -> parsed condition
         
         existingQcReport.deviceConditions.forEach((dc) => {
-          // Mỗi deviceCondition có thể có nhiều snapshots, mỗi snapshot có nhiều conditionDetails
+          const deviceSerial = dc.deviceSerial || String(dc.deviceId || "");
+          if (!deviceSerial) return;
+          
+          // Nếu đã có entry cho deviceSerial này, merge images
+          if (deviceSerialMap.has(deviceSerial)) {
+            const existing = deviceSerialMap.get(deviceSerial);
+            // Merge images từ snapshots mới
+            if (Array.isArray(dc.snapshots)) {
+              dc.snapshots.forEach((snapshot) => {
+                if (Array.isArray(snapshot.images)) {
+                  existing.images = [...new Set([...existing.images, ...snapshot.images])];
+                }
+              });
+            }
+            return;
+          }
+          
+          // Tìm snapshot đầu tiên có conditionDetails
+          let selectedConditionDetail = null;
+          const allImages = new Set();
+          
           if (Array.isArray(dc.snapshots)) {
+            // Ưu tiên snapshot có source là QC_BEFORE hoặc BASELINE
+            const qcBeforeSnapshot = dc.snapshots.find(
+              (s) => String(s.source || "").toUpperCase() === "QC_BEFORE" ||
+                    String(s.snapshotType || "").toUpperCase() === "BASELINE"
+            );
+            const snapshotToUse = qcBeforeSnapshot || dc.snapshots[0];
+            
+            if (snapshotToUse) {
+              // Lấy conditionDetail đầu tiên
+              if (Array.isArray(snapshotToUse.conditionDetails) && snapshotToUse.conditionDetails.length > 0) {
+                selectedConditionDetail = snapshotToUse.conditionDetails[0];
+              }
+              
+              // Collect images từ snapshot này
+              if (Array.isArray(snapshotToUse.images)) {
+                snapshotToUse.images.forEach(img => allImages.add(img));
+              }
+            }
+            
+            // Cũng collect images từ các snapshots khác
             dc.snapshots.forEach((snapshot) => {
-              if (Array.isArray(snapshot.conditionDetails)) {
-                snapshot.conditionDetails.forEach((conditionDetail) => {
-                  parsedDeviceConditions.push({
-                    deviceId: dc.deviceSerial || String(dc.deviceId), // Use serial number as deviceId
-                    conditionDefinitionId: conditionDetail.conditionDefinitionId,
-                    severity: conditionDetail.severity,
-                    images: Array.isArray(snapshot.images) ? snapshot.images : [],
-                  });
-                });
+              if (Array.isArray(snapshot.images)) {
+                snapshot.images.forEach(img => allImages.add(img));
               }
             });
           }
+          
+          // Chỉ tạo entry nếu có conditionDetail
+          if (selectedConditionDetail) {
+            const parsedCondition = {
+              deviceId: deviceSerial, // Use serial number as deviceId
+              conditionDefinitionId: selectedConditionDetail.conditionDefinitionId,
+              severity: selectedConditionDetail.severity || "NONE",
+              images: Array.from(allImages),
+            };
+            deviceSerialMap.set(deviceSerial, parsedCondition);
+            parsedDeviceConditions.push(parsedCondition);
+          }
         });
         
-        console.log("✅ Parsed device conditions:", parsedDeviceConditions);
+        console.log("✅ Parsed device conditions (deduplicated):", parsedDeviceConditions);
         setDeviceConditions(parsedDeviceConditions);
       } else {
         // Reset nếu không có deviceConditions
@@ -776,7 +832,9 @@ export default function TechnicianQcDetail() {
       // Build deviceConditions payload
       // Need to convert serial numbers to deviceIds
       const allDevices = await listDevices();
-      const deviceConditionsPayload = [];
+      
+      // First, convert serial numbers to deviceIds and deduplicate
+      const deviceConditionsMap = new Map(); // key: "deviceId_conditionDefinitionId_severity" -> { deviceId, conditionDefinitionId, severity, images: Set }
       
       for (const condition of deviceConditions) {
         if (!condition.deviceId || !condition.conditionDefinitionId || !condition.severity) {
@@ -792,15 +850,38 @@ export default function TechnicianQcDetail() {
           : null;
         
         if (device) {
-          const deviceId = device.deviceId || device.id;
-          deviceConditionsPayload.push({
-            deviceId: Number(deviceId),
-            conditionDefinitionId: Number(condition.conditionDefinitionId),
-            severity: String(condition.severity),
-            images: Array.isArray(condition.images) ? condition.images.map(String) : [],
-          });
+          const deviceId = Number(device.deviceId || device.id);
+          const conditionDefinitionId = Number(condition.conditionDefinitionId);
+          const severity = String(condition.severity);
+          
+          // Create unique key for deduplication
+          const key = `${deviceId}_${conditionDefinitionId}_${severity}`;
+          
+          if (deviceConditionsMap.has(key)) {
+            // Merge images if entry already exists
+            const existing = deviceConditionsMap.get(key);
+            const newImages = Array.isArray(condition.images) ? condition.images.map(String) : [];
+            newImages.forEach(img => existing.images.add(img));
+          } else {
+            // Create new entry
+            const images = new Set(Array.isArray(condition.images) ? condition.images.map(String) : []);
+            deviceConditionsMap.set(key, {
+              deviceId,
+              conditionDefinitionId,
+              severity,
+              images,
+            });
+          }
         }
       }
+      
+      // Convert Map to array
+      const deviceConditionsPayload = Array.from(deviceConditionsMap.values()).map(entry => ({
+        deviceId: entry.deviceId,
+        conditionDefinitionId: entry.conditionDefinitionId,
+        severity: entry.severity,
+        images: Array.from(entry.images),
+      }));
 
       // Base payload cho PRE_RENTAL
       const basePayload = {
@@ -928,26 +1009,72 @@ export default function TechnicianQcDetail() {
               // Parse deviceConditions từ response format sang input format
               if (Array.isArray(loadedReport.deviceConditions) && loadedReport.deviceConditions.length > 0) {
                 const parsedDeviceConditions = [];
+                const deviceSerialMap = new Map(); // deviceSerial -> parsed condition
                 
                 loadedReport.deviceConditions.forEach((dc) => {
-                  // Mỗi deviceCondition có thể có nhiều snapshots, mỗi snapshot có nhiều conditionDetails
+                  const deviceSerial = dc.deviceSerial || String(dc.deviceId || "");
+                  if (!deviceSerial) return;
+                  
+                  // Nếu đã có entry cho deviceSerial này, merge images
+                  if (deviceSerialMap.has(deviceSerial)) {
+                    const existing = deviceSerialMap.get(deviceSerial);
+                    // Merge images từ snapshots mới
+                    if (Array.isArray(dc.snapshots)) {
+                      dc.snapshots.forEach((snapshot) => {
+                        if (Array.isArray(snapshot.images)) {
+                          existing.images = [...new Set([...existing.images, ...snapshot.images])];
+                        }
+                      });
+                    }
+                    return;
+                  }
+                  
+                  // Tìm snapshot đầu tiên có conditionDetails
+                  let selectedConditionDetail = null;
+                  const allImages = new Set();
+                  
                   if (Array.isArray(dc.snapshots)) {
+                    // Ưu tiên snapshot có source là QC_BEFORE hoặc BASELINE
+                    const qcBeforeSnapshot = dc.snapshots.find(
+                      (s) => String(s.source || "").toUpperCase() === "QC_BEFORE" ||
+                            String(s.snapshotType || "").toUpperCase() === "BASELINE"
+                    );
+                    const snapshotToUse = qcBeforeSnapshot || dc.snapshots[0];
+                    
+                    if (snapshotToUse) {
+                      // Lấy conditionDetail đầu tiên
+                      if (Array.isArray(snapshotToUse.conditionDetails) && snapshotToUse.conditionDetails.length > 0) {
+                        selectedConditionDetail = snapshotToUse.conditionDetails[0];
+                      }
+                      
+                      // Collect images từ snapshot này
+                      if (Array.isArray(snapshotToUse.images)) {
+                        snapshotToUse.images.forEach(img => allImages.add(img));
+                      }
+                    }
+                    
+                    // Cũng collect images từ các snapshots khác
                     dc.snapshots.forEach((snapshot) => {
-                      if (Array.isArray(snapshot.conditionDetails)) {
-                        snapshot.conditionDetails.forEach((conditionDetail) => {
-                          parsedDeviceConditions.push({
-                            deviceId: dc.deviceSerial || String(dc.deviceId), // Use serial number as deviceId
-                            conditionDefinitionId: conditionDetail.conditionDefinitionId,
-                            severity: conditionDetail.severity,
-                            images: Array.isArray(snapshot.images) ? snapshot.images : [],
-                          });
-                        });
+                      if (Array.isArray(snapshot.images)) {
+                        snapshot.images.forEach(img => allImages.add(img));
                       }
                     });
                   }
+                  
+                  // Chỉ tạo entry nếu có conditionDetail
+                  if (selectedConditionDetail) {
+                    const parsedCondition = {
+                      deviceId: deviceSerial, // Use serial number as deviceId
+                      conditionDefinitionId: selectedConditionDetail.conditionDefinitionId,
+                      severity: selectedConditionDetail.severity || "NONE",
+                      images: Array.from(allImages),
+                    };
+                    deviceSerialMap.set(deviceSerial, parsedCondition);
+                    parsedDeviceConditions.push(parsedCondition);
+                  }
                 });
                 
-                console.log("Parsed device conditions:", parsedDeviceConditions);
+                console.log("Parsed device conditions (deduplicated):", parsedDeviceConditions);
                 setDeviceConditions(parsedDeviceConditions);
               }
             }
@@ -1027,7 +1154,6 @@ export default function TechnicianQcDetail() {
           <Descriptions.Item label="Mã nhiệm vụ">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Mô tả">{task.description || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái của nhiệm vụ">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
@@ -1293,7 +1419,7 @@ export default function TechnicianQcDetail() {
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <Text strong style={{ fontSize: 16 }}>
-                Điều kiện thiết bị (Device Conditions)
+                Tình trạng của thiết bị
               </Text>
               <Button
                 type="dashed"
@@ -1313,13 +1439,13 @@ export default function TechnicianQcDetail() {
                   ]);
                 }}
               >
-                + Thêm điều kiện
+                + Thêm tình trạng thiết bị
               </Button>
             </div>
             
             {deviceConditions.length === 0 ? (
               <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-                Chưa có điều kiện nào được thêm. Nhấn nút "Thêm điều kiện" để bắt đầu.
+                Chưa có tình trạng nào được thêm. Nhấn nút "Thêm tình trạng thiết bị" để bắt đầu.
               </Text>
             ) : (
               <Space direction="vertical" style={{ width: "100%" }} size="middle">
@@ -1343,7 +1469,7 @@ export default function TechnicianQcDetail() {
                     <Card
                       key={index}
                       size="small"
-                      title={`Điều kiện #${index + 1}`}
+                      title={`Tình trạng #${index + 1}`}
                       extra={
                         <Button
                           type="text"
@@ -1386,11 +1512,11 @@ export default function TechnicianQcDetail() {
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
                             <Text strong style={{ display: "block", marginBottom: 4 }}>
-                              Điều kiện <Text type="danger">*</Text>
+                              Tình trạng thiết bị <Text type="danger">*</Text>
                             </Text>
                             <Select
                               style={{ width: "100%" }}
-                              placeholder="Chọn điều kiện"
+                              placeholder="Chọn tình trạng thiết bị"
                               value={condition.conditionDefinitionId}
                               onChange={(value) => {
                                 const newConditions = [...deviceConditions];
@@ -1452,14 +1578,21 @@ export default function TechnicianQcDetail() {
                                 status: "done",
                                 url: typeof img === "string" ? img : (img?.url || img?.thumbUrl || ""),
                               })) || []}
-                              onChange={({ fileList }) => {
+                              onChange={async ({ fileList }) => {
                                 const newConditions = [...deviceConditions];
-                                const imageUrls = fileList
-                                  .map(f => f.thumbUrl || f.url || (f.originFileObj ? URL.createObjectURL(f.originFileObj) : ""))
-                                  .filter(Boolean);
+                                const imageUrls = await Promise.all(
+                                  fileList.map(async (f) => {
+                                    if (f.originFileObj) {
+                                      // Convert file thành base64 giống TechnicianHandover
+                                      return await fileToBase64(f.originFileObj);
+                                    }
+                                    // Nếu BE trả về sẵn chuỗi ảnh (URL/base64) thì giữ nguyên
+                                    return f.thumbUrl || f.url || "";
+                                  })
+                                );
                                 newConditions[index] = {
                                   ...newConditions[index],
-                                  images: imageUrls,
+                                  images: imageUrls.filter(Boolean),
                                 };
                                 setDeviceConditions(newConditions);
                               }}

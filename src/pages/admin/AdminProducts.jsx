@@ -63,6 +63,8 @@ const statusTag = (s) => {
       return <Tag color="green">Có sẵn</Tag>;
     case "PRE_RENTAL_QC":
       return <Tag color="gold">Kiểm tra trước thuê</Tag>;
+    case "POST_RENTAL_QC":
+      return <Tag color="purple">QC sau thuê</Tag>;
     case "RENTING":
       return <Tag color="blue">Đang thuê</Tag>;
     case "MAINTENANCE":
@@ -741,6 +743,7 @@ export default function AdminProducts() {
             options={[
               { label: 'Có sẵn', value: 'AVAILABLE' },
               { label: 'Kiểm tra trước thuê', value: 'PRE_RENTAL_QC' },
+              { label: 'QC sau thuê', value: 'POST_RENTAL_QC' },
               { label: 'Đang thuê', value: 'RENTED' },
               { label: 'Bảo trì', value: 'MAINTENANCE' },
               { label: 'Hỏng', value: 'BROKEN' },
@@ -797,6 +800,7 @@ export default function AdminProducts() {
                 options={[
                   { label: "Có sẵn", value: "AVAILABLE" },
                   { label: "Kiểm tra trước thuê", value: "PRE_RENTAL_QC" },
+                  { label: "QC sau thuê", value: "POST_RENTAL_QC" },
                   { label: "Đang thuê", value: "RENTED" },
                   { label: "Bảo trì", value: "MAINTENANCE" },
                   { label: "Hỏng", value: "BROKEN" },

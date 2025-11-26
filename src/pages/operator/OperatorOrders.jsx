@@ -23,6 +23,7 @@ import {
   Tabs,
   Avatar,
   Image,
+  List,
 } from "antd";
 import {
   EyeOutlined,
@@ -222,11 +223,13 @@ function formatDatesInHtml(html = "") {
     try {
       const d = new Date(match);
       if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
+        const pad = (num) => String(num).padStart(2, "0");
+        const day = pad(d.getDate());
+        const month = pad(d.getMonth() + 1);
+        const year = d.getFullYear();
+        const hours = pad(d.getHours());
+        const minutes = pad(d.getMinutes());
+        return `${day}/${month}/${year} ${hours}:${minutes}`;
       }
     } catch {
       // ignore
@@ -535,7 +538,7 @@ const statusTag = (s) => {
     case "DELIVERY_C":
     case "DELIVERY_CONFIRMED":
     case "READY_FOR_DELIVERY":
-      return <Tag color="cyan">Sẵn sàng giao hàng</Tag>;
+      return <Tag color="cyan">Chuẩn bị giao hàng</Tag>;
     case "SHIPPED":
       return <Tag color="blue">Đã giao hàng</Tag>;
     case "DELIVERED":
@@ -546,11 +549,13 @@ const statusTag = (s) => {
     case "CANCELED":
       return <Tag color="red">Đã hủy</Tag>;
     case "COMPLETED":
-      return <Tag color="blue">Hoàn tất</Tag>;
+      return <Tag color="blue">Hoàn tất đơn hàng</Tag>;
     case "ACTIVE":
       return <Tag color="green">Đang thuê</Tag>;
     case "IN_USE":
       return <Tag color="geekblue">Đang sử dụng</Tag>;
+      case "DELIVERING":
+      return <Tag color="cyan">Đang giao hàng</Tag>;
     default:
       return <Tag color="default">{status}</Tag>;
   }
@@ -1209,6 +1214,31 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
       `
           : ""
       }
+      
+      <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+        <div style="flex:1;text-align:center">
+          <div><b>KHÁCH HÀNG</b></div>
+          <div style="height:72px;display:flex;align-items:center;justify-content:center">
+            ${report.customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
+          </div>
+          <div>
+            ${report.customerSigned 
+              ? `<div style="color:#000;font-weight:600">${customerName}</div>` 
+              : "(Ký, ghi rõ họ tên)"}
+          </div>
+        </div>
+        <div style="flex:1;text-align:center">
+          <div><b>NHÂN VIÊN</b></div>
+          <div style="height:72px;display:flex;align-items:center;justify-content:center">
+            ${report.staffSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
+          </div>
+          <div>
+            ${report.staffSigned 
+              ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>` 
+              : "(Ký, ghi rõ họ tên)"}
+          </div>
+        </div>
+      </section>
     </div>
   `;
 }
@@ -1623,7 +1653,7 @@ export default function OperatorOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -1644,7 +1674,7 @@ export default function OperatorOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -2356,146 +2386,73 @@ export default function OperatorOrders() {
       );
     }
 
-    return reports.map((report) => {
-      const key = report.handoverReportId || report.id;
-      const loadingCurrent =
-        handoverPdfGenerating &&
-        (selectedHandoverReport?.handoverReportId === report.handoverReportId ||
-          selectedHandoverReport?.id === report.id);
-      const customerInfoStr = report.customerInfo || "";
-      const parts = customerInfoStr.split(" • ").filter(Boolean);
-      const customerName = parts[0] || "—";
-      const customerPhone = parts[1] || "—";
-      const customerEmail = parts[2] || "—";
-      const titlePrefix = isCheckin ? "Biên bản thu hồi" : "Biên bản bàn giao";
-
-      return (
-        <Card
-          key={key}
-          type="inner"
-          title={`${titlePrefix} #${report.handoverReportId || report.id} • Task #${
-            report.taskId ?? "—"
-          }`}
-          style={{ marginBottom: 16 }}
-          extra={
-            <Space size="small">
-              <Button
-                size="small"
-                icon={<EyeOutlined />}
-                onClick={() => previewHandoverReportAsPdf(report)}
-                loading={loadingCurrent}
-              >
-                Xem PDF
-              </Button>
-              <Button
-                size="small"
-                icon={<DownloadOutlined />}
-                onClick={() => downloadHandoverReportAsPdf(report)}
-                loading={loadingCurrent}
-              >
-                Tải PDF
-              </Button>
-            </Space>
-          }
-        >
-          <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label={isCheckin ? "Ngày thu hồi" : "Ngày bàn giao"}>
-              {report.handoverDateTime
-                ? dayjs(report.handoverDateTime).format("DD/MM/YYYY HH:mm")
-                : "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label={isCheckin ? "Địa điểm thu hồi" : "Địa điểm bàn giao"}>
-              {report.handoverLocation || "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label="Tên khách hàng">{customerName}</Descriptions.Item>
-            <Descriptions.Item label="Số điện thoại">{customerPhone}</Descriptions.Item>
-            <Descriptions.Item label="Email">{customerEmail}</Descriptions.Item>
-            <Descriptions.Item label="Thông tin nhân sự thực hiện">
-              {report.technicianInfo || "—"}
-            </Descriptions.Item>
-          </Descriptions>
-
-          <Divider dashed />
-
-          <Title level={5} style={{ fontSize: 14 }}>
-            Thiết bị {isCheckin ? "thu hồi" : "bàn giao"}
-          </Title>
-          <Table
-            rowKey={(record, idx) => `${key}-${idx}`}
-            dataSource={report.items || []}
-            pagination={false}
-            size="small"
-            columns={[
-              { title: "Tên thiết bị", dataIndex: "itemName", key: "itemName" },
-              {
-                title: "Mã thiết bị/Serial",
-                dataIndex: "itemCode",
-                key: "itemCode",
-                render: (val) => val || "—",
-              },
-              { title: "Đơn vị", dataIndex: "unit", key: "unit", width: 90 },
-              {
-                title: "SL đặt",
-                dataIndex: "orderedQuantity",
-                key: "orderedQuantity",
-                width: 100,
-                align: "center",
-              },
-              {
-                title: "SL giao",
-                dataIndex: "deliveredQuantity",
-                key: "deliveredQuantity",
-                width: 100,
-                align: "center",
-              },
-            ]}
-          />
-
-          <Divider dashed />
-
-          <Title level={5} style={{ fontSize: 14 }}>Kỹ thuật viên tham gia</Title>
-          <Space direction="vertical" size={6} style={{ width: "100%" }}>
-            {(report.technicians || []).map((tech) => (
-              <Card
-                key={`${key}-tech-${tech.staffId ?? tech.username ?? tech.fullName ?? ""}`}
-                size="small"
-              >
-                <Space direction="vertical" size={0}>
-                  <Text strong>
-                    {tech.fullName || tech.username || `Nhân sự #${tech.staffId ?? "?"}`}
-                  </Text>
-                  <Text type="secondary">Role: {tech.role || "—"}</Text>
-                  {tech.email && <Text type="secondary">Email: {tech.email}</Text>}
-                  {tech.phoneNumber && <Text type="secondary">Phone: {tech.phoneNumber}</Text>}
-                </Space>
-              </Card>
-            ))}
-            {(!report.technicians || report.technicians.length === 0) && (
-              <Text type="secondary">Không có thông tin nhân sự.</Text>
-            )}
-          </Space>
-
-          <Divider dashed />
-
-          <Title level={5} style={{ fontSize: 14 }}>Bằng chứng</Title>
-          <Space wrap>
-            {(report.evidenceUrls || []).map((url, idx) => (
-              <Image
-                key={`${key}-evidence-${idx}`}
-                src={url}
-                alt={`Evidence ${idx + 1}`}
-                width={180}
-                style={{ borderRadius: 8 }}
-                fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='120'%3E%3Crect width='180' height='120' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='12'%3ENo Image%3C/text%3E%3C/svg%3E"
+    return (
+      <List
+        dataSource={reports}
+        renderItem={(report) => {
+          const loadingCurrent =
+            handoverPdfGenerating &&
+            (selectedHandoverReport?.handoverReportId === report.handoverReportId ||
+              selectedHandoverReport?.id === report.id);
+          
+          return (
+            <List.Item
+              actions={[
+                <Button
+                  key="preview"
+                  size="small"
+                  icon={<EyeOutlined />}
+                  onClick={() => previewHandoverReportAsPdf(report)}
+                  loading={loadingCurrent}
+                >
+                  Xem PDF
+                </Button>,
+                <Button
+                  key="download"
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  onClick={() => downloadHandoverReportAsPdf(report)}
+                  loading={loadingCurrent}
+                >
+                  Tải PDF
+                </Button>,
+              ]}
+            >
+              <List.Item.Meta
+                title={
+                  <Space>
+                    <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
+                    <Tag 
+                      color={
+                        report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" 
+                          ? "green" 
+                          : report.status === "CUSTOMER_SIGNED" 
+                          ? "blue" 
+                          : report.status === "PENDING_STAFF_SIGNATURE" 
+                          ? "orange" 
+                          : "orange"
+                      }
+                    >
+                      {translateHandoverStatus(report.status)}
+                    </Tag>
+                  </Space>
+                }
+                description={
+                  <Space direction="vertical" size={4}>
+                    <Text type="secondary">
+                      Thời gian: {formatHandoverDateTime(report.handoverDateTime)}
+                    </Text>
+                    <Text type="secondary">
+                      Địa điểm: {report.handoverLocation || "—"}
+                    </Text>
+                  </Space>
+                }
               />
-            ))}
-            {(!report.evidenceUrls || report.evidenceUrls.length === 0) && (
-              <Text type="secondary">Không có bằng chứng hình ảnh.</Text>
-            )}
-          </Space>
-        </Card>
-      );
-    });
+            </List.Item>
+          );
+        }}
+      />
+    );
   };
 
   // ====== UI ======

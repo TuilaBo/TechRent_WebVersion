@@ -144,6 +144,14 @@ const statusTag = (status) => {
   return <Tag color={item.color}>{item.label}</Tag>;
 };
 
+const splitFinalAmounts = (finalAmount = 0) => {
+  const amount = Number(finalAmount || 0);
+  return {
+    refundAmount: amount > 0 ? amount : 0,
+    customerDueAmount: amount < 0 ? Math.abs(amount) : 0,
+  };
+};
+
 export default function SupportSettlement() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -358,12 +366,20 @@ export default function SupportSettlement() {
           setSettlement(settlementData);
 
           if (settlementData) {
+            const split = splitFinalAmounts(
+              settlementData.finalReturnAmount ?? settlementData.finalAmount ?? 0
+            );
             settlementForm.setFieldsValue({
               totalDeposit: settlementData.totalDeposit ?? (order?.depositAmount || 0),
               damageFee: settlementData.damageFee || 0,
               lateFee: settlementData.lateFee || 0,
               accessoryFee: settlementData.accessoryFee || 0,
-              finalReturnAmount: settlementData.finalReturnAmount ?? 0,
+              refundAmount: split.refundAmount,
+              customerDueAmount: split.customerDueAmount,
+              finalReturnAmount:
+                settlementData.finalReturnAmount ??
+                settlementData.finalAmount ??
+                split.refundAmount - split.customerDueAmount,
             });
           } else {
             const depositAmount = order?.depositAmount || 0;
@@ -372,6 +388,8 @@ export default function SupportSettlement() {
               damageFee: 0,
               lateFee: 0,
               accessoryFee: 0,
+              refundAmount: depositAmount,
+              customerDueAmount: 0,
               finalReturnAmount: depositAmount,
             });
           }
@@ -383,6 +401,8 @@ export default function SupportSettlement() {
             damageFee: 0,
             lateFee: 0,
             accessoryFee: 0,
+            refundAmount: depositAmount,
+            customerDueAmount: 0,
             finalReturnAmount: depositAmount,
           });
         }
@@ -406,14 +426,23 @@ export default function SupportSettlement() {
     const damageFee = Number(values.damageFee || 0);
     const lateFee = Number(values.lateFee || 0);
     const accessoryFee = Number(values.accessoryFee || 0);
-    const finalReturnAmount = totalDeposit - (damageFee + lateFee + accessoryFee);
-    settlementForm.setFieldsValue({ finalReturnAmount });
+    const diff = totalDeposit - (damageFee + lateFee + accessoryFee);
+    const refundAmount = diff > 0 ? diff : 0;
+    const customerDueAmount = diff < 0 ? Math.abs(diff) : 0;
+    settlementForm.setFieldsValue({
+      refundAmount,
+      customerDueAmount,
+      finalReturnAmount: diff,
+    });
   }, [settlementForm]);
 
   // Save settlement (create or update)
   const handleSaveSettlement = useCallback(async () => {
     try {
       const values = await settlementForm.validateFields();
+      const { refundAmount = 0, customerDueAmount = 0 } = values;
+      const finalReturnAmount = Number(refundAmount || 0) - Number(customerDueAmount || 0);
+      values.finalReturnAmount = finalReturnAmount;
       setSavingSettlement(true);
 
       if (settlement?.settlementId || settlement?.id) {
@@ -569,7 +598,7 @@ export default function SupportSettlement() {
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
-          Giải quyết và tranh chấp
+          Giải quyết Quyết toán 
         </Title>
         <Button
           icon={<ReloadOutlined />}
@@ -610,9 +639,6 @@ export default function SupportSettlement() {
             <Descriptions bordered size="small" column={1}>
               <Descriptions.Item label="Mã đơn">
                 {selectedOrder.orderId || selectedOrder.id || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Trạng thái">
-                {statusTag(selectedOrder.status)}
               </Descriptions.Item>
               <Descriptions.Item label="Khách hàng">
                 {renderCustomerInfo(selectedOrder, customerDetail)}
@@ -662,31 +688,7 @@ export default function SupportSettlement() {
 
             {invoiceInfo && (
               <>
-                <Divider />
-                <Title level={5}>Thông tin hoàn trả cọc</Title>
-                <Descriptions bordered size="small" column={1}>
-                  <Descriptions.Item label="Trạng thái thanh toán">
-                    <Tag
-                      color={
-                        invoiceInfo.invoiceStatus === "SUCCEEDED"
-                          ? "green"
-                          : "orange"
-                      }
-                    >
-                      {invoiceInfo.invoiceStatus === "SUCCEEDED"
-                        ? "Đã thanh toán"
-                        : "Chưa thanh toán"}
-                    </Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Tổng tiền cọc">
-                    {formatCurrency(invoiceInfo.totalAmount || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Ngày thanh toán">
-                    {invoiceInfo.paymentDate
-                      ? fmtDateTime(invoiceInfo.paymentDate)
-                      : "—"}
-                  </Descriptions.Item>
-                </Descriptions>
+                
               </>
             )}
 
@@ -727,6 +729,11 @@ export default function SupportSettlement() {
               <>
                 <Divider />
                 <Title level={5}>Quyết toán hiện có</Title>
+                {(() => {
+                  const split = splitFinalAmounts(
+                    settlement.finalReturnAmount ?? settlement.finalAmount ?? 0
+                  );
+                  return (
                 <Descriptions bordered size="small" column={1}>
                   <Descriptions.Item label="Tổng tiền cọc">
                     {formatCurrency(settlement.totalDeposit || 0)}
@@ -740,10 +747,11 @@ export default function SupportSettlement() {
                   <Descriptions.Item label="Phí phụ kiện">
                     {formatCurrency(settlement.accessoryFee || 0)}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Số tiền hoàn lại / cần thanh toán">
-                    <Text strong>
-                      {formatCurrency(settlement.finalReturnAmount || 0)}
-                    </Text>
+                  <Descriptions.Item label="Số tiền cần hoàn cho khách">
+                    <Text strong>{formatCurrency(split.refundAmount)}</Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Số tiền khách cần thanh toán thêm">
+                    <Text strong>{formatCurrency(split.customerDueAmount)}</Text>
                   </Descriptions.Item>
                   <Descriptions.Item label="Trạng thái">
                     {(() => {
@@ -756,6 +764,8 @@ export default function SupportSettlement() {
                     })()}
                   </Descriptions.Item>
                 </Descriptions>
+                  );
+                })()}
                 {String(settlement.state || "").toUpperCase() === "ISSUED" && (
                   <div style={{ marginTop: 16 }}>
                     <Alert
@@ -874,11 +884,9 @@ export default function SupportSettlement() {
           </Form.Item>
 
           <Form.Item
-            name="finalReturnAmount"
-            label="Số tiền hoàn lại / cần thanh toán"
-            rules={[
-              { required: true, message: "Vui lòng nhập số tiền cuối cùng" },
-            ]}
+            name="refundAmount"
+            label="Số tiền cần hoàn cho khách"
+            rules={[{ required: true, message: "Vui lòng nhập số tiền cần hoàn" }]}
           >
             <InputNumber
               style={{ width: "100%" }}
@@ -886,9 +894,31 @@ export default function SupportSettlement() {
                 `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
               }
               parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              min={0}
               addonAfter="VND"
               readOnly
             />
+          </Form.Item>
+
+          <Form.Item
+            name="customerDueAmount"
+            label="Số tiền khách cần thanh toán thêm"
+            rules={[{ required: true, message: "Vui lòng nhập số tiền khách cần thanh toán" }]}
+          >
+            <InputNumber
+              style={{ width: "100%" }}
+              formatter={(value) =>
+                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+              }
+              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              min={0}
+              addonAfter="VND"
+              readOnly
+            />
+          </Form.Item>
+
+          <Form.Item name="finalReturnAmount" hidden>
+            <InputNumber />
           </Form.Item>
         </Form>
       </Modal>

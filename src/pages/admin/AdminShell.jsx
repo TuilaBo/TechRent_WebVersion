@@ -153,7 +153,7 @@ export default function AdminShell() {
             {
               key: "conditions",
               icon: <FileTextOutlined />,
-              label: <Link to="/admin/conditions">Condition Definitions</Link>,
+              label: <Link to="/admin/conditions">Tình trạng thiết bị</Link>,
             },
           ]}
         />

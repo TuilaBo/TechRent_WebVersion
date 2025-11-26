@@ -44,8 +44,13 @@ const ORDER_STATUS_MAP = {
   returned:  { label: "Đã trả",       color: "green"   },
   cancelled: { label: "Đã hủy",       color: "red"     },
   processing:{ label: "Đang xử lý",   color: "purple"  },
-  delivery_confirmed: { label: "Đã xác nhận giao hàng", color: "green" },
+  delivery_confirmed: { label: "Chuẩn bị giao hàng", color: "green" },
   completed: { label: "Hoàn tất đơn hàng", color: "green" },
+};
+
+const ORDER_STATUS_ALIASES = {
+  "đã xác nhận giao hàng": "delivery_confirmed",
+  "da xac nhan giao hang": "delivery_confirmed",
 };
 const PAYMENT_STATUS_MAP = {
   unpaid:   { label: "Chưa thanh toán",      color: "volcano"  },
@@ -91,6 +96,15 @@ const CONTRACT_STATUS_MAP = {
   cancelled: { label: "Đã hủy", color: "red" },
 };
 const CONTRACT_TYPE_LABELS = { RENTAL: "Hợp đồng thuê thiết bị" };
+
+const splitSettlementAmounts = (finalAmount = 0) => {
+  const amount = Number(finalAmount || 0);
+  return {
+    refundAmount: amount > 0 ? amount : 0,
+    customerDueAmount: amount < 0 ? Math.abs(amount) : 0,
+    netAmount: amount,
+  };
+};
 
 /* =========================
  * 1) UTILS
@@ -256,18 +270,18 @@ function formatEquipmentLayout(html = "") {
 
 function formatDatesInHtml(html = "") {
   if (!html || typeof html !== "string") return html;
-  // Format ngày ISO với thời gian thành DD/MM/YYYY
-  // Pattern: 2025-11-09T00:00 hoặc 2025-11-10T23:59:59.999
   const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
   return html.replace(datePattern, (match) => {
     try {
       const d = new Date(match);
       if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
+        const pad = (num) => String(num).padStart(2, "0");
+        const day = pad(d.getDate());
+        const month = pad(d.getMonth() + 1);
+        const year = d.getFullYear();
+        const hours = pad(d.getHours());
+        const minutes = pad(d.getMinutes());
+        return `${day}/${month}/${year} ${hours}:${minutes}`;
       }
     } catch {
       // ignore
@@ -906,7 +920,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
     const conditionsArray = Array.from(uniqueConditions).map(key => {
       const [conditionDefId] = key.split("_");
       const conditionDef = conditionMap[conditionDefId];
-      const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
+      const conditionName = conditionDef?.name || `Tình trạng #${conditionDefId}`;
       return `${conditionName}`;
     });
     
@@ -1073,6 +1087,8 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
   // Determine handover type
   const handoverType = String(report.handoverType || "").toUpperCase();
   const isCheckin = handoverType === "CHECKIN";
+  const conditionColumnLabel = isCheckin ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị";
+  const discrepancyConditionLabel = isCheckin ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị";
   
   return `
     <style>
@@ -1167,7 +1183,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
-            <th>Điều kiện</th>
+            <th>${conditionColumnLabel}</th>
             <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
@@ -1198,17 +1214,17 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         // For CHECKIN: show discrepancies
         if (isCheckin && (report.discrepancies || []).length > 0) {
           return `
-      <h3>Sự cố của thiết bị</h3>
+      <h3>Sự cố thiết bị khi thu hồi</h3>
       <table>
         <thead>
           <tr>
             <th style="width:40px">STT</th>
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
-            <th>Điều kiện</th>
+            <th>Tình trang thiết bị</th>
             <th>Phí phạt</th>
             <th>Ghi chú nhân viên</th>
-            <th>Ghi chú khách hàng</th>
+           
           </tr>
         </thead>
         <tbody>
@@ -1231,7 +1247,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             }
             
             const conditionDef = conditionMap[disc.conditionDefinitionId];
-            const conditionName = conditionDef?.name || `Điều kiện #${disc.conditionDefinitionId}`;
+            const conditionName = conditionDef?.name || `Tình trạng  #${disc.conditionDefinitionId}`;
             const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
                                    disc.discrepancyType === "LOSS" ? "Mất mát" : 
                                    disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
@@ -1249,7 +1265,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                 <td>${conditionName}</td>
                 <td style="text-align:right">${penaltyAmount}</td>
                 <td>${disc.staffNote || "—"}</td>
-                <td>${disc.customerNote || "—"}</td>
+                
               </tr>
             `;
           }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
@@ -1309,7 +1325,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>KHÁCH HÀNG</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.customerSigned 
@@ -1320,7 +1336,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>NHÂN VIÊN</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.staffSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.staffSigned 
@@ -1461,6 +1477,9 @@ async function mapOrderFromApi(order) {
   const daysByRange = diffDays(startDate, endDate);
   const normalizedDays = daysFromMoney || daysByRange || 1;
 
+  const rawStatus = String(order?.orderStatus ?? "pending").toLowerCase();
+  const orderStatus = ORDER_STATUS_ALIASES[rawStatus] || rawStatus;
+
   return {
     id: backendId,
     displayId,
@@ -1471,7 +1490,7 @@ async function mapOrderFromApi(order) {
     items,
     total: order?.totalPrice ?? order?.total ?? 0,
 
-    orderStatus: String(order?.orderStatus ?? "pending").toLowerCase(),
+    orderStatus,
     paymentStatus: String(order?.paymentStatus ?? "unpaid").toLowerCase(),
 
     depositAmountHeld: order?.depositAmount ?? order?.depositAmountHeld ?? 0,
@@ -3153,7 +3172,7 @@ export default function MyOrders() {
             ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -3174,7 +3193,7 @@ export default function MyOrders() {
             ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -4946,9 +4965,7 @@ export default function MyOrders() {
                                     <Text strong style={{ display: "block", marginBottom: 8 }}>
                                       Xác nhận trả hàng
                                     </Text>
-                                    <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
-                                      Xác nhận trả hàng để chúng tôi tạo task thu hồi thiết bị.
-                                    </Text>
+                                    
                                     <Button
                                       type="primary"
                                       size="large"
@@ -4994,14 +5011,16 @@ export default function MyOrders() {
                           const accessoryFee = Number(settlementInfo.accessoryFee || 0);
                           const totalFees = damageFee + lateFee + accessoryFee;
                           const depositUsed = Math.min(totalDeposit, totalFees);
-                          const finalReturnAmount = Number(settlementInfo.finalReturnAmount || 0);
+                          const { refundAmount, customerDueAmount, netAmount } = splitSettlementAmounts(
+                            settlementInfo.finalReturnAmount ?? settlementInfo.finalAmount ?? 0
+                          );
                           const highlightLabel =
-                            finalReturnAmount > 0
+                            refundAmount > 0
                               ? "Bạn sẽ được hoàn lại"
-                              : finalReturnAmount < 0
+                              : customerDueAmount > 0
                               ? "Bạn cần thanh toán thêm"
                               : "Không phát sinh số tiền cần hoàn/thu thêm";
-                          const highlightAmount = formatVND(Math.abs(finalReturnAmount));
+                          const highlightAmount = formatVND(refundAmount > 0 ? refundAmount : customerDueAmount);
 
                           return (
                         <Card
@@ -5033,6 +5052,12 @@ export default function MyOrders() {
                             <Descriptions.Item label="Cọc đã dùng">
                               {formatVND(depositUsed)}
                             </Descriptions.Item>
+                            <Descriptions.Item label="Số tiền cần hoàn lại">
+                              <Text strong>{formatVND(refundAmount)}</Text>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Số tiền cần thanh toán thêm">
+                              <Text strong>{formatVND(customerDueAmount)}</Text>
+                            </Descriptions.Item>
                             <Descriptions.Item label="Trạng thái">
                               {(() => {
                                 const key = String(settlementInfo.state || "").toLowerCase();
@@ -5059,14 +5084,14 @@ export default function MyOrders() {
                             </Text>
                             <Text
                               style={{
-                                fontSize: finalReturnAmount === 0 ? 18 : 20,
+                                fontSize: netAmount === 0 ? 18 : 20,
                                 fontWeight: 600,
                                 color: "#111",
                               }}
                             >
                               {highlightAmount}
                             </Text>
-                            {finalReturnAmount < 0 && (
+                            {customerDueAmount > 0 && (
                               <Text style={{ color: "#666", fontSize: 12 }}>
                                 Số tiền hiển thị là giá trị tuyệt đối bạn cần thanh toán thêm.
                               </Text>
