@@ -28,6 +28,7 @@ import {
   TagsOutlined,
   MoneyCollectOutlined,
   FileTextOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -46,6 +47,8 @@ export default function AdminShell() {
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith("/admin/orders")) return "orders";
     if (location.pathname.startsWith("/admin/products")) return "products";
+    if (location.pathname.startsWith("/admin/maintenance-schedules"))
+      return "maintenance-schedules";
     if (location.pathname.startsWith("/admin/maintenance"))
       return "maintenance";
     if (location.pathname.startsWith("/admin/contracts")) return "contracts";
@@ -128,6 +131,11 @@ export default function AdminShell() {
               key: "products",
               icon: <ShoppingCartOutlined />,
               label: <Link to="/admin/products">Sản phẩm</Link>,
+            },
+            {
+              key: "maintenance-schedules",
+              icon: <ToolOutlined />,
+              label: <Link to="/admin/maintenance-schedules">Lịch bảo trì</Link>,
             },
             {
               key: "transactions",

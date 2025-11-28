@@ -26,6 +26,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard.jsx";
 import AdminOrders from "./pages/admin/AdminOrders.jsx";
 import AdminProducts from "./pages/admin/AdminProducts.jsx";
 import AdminMaintenancePlanner from "./pages/admin/AdminMaintenancePlanner.jsx";
+import AdminMaintenanceSchedule from "./pages/admin/AdminMaintenanceSchedule.jsx";
 import AdminAccounts from "./pages/admin/AdminAccounts.jsx";
 import AdminTaskCategory from "./pages/admin/AdminTaskCategory.jsx";
 import AdminTransactions from "./pages/admin/AdminTransactions.jsx";
@@ -47,6 +48,7 @@ import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
 import TechnicianPostRentalQc from "./pages/technician/TechnicianPostRentalQc.jsx";
 import TechnicianHandover from "./pages/technician/TechnicianHandover.jsx";
 import TechnicianHandoverCheckin from "./pages/technician/TechnicianHandoverCheckin.jsx";
+import TechnicianMaintenance from "./pages/technician/TechnicianMaintenance.jsx";
 
 import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
@@ -77,102 +79,106 @@ export default function App() {
         }}
       >
         <Routes>
-        {/* ✅ Chỉ chứa <Route> hoặc <React.Fragment> */}
-        <Route path="/" element={<LayoutRoot />}>
-          <Route index element={<Home />} />
-          <Route path="login" element={<LoginForm />} />
-          <Route path="register" element={<RegisterForm />} />
-          <Route path="devices/:id" element={<DeviceDetail />} />
-          <Route path="orders" element={<MyOrders />} />
-          <Route path="cart" element={<CartPage />} />
-          <Route path="checkout" element={<CheckoutPage />} />
-          <Route path="kyc" element={<KycPage />} />
-          <Route path="profile" element={<CustomerProfile />} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="verify-otp" element={<OtpVerify />} />
-          <Route path="category/:id" element={<RentalList />} />
-          <Route path="search" element={<FindProduct />} />
-          <Route path="chat" element={<CustomerLiveChat />} />
-          {/* Alias để tránh 404 khi truy cập /customer/chat */}
-          <Route path="customer/chat" element={<CustomerLiveChat />} />
-          <Route path="payment/return" element={<ReturnPage />} />
-          <Route path="payment/cancel" element={<CancelPage />} />
-          {/* Route cho PayOS redirect về /cancel thay vì /payment/cancel */}
-          <Route path="cancel" element={<CancelPage />} />
-          <Route path="return" element={<ReturnPage />} />
-          {/* Route cho VNPay redirect về /success và /failure */}
-          <Route path="success" element={<ReturnPage />} />
-          <Route path="failure" element={<CancelPage />} />
-        </Route>
+          {/* ✅ Chỉ chứa <Route> hoặc <React.Fragment> */}
+          <Route path="/" element={<LayoutRoot />}>
+            <Route index element={<Home />} />
+            <Route path="login" element={<LoginForm />} />
+            <Route path="register" element={<RegisterForm />} />
+            <Route path="devices/:id" element={<DeviceDetail />} />
+            <Route path="orders" element={<MyOrders />} />
+            <Route path="cart" element={<CartPage />} />
+            <Route path="checkout" element={<CheckoutPage />} />
+            <Route path="kyc" element={<KycPage />} />
+            <Route path="profile" element={<CustomerProfile />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="verify-otp" element={<OtpVerify />} />
+            <Route path="category/:id" element={<RentalList />} />
+            <Route path="search" element={<FindProduct />} />
+            <Route path="chat" element={<CustomerLiveChat />} />
+            {/* Alias để tránh 404 khi truy cập /customer/chat */}
+            <Route path="customer/chat" element={<CustomerLiveChat />} />
+            <Route path="payment/return" element={<ReturnPage />} />
+            <Route path="payment/cancel" element={<CancelPage />} />
+            {/* Route cho PayOS redirect về /cancel thay vì /payment/cancel */}
+            <Route path="cancel" element={<CancelPage />} />
+            <Route path="return" element={<ReturnPage />} />
+            {/* Route cho VNPay redirect về /success và /failure */}
+            <Route path="success" element={<ReturnPage />} />
+            <Route path="failure" element={<CancelPage />} />
+          </Route>
 
-        <Route
-          path="/admin"
-          element={
-            <RequireRole role="ADMIN">
-              <AdminShell />
-            </RequireRole>
-          }
-        >
-          <Route index element={<AdminDashboard />} />
-          <Route path="orders" element={<AdminOrders />} />
-          <Route path="products" element={<AdminProducts />} />
-          <Route path="maintenance" element={<AdminMaintenancePlanner />} />
-          <Route path="contracts" element={<AdminContract />} />
-          <Route path="accounts" element={<AdminAccounts />} />
-          <Route path="transactions" element={<AdminTransactions />} />
-          <Route path="task-categories" element={<AdminTaskCategory />} />
-          <Route path="conditions" element={<AdminCondition />} />
-        </Route>
+          <Route
+            path="/admin"
+            element={
+              <RequireRole role="ADMIN">
+                <AdminShell />
+              </RequireRole>
+            }
+          >
+            <Route index element={<AdminDashboard />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="products" element={<AdminProducts />} />
+            <Route path="maintenance" element={<AdminMaintenancePlanner />} />
+            <Route path="maintenance-schedules" element={<AdminMaintenanceSchedule />} />
+            <Route path="contracts" element={<AdminContract />} />
+            <Route path="accounts" element={<AdminAccounts />} />
+            <Route path="transactions" element={<AdminTransactions />} />
+            <Route path="task-categories" element={<AdminTaskCategory />} />
+            <Route path="conditions" element={<AdminCondition />} />
+          </Route>
 
-        <Route
-          path="/operator"
-          element={
-            <RequireRole role="OPERATOR">
-              <OperatorShell />
-            </RequireRole>
-          }
-        >
-          <Route index element={<OperatorDashboard />} />
-          <Route path="orders" element={<OperatorOrders />} />
-          <Route path="tasks" element={<OperatorTasks />} />
-          <Route path="shifts" element={<OperatorShifts />} />
-          <Route path="kyc" element={<OperatorKyc />} />
-          <Route path="ordersdetail" element={<OperatorOrderDetail />} />
-        </Route>
+          <Route
+            path="/operator"
+            element={
+              <RequireRole role="OPERATOR">
+                <OperatorShell />
+              </RequireRole>
+            }
+          >
+            <Route index element={<OperatorDashboard />} />
+            <Route path="orders" element={<OperatorOrders />} />
+            <Route path="tasks" element={<OperatorTasks />} />
+            <Route path="shifts" element={<OperatorShifts />} />
+            <Route path="kyc" element={<OperatorKyc />} />
+            <Route path="ordersdetail" element={<OperatorOrderDetail />} />
+          </Route>
 
-        <Route
-          path="/technician"
-          element={
-            <RequireRole role="TECHNICIAN">
-              <TechnicianShell />
-            </RequireRole>
-          }
-        >
-          <Route index element={<TechnicianCalendar />} />
-          <Route path="reports" element={<TechnicianReports />} />
-          <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
-          <Route path="tasks/post-rental-qc/:taskId" element={<TechnicianPostRentalQc />} />
-          <Route path="tasks/handover/:taskId" element={<TechnicianHandover />} />
-          <Route path="tasks/handover-checkin/:taskId" element={<TechnicianHandoverCheckin />} />
-        </Route>
 
-        <Route
-          path="/support"
-          element={
-            <RequireRole role="CUSTOMER_SUPPORT_STAFF">
-              <SupportShell />
-            </RequireRole>
-          }
-        >
-          <Route index element={<SupportDesk />} />
-          <Route path="desk" element={<SupportDesk />} />
-          <Route path="tasks" element={<SupportTask />} />
-          <Route path="settlements" element={<SupportSettlement />} />
-          <Route path="chats" element={<SupportChat />} />
-          <Route path="settings" element={<div>Settings (sắp có)</div>} />
-        </Route>
+          <Route
+            path="/technician"
+            element={
+              <RequireRole role="TECHNICIAN">
+                <TechnicianShell />
+              </RequireRole>
+            }
+          >
+            <Route index element={<TechnicianCalendar />} />
+            <Route path="maintenance" element={<TechnicianMaintenance />} />
+            <Route path="reports" element={<TechnicianReports />} />
+            <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
+            <Route path="tasks/post-rental-qc/:taskId" element={<TechnicianPostRentalQc />} />
+            <Route path="tasks/handover/:taskId" element={<TechnicianHandover />} />
+            <Route path="tasks/handover-checkin/:taskId" element={<TechnicianHandoverCheckin />} />
+          </Route>
 
-        <Route path="*" element={<NotFound />} />
+
+          <Route
+            path="/support"
+            element={
+              <RequireRole role="CUSTOMER_SUPPORT_STAFF">
+                <SupportShell />
+              </RequireRole>
+            }
+          >
+            <Route index element={<SupportDesk />} />
+            <Route path="desk" element={<SupportDesk />} />
+            <Route path="tasks" element={<SupportTask />} />
+            <Route path="settlements" element={<SupportSettlement />} />
+            <Route path="chats" element={<SupportChat />} />
+            <Route path="settings" element={<div>Settings (sắp có)</div>} />
+          </Route>
+
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </ConfigProvider>
     </>

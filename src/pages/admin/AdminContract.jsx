@@ -383,7 +383,7 @@ function augmentContractContent(detail) {
   if (!detail) return detail;
   const originalBase = String(detail.contentHtml || detail.contractContent || "");
   let base = originalBase;
-  
+
   // Add serial numbers from allocatedDevices to device list items
   if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
     const serialNumbers = Array.from(
@@ -393,11 +393,11 @@ function augmentContractContent(detail) {
           .filter(Boolean)
       )
     );
-    
+
     if (serialNumbers.length > 0) {
       const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
       let modifiedBase = base;
-      
+
       // Pattern 1: Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
       const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/div>)/gi;
       modifiedBase = modifiedBase.replace(
@@ -406,7 +406,7 @@ function augmentContractContent(detail) {
           return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
         }
       );
-      
+
       // Pattern 2: Match <li>... - Giá/ngày:...</li> (fallback for unformatted HTML)
       if (modifiedBase === base) {
         const liPattern = /(<li>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/li>)/gi;
@@ -417,7 +417,7 @@ function augmentContractContent(detail) {
           }
         );
       }
-      
+
       // Pattern 3: Match any device line with "Giá/ngày" pattern (more flexible)
       if (modifiedBase === base) {
         // Try to match lines that contain device info and "Giá/ngày"
@@ -429,7 +429,7 @@ function augmentContractContent(detail) {
           }
         );
       }
-      
+
       // Check if replacement occurred
       if (modifiedBase !== base) {
         base = modifiedBase;
@@ -449,7 +449,7 @@ function augmentContractContent(detail) {
       }
     }
   }
-  
+
   const mergedHtml = base + EXTRA_CONTRACT_HTML;
   return { ...detail, contentHtml: mergedHtml };
 }
@@ -496,16 +496,16 @@ function buildPrintableHtml(detail, customer, kyc) {
   const customerPhone = customer?.phoneNumber || "";
   const identificationCode = kyc?.identificationCode || "";
   let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
-  
+
   // Add serial numbers from allocatedDevices after sanitization
   if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
     const serialNumbers = detail.allocatedDevices
       .map(device => device.serialNumber)
       .filter(Boolean);
-    
+
     if (serialNumbers.length > 0) {
       const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
-      
+
       // Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
       // Pattern: match device info before "Giá/ngày" and insert serial number
       const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]+?)(\s*-\s*Giá\/ngày[^<]+?)(<\/div>)/gi;
@@ -517,14 +517,14 @@ function buildPrintableHtml(detail, customer, kyc) {
           return `${openTag}${deviceInfo.trim()}${serialText}${priceAndDeposit}${closeTag}`;
         }
       );
-      
+
       // Debug: log if replacement didn't occur
       if (contentHtml === originalContentHtml) {
         console.warn("Serial number injection failed. HTML pattern:", contentHtml.substring(0, 200));
       }
     }
   }
-  
+
   const termsBlock = detail.terms
     ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
     : "";
@@ -550,18 +550,18 @@ function buildPrintableHtml(detail, customer, kyc) {
           ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
           ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
           ${(() => {
-            const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
-            if (bankInfo.length > 0) {
-              return bankInfo.map((bank, idx) => {
-                const bankName = bank?.bankName || "";
-                const bankHolder = bank?.bankHolder || "";
-                const cardNumber = bank?.cardNumber || "";
-                if (!bankName && !bankHolder && !cardNumber) return "";
-                return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
-              }).filter(Boolean).join("");
-            }
-            return "";
-          })()}
+      const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
+      if (bankInfo.length > 0) {
+        return bankInfo.map((bank, idx) => {
+          const bankName = bank?.bankName || "";
+          const bankHolder = bank?.bankHolder || "";
+          const cardNumber = bank?.cardNumber || "";
+          if (!bankName && !bankHolder && !cardNumber) return "";
+          return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
+        }).filter(Boolean).join("");
+      }
+      return "";
+    })()}
         </section>
 
         <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>
@@ -577,42 +577,42 @@ function buildPrintableHtml(detail, customer, kyc) {
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
+      const status = String(detail.status || "").toUpperCase();
+      if (status === "ACTIVE") {
+        return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+      }
+      return "";
+    })()}
             </div>
             <div>
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "ACTIVE") {
-                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
+      const status = String(detail.status || "").toUpperCase();
+      if (status === "ACTIVE") {
+        return `<div style="color:#000;font-weight:600">${customerName}</div>`;
+      }
+      return "(Ký, ghi rõ họ tên)";
+    })()}
             </div>
           </div>
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN A</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#000;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
+      const status = String(detail.status || "").toUpperCase();
+      if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+        return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+      }
+      return "";
+    })()}
             </div>
             <div>
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
+      const status = String(detail.status || "").toUpperCase();
+      if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+        return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
+      }
+      return "(Ký, ghi rõ họ tên)";
+    })()}
             </div>
           </div>
         </section>
@@ -698,13 +698,13 @@ export default function AdminContract() {
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const printRef = useRef(null);
 
-function revokeBlob(url) {
-  try {
-    if (url) URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error("Failed to revoke blob URL:", error);
+  function revokeBlob(url) {
+    try {
+      if (url) URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Failed to revoke blob URL:", error);
+    }
   }
-}
   function clearContractPreviewState() {
     revokeBlob(pdfBlobUrl);
     setPdfBlobUrl("");
@@ -1066,7 +1066,7 @@ function revokeBlob(url) {
                 <Input type="email" disabled value={ADMIN_SIGN_EMAIL} />
               </Form.Item>
               <Form.Item style={{ marginTop: -8, marginBottom: 12 }}>
-                
+
               </Form.Item>
               <Form.Item style={{ textAlign: "right", marginBottom: 0 }}>
                 <Space>
@@ -1418,16 +1418,16 @@ function revokeBlob(url) {
         style={{ top: 24 }}
       >
         {pdfBlobUrl ? (
-          <iframe title="PDFPreview" src={pdfBlobUrl} style={{ width:"100%", height: "70vh", border:"none" }} />
+          <iframe title="PDFPreview" src={pdfBlobUrl} style={{ width: "100%", height: "70vh", border: "none" }} />
         ) : (
-          <div style={{ textAlign:"center", padding:"40px 0" }}>
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
             <Text type="secondary">Đang tạo bản xem trước…</Text>
           </div>
         )}
       </Modal>
 
       {/* Container ẩn để render A4 rồi chụp */}
-      <div style={{ position:"fixed", left:-9999, top:-9999, background:"#fff" }}>
+      <div style={{ position: "fixed", left: -9999, top: -9999, background: "#fff" }}>
         <div ref={printRef} />
       </div>
     </div>

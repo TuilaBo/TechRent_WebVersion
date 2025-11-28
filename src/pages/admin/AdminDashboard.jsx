@@ -63,7 +63,7 @@ const ORDER_STATUS_LABELS = {
   pending: "Chờ xác nhận",
   pending_kyc: "Chờ KYC",
   processing: "Đang xử lý",
-  ready_for_delivery: "Sẵn sàng giao",
+  ready_for_delivery: "Chuẩn bị giao",
   delivering: "Đang giao",
   in_use: "Đang sử dụng",
   delivery_confirmed: "Đã giao",
@@ -166,8 +166,8 @@ export default function AdminDashboard() {
         if (!cancelled) {
           setError(
             err?.response?.data?.message ||
-              err?.message ||
-              "Không thể tải dữ liệu dashboard."
+            err?.message ||
+            "Không thể tải dữ liệu dashboard."
           );
         }
       } finally {
@@ -427,147 +427,147 @@ export default function AdminDashboard() {
 
   return (
     <>
-    <Spin spinning={loading}>
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        {error && (
-          <Alert
-            type="error"
-            showIcon
-            message="Không tải được dữ liệu"
-            description={error}
-          />
-        )}
+      <Spin spinning={loading}>
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+          {error && (
+            <Alert
+              type="error"
+              showIcon
+              message="Không tải được dữ liệu"
+              description={error}
+            />
+          )}
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <DollarCircleOutlined style={{ fontSize: 24, color: "#52c41a" }} />
-                <Statistic
-                  title="Doanh thu"
-                  value={totalRevenue}
-                  valueRender={() => <Text strong>{formatVND(totalRevenue)}</Text>}
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={6}>
+              <Card>
+                <Space>
+                  <DollarCircleOutlined style={{ fontSize: 24, color: "#52c41a" }} />
+                  <Statistic
+                    title="Doanh thu"
+                    value={totalRevenue}
+                    valueRender={() => <Text strong>{formatVND(totalRevenue)}</Text>}
+                  />
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card>
+                <Space>
+                  <ShoppingOutlined style={{ fontSize: 24, color: "#1677ff" }} />
+                  <Statistic
+                    title="Đơn mới hôm nay"
+                    value={newOrdersToday}
+                    suffix={<Text type="secondary">đơn</Text>}
+                  />
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card>
+                <Space>
+                  <SecurityScanOutlined style={{ fontSize: 24, color: "#faad14" }} />
+                  <Statistic
+                    title="Tỷ lệ KYC đậu"
+                    value={kycSummary.passRate}
+                    suffix="%"
+                  />
+                </Space>
+                <Progress
+                  percent={kycSummary.passRate}
+                  size="small"
+                  style={{ marginTop: 8 }}
                 />
-              </Space>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <ShoppingOutlined style={{ fontSize: 24, color: "#1677ff" }} />
-                <Statistic
-                  title="Đơn mới hôm nay"
-                  value={newOrdersToday}
-                  suffix={<Text type="secondary">đơn</Text>}
-                />
-              </Space>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <SecurityScanOutlined style={{ fontSize: 24, color: "#faad14" }} />
-                <Statistic
-                  title="Tỷ lệ KYC đậu"
-                  value={kycSummary.passRate}
-                  suffix="%"
-                />
-              </Space>
-              <Progress
-                percent={kycSummary.passRate}
-                size="small"
-                style={{ marginTop: 8 }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <DatabaseOutlined style={{ fontSize: 24, color: "#eb2f96" }} />
-                <Statistic
-                  title="Hồ sơ KYC đang chờ"
-                  value={kycSummary.summary.pending}
-                  suffix={<Text type="secondary">hồ sơ</Text>}
-                />
-              </Space>
-            </Card>
-          </Col>
-        </Row>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card>
+                <Space>
+                  <DatabaseOutlined style={{ fontSize: 24, color: "#eb2f96" }} />
+                  <Statistic
+                    title="Hồ sơ KYC đang chờ"
+                    value={kycSummary.summary.pending}
+                    suffix={<Text type="secondary">hồ sơ</Text>}
+                  />
+                </Space>
+              </Card>
+            </Col>
+          </Row>
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={16}>
-            <Card title="Doanh thu 7 ngày gần nhất">
-              {revenueChartData.length ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={revenueChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" />
-                    <YAxis tickFormatter={formatAxisCurrency} />
-                    <ChartTooltip formatter={(value) => formatVND(value)} />
-                    <Line
-                      type="monotone"
-                      dataKey="amount"
-                      stroke="#1677ff"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <Empty description="Chưa có giao dịch" />
-              )}
-            </Card>
-          </Col>
-          <Col xs={24} lg={8}>
-            <Card title="Tỷ lệ KYC">
-              {kycSummary.summary.passed +
-              kycSummary.summary.failed +
-              kycSummary.summary.pending ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={kycSummary.pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={2}
-                      label={({ name, value }) => `${name}: ${value}`}
-                    >
-                      {kycSummary.pieData.map((entry, index) => (
-                        <Cell key={entry.name} fill={entry.color || KYC_PIE_COLORS[index]} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip formatter={(value, name) => [`${value} hồ sơ`, name]} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <Empty description="Chưa có dữ liệu KYC" />
-              )}
-            </Card>
-          </Col>
-        </Row>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={16}>
+              <Card title="Doanh thu 7 ngày gần nhất">
+                {revenueChartData.length ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={revenueChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis tickFormatter={formatAxisCurrency} />
+                      <ChartTooltip formatter={(value) => formatVND(value)} />
+                      <Line
+                        type="monotone"
+                        dataKey="amount"
+                        stroke="#1677ff"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có giao dịch" />
+                )}
+              </Card>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Card title="Tỷ lệ KYC">
+                {kycSummary.summary.passed +
+                  kycSummary.summary.failed +
+                  kycSummary.summary.pending ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={kycSummary.pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={2}
+                        label={({ name, value }) => `${name}: ${value}`}
+                      >
+                        {kycSummary.pieData.map((entry, index) => (
+                          <Cell key={entry.name} fill={entry.color || KYC_PIE_COLORS[index]} />
+                        ))}
+                      </Pie>
+                      <ChartTooltip formatter={(value, name) => [`${value} hồ sơ`, name]} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có dữ liệu KYC" />
+                )}
+              </Card>
+            </Col>
+          </Row>
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={16}>
-            <Card title="Số đơn mới 7 ngày gần nhất">
-              {ordersTrendData.length ? (
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={ordersTrendData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" />
-                    <YAxis allowDecimals={false} />
-                    <ChartTooltip />
-                    <Bar dataKey="count" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <Empty description="Chưa có đơn nào" />
-              )}
-            </Card>
-          </Col>
-          {/* <Col xs={24} lg={8}>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={16}>
+              <Card title="Số đơn mới 7 ngày gần nhất">
+                {ordersTrendData.length ? (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={ordersTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis allowDecimals={false} />
+                      <ChartTooltip />
+                      <Bar dataKey="count" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có đơn nào" />
+                )}
+              </Card>
+            </Col>
+            {/* <Col xs={24} lg={8}>
             <Card title="Giao dịch gần đây">
               {recentTransactions.length ? (
                 <List
@@ -599,9 +599,9 @@ export default function AdminDashboard() {
               )}
             </Card>
           </Col> */}
-        </Row>
+          </Row>
 
-        {/* <Row gutter={[16, 16]}>
+          {/* <Row gutter={[16, 16]}>
           <Col xs={24} lg={12}>
             <Card title="Đơn cần xử lý">
               {attentionOrders.length ? (
@@ -662,7 +662,7 @@ export default function AdminDashboard() {
           </Col>
         </Row> */}
 
-        {/* <Card
+          {/* <Card
           title={
             <Space>
               Đơn hàng gần đây
@@ -690,117 +690,117 @@ export default function AdminDashboard() {
             }}
           />
         </Card> */}
-      </Space>
-    </Spin>
-
-    <Drawer
-      title={
-        orderDetail
-          ? `Đơn ${normalizeOrderId(orderDetail)}`
-          : "Chi tiết đơn"
-      }
-      width={800}
-      open={orderDetailOpen}
-      onClose={() => {
-        setOrderDetailOpen(false);
-        setOrderDetail(null);
-      }}
-      destroyOnClose
-    >
-      <Spin spinning={orderDetailLoading}>
-        {orderDetail ? (
-          <Space direction="vertical" style={{ width: "100%" }} size="large">
-            <Descriptions
-              bordered
-              column={2}
-              size="small"
-              items={[
-                { label: "Khách hàng", children: orderDetail.customerName || "—" },
-                {
-                  label: "Trạng thái",
-                  children: (
-                    <Tag color={ORDER_STATUS_TAG[String(orderDetail.orderStatus).toLowerCase()] || "default"}>
-                      {ORDER_STATUS_LABELS[String(orderDetail.orderStatus).toLowerCase()] ||
-                        orderDetail.orderStatus ||
-                        "—"}
-                    </Tag>
-                  ),
-                },
-                {
-                  label: "Ngày tạo",
-                  children: formatDateTime(orderDetail.createdAt),
-                },
-                {
-                  label: "Ngày bắt đầu",
-                  children: formatDateTime(orderDetail.startDate),
-                },
-                {
-                  label: "Ngày kết thúc",
-                  children: formatDateTime(orderDetail.endDate),
-                },
-                {
-                  label: "Tổng thanh toán",
-                  children: formatVND(
-                    Number(orderDetail.totalPrice || orderDetail.total || 0) +
-                      Number(orderDetail.depositAmount || orderDetail.deposit || 0)
-                  ),
-                },
-              ]}
-            />
-
-            <Card title="Sản phẩm">
-              {(orderDetail.orderDetails || orderDetail.items || []).length ? (
-                <Table
-                  rowKey={(item, idx) => `${item?.deviceModelId || item?.itemId || idx}`}
-                  dataSource={orderDetail.orderDetails || orderDetail.items}
-                  pagination={false}
-                  size="small"
-                  columns={[
-                    {
-                      title: "Thiết bị",
-                      dataIndex: "deviceName",
-                      render: (value, record) =>
-                        value ||
-                        record?.name ||
-                        `Model ${record?.deviceModelId || record?.deviceId || ""}`,
-                    },
-                    {
-                      title: "Số lượng",
-                      dataIndex: "quantity",
-                      align: "center",
-                      render: (value, record) => value ?? record?.qty ?? 1,
-                    },
-                    {
-                      title: "Giá / ngày",
-                      dataIndex: "pricePerDay",
-                      align: "right",
-                      render: (value) => formatVND(value || 0),
-                    },
-                    {
-                      title: "Tiền cọc",
-                      dataIndex: "depositAmountPerUnit",
-                      align: "right",
-                      render: (value, record) =>
-                        formatVND(value ?? record?.depositAmount ?? record?.depositAmountPerUnit ?? 0),
-                    },
-                  ]}
-                />
-              ) : (
-                <Empty description="Không có sản phẩm" />
-              )}
-            </Card>
-
-            {orderDetail.notes && (
-              <Card title="Ghi chú">
-                <Text>{orderDetail.notes}</Text>
-              </Card>
-            )}
-          </Space>
-        ) : (
-          <Empty description="Không có dữ liệu đơn hàng" />
-        )}
+        </Space>
       </Spin>
-    </Drawer>
+
+      <Drawer
+        title={
+          orderDetail
+            ? `Đơn ${normalizeOrderId(orderDetail)}`
+            : "Chi tiết đơn"
+        }
+        width={800}
+        open={orderDetailOpen}
+        onClose={() => {
+          setOrderDetailOpen(false);
+          setOrderDetail(null);
+        }}
+        destroyOnClose
+      >
+        <Spin spinning={orderDetailLoading}>
+          {orderDetail ? (
+            <Space direction="vertical" style={{ width: "100%" }} size="large">
+              <Descriptions
+                bordered
+                column={2}
+                size="small"
+                items={[
+                  { label: "Khách hàng", children: orderDetail.customerName || "—" },
+                  {
+                    label: "Trạng thái",
+                    children: (
+                      <Tag color={ORDER_STATUS_TAG[String(orderDetail.orderStatus).toLowerCase()] || "default"}>
+                        {ORDER_STATUS_LABELS[String(orderDetail.orderStatus).toLowerCase()] ||
+                          orderDetail.orderStatus ||
+                          "—"}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    label: "Ngày tạo",
+                    children: formatDateTime(orderDetail.createdAt),
+                  },
+                  {
+                    label: "Ngày bắt đầu",
+                    children: formatDateTime(orderDetail.startDate),
+                  },
+                  {
+                    label: "Ngày kết thúc",
+                    children: formatDateTime(orderDetail.endDate),
+                  },
+                  {
+                    label: "Tổng thanh toán",
+                    children: formatVND(
+                      Number(orderDetail.totalPrice || orderDetail.total || 0) +
+                      Number(orderDetail.depositAmount || orderDetail.deposit || 0)
+                    ),
+                  },
+                ]}
+              />
+
+              <Card title="Sản phẩm">
+                {(orderDetail.orderDetails || orderDetail.items || []).length ? (
+                  <Table
+                    rowKey={(item, idx) => `${item?.deviceModelId || item?.itemId || idx}`}
+                    dataSource={orderDetail.orderDetails || orderDetail.items}
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      {
+                        title: "Thiết bị",
+                        dataIndex: "deviceName",
+                        render: (value, record) =>
+                          value ||
+                          record?.name ||
+                          `Model ${record?.deviceModelId || record?.deviceId || ""}`,
+                      },
+                      {
+                        title: "Số lượng",
+                        dataIndex: "quantity",
+                        align: "center",
+                        render: (value, record) => value ?? record?.qty ?? 1,
+                      },
+                      {
+                        title: "Giá / ngày",
+                        dataIndex: "pricePerDay",
+                        align: "right",
+                        render: (value) => formatVND(value || 0),
+                      },
+                      {
+                        title: "Tiền cọc",
+                        dataIndex: "depositAmountPerUnit",
+                        align: "right",
+                        render: (value, record) =>
+                          formatVND(value ?? record?.depositAmount ?? record?.depositAmountPerUnit ?? 0),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Empty description="Không có sản phẩm" />
+                )}
+              </Card>
+
+              {orderDetail.notes && (
+                <Card title="Ghi chú">
+                  <Text>{orderDetail.notes}</Text>
+                </Card>
+              )}
+            </Space>
+          ) : (
+            <Empty description="Không có dữ liệu đơn hàng" />
+          )}
+        </Spin>
+      </Drawer>
     </>
   );
 }

@@ -1,7 +1,7 @@
 // src/pages/technician/TechnicianShell.jsx
 import React, { useState } from "react";
 import { Layout, Menu, Avatar, Dropdown } from "antd";
-import { CalendarOutlined, FileTextOutlined } from "@ant-design/icons";
+import { CalendarOutlined, FileTextOutlined, ToolOutlined } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuthStore } from "../../store/authStore";
@@ -12,7 +12,7 @@ export default function TechnicianShell() {
   const [collapsed, setCollapsed] = useState(false);
   const nav = useNavigate();
   const loc = useLocation();
-  const sel = loc.pathname.includes("/technician/reports") ? "reports" : "calendar";
+  const sel = loc.pathname.includes("/technician/maintenance") ? "maintenance" : loc.pathname.includes("/technician/reports") ? "reports" : "calendar";
   const logout = useAuthStore((s) => s.logout);
 
   return (
@@ -23,8 +23,9 @@ export default function TechnicianShell() {
         </div>
         <Menu theme="dark" selectedKeys={[sel]} items={[
           { key: "calendar", icon: <CalendarOutlined />, label: "Lịch công việc", onClick: () => nav("/technician") },
-          { key: "reports",  icon: <FileTextOutlined />,   label: "Tạo báo cáo",   onClick: () => nav("/technician/reports") },
-        ]}/>
+          { key: "maintenance", icon: <ToolOutlined />, label: "Lịch bảo trì", onClick: () => nav("/technician/maintenance") },
+          { key: "reports", icon: <FileTextOutlined />, label: "Tạo báo cáo", onClick: () => nav("/technician/reports") },
+        ]} />
       </Sider>
 
       <Layout>

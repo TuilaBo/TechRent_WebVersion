@@ -57,7 +57,7 @@ function extractStatus(order) {
 
 function deriveOrderInfo(payload) {
   if (!payload) return { orderId: undefined, status: "" };
-  
+
   // Handle notification payload with type field
   const notificationType = String(payload?.type || "").toUpperCase();
   if (notificationType === "ORDER_PROCESSING") {
@@ -66,7 +66,7 @@ function deriveOrderInfo(payload) {
       status: "PROCESSING",
     };
   }
-  
+
   const merged = {
     ...payload,
     ...(payload.order || payload.data || payload.detail || {}),
@@ -82,9 +82,9 @@ function buildContractsMap(contracts = []) {
   contracts.forEach((contract) => {
     const orderId = normalizeOrderId(
       contract?.orderId ??
-        contract?.rentalOrderId ??
-        contract?.order?.orderId ??
-        contract?.order?.id
+      contract?.rentalOrderId ??
+      contract?.order?.orderId ??
+      contract?.order?.id
     );
     if (orderId != null) {
       map.set(orderId, contract);
@@ -98,8 +98,8 @@ const STATUS_META = {
     tag: { color: "gold", label: "Đang xử lý" },
   },
   READY_FOR_DELIVERY: {
-    tag: { color: "cyan", label: "Sẵn sàng giao hàng" },
-    title: (order) => `Đơn #${order.orderId} sẵn sàng giao`,
+    tag: { color: "cyan", label: "Chuẩn bị giao hàng" },
+    title: (order) => `Đơn #${order.orderId} chuẩn bị giao`,
     description:
       "Đội ngũ đang chuẩn bị giao hàng. Hãy đảm bảo bạn đã ký hợp đồng và thanh toán đầy đủ.",
     actionLabel: "Xem chi tiết",
@@ -192,11 +192,11 @@ function getDaysRemaining(endDate) {
   if (!endDate) return null;
   const end = new Date(endDate);
   const now = new Date();
-  
+
   // Reset time to start of day for accurate day calculation
   const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
+
   const diff = endDay.getTime() - nowDay.getTime();
   // Use Math.floor to ensure accurate day count (don't round up)
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -207,21 +207,21 @@ function buildReturnDueNotification(order) {
   if (!order) return null;
   const orderId = extractOrderId(order);
   if (orderId == null) return null;
-  
+
   const endDate = order?.endDate || order?.rentalEndDate;
   if (!endDate) return null;
-  
+
   const daysRemaining = getDaysRemaining(endDate);
   // Chỉ tạo thông báo khi còn <= 1 ngày và chưa quá hạn
   if (daysRemaining === null || daysRemaining < 0 || daysRemaining > 1) return null;
-  
+
   // Kiểm tra trạng thái đơn - chỉ thông báo cho đơn đang thuê/đang sử dụng
   const status = String(order?.orderStatus || order?.status || "").toLowerCase();
   if (!["active", "in_use", "delivering"].includes(status)) return null;
-  
+
   const displayCode = order?.orderCode || order?.rentalOrderCode || orderId;
   const daysText = "1 ngày nữa";
-  
+
   return {
     key: `return-due-${orderId}`,
     orderId,
@@ -348,12 +348,12 @@ export default function NotificationsPage() {
           onMessage: async (payload) => {
             console.log("📬 NotificationsPage: Received WebSocket message", payload);
             let { orderId: payloadOrderId, status: payloadStatus } = deriveOrderInfo(payload);
-            
+
             if (!payloadStatus) {
               console.log("⚠️ NotificationsPage: Message missing status, ignoring", { payloadOrderId, payloadStatus, payload });
               return;
             }
-            
+
             // If no orderId but we have a PROCESSING status, try to find it from orders
             if (!payloadOrderId && payloadStatus === "PROCESSING") {
               try {
@@ -376,12 +376,12 @@ export default function NotificationsPage() {
                 console.error("NotificationsPage: Failed to load orders for notification", err);
               }
             }
-            
+
             if (!payloadOrderId) {
               console.log("⚠️ NotificationsPage: Cannot find orderId, skipping notification", { payloadStatus, payload });
               return;
             }
-            
+
             console.log("✅ NotificationsPage: Processing notification", { payloadOrderId, payloadStatus });
             try {
               const order = await getRentalOrderById(payloadOrderId);
