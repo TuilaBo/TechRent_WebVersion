@@ -839,6 +839,13 @@ function revokeBlob(url) {
 
   const filteredRows = useMemo(() => {
     let data = [...rows];
+    
+    // Loại bỏ các hợp đồng có trạng thái "nháp" (draft)
+    data = data.filter((row) => {
+      const status = String(row.status || "").toLowerCase();
+      return status !== "draft" && status !== "nháp";
+    });
+    
     if (searchText.trim()) {
       const keyword = searchText.trim().toLowerCase();
       data = data.filter((row) => {
@@ -866,6 +873,30 @@ function revokeBlob(url) {
         return t.isValid() && t.isBetween(start, end, "day", "[]");
       });
     }
+    
+    // Sắp xếp theo thứ tự ưu tiên: chờ ký (admin) -> chờ khách hàng ký -> đã ký
+    data.sort((a, b) => {
+      const getPriority = (status) => {
+        const s = String(status || "").toUpperCase();
+        if (s === "PENDING_ADMIN_SIGNATURE") return 1; // Ưu tiên cao nhất
+        if (s === "PENDING_SIGNATURE") return 2;
+        if (s === "ACTIVE" || s.includes("SIGNED")) return 3;
+        return 4; // Các trạng thái khác
+      };
+      
+      const priorityA = getPriority(a.status);
+      const priorityB = getPriority(b.status);
+      
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      
+      // Nếu cùng priority, sắp xếp theo ngày tạo (mới nhất trước)
+      const dateA = new Date(a?.createdAt || a?.signedAt || 0).getTime();
+      const dateB = new Date(b?.createdAt || b?.signedAt || 0).getTime();
+      return dateB - dateA;
+    });
+    
     return data;
   }, [rows, searchText, statusFilter, dateRange]);
 
@@ -932,17 +963,23 @@ function revokeBlob(url) {
       setContractDetail(normalized);
       if (normalized?.contractUrl) setPdfPreviewUrl(normalized.contractUrl);
 
+      // Local copies để dùng cho auto-generate PDF
+      let customerData = null;
+      let kycData = null;
+
       if (normalized?.customerId) {
         try {
           const customer = await fetchCustomerById(normalized.customerId);
-          setContractCustomer(normalizeCustomer(customer || {}));
+          customerData = normalizeCustomer(customer || {});
+          setContractCustomer(customerData);
         } catch (error) {
           console.error("Failed to fetch customer for contract detail:", error);
           setContractCustomer(null);
         }
         try {
           const kyc = await getKycByCustomerId(normalized.customerId);
-          setContractKyc(kyc || null);
+          kycData = kyc || null;
+          setContractKyc(kycData);
         } catch (error) {
           console.error("Failed to fetch KYC for contract detail:", error);
           setContractKyc(null);
@@ -954,6 +991,25 @@ function revokeBlob(url) {
 
       if (normalized?.orderId) {
         await loadOrderContracts(normalized.orderId);
+      }
+
+      // Nếu BE không trả về contractUrl, tự động generate PDF để iframe hiển thị luôn
+      if (!normalized?.contractUrl && printRef.current) {
+        try {
+          const detail = augmentContractContent(normalized);
+          printRef.current.innerHTML = buildPrintableHtml(
+            detail,
+            customerData,
+            kycData
+          );
+          const blob = await elementToPdfBlob(printRef.current);
+          const url = URL.createObjectURL(blob);
+          // Dùng cho iframe trong Drawer + modal xem trước (nếu admin mở thủ công)
+          setPdfPreviewUrl(url);
+          setPdfBlobUrl(url);
+        } catch (error) {
+          console.error("Failed to auto-generate contract PDF preview (admin):", error);
+        }
       }
 
       setDetailOpen(true);
@@ -1184,11 +1240,34 @@ function revokeBlob(url) {
                 if (href) {
                   return (
                     <>
-                      <Button type="primary" icon={<DownloadOutlined />} href={href} target="_blank" rel="noopener">
+                      <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={() => {
+                          if (contractDetail?.contractUrl) {
+                            // Nếu có contractUrl từ BE, tải trực tiếp
+                            const a = document.createElement("a");
+                            a.href = contractDetail.contractUrl;
+                            a.target = "_blank";
+                            a.rel = "noopener";
+                            a.download = contractDetail.contractFileName || `contract-${contractDetail.id}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          } else if (pdfPreviewUrl || pdfBlobUrl) {
+                            // Nếu là blob URL từ FE generate, tải blob
+                            const a = document.createElement("a");
+                            a.href = pdfPreviewUrl || pdfBlobUrl;
+                            a.download = contractDetail?.contractFileName || contractDetail?.number || `contract-${contractDetail.id}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          } else {
+                            message.warning("Không có URL hợp đồng để tải");
+                          }
+                        }}
+                      >
                         Tải hợp đồng
-                      </Button>
-                      <Button icon={<PrinterOutlined />} onClick={() => printPdfUrl(href)}>
-                        In hợp đồng (PDF)
                       </Button>
                     </>
                   );

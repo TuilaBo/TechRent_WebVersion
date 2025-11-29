@@ -192,7 +192,7 @@ export default function OperatorTasks() {
     setData(prev.filter((x) => x.taskId !== taskId));
     try {
       await deleteTask(taskId);
-      toast.success("Đã xoá task.");
+      toast.success("Đã xoá công việc.");
       await loadData();
     } catch (e) {
       setData(prev);
@@ -218,7 +218,7 @@ export default function OperatorTasks() {
           plannedEnd: formatLocalDateTime(vals.plannedEnd),
         };
         await updateTask(editing.taskId || editing.id, updatePayload);
-        toast.success("Đã cập nhật task.");
+        toast.success("Đã cập nhật công việc.");
       } else {
         // Khi tạo mới: có thể gửi orderId
         const createPayload = {
@@ -231,7 +231,7 @@ export default function OperatorTasks() {
           plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).format("YYYY-MM-DDTHH:mm:ss") : undefined,
         };
         await createTask(createPayload);
-        toast.success("Đã tạo task.");
+        toast.success("Đã tạo công việc.");
       }
 
       setOpen(false);
@@ -491,14 +491,14 @@ export default function OperatorTasks() {
         const end = r.plannedEnd ? dayjs(r.plannedEnd).format("DD/MM/YYYY HH:mm") : "-";
         return (
           <div style={{ fontSize: "12px", lineHeight: "1.5" }}>
-            <div><strong>Thời gian Bắt đầu nhiệm vụ:</strong> {start}</div>
-            <div><strong>Thời gian kết thúc nhiệm vụ:</strong> {end}</div>
+            <div><strong>Thời gian bắt đầu công việc:</strong> {start}</div>
+            <div><strong>Thời gian kết thúc công việc:</strong> {end}</div>
           </div>
         );
       },
     },
     {
-      title: "Trạng thái nhiệm vụ",
+      title: "Trạng thái công việc",
       dataIndex: "status",
       key: "status",
       width: 140,
@@ -526,7 +526,7 @@ export default function OperatorTasks() {
       render: (_, r) => (
         <Space size="small">
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          <Popconfirm title="Xóa task này?" onConfirm={() => remove(r)}>
+          <Popconfirm title="Xóa công việc này?" onConfirm={() => remove(r)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -708,7 +708,7 @@ export default function OperatorTasks() {
       ),
     },
     {
-      title: "Số task hoàn thành",
+      title: "Số công việc hoàn thành",
       dataIndex: "completedTaskCount",
       key: "completedTaskCount",
       width: 180,
@@ -728,16 +728,16 @@ export default function OperatorTasks() {
   const tabItems = [
     {
       key: "tasks",
-      label: "Quản lý nhiệm vụ",
+      label: "Quản lý công việc",
       children: (
         <>
           <Card style={{ marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-              <Title level={3} style={{ margin: 0 }}>Quản lý nhiệm vụ</Title>
+              <Title level={3} style={{ margin: 0 }}>Quản lý công việc</Title>
               <Space>
                 <Button icon={<ReloadOutlined />} onClick={loadData}>Tải lại</Button>
                 <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-                  Thêm task
+                  Thêm công việc
                 </Button>
               </Space>
             </div>
@@ -746,7 +746,7 @@ export default function OperatorTasks() {
           <Card>
             <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
               <Search
-                placeholder="Tìm kiếm theo mã task hoặc mã đơn hàng..."
+                placeholder="Tìm kiếm theo mã công việc hoặc mã đơn hàng..."
                 allowClear
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -761,7 +761,7 @@ export default function OperatorTasks() {
                 rowKey="taskId"
                 columns={columns}
                 dataSource={filteredData}
-                pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} task` }}
+                pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} công việc` }}
                 scroll={{ x: 1200 }}
               />
             </Spin>
@@ -851,7 +851,7 @@ export default function OperatorTasks() {
       />
 
       <Modal
-        title={editing ? "Cập nhật task" : "Tạo task"}
+        title={editing ? "Cập nhật công việc" : "Tạo công việc"}
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
@@ -863,7 +863,7 @@ export default function OperatorTasks() {
             label="Loại công việc"
             name="taskCategoryId"
             rules={[{ required: true, message: "Chọn loại công việc" }]}
-            tooltip={editing ? "Không thể thay đổi loại công việc khi chỉnh sửa task" : undefined}
+            tooltip={editing ? "Không thể thay đổi loại công việc khi chỉnh sửa công việc" : undefined}
           >
             <Select
               placeholder="Chọn loại công việc"
@@ -878,7 +878,7 @@ export default function OperatorTasks() {
           <Form.Item 
             label="Mã đơn hàng" 
             name="orderId"
-            tooltip={editing ? "Không thể thay đổi mã đơn hàng sau khi tạo task" : undefined}
+            tooltip={editing ? "Không thể thay đổi mã đơn hàng sau khi tạo công việc" : undefined}
           >
             <Select
               disabled={!!editing}
@@ -931,9 +931,9 @@ export default function OperatorTasks() {
           </Form.Item>
 
           <Form.Item
-            label="Thời gian bắt đầu nhiệm vụ (dự kiến)"
+            label="Thời gian bắt đầu công việc (dự kiến)"
             name="plannedStart"
-            rules={[{ required: true, message: "Chọn thời gian bắt đầu nhiệm vụ (dự kiến)" }]}
+            rules={[{ required: true, message: "Chọn thời gian bắt đầu công việc (dự kiến)" }]}
           >
             <DatePicker
               showTime
@@ -950,9 +950,9 @@ export default function OperatorTasks() {
           </Form.Item>
 
           <Form.Item
-            label="Thời gian kết thúc nhiệm vụ( dự kiến)"
+            label="Thời gian kết thúc công việc (dự kiến)"
             name="plannedEnd"
-            rules={[{ required: true, message: "Chọn Thời gian kết thúc task( dự kiến)" }]}
+            rules={[{ required: true, message: "Chọn thời gian kết thúc công việc (dự kiến)" }]}
           >
             <DatePicker
               showTime

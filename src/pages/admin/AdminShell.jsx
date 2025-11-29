@@ -53,6 +53,7 @@ export default function AdminShell() {
     if (location.pathname.startsWith("/admin/transactions")) return "transactions";
     if (location.pathname.startsWith("/admin/task-categories")) return "task-categories";
     if (location.pathname.startsWith("/admin/conditions")) return "conditions";
+    if (location.pathname.startsWith("/admin/device-terms")) return "device-terms";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
     return "dashboard";
   }, [location.pathname]);
@@ -154,6 +155,11 @@ export default function AdminShell() {
               key: "conditions",
               icon: <FileTextOutlined />,
               label: <Link to="/admin/conditions">Tình trạng thiết bị</Link>,
+            },
+            {
+              key: "device-terms",
+              icon: <FileTextOutlined />,
+              label: <Link to="/admin/device-terms">Điều khoản thiết bị</Link>,
             },
           ]}
         />

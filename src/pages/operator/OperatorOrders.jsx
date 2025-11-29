@@ -1286,6 +1286,12 @@ export default function OperatorOrders() {
   const [selectedHandoverReport, setSelectedHandoverReport] = useState(null);
   const handoverPrintRef = useRef(null);
 
+  // Handover report detail (tương tự contract detail)
+  const [handoverReportDetail, setHandoverReportDetail] = useState(null);
+  const [handoverReportDetailOpen, setHandoverReportDetailOpen] = useState(false);
+  const [loadingHandoverReportDetail, setLoadingHandoverReportDetail] = useState(false);
+  const [handoverReportPdfPreviewUrl, setHandoverReportPdfPreviewUrl] = useState("");
+
   const [orderDetailModels, setOrderDetailModels] = useState({});
   const [orderDetailMetaLoading, setOrderDetailMetaLoading] = useState(false);
 
@@ -1739,8 +1745,10 @@ export default function OperatorOrders() {
     return pdf.output("blob");
   }
 
-  async function previewContractAsPdf() {
-    if (!contractDetail) return message.warning("Chưa có dữ liệu hợp đồng.");
+  async function previewContractAsPdf(detailOverride = null, options = {}) {
+    const { openModal = true } = options || {};
+    const detailToUse = detailOverride || contractDetail;
+    if (!detailToUse) return message.warning("Chưa có dữ liệu hợp đồng.");
     try {
       setPdfGenerating(true);
       revokeBlob(pdfBlobUrl);
@@ -1748,10 +1756,10 @@ export default function OperatorOrders() {
       let customerData = contractCustomer;
       let kycData = contractKyc;
 
-      if (contractDetail?.customerId) {
+      if (detailToUse?.customerId) {
         if (!customerData) {
           try {
-            const c = await fetchCustomerById(contractDetail.customerId);
+            const c = await fetchCustomerById(detailToUse.customerId);
             customerData = normalizeCustomer(c || {});
             setContractCustomer(customerData);
           } catch (e) {
@@ -1761,7 +1769,7 @@ export default function OperatorOrders() {
 
         if (!kycData) {
           try {
-            kycData = await getKycByCustomerId(contractDetail.customerId);
+            kycData = await getKycByCustomerId(detailToUse.customerId);
             setContractKyc(kycData);
           } catch (e) {
             console.error("Failed to fetch KYC data:", e);
@@ -1770,7 +1778,7 @@ export default function OperatorOrders() {
       }
 
       if (printRef.current) {
-        const augmented = augmentContractContent(contractDetail);
+        const augmented = augmentContractContent(detailToUse);
         printRef.current.innerHTML = buildPrintableHtml(
           augmented,
           customerData,
@@ -1778,8 +1786,12 @@ export default function OperatorOrders() {
         );
         const blob = await elementToPdfBlob(printRef.current);
         const url = URL.createObjectURL(blob);
+        // Lưu URL blob cho cả modal xem trước và iframe trong modal chi tiết
         setPdfBlobUrl(url);
-        setPdfModalOpen(true);
+        setPdfPreviewUrl(url);
+        if (openModal) {
+          setPdfModalOpen(true);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -1895,7 +1907,8 @@ export default function OperatorOrders() {
     }
   };
 
-  const previewHandoverReportAsPdf = async (report) => {
+  const previewHandoverReportAsPdf = async (report, options = {}) => {
+    const { openModal = true } = options || {};
     if (!report) return message.warning("Không có biên bản để xem.");
     try {
       setHandoverPdfGenerating(true);
@@ -1928,7 +1941,11 @@ export default function OperatorOrders() {
 
         const url = URL.createObjectURL(blob);
         setHandoverPdfBlobUrl(url);
-        setHandoverPdfModalOpen(true);
+        // Lưu URL cho cả modal xem trước và iframe trong modal chi tiết
+        setHandoverReportPdfPreviewUrl(url);
+        if (openModal) {
+          setHandoverPdfModalOpen(true);
+        }
       }
     } catch (e) {
       console.error("Preview handover PDF error:", e);
@@ -2014,12 +2031,50 @@ export default function OperatorOrders() {
         setContractKyc(null);
       }
       setContractDetailOpen(true);
+
+      // Nếu BE không trả về contractUrl, tự động generate PDF cho phần xem hợp đồng
+      if (!normalized?.contractUrl) {
+        // Không mở thêm modal "Xem trước", chỉ render để iframe trong modal chi tiết hiển thị
+        await previewContractAsPdf(normalized, { openModal: false });
+      }
     } catch (e) {
       message.error(
         e?.response?.data?.message || e?.message || "Không tải được chi tiết hợp đồng."
       );
     } finally {
       setLoadingContractDetail(false);
+    }
+  };
+
+  const viewHandoverReportDetail = async (report) => {
+    try {
+      setLoadingHandoverReportDetail(true);
+      // Clear previous state
+      setHandoverReportPdfPreviewUrl("");
+      revokeBlob(handoverPdfBlobUrl);
+      setHandoverPdfBlobUrl("");
+
+      // Set report detail
+      setHandoverReportDetail(report);
+      
+      // Nếu report có URL từ BE, set vào preview URL
+      if (report?.reportUrl || report?.pdfUrl || report?.url) {
+        setHandoverReportPdfPreviewUrl(report.reportUrl || report.pdfUrl || report.url);
+      }
+
+      setHandoverReportDetailOpen(true);
+
+      // Nếu BE không trả về URL, tự động generate PDF cho phần xem biên bản
+      if (!(report?.reportUrl || report?.pdfUrl || report?.url)) {
+        // Không mở thêm modal "Xem trước", chỉ render để iframe trong modal chi tiết hiển thị
+        await previewHandoverReportAsPdf(report, { openModal: false });
+      }
+    } catch (e) {
+      message.error(
+        e?.response?.data?.message || e?.message || "Không tải được chi tiết biên bản."
+      );
+    } finally {
+      setLoadingHandoverReportDetail(false);
     }
   };
 
@@ -2386,71 +2441,82 @@ export default function OperatorOrders() {
       );
     }
 
-    return (
-      <List
-        dataSource={reports}
-        renderItem={(report) => {
+    const columns = [
+      {
+        title: "Mã biên bản",
+        dataIndex: "handoverReportId",
+        key: "handoverReportId",
+        width: 100,
+        render: (v, record) => <strong>#{v || record.id}</strong>,
+      },
+      {
+        title: "Trạng thái",
+        dataIndex: "status",
+        key: "status",
+        width: 120,
+        render: (status) => {
+          const color =
+            status === "STAFF_SIGNED" || status === "BOTH_SIGNED"
+              ? "green"
+              : status === "CUSTOMER_SIGNED"
+              ? "blue"
+              : status === "PENDING_STAFF_SIGNATURE"
+              ? "orange"
+              : "orange";
+          return (
+            <Tag color={color}>{translateHandoverStatus(status)}</Tag>
+          );
+        },
+      },
+      {
+        title: "Thời gian",
+        dataIndex: "handoverDateTime",
+        key: "handoverDateTime",
+        width: 150,
+        render: (v) => (v ? formatHandoverDateTime(v) : "—"),
+      },
+      {
+        title: "Địa điểm",
+        dataIndex: "handoverLocation",
+        key: "handoverLocation",
+        width: 200,
+        render: (v) => v || "—",
+      },
+      {
+        title: "Thao tác",
+        key: "actions",
+        width: 200,
+        render: (_, record) => {
           const loadingCurrent =
-            handoverPdfGenerating &&
-            (selectedHandoverReport?.handoverReportId === report.handoverReportId ||
-              selectedHandoverReport?.id === report.id);
+            (handoverPdfGenerating || loadingHandoverReportDetail) &&
+            (selectedHandoverReport?.handoverReportId === record.handoverReportId ||
+              selectedHandoverReport?.id === record.id ||
+              handoverReportDetail?.handoverReportId === record.handoverReportId ||
+              handoverReportDetail?.id === record.id);
           
           return (
-            <List.Item
-              actions={[
-                <Button
-                  key="preview"
-                  size="small"
-                  icon={<EyeOutlined />}
-                  onClick={() => previewHandoverReportAsPdf(report)}
-                  loading={loadingCurrent}
-                >
-                  Xem PDF
-                </Button>,
-                <Button
-                  key="download"
-                  size="small"
-                  icon={<DownloadOutlined />}
-                  onClick={() => downloadHandoverReportAsPdf(report)}
-                  loading={loadingCurrent}
-                >
-                  Tải PDF
-                </Button>,
-              ]}
-            >
-              <List.Item.Meta
-                title={
-                  <Space>
-                    <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
-                    <Tag 
-                      color={
-                        report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" 
-                          ? "green" 
-                          : report.status === "CUSTOMER_SIGNED" 
-                          ? "blue" 
-                          : report.status === "PENDING_STAFF_SIGNATURE" 
-                          ? "orange" 
-                          : "orange"
-                      }
-                    >
-                      {translateHandoverStatus(report.status)}
-                    </Tag>
-                  </Space>
-                }
-                description={
-                  <Space direction="vertical" size={4}>
-                    <Text type="secondary">
-                      Thời gian: {formatHandoverDateTime(report.handoverDateTime)}
-                    </Text>
-                    <Text type="secondary">
-                      Địa điểm: {report.handoverLocation || "—"}
-                    </Text>
-                  </Space>
-                }
-              />
-            </List.Item>
+            <Space size="small">
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => viewHandoverReportDetail(record)}
+                loading={loadingCurrent}
+              >
+                Xem
+              </Button>
+            </Space>
           );
-        }}
+        },
+      },
+    ];
+
+    return (
+      <Table
+        rowKey={(record) => record.handoverReportId || record.id}
+        columns={columns}
+        dataSource={reports}
+        pagination={false}
+        size="small"
       />
     );
   };
@@ -2761,9 +2827,6 @@ export default function OperatorOrders() {
                       >
                         Tải hợp đồng
                       </Button>
-                      <Button icon={<PrinterOutlined />} onClick={() => printPdfUrl(href)}>
-                        In hợp đồng (PDF)
-                      </Button>
                     </>
                   );
                 }
@@ -2773,7 +2836,8 @@ export default function OperatorOrders() {
               {/* HTML → PDF nếu không có contractUrl từ BE */}
               {!(contractDetail.contractUrl || pdfPreviewUrl) && (
                 <>
-                  <Button onClick={previewContractAsPdf} loading={pdfGenerating}>
+                  {/* Giữ lại nút để operator có thể mở modal xem trước nếu muốn */}
+                  <Button onClick={() => previewContractAsPdf()} loading={pdfGenerating}>
                     Xem trước hợp đồng PDF
                   </Button>
                   <Button
@@ -2872,6 +2936,144 @@ export default function OperatorOrders() {
           <div style={{ textAlign: "center", padding: "40px" }}>
             <Text>Đang tạo PDF...</Text>
           </div>
+        )}
+      </Modal>
+
+      {/* Handover Report Detail Modal - tương tự Contract Detail Modal */}
+      <Modal
+        title={`Chi tiết biên bản ${
+          handoverReportDetail &&
+          String(handoverReportDetail.handoverType || "").toUpperCase() === "CHECKIN"
+            ? "thu hồi"
+            : "bàn giao"
+        } #${handoverReportDetail?.handoverReportId || handoverReportDetail?.id || ""}`}
+        open={handoverReportDetailOpen}
+        onCancel={() => {
+          setHandoverReportDetailOpen(false);
+          setHandoverReportDetail(null);
+          revokeBlob(handoverPdfBlobUrl);
+          setHandoverPdfBlobUrl("");
+          setHandoverReportPdfPreviewUrl("");
+        }}
+        footer={[
+          <Button
+            key="close"
+            onClick={() => {
+              setHandoverReportDetailOpen(false);
+              setHandoverReportDetail(null);
+              revokeBlob(handoverPdfBlobUrl);
+              setHandoverPdfBlobUrl("");
+              setHandoverReportPdfPreviewUrl("");
+            }}
+          >
+            Đóng
+          </Button>,
+        ]}
+        width={900}
+        style={{ top: 20 }}
+      >
+        {loadingHandoverReportDetail ? (
+          <Skeleton active paragraph={{ rows: 10 }} />
+        ) : handoverReportDetail ? (
+          <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
+            <Title level={5} style={{ marginBottom: 16 }}>
+              Biên bản PDF
+            </Title>
+
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Button
+                icon={<ExpandOutlined />}
+                onClick={() => {
+                  const url = handoverReportPdfPreviewUrl || handoverPdfBlobUrl;
+                  return url
+                    ? window.open(url, "_blank", "noopener")
+                    : message.warning("Không có URL biên bản");
+                }}
+              >
+                Xem toàn màn hình
+              </Button>
+
+              {(() => {
+                const href = handoverReportPdfPreviewUrl || handoverPdfBlobUrl;
+                if (href) {
+                  return (
+                    <>
+                      <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={() => {
+                          if (handoverReportDetail) {
+                            downloadHandoverReportAsPdf(handoverReportDetail);
+                          }
+                        }}
+                        loading={handoverPdfGenerating}
+                      >
+                        Tải biên bản
+                      </Button>
+                    </>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* HTML → PDF nếu không có URL từ BE */}
+              {!(handoverReportPdfPreviewUrl || handoverPdfBlobUrl) && (
+                <>
+                  <Button
+                    onClick={() => previewHandoverReportAsPdf(handoverReportDetail)}
+                    loading={handoverPdfGenerating}
+                  >
+                    Xem trước biên bản PDF
+                  </Button>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      if (handoverReportDetail) {
+                        downloadHandoverReportAsPdf(handoverReportDetail);
+                      }
+                    }}
+                    loading={handoverPdfGenerating}
+                  >
+                    Tạo & tải biên bản PDF
+                  </Button>
+                </>
+              )}
+            </Space>
+
+            <div
+              style={{
+                height: 500,
+                border: "1px solid #f0f0f0",
+                borderRadius: 8,
+                overflow: "hidden",
+                background: "#fafafa",
+              }}
+            >
+              {handoverReportPdfPreviewUrl || handoverPdfBlobUrl ? (
+                <iframe
+                  key={handoverReportPdfPreviewUrl || handoverPdfBlobUrl}
+                  title="HandoverReportPreview"
+                  src={handoverReportPdfPreviewUrl || handoverPdfBlobUrl}
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text type="secondary">
+                    <FilePdfOutlined /> Không có URL biên bản để hiển thị.
+                  </Text>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Text type="secondary">Không có dữ liệu.</Text>
         )}
       </Modal>
 

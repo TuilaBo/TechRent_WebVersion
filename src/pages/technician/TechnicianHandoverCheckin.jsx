@@ -2365,9 +2365,9 @@ export default function TechnicianHandoverCheckin() {
       </Space>
 
       {/* Thông tin task và đơn hàng */}
-      <Card title="Thông tin Task" className="mb-3">
+      <Card title="Thông tin công việc" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Mã nhiệm vụ">
+          <Descriptions.Item label="Mã công việc">
             {task.taskId || task.id}
           </Descriptions.Item>
           <Descriptions.Item label="Mã đơn">
@@ -2376,7 +2376,7 @@ export default function TechnicianHandoverCheckin() {
           <Descriptions.Item label="Loại công việc">
             {task.taskCategoryName || "—"}
           </Descriptions.Item>
-          <Descriptions.Item label="Trạng thái nhiệm vụ">
+          <Descriptions.Item label="Trạng thái công việc">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
             </Tag>

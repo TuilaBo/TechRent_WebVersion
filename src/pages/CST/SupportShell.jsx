@@ -1,12 +1,21 @@
+// src/pages/CST/SupportShell.jsx
 import React, { useMemo, useState } from "react";
-import { Layout, Menu, Input, Space, Badge, Button, Avatar, Tooltip, Dropdown } from "antd";
+import {
+  Layout,
+  Menu,
+  Space,
+  Badge,
+  Button,
+  Avatar,
+  Tooltip,
+  Dropdown,
+  Typography,
+} from "antd";
 import {
   CustomerServiceOutlined,
   MessageOutlined,
   FileTextOutlined,
   SettingOutlined,
-  DashboardOutlined,
-  SearchOutlined,
   BellOutlined,
   ReloadOutlined,
   CheckCircleOutlined,
@@ -15,6 +24,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 
 const { Header, Sider, Content } = Layout;
+const { Text } = Typography;
 
 export default function SupportShell() {
   const [collapsed, setCollapsed] = useState(false);
@@ -28,9 +38,8 @@ export default function SupportShell() {
     if (location.pathname.startsWith("/support/tasks")) return "tasks";
     if (location.pathname.startsWith("/support/settlements")) return "settlements";
     if (location.pathname.startsWith("/support/chats")) return "chats";
-    if (location.pathname.startsWith("/support/kb")) return "kb";
     if (location.pathname.startsWith("/support/settings")) return "settings";
-    return "dashboard";
+    return "desk";
   }, [location.pathname]);
 
   return (
@@ -39,8 +48,8 @@ export default function SupportShell() {
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        width={220}
-        style={{ background: "#0d1117" }}
+        width={240}
+        theme="dark"
       >
         <div
           style={{
@@ -54,7 +63,7 @@ export default function SupportShell() {
           }}
         >
           <CustomerServiceOutlined style={{ fontSize: 20 }} />
-          {!collapsed && "Support Center"}
+          {!collapsed && "TechRent Support"}
         </div>
 
         <Menu
@@ -75,20 +84,14 @@ export default function SupportShell() {
             {
               key: "settlements",
               icon: <FileTextOutlined />,
-              label: <Link to="/support/settlements">Giải quyết và tranh chấp</Link>,
+              label: <Link to="/support/settlements">Giải quyết quyết toán</Link>,
             },
             {
               key: "chats",
               icon: <MessageOutlined />,
               label: <Link to="/support/chats">Live Chats</Link>,
             },
-            {
-              key: "settings",
-              icon: <SettingOutlined />,
-              label: <Link to="/support/settings">Cài đặt</Link>,
-            },
           ]}
-          style={{ background: "#0d1117" }}
         />
       </Sider>
 
@@ -103,7 +106,7 @@ export default function SupportShell() {
             borderBottom: "1px solid #f0f0f0",
           }}
         >
-          <Space style={{ marginLeft: "auto" }}>
+          <Space style={{ marginLeft: "auto" }} align="center" size={12}>
             <Tooltip title="Làm mới">
               <Button icon={<ReloadOutlined />} />
             </Tooltip>
@@ -111,26 +114,44 @@ export default function SupportShell() {
               <Button icon={<BellOutlined />} />
             </Badge>
             <Dropdown
-              overlay={
-                <Menu
-                  items={[
-                    { key: "profile", label: <Link to="/profile">Tài khoản</Link> },
-                    { key: "logout", label: <span onClick={() => { logout(); navigate("/login"); }}>Đăng xuất</span> },
-                  ]}
-                />
-              }
+              menu={{
+                items: [
+                  {
+                    key: "profile",
+                    label: <Link to="/profile">Tài khoản</Link>,
+                  },
+                  {
+                    type: "divider",
+                  },
+                  {
+                    key: "logout",
+                    label: (
+                      <span
+                        onClick={() => {
+                          logout();
+                          navigate("/login");
+                        }}
+                      >
+                        Đăng xuất
+                      </span>
+                    ),
+                  },
+                ],
+              }}
               trigger={["click"]}
             >
-              <Avatar src="https://i.pravatar.cc/120?img=13" style={{ cursor: "pointer" }} />
+              <Space style={{ cursor: "pointer" }}>
+                <Avatar src="https://i.pravatar.cc/120?img=13" />
+                <Text strong style={{ display: collapsed ? "none" : "inline" }}>
+                  Support
+                </Text>
+              </Space>
             </Dropdown>
           </Space>
         </Header>
 
         <Content style={{ padding: 16, background: "#f7f9fb" }}>
-          {/* Nhúng trang con ở đây */}
-          <div className="page-shell">
-            <Outlet />
-          </div>
+          <Outlet />
         </Content>
       </Layout>
     </Layout>

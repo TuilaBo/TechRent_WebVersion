@@ -2310,10 +2310,10 @@ export default function TechnicianHandover() {
         <Tag color="blue">HANDOVER REPORT</Tag>
       </Space>
 
-      {/* Thông tin task và đơn hàng */}
-      <Card title="Thông tin nhiệm vụ" className="mb-3">
+      {/* Thông tin công việc và đơn hàng */}
+      <Card title="Thông tin công việc" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Mã nhiệm vụ">
+          <Descriptions.Item label="Mã công việc">
             {task.taskId || task.id}
           </Descriptions.Item>
           <Descriptions.Item label="Mã đơn">
@@ -2323,7 +2323,7 @@ export default function TechnicianHandover() {
             {task.taskCategoryName || "—"}
           </Descriptions.Item>
         
-          <Descriptions.Item label="Trạng thái nhiệm vụ">
+          <Descriptions.Item label="Trạng thái công việc">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
             </Tag>

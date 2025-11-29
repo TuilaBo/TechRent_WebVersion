@@ -119,15 +119,102 @@ export default function FooterBar() {
       />
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "48px 16px" }}>
+        {/* CTA nhỏ phía trên: tư vấn nhanh */}
+        <Card
+          bordered={false}
+          style={{
+            marginBottom: 32,
+            borderRadius: 18,
+            background:
+              "linear-gradient(120deg, rgba(109,40,217,0.9), rgba(37,99,235,0.9))",
+            boxShadow: "0 14px 40px rgba(15,23,42,0.65)",
+            position: "relative",
+            overflow: "hidden",
+          }}
+          bodyStyle={{ padding: "18px 22px" }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(circle at top left, rgba(250,250,250,0.15), transparent 50%)",
+              pointerEvents: "none",
+            }}
+          />
+          <Row align="middle" gutter={[16, 16]}>
+            <Col xs={24} md={14}>
+              <Space direction="vertical" size={4} style={{ position: "relative", zIndex: 1 }}>
+                <Text style={{ color: "rgba(226,232,240,0.9)", fontSize: 13 }}>
+                  Cần hỗ trợ nhanh?
+                </Text>
+                <Title
+                  level={4}
+                  style={{
+                    margin: 0,
+                    color: "#fff",
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  Đội ngũ TechRent sẵn sàng tư vấn cấu hình & báo giá trong vài phút
+                </Title>
+              </Space>
+            </Col>
+            <Col xs={24} md={10}>
+              <Space
+                size={12}
+                wrap
+                style={{ justifyContent: "flex-end", width: "100%", position: "relative", zIndex: 1 }}
+              >
+                <Button
+                  type="primary"
+                  icon={<PhoneOutlined />}
+                  size="large"
+                  style={{
+                    background: "#0f172a",
+                    borderColor: "rgba(148,163,184,0.6)",
+                    borderRadius: 999,
+                    fontWeight: 600,
+                    paddingInline: 18,
+                  }}
+                >
+                  Gọi 0937 466 461
+                </Button>
+                <Button
+                  ghost
+                  icon={<CustomerServiceOutlined />}
+                  size="large"
+                  style={{
+                    borderRadius: 999,
+                    borderColor: "rgba(226,232,240,0.85)",
+                    color: "#e5e7eb",
+                    fontWeight: 500,
+                  }}
+                >
+                  Chat với CSKH
+                </Button>
+              </Space>
+            </Col>
+          </Row>
+        </Card>
+
         <Row gutter={[24, 24]}>
           {highlightCards.map((item) => (
             <Col xs={24} md={8} key={item.title}>
               <Card
                 bordered={false}
                 style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  background:
+                    "radial-gradient(circle at top left, rgba(255,255,255,0.06), rgba(15,23,42,0.95))",
+                  border: "1px solid rgba(148,163,184,0.25)",
+                  borderRadius: 18,
+                  boxShadow: "0 8px 20px rgba(15,23,42,0.7)",
+                  backdropFilter: "blur(8px)",
+                  transition: "transform .2s ease, box-shadow .2s ease, border-color .2s ease",
+                  cursor: "default",
                 }}
+                bodyStyle={{ padding: "18px 18px" }}
+                hoverable
               >
                 <Space align="start" size="large">
                   <div
@@ -140,13 +227,18 @@ export default function FooterBar() {
                       alignItems: "center",
                       justifyContent: "center",
                       color: "#fff",
+                      boxShadow: "0 0 0 1px rgba(148,163,184,0.25)",
                     }}
                   >
                     {item.icon}
                   </div>
                   <Space direction="vertical" size={4}>
-                    <Text style={{ color: "#fff", fontWeight: 600 }}>{item.title}</Text>
-                    <Text style={{ color: "rgba(255,255,255,0.75)" }}>{item.desc}</Text>
+                    <Text style={{ color: "#fff", fontWeight: 600, fontSize: 15 }}>
+                      {item.title}
+                    </Text>
+                    <Text style={{ color: "rgba(226,232,240,0.85)", fontSize: 13 }}>
+                      {item.desc}
+                    </Text>
                   </Space>
                 </Space>
               </Card>

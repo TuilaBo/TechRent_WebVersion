@@ -16,6 +16,7 @@ import {
   Table,
   Input,
   Modal,
+  Skeleton,
 } from "antd";
 import {
   EnvironmentOutlined,
@@ -27,6 +28,8 @@ import {
   DownloadOutlined,
   EyeOutlined,
   EditOutlined,
+  ExpandOutlined,
+  PrinterOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
@@ -1192,6 +1195,12 @@ export default function TechnicianCalendar() {
   const [selectedReport, setSelectedReport] = useState(null);
   const printRef = useRef(null);
 
+  // Handover report detail (tương tự OperatorOrders)
+  const [handoverReportDetail, setHandoverReportDetail] = useState(null);
+  const [handoverReportDetailOpen, setHandoverReportDetailOpen] = useState(false);
+  const [loadingHandoverReportDetail, setLoadingHandoverReportDetail] = useState(false);
+  const [handoverReportPdfPreviewUrl, setHandoverReportPdfPreviewUrl] = useState("");
+
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
     try {
@@ -1368,7 +1377,7 @@ export default function TechnicianCalendar() {
         );
       }
     } catch (e) {
-      toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
+      toast.error(e?.response?.data?.message || e?.message || "Không tải được công việc");
     } finally {
       setLoading(false);
     }
@@ -1432,15 +1441,29 @@ export default function TechnicianCalendar() {
     }
   }, [drawerOpen, detailTask, loadHandoverReport, loadHandoverReportsByOrder]);
 
+  // Helper to revoke blob URL
+  const revokeBlob = useCallback((url) => {
+    try {
+      if (url) URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Error revoking blob:", e);
+    }
+  }, []);
+
   // Handle preview PDF
-  const handlePreviewPdf = useCallback(async (report) => {
+  const handlePreviewPdf = useCallback(async (report, options = {}) => {
+    const { openModal = true } = options || {};
     try {
       setPdfGenerating(true);
       setSelectedReport(report);
       
       // Revoke old blob URL
       if (pdfBlobUrl) {
-        URL.revokeObjectURL(pdfBlobUrl);
+        try {
+          URL.revokeObjectURL(pdfBlobUrl);
+        } catch (e) {
+          console.error("Error revoking blob:", e);
+        }
         setPdfBlobUrl("");
       }
       
@@ -1522,7 +1545,11 @@ export default function TechnicianCalendar() {
         
         const url = URL.createObjectURL(blob);
         setPdfBlobUrl(url);
-        setPdfModalOpen(true);
+        // Lưu URL cho cả modal xem trước và iframe trong modal chi tiết
+        setHandoverReportPdfPreviewUrl(url);
+        if (openModal) {
+          setPdfModalOpen(true);
+        }
       }
     } catch (e) {
       console.error("Error generating PDF:", e);
@@ -1634,6 +1661,135 @@ export default function TechnicianCalendar() {
       setPdfGenerating(false);
     }
   }, [pdfBlobUrl]);
+
+  // View handover report detail (similar to OperatorOrders)
+  const viewHandoverReportDetail = useCallback(async (report) => {
+    try {
+      setLoadingHandoverReportDetail(true);
+      // Clear previous state
+      setHandoverReportPdfPreviewUrl("");
+      if (pdfBlobUrl) {
+        try {
+          URL.revokeObjectURL(pdfBlobUrl);
+        } catch (e) {
+          console.error("Error revoking blob:", e);
+        }
+        setPdfBlobUrl("");
+      }
+
+      // Set report detail
+      setHandoverReportDetail(report);
+      
+      // Nếu report có URL từ BE, set vào preview URL
+      if (report?.reportUrl || report?.pdfUrl || report?.url) {
+        setHandoverReportPdfPreviewUrl(report.reportUrl || report.pdfUrl || report.url);
+      }
+
+      setHandoverReportDetailOpen(true);
+
+      // Nếu BE không trả về URL, tự động generate PDF cho phần xem biên bản
+      if (!(report?.reportUrl || report?.pdfUrl || report?.url)) {
+        // Không mở thêm modal "Xem trước", chỉ render để iframe trong modal chi tiết hiển thị
+        await handlePreviewPdf(report, { openModal: false });
+      }
+    } catch (e) {
+      toast.error(
+        e?.response?.data?.message || e?.message || "Không tải được chi tiết biên bản."
+      );
+    } finally {
+      setLoadingHandoverReportDetail(false);
+    }
+  }, [pdfBlobUrl, handlePreviewPdf]);
+
+  // Render handover reports as Table (similar to OperatorOrders)
+  const renderHandoverReportTable = useCallback((reports, isCheckin = false) => {
+    if (!reports || reports.length === 0) {
+      return (
+        <Text type="secondary">
+          Chưa có biên bản {isCheckin ? "thu hồi" : "bàn giao"} nào cho đơn này.
+        </Text>
+      );
+    }
+
+    const columns = [
+      {
+        title: "Mã biên bản",
+        dataIndex: "handoverReportId",
+        key: "handoverReportId",
+        width: 100,
+        render: (v, record) => <strong>#{v || record.id}</strong>,
+      },
+      {
+        title: "Trạng thái",
+        dataIndex: "status",
+        key: "status",
+        width: 120,
+        render: (status) => {
+          const color =
+            status === "STAFF_SIGNED" || status === "BOTH_SIGNED"
+              ? "green"
+              : status === "CUSTOMER_SIGNED"
+              ? "blue"
+              : status === "PENDING_STAFF_SIGNATURE"
+              ? "orange"
+              : "orange";
+          return (
+            <Tag color={color}>{translateHandoverStatus(status)}</Tag>
+          );
+        },
+      },
+      {
+        title: "Thời gian",
+        dataIndex: "handoverDateTime",
+        key: "handoverDateTime",
+        width: 150,
+        render: (v) => (v ? formatDateTime(v) : "—"),
+      },
+      {
+        title: "Địa điểm",
+        dataIndex: "handoverLocation",
+        key: "handoverLocation",
+        width: 200,
+        render: (v) => v || "—",
+      },
+      {
+        title: "Thao tác",
+        key: "actions",
+        width: 200,
+        render: (_, record) => {
+          const loadingCurrent =
+            (pdfGenerating || loadingHandoverReportDetail) &&
+            (selectedReport?.handoverReportId === record.handoverReportId ||
+              handoverReportDetail?.handoverReportId === record.handoverReportId ||
+              handoverReportDetail?.id === record.id);
+          
+          return (
+            <Space size="small">
+              <Button
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => viewHandoverReportDetail(record)}
+                loading={loadingCurrent}
+              >
+                Xem
+              </Button>
+              
+            </Space>
+          );
+        },
+      },
+    ];
+
+    return (
+      <Table
+        rowKey={(record) => record.handoverReportId || record.id}
+        columns={columns}
+        dataSource={reports}
+        pagination={false}
+        size="small"
+      />
+    );
+  }, [pdfGenerating, selectedReport, loadingHandoverReportDetail, handoverReportDetail, handlePreviewPdf, handleDownloadPdf, viewHandoverReportDetail]);
 
   // Click item trên bảng → mở Drawer
   const onClickTask = useCallback(async (task) => {
@@ -1754,7 +1910,7 @@ export default function TechnicianCalendar() {
   const columns = useMemo(
     () => [
       {
-        title: "Mã nhiệm vụ",
+        title: "Mã công việc",
         dataIndex: "id",
         key: "id",
         render: (v, r) => r.id || r.taskId || "—",
@@ -1848,7 +2004,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Mã đơn hàng">{t.orderId || "—"}</Descriptions.Item>
             <Descriptions.Item label="Số lượng">{t.quantity ?? "—"}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị theo đơn">
@@ -1926,7 +2082,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Mã đơn">{t.orderId}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị">{t.device}</Descriptions.Item>
             <Descriptions.Item label="Khu vực">{t.location}</Descriptions.Item>
@@ -1982,7 +2138,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Thiết bị">{t.device}</Descriptions.Item>
             <Descriptions.Item label="Category">{t.category}</Descriptions.Item>
             <Descriptions.Item label="Địa điểm">{t.location}</Descriptions.Item>
@@ -2045,7 +2201,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
               {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
@@ -2056,13 +2212,13 @@ export default function TechnicianCalendar() {
             <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
             {isCompleted && (
               <>
-                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                <Descriptions.Item label="Thời gian bắt đầu công việc">
                   {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                <Descriptions.Item label="Thời gian kết thúc công việc">
                   {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                <Descriptions.Item label="Thời gian hoàn thành công việc">
                   {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
                 </Descriptions.Item>
               </>
@@ -2144,63 +2300,7 @@ export default function TechnicianCalendar() {
                   ) || null;
             const reportsToShow = reportForTask ? [reportForTask] : checkoutReports;
             
-            if (reportsToShow.length > 0) {
-              return (
-                <List
-                  dataSource={reportsToShow}
-                  renderItem={(report) => (
-                    <List.Item
-                      actions={[
-                        <Button
-                          key="preview"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => handlePreviewPdf(report)}
-                        >
-                          Xem PDF
-                        </Button>,
-                        <Button
-                          key="download"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => handleDownloadPdf(report)}
-                          loading={
-                            pdfGenerating &&
-                            selectedReport?.handoverReportId === report.handoverReportId
-                          }
-                        >
-                          Tải PDF
-                        </Button>,
-                      ]}
-                    >
-                      <List.Item.Meta
-                        title={
-                          <Space>
-                            <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
-                            <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
-                              {translateHandoverStatus(report.status)}
-                            </Tag>
-                          </Space>
-                        }
-                        description={
-                          <Space direction="vertical" size={4}>
-                            <Text type="secondary">
-                              Thời gian: {formatDateTime(report.handoverDateTime)}
-                            </Text>
-                            <Text type="secondary">
-                              Địa điểm: {report.handoverLocation || "—"}
-                            </Text>
-                          </Space>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
-              );
-            }
-            return (
-              <Text type="secondary">Chưa có biên bản bàn giao</Text>
-            );
+            return renderHandoverReportTable(reportsToShow, false);
           })()}
           <Divider />
           <Space wrap>
@@ -2289,7 +2389,7 @@ export default function TechnicianCalendar() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
               {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
@@ -2300,13 +2400,13 @@ export default function TechnicianCalendar() {
             <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
             {isCompleted && (
               <>
-                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                <Descriptions.Item label="Thời gian bắt đầu công việc">
                   {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                <Descriptions.Item label="Thời gian kết thúc công việc">
                   {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                <Descriptions.Item label="Thời gian hoàn thành công việc">
                   {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
                 </Descriptions.Item>
               </>
@@ -2371,57 +2471,7 @@ export default function TechnicianCalendar() {
           <Divider />
           {/* Hiển thị biên bản thu hồi */}
           <Title level={5} style={{ marginTop: 0 }}>Biên bản thu hồi</Title>
-          {hasCheckinReport ? (
-            <List
-              dataSource={checkinReports}
-              renderItem={(report) => (
-                <List.Item
-                  actions={[
-                    <Button
-                      key="preview"
-                      size="small"
-                      icon={<EyeOutlined />}
-                      onClick={() => handlePreviewPdf(report)}
-                    >
-                      Xem PDF
-                    </Button>,
-                    <Button
-                      key="download"
-                      size="small"
-                      icon={<DownloadOutlined />}
-                      onClick={() => handleDownloadPdf(report)}
-                      loading={pdfGenerating && selectedReport?.handoverReportId === report.handoverReportId}
-                    >
-                      Tải PDF
-                    </Button>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={
-                      <Space>
-                        <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
-                        <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
-                          {translateHandoverStatus(report.status)}
-                        </Tag>
-                      </Space>
-                    }
-                    description={
-                      <Space direction="vertical" size={4}>
-                        <Text type="secondary">
-                          Thời gian: {formatDateTime(report.handoverDateTime)}
-                        </Text>
-                        <Text type="secondary">
-                          Địa điểm: {report.handoverLocation || "—"}
-                        </Text>
-                      </Space>
-                    }
-                  />
-                </List.Item>
-              )}
-            />
-          ) : (
-            <Text type="secondary">Chưa có biên bản thu hồi</Text>
-          )}
+          {renderHandoverReportTable(checkinReports, true)}
           <Divider />
           <Space wrap>
             {!isCompleted && !isInProgress && !isConfirmed && (
@@ -2489,7 +2539,7 @@ export default function TechnicianCalendar() {
         {header}
         <Divider />
         <Descriptions bordered size="small" column={1}>
-          <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái">
             {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
@@ -2733,7 +2783,7 @@ export default function TechnicianCalendar() {
 
       <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search
-          placeholder="Tìm theo mã task"
+          placeholder="Tìm theo mã công việc"
           allowClear
           value={searchTaskId}
           onChange={(e) => setSearchTaskId(e.target.value)}
@@ -2893,6 +2943,173 @@ export default function TechnicianCalendar() {
           <div style={{ textAlign: "center", padding: "40px" }}>
             <Text>Đang tạo PDF...</Text>
           </div>
+        )}
+      </Modal>
+
+      {/* Handover Report Detail Modal - tương tự OperatorOrders */}
+      <Modal
+        title={`Chi tiết biên bản ${
+          handoverReportDetail &&
+          String(handoverReportDetail.handoverType || "").toUpperCase() === "CHECKIN"
+            ? "thu hồi"
+            : "bàn giao"
+        } #${handoverReportDetail?.handoverReportId || handoverReportDetail?.id || ""}`}
+        open={handoverReportDetailOpen}
+        onCancel={() => {
+          setHandoverReportDetailOpen(false);
+          setHandoverReportDetail(null);
+          if (pdfBlobUrl) {
+            try {
+              URL.revokeObjectURL(pdfBlobUrl);
+            } catch (e) {
+              console.error("Error revoking blob:", e);
+            }
+            setPdfBlobUrl("");
+          }
+          setHandoverReportPdfPreviewUrl("");
+        }}
+        footer={[
+          <Button
+            key="close"
+            onClick={() => {
+              setHandoverReportDetailOpen(false);
+              setHandoverReportDetail(null);
+              revokeBlob(pdfBlobUrl);
+              setPdfBlobUrl("");
+              setHandoverReportPdfPreviewUrl("");
+            }}
+          >
+            Đóng
+          </Button>,
+        ]}
+        width={900}
+        style={{ top: 20 }}
+      >
+        {loadingHandoverReportDetail ? (
+          <Skeleton active paragraph={{ rows: 10 }} />
+        ) : handoverReportDetail ? (
+          <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
+            <Title level={5} style={{ marginBottom: 16 }}>
+              Biên bản PDF
+            </Title>
+
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Button
+                icon={<ExpandOutlined />}
+                onClick={() => {
+                  const url = handoverReportPdfPreviewUrl || pdfBlobUrl;
+                  return url
+                    ? window.open(url, "_blank", "noopener")
+                    : message.warning("Không có URL biên bản");
+                }}
+              >
+                Xem toàn màn hình
+              </Button>
+
+              {(() => {
+                const href = handoverReportPdfPreviewUrl || pdfBlobUrl;
+                if (href) {
+                  return (
+                    <>
+                      <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={() => {
+                          if (handoverReportDetail) {
+                            handleDownloadPdf(handoverReportDetail);
+                          }
+                        }}
+                        loading={pdfGenerating}
+                      >
+                        Tải biên bản
+                      </Button>
+                      <Button
+                        icon={<PrinterOutlined />}
+                        onClick={() => {
+                          const url = handoverReportPdfPreviewUrl || pdfBlobUrl;
+                          if (url) {
+                            const w = window.open(url, "_blank", "noopener");
+                            if (w) {
+                              setTimeout(() => {
+                                try {
+                                  w.focus();
+                                  w.print();
+                                } catch (err) {
+                                  console.error("Print window error:", err);
+                                }
+                              }, 800);
+                            }
+                          } else {
+                            message.warning("Không có URL biên bản để in");
+                          }
+                        }}
+                      >
+                        In biên bản (PDF)
+                      </Button>
+                    </>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* HTML → PDF nếu không có URL từ BE */}
+              {!(handoverReportPdfPreviewUrl || pdfBlobUrl) && (
+                <>
+                  <Button
+                    onClick={() => handlePreviewPdf(handoverReportDetail)}
+                    loading={pdfGenerating}
+                  >
+                    Xem trước biên bản PDF
+                  </Button>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      if (handoverReportDetail) {
+                        handleDownloadPdf(handoverReportDetail);
+                      }
+                    }}
+                    loading={pdfGenerating}
+                  >
+                    Tạo & tải biên bản PDF
+                  </Button>
+                </>
+              )}
+            </Space>
+
+            <div
+              style={{
+                height: 500,
+                border: "1px solid #f0f0f0",
+                borderRadius: 8,
+                overflow: "hidden",
+                background: "#fafafa",
+              }}
+            >
+              {handoverReportPdfPreviewUrl || pdfBlobUrl ? (
+                <iframe
+                  key={handoverReportPdfPreviewUrl || pdfBlobUrl}
+                  title="HandoverReportPreview"
+                  src={handoverReportPdfPreviewUrl || pdfBlobUrl}
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text type="secondary">
+                    <FilePdfOutlined /> Không có URL biên bản để hiển thị.
+                  </Text>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Text type="secondary">Không có dữ liệu.</Text>
         )}
       </Modal>
 

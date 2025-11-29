@@ -1416,53 +1416,42 @@ async function mapOrderFromApi(order) {
     order?.rentalOrderCode || order?.orderCode || order?.code ||
     (backendId != null ? String(backendId) : "—");
 
-  const items = await Promise.all(
-    (order?.orderDetails || []).map(async (detail) => {
-      try {
-        const model = detail?.deviceModelId
-          ? await getDeviceModelById(detail.deviceModelId)
-          : null;
+  // Đơn giản hoá: chỉ dùng dữ liệu có sẵn trong orderDetails, KHÔNG gọi getDeviceModelById
+  const items = (order?.orderDetails || []).map((detail) => {
+    const deviceValue = Number(detail?.deviceValue ?? 0);
+    const depositPercent = Number(detail?.depositPercent ?? 0);
+    const depositAmountPerUnit = Number(
+      detail?.depositAmountPerUnit ?? deviceValue * depositPercent
+    );
 
-        const deviceValue = Number(detail?.deviceValue ?? model?.deviceValue ?? 0);
-        const depositPercent = Number(detail?.depositPercent ?? model?.depositPercent ?? 0);
-        const depositAmountPerUnit = Number(
-          detail?.depositAmountPerUnit ?? deviceValue * depositPercent
-        );
+    // Lấy tên và ảnh từ deviceModel object hoặc từ detail trực tiếp
+    const deviceModel = detail?.deviceModel || {};
+    const deviceName = 
+      deviceModel?.deviceName || 
+      deviceModel?.name || 
+      detail?.deviceName || 
+      `Model ${detail?.deviceModelId ?? ""}`;
+    
+    const imageUrl = 
+      deviceModel?.imageUrl || 
+      deviceModel?.imageURL || 
+      deviceModel?.image ||
+      detail?.imageUrl || 
+      detail?.imageURL ||
+      detail?.image ||
+      "";
 
-        return {
-          name:
-            model?.deviceName ||
-            model?.name ||
-            detail?.deviceName ||
-            `Model ${detail?.deviceModelId ?? ""}`,
-          qty: detail?.quantity ?? 1,
-          image: model?.imageURL || model?.imageUrl || detail?.imageUrl || "",
-          pricePerDay: Number(detail?.pricePerDay ?? model?.pricePerDay ?? 0),
-          depositAmountPerUnit,
-          deviceValue,
-          depositPercent,
-          deviceModelId: detail?.deviceModelId ?? model?.id ?? null,
-        };
-      } catch {
-        const deviceValue = Number(detail?.deviceValue ?? 0);
-        const depositPercent = Number(detail?.depositPercent ?? 0);
-        const depositAmountPerUnit = Number(
-          detail?.depositAmountPerUnit ?? deviceValue * depositPercent
-        );
-
-        return {
-          name: detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
-          qty: detail?.quantity ?? 1,
-          image: "",
-          pricePerDay: Number(detail?.pricePerDay ?? 0),
-          depositAmountPerUnit,
-          deviceValue,
-          depositPercent,
-          deviceModelId: detail?.deviceModelId ?? null,
-        };
-      }
-    })
-  );
+    return {
+      name: deviceName,
+      qty: detail?.quantity ?? 1,
+      image: imageUrl,
+      pricePerDay: Number(detail?.pricePerDay ?? 0),
+      depositAmountPerUnit,
+      deviceValue,
+      depositPercent,
+      deviceModelId: detail?.deviceModelId ?? null,
+    };
+  });
 
   const startDate = order?.startDate ?? order?.rentalStartDate ?? null;
   const endDate   = order?.endDate   ?? order?.rentalEndDate   ?? null;
@@ -2004,7 +1993,68 @@ export default function MyOrders() {
       setLoadingOrders(true);
       const res = await listRentalOrders();
       const mapped = await Promise.all((res || []).map(mapOrderFromApi));
-      const validOrders = mapped.filter(o => o && o.id != null);
+      
+      // Enrich orders with device model data if missing
+      const modelIdsToFetch = new Set();
+      mapped.forEach(order => {
+        if (order?.items) {
+          order.items.forEach(item => {
+            if (item.deviceModelId) {
+              // Fetch nếu thiếu image hoặc name bắt đầu bằng "Model" (fallback name)
+              const needsFetch = !item.image || (item.name && item.name.startsWith("Model"));
+              if (needsFetch) {
+                modelIdsToFetch.add(item.deviceModelId);
+              }
+            }
+          });
+        }
+      });
+      
+      // Fetch device models in parallel
+      const modelMap = new Map();
+      if (modelIdsToFetch.size > 0) {
+        const modelPromises = Array.from(modelIdsToFetch).map(async (id) => {
+          try {
+            const model = await getDeviceModelById(id);
+            return [id, model];
+          } catch (err) {
+            console.error(`Failed to fetch device model ${id}:`, err);
+            return [id, null];
+          }
+        });
+        const modelResults = await Promise.all(modelPromises);
+        modelResults.forEach(([id, model]) => {
+          if (model) {
+            modelMap.set(id, {
+              deviceName: model.deviceName || model.name || "",
+              imageUrl: model.imageUrl || model.imageURL || model.image || "",
+            });
+          }
+        });
+      }
+      
+      // Enrich orders with fetched device model data
+      const enrichedOrders = mapped.map(order => {
+        if (!order?.items) return order;
+        return {
+          ...order,
+          items: order.items.map(item => {
+            if (item.deviceModelId && modelMap.has(item.deviceModelId)) {
+              const modelData = modelMap.get(item.deviceModelId);
+              return {
+                ...item,
+                // Ưu tiên deviceName từ API, nếu không có thì giữ name hiện tại
+                name: modelData.deviceName || item.name || `Model ${item.deviceModelId}`,
+                // Ưu tiên imageUrl từ API, nếu không có thì giữ image hiện tại
+                image: modelData.imageUrl || item.image || "",
+              };
+            }
+            return item;
+          }),
+        };
+      });
+      
+      const validOrders = enrichedOrders.filter(o => o && o.id != null);
       setOrders(validOrders);
       
       // Check for orders that might have return tasks created
@@ -3512,12 +3562,36 @@ export default function MyOrders() {
       render: (_, r) => {
         const first = r.items?.[0] || {};
         const extra = (r.items?.length ?? 0) > 1 ? ` +${r.items.length - 1} mục` : "";
+        const imageUrl = first.image || "";
+        const productName = first.name || "—";
+        
         return (
           <Space size="middle">
-            <Avatar shape="square" size={40} src={first.image} style={{ borderRadius: 6 }} />
+            {imageUrl ? (
+              <Avatar 
+                shape="square" 
+                size={40} 
+                src={imageUrl} 
+                style={{ borderRadius: 6 }}
+                onError={() => {
+                  // Fallback nếu ảnh lỗi
+                  return true;
+                }}
+              >
+                {productName.charAt(0).toUpperCase()}
+              </Avatar>
+            ) : (
+              <Avatar 
+                shape="square" 
+                size={40} 
+                style={{ borderRadius: 6, background: "#f0f0f0", color: "#999" }}
+              >
+                {productName !== "—" ? productName.charAt(0).toUpperCase() : "?"}
+              </Avatar>
+            )}
             <div style={{ maxWidth: 150 }}>
-              <Text strong style={{ display: "block", fontSize: 13 }} ellipsis={{ tooltip: first.name }}>
-                {first.name || "—"}
+              <Text strong style={{ display: "block", fontSize: 13 }} ellipsis={{ tooltip: productName }}>
+                {productName}
               </Text>
               <Text type="secondary" style={{ fontSize: 12 }}>SL: {first.qty ?? 1}{extra}</Text>
             </div>
@@ -5020,7 +5094,15 @@ export default function MyOrders() {
                               : customerDueAmount > 0
                               ? "Bạn cần thanh toán thêm"
                               : "Không phát sinh số tiền cần hoàn/thu thêm";
-                          const highlightAmount = formatVND(refundAmount > 0 ? refundAmount : customerDueAmount);
+                          const highlightAmount = formatVND(
+                            refundAmount > 0 ? refundAmount : customerDueAmount
+                          );
+                          const highlightColor =
+                            refundAmount > 0
+                              ? "#1d4ed8" // xanh dương
+                              : customerDueAmount > 0
+                              ? "#dc2626" // đỏ
+                              : "#111";
 
                           return (
                         <Card
@@ -5052,12 +5134,20 @@ export default function MyOrders() {
                             <Descriptions.Item label="Cọc đã dùng">
                               {formatVND(depositUsed)}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Số tiền cần hoàn lại">
-                              <Text strong>{formatVND(refundAmount)}</Text>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Số tiền cần thanh toán thêm">
-                              <Text strong>{formatVND(customerDueAmount)}</Text>
-                            </Descriptions.Item>
+                            {refundAmount > 0 && (
+                              <Descriptions.Item label="Số tiền cọc bạn sẽ được hoàn lại">
+                                <Text strong style={{ color: "#1d4ed8" }}>
+                                  {formatVND(refundAmount)}
+                                </Text>
+                              </Descriptions.Item>
+                            )}
+                            {customerDueAmount > 0 && (
+                              <Descriptions.Item label="Số tiền cần thanh toán thêm">
+                                <Text strong style={{ color: "#dc2626" }}>
+                                  {formatVND(customerDueAmount)}
+                                </Text>
+                              </Descriptions.Item>
+                            )}
                             <Descriptions.Item label="Trạng thái">
                               {(() => {
                                 const key = String(settlementInfo.state || "").toLowerCase();
@@ -5079,14 +5169,20 @@ export default function MyOrders() {
                               gap: 6,
                             }}
                           >
-                            <Text style={{ color: "#555", fontSize: 13 }}>
+                            <Text
+                              style={{
+                                color: "#111827",
+                                fontSize: 14,
+                                fontWeight: 600,
+                              }}
+                            >
                               {highlightLabel}
                             </Text>
                             <Text
                               style={{
                                 fontSize: netAmount === 0 ? 18 : 20,
                                 fontWeight: 600,
-                                color: "#111",
+                                color: highlightColor,
                               }}
                             >
                               {highlightAmount}

@@ -79,12 +79,6 @@ const fmtDate = (date) => {
   return dayjs(date).format("DD/MM/YYYY");
 };
 
-// Format datetime
-const fmtDateTime = (date) => {
-  if (!date) return "—";
-  return dayjs(date).format("DD/MM/YYYY HH:mm");
-};
-
 const renderCustomerInfo = (order = {}, detail = null, opts = {}) => {
   const source =
     detail ||
@@ -128,20 +122,6 @@ const renderCustomerInfo = (order = {}, detail = null, opts = {}) => {
       )}
     </div>
   );
-};
-
-// Status tag for orders
-const statusTag = (status) => {
-  const s = String(status || "").toUpperCase();
-  const map = {
-    PENDING: { label: "Chờ xử lý", color: "orange" },
-    PROCESSING: { label: "Đang xử lý", color: "blue" },
-    IN_USE: { label: "Đang sử dụng", color: "geekblue" },
-    RETURNED: { label: "Đã trả", color: "green" },
-    CANCELLED: { label: "Đã hủy", color: "red" },
-  };
-  const item = map[s] || { label: s, color: "default" };
-  return <Tag color={item.color}>{item.label}</Tag>;
 };
 
 const splitFinalAmounts = (finalAmount = 0) => {
@@ -439,6 +419,15 @@ export default function SupportSettlement() {
   // Save settlement (create or update)
   const handleSaveSettlement = useCallback(async () => {
     try {
+      // Nếu settlement đã tất toán (CLOSED) thì không cho cập nhật nữa
+      if (
+        settlement &&
+        String(settlement.state || "").toUpperCase() === "CLOSED"
+      ) {
+        toast.error("Quyết toán này đã được tất toán, không thể cập nhật.");
+        return;
+      }
+
       const values = await settlementForm.validateFields();
       const { refundAmount = 0, customerDueAmount = 0 } = values;
       const finalReturnAmount = Number(refundAmount || 0) - Number(customerDueAmount || 0);
@@ -733,37 +722,50 @@ export default function SupportSettlement() {
                   const split = splitFinalAmounts(
                     settlement.finalReturnAmount ?? settlement.finalAmount ?? 0
                   );
+                  const { refundAmount, customerDueAmount } = split;
+
                   return (
-                <Descriptions bordered size="small" column={1}>
-                  <Descriptions.Item label="Tổng tiền cọc">
-                    {formatCurrency(settlement.totalDeposit || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Phí hư hỏng">
-                    {formatCurrency(settlement.damageFee || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Phí trễ">
-                    {formatCurrency(settlement.lateFee || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Phí phụ kiện">
-                    {formatCurrency(settlement.accessoryFee || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Số tiền cần hoàn cho khách">
-                    <Text strong>{formatCurrency(split.refundAmount)}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Số tiền khách cần thanh toán thêm">
-                    <Text strong>{formatCurrency(split.customerDueAmount)}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Trạng thái">
-                    {(() => {
-                      const key = String(settlement.state || "").toLowerCase();
-                      const info = SETTLEMENT_STATUS_MAP[key] || {
-                        label: settlement.state || "—",
-                        color: "default",
-                      };
-                      return <Tag color={info.color}>{info.label}</Tag>;
-                    })()}
-                  </Descriptions.Item>
-                </Descriptions>
+                    <Descriptions bordered size="small" column={1}>
+                      <Descriptions.Item label="Tổng tiền cọc">
+                        {formatCurrency(settlement.totalDeposit || 0)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí hư hỏng">
+                        {formatCurrency(settlement.damageFee || 0)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí trễ">
+                        {formatCurrency(settlement.lateFee || 0)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí phụ kiện">
+                        {formatCurrency(settlement.accessoryFee || 0)}
+                      </Descriptions.Item>
+
+                      {refundAmount > 0 && (
+                        <Descriptions.Item label="Số tiền cần hoàn cho khách">
+                          <Text strong style={{ color: "#1d4ed8" }}>
+                            {formatCurrency(refundAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      {customerDueAmount > 0 && (
+                        <Descriptions.Item label="Số tiền đền bù khách cần thanh toán thêm">
+                          <Text strong style={{ color: "#dc2626" }}>
+                            {formatCurrency(customerDueAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      <Descriptions.Item label="Trạng thái">
+                        {(() => {
+                          const key = String(settlement.state || "").toLowerCase();
+                          const info = SETTLEMENT_STATUS_MAP[key] || {
+                            label: settlement.state || "—",
+                            color: "default",
+                          };
+                          return <Tag color={info.color}>{info.label}</Tag>;
+                        })()}
+                      </Descriptions.Item>
+                    </Descriptions>
                   );
                 })()}
                 {String(settlement.state || "").toUpperCase() === "ISSUED" && (
@@ -788,16 +790,29 @@ export default function SupportSettlement() {
               </>
             )}
 
-            <Divider />
-            <Space>
-              <Button
-                type="primary"
-                icon={settlement ? <EditOutlined /> : <PlusOutlined />}
-                onClick={() => setSettlementModalOpen(true)}
-              >
-                {settlement ? "Cập nhật Settlement" : "Tạo Settlement"}
-              </Button>
-            </Space>
+            {(() => {
+              const isClosed =
+                settlement &&
+                String(settlement.state || "").toUpperCase() === "CLOSED";
+
+              // Nếu đã tất toán (CLOSED) thì không cho cập nhật nữa
+              if (isClosed) return null;
+
+              return (
+                <>
+                  <Divider />
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={settlement ? <EditOutlined /> : <PlusOutlined />}
+                      onClick={() => setSettlementModalOpen(true)}
+                    >
+                      {settlement ? "Cập nhật Settlement" : "Tạo Settlement"}
+                    </Button>
+                  </Space>
+                </>
+              );
+            })()}
           </>
         )}
       </Drawer>

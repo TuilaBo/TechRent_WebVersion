@@ -31,6 +31,7 @@ import AdminTaskCategory from "./pages/admin/AdminTaskCategory.jsx";
 import AdminTransactions from "./pages/admin/AdminTransactions.jsx";
 import AdminContract from "./pages/admin/AdminContract.jsx";
 import AdminCondition from "./pages/admin/AdminCondition.jsx";
+import AdminTerm from "./pages/admin/AdminTerm.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
 import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
@@ -122,6 +123,7 @@ export default function App() {
           <Route path="transactions" element={<AdminTransactions />} />
           <Route path="task-categories" element={<AdminTaskCategory />} />
           <Route path="conditions" element={<AdminCondition />} />
+          <Route path="device-terms" element={<AdminTerm />} />
         </Route>
 
         <Route

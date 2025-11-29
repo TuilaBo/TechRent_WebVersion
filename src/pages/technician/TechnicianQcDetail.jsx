@@ -249,11 +249,9 @@ export default function TechnicianQcDetail() {
         // Lấy startDate và endDate từ order
         const startDate = order.startDate || order.rentalStartDate;
         const endDate = order.endDate || order.rentalEndDate;
-        
-        // Format dates cho API (YYYY-MM-DDTHH:mm:ss)
         let start = null;
         let end = null;
-        
+
         if (startDate && endDate) {
           try {
             const startDayjs = dayjs(startDate);
@@ -277,24 +275,25 @@ export default function TechnicianQcDetail() {
 
           try {
             const [devices, model] = await Promise.all([
-              // Sử dụng API mới nếu có start/end, ngược lại dùng API cũ
               start && end
                 ? getAvailableDevicesByModel(deviceModelId, start, end).catch(() => [])
                 : getDevicesByModelId(deviceModelId).catch(() => []),
               getDeviceModelById(deviceModelId).catch(() => null),
             ]);
+
             const name = model?.deviceName || model?.name || null;
-            
-            // API mới đã trả về devices khả dụng, không cần filter nữa
-            // Nhưng vẫn giữ filter để đảm bảo tương thích nếu API cũ được dùng
-            const availableDevices = Array.isArray(devices) 
-              ? (start && end 
-                  ? devices // API mới đã filter sẵn
-                  : devices.filter(device => {
-                      const status = String(device.status || device.deviceStatus || device.state || "").toUpperCase();
+
+            const availableDevices = Array.isArray(devices)
+              ? (start && end
+                  ? devices
+                  : devices.filter((device) => {
+                      const status = String(
+                        device.status || device.deviceStatus || device.state || ""
+                      ).toUpperCase();
                       return status === "AVAILABLE";
                     }))
               : [];
+
             return { orderDetailId, devices: availableDevices, deviceModelId, name };
           } catch (e) {
             console.error(`Lỗi khi fetch devices cho modelId ${deviceModelId}:`, e);
@@ -1149,12 +1148,12 @@ export default function TechnicianQcDetail() {
       </Space>
 
       {/* Thông tin task và đơn hàng */}
-      <Card title="Thông tin Nhiệm vụ" className="mb-3">
+      <Card title="Thông tin công việc" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Mã nhiệm vụ">{task.taskId || task.id}</Descriptions.Item>
+          <Descriptions.Item label="Mã công việc">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Trạng thái của nhiệm vụ">
+          <Descriptions.Item label="Trạng thái của công việc">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
             </Tag>

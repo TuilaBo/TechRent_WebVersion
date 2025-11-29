@@ -667,10 +667,10 @@ export default function TechnicianPostRentalQc() {
 
       <Card title="Thông tin Nhiệm vụ" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Mã nhiệm vụ">{task.taskId || task.id}</Descriptions.Item>
+          <Descriptions.Item label="Mã công việc">{task.taskId || task.id}</Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Trạng thái của nhiệm vụ">
+          <Descriptions.Item label="Trạng thái của công việc">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
             </Tag>
