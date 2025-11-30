@@ -4,11 +4,12 @@ import {
   Dropdown, Menu, Tooltip, message, Drawer, Descriptions,
   Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps, Radio, Checkbox, Alert
 } from "antd";
+import dayjs from "dayjs";
 import {
   SearchOutlined, FilterOutlined, EyeOutlined,
   ReloadOutlined, FilePdfOutlined, DownloadOutlined, ExpandOutlined, DollarOutlined, PrinterOutlined
 } from "@ant-design/icons";
-import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder } from "../../lib/rentalOrdersApi";
+import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder, extendRentalOrder } from "../../lib/rentalOrdersApi";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract as signContractApi } from "../../lib/contractApi";
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
@@ -321,7 +322,11 @@ function diffDays(startIso, endIso) {
   if (!startIso || !endIso) return 1;
   const s = new Date(startIso);
   const e = new Date(endIso);
-  const days = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
+  // Calculate based on date only (ignore time) to get accurate day count
+  const startDateOnly = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const endDateOnly = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  const diff = endDateOnly - startDateOnly;
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
   return Math.max(1, days || 1);
 }
 
@@ -1568,6 +1573,8 @@ export default function MyOrders() {
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
   const [processingReturn, setProcessingReturn] = useState(false);
+  const [processingExtend, setProcessingExtend] = useState(false);
+  const [extendedEndTime, setExtendedEndTime] = useState(null);
   const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
     // Load from localStorage on init
     try {
@@ -1609,12 +1616,12 @@ export default function MyOrders() {
     if (Number.isNaN(end.getTime())) return null;
     const now = new Date();
 
-    // Use UTC to avoid timezone drift when comparing calendar days
-    const endDayUtc = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-    const nowDayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    // Calculate based on local date (not UTC) to match user's calendar
+    const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const diff = endDayUtc - nowDayUtc;
-    const days = Math.floor(diff / DAY_MS);
+    const diff = endDateOnly - nowDateOnly;
+    const days = Math.ceil(diff / DAY_MS);
     return days;
   };
 
@@ -2294,9 +2301,50 @@ export default function MyOrders() {
   };
 
   // Handle extend request
-  const handleExtendRequest = () => {
-    message.info("Tính năng gia hạn đang được phát triển. Vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.");
-    setExtendModalOpen(false);
+  const handleExtendRequest = async () => {
+    if (!current || !current.id) {
+      message.error("Không có thông tin đơn hàng để gia hạn.");
+      return;
+    }
+    if (!extendedEndTime) {
+      message.warning("Vui lòng chọn ngày kết thúc mới cho đơn hàng.");
+      return;
+    }
+
+    // Validate: extended end time must be after current end date
+    if (current.endDate) {
+      const currentEndDate = new Date(current.endDate);
+      const newEndDate = new Date(extendedEndTime);
+      if (newEndDate <= currentEndDate) {
+        message.error("Ngày kết thúc mới phải sau ngày kết thúc hiện tại.");
+        return;
+      }
+    }
+
+    try {
+      setProcessingExtend(true);
+      const result = await extendRentalOrder(current.id, extendedEndTime);
+      if (result) {
+        message.success("Yêu cầu gia hạn đơn hàng đã được gửi thành công!");
+        setExtendModalOpen(false);
+        setExtendedEndTime(null);
+        // Reload orders to get updated data
+        await loadOrders();
+        if (current?.id) {
+          const updatedOrder = await getRentalOrderById(current.id);
+          if (updatedOrder) {
+            setCurrent(updatedOrder);
+          }
+        }
+      } else {
+        message.error("Không thể gửi yêu cầu gia hạn. Vui lòng thử lại.");
+      }
+    } catch (error) {
+      console.error("Error extending rental order:", error);
+      message.error(error?.response?.data?.message || error?.message || "Không thể gửi yêu cầu gia hạn. Vui lòng thử lại.");
+    } finally {
+      setProcessingExtend(false);
+    }
   };
   const handleDownloadContract = async (record) => {
     let sandbox = null;
@@ -3092,7 +3140,6 @@ export default function MyOrders() {
       const baseUrl = window.location.origin;
       const orderIdParam = Number(order.id);
       const orderCodeParam = order.displayId || order.id;
-      const returnUrl = `${baseUrl}/payment/return?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
       const cancelUrl = `${baseUrl}/payment/cancel?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
       // VNPay sẽ redirect về các URL này với query params từ backend
       const frontendSuccessUrl = `${baseUrl}/success?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
@@ -3104,7 +3151,6 @@ export default function MyOrders() {
         paymentMethod: String(paymentMethod || "VNPAY").toUpperCase(),
         amount: totalAmount,
         description: `Thanh toán đơn hàng #${orderCodeParam}`,
-        returnUrl, 
         cancelUrl,
         frontendSuccessUrl,
         frontendFailureUrl,
@@ -4004,12 +4050,9 @@ export default function MyOrders() {
             />
           </div>
         )}
-        {current && (
-          <Tabs
-            key={current.id}
-            activeKey={detailTab}
-            onChange={setDetailTab}
-            items={[
+        {current && (() => {
+          // Filter tabs based on data availability - only show tabs that have data
+          const allTabs = [
               {
                 key: "overview",
                 label: "Tổng quan",
@@ -4270,16 +4313,7 @@ export default function MyOrders() {
                           pagination={false}
                           size="small"
                         />
-                      ) : (
-                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                          <Text type="secondary">Chưa có hợp đồng nào được tạo cho đơn này</Text>
-                          {needsContractAction && (
-                            <div style={{ marginTop: 12, color: "#6B7280" }}>
-                              Hệ thống sẽ tự động tạo hợp đồng sau khi đơn được chuẩn bị.
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      ) : null}
 
                       {(() => {
                         const items = Array.isArray(current?.items) ? current.items : [];
@@ -4628,11 +4662,7 @@ export default function MyOrders() {
                         </div>
                       </Card>
                       </>
-                    ) : (
-                      <Card>
-                        <Text type="secondary">Chưa có biên bản bàn giao nào được tạo cho đơn hàng này.</Text>
-                      </Card>
-                    )}
+                    ) : null}
                   </div>
                 ),
               },
@@ -4844,11 +4874,7 @@ export default function MyOrders() {
                         </div>
                       </Card>
                       </>
-                    ) : (
-                      <Card>
-                        <Text type="secondary">Chưa có biên bản thu hồi nào được tạo cho đơn hàng này.</Text>
-                      </Card>
-                    )}
+                    ) : null}
                   </div>
                 ),
               },
@@ -4923,7 +4949,13 @@ export default function MyOrders() {
                                   {current?.endDate ? formatDateTime(current.endDate) : "—"}
                                 </Descriptions.Item>
                                 <Descriptions.Item label="Số ngày thuê">
-                                  {current?.days ? `${current.days} ngày` : "—"}
+                                  {(() => {
+                                    if (!current?.startDate || !current?.endDate) {
+                                      return current?.days ? `${current.days} ngày` : "—";
+                                    }
+                                    const rentalDays = diffDays(current.startDate, current.endDate);
+                                    return `${rentalDays} ngày`;
+                                  })()}
                                 </Descriptions.Item>
                                 <Descriptions.Item label="Trạng thái">
                                   <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>
@@ -4960,7 +4992,13 @@ export default function MyOrders() {
                                 {current?.endDate ? formatDateTime(current.endDate) : "—"}
                               </Descriptions.Item>
                               <Descriptions.Item label="Số ngày thuê">
-                                {current?.days ? `${current.days} ngày` : "—"}
+                                {(() => {
+                                  if (!current?.startDate || !current?.endDate) {
+                                    return current?.days ? `${current.days} ngày` : "—";
+                                  }
+                                  const rentalDays = diffDays(current.startDate, current.endDate);
+                                  return `${rentalDays} ngày`;
+                                })()}
                               </Descriptions.Item>
                               <Descriptions.Item label="Thời gian còn lại">
                                 {daysRemaining !== null ? (
@@ -5258,17 +5296,47 @@ export default function MyOrders() {
                           })()}
                         </Card>
                       </>
-                    ) : (
-                      <Card>
-                        <Text type="secondary">Chưa có quyết toán nào được tạo cho đơn hàng này.</Text>
-                      </Card>
-                    )}
+                    ) : null}
                   </div>
                 ),
               },
-            ]}
-          />
-        )}
+            ];
+
+            // Filter tabs: only show tabs that have data (hide empty tabs completely)
+            // Show tab while loading, but hide if loaded and no data
+            const filteredTabs = allTabs.filter(tab => {
+              if (tab.key === "overview" || tab.key === "return") {
+                // Always show overview and return tabs
+                return true;
+              }
+              if (tab.key === "contract") {
+                // Show while loading, or if there are contracts
+                return contractsLoading || contracts.length > 0;
+              }
+              if (tab.key === "handover") {
+                // Show while loading, or if there are checkout reports
+                return handoverReportsLoading || checkoutReports.length > 0;
+              }
+              if (tab.key === "checkin") {
+                // Show while loading, or if there are checkin reports
+                return handoverReportsLoading || checkinReports.length > 0;
+              }
+              if (tab.key === "settlement") {
+                // Show while loading, or if there is settlement info
+                return settlementLoading || settlementInfo !== null;
+              }
+              return true;
+            });
+
+            return (
+              <Tabs
+                key={current.id}
+                activeKey={detailTab}
+                onChange={setDetailTab}
+                items={filteredTabs}
+              />
+            );
+          })()}
       </Drawer>
 
       {/* Modal chi tiết hợp đồng */}
@@ -5649,28 +5717,29 @@ export default function MyOrders() {
       <Modal
         title="Yêu cầu gia hạn đơn hàng"
         open={extendModalOpen}
-        onCancel={() => setExtendModalOpen(false)}
+        onCancel={() => {
+          setExtendModalOpen(false);
+          setExtendedEndTime(null);
+        }}
         onOk={handleExtendRequest}
         okText="Gửi yêu cầu"
         cancelText="Hủy"
+        okButtonProps={{ loading: processingExtend }}
         destroyOnClose
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <Alert
-            type="info"
-            showIcon
-            message="Tính năng gia hạn đang được phát triển"
-            description={
-              <div>
-                <Text>
-                  Hiện tại tính năng gia hạn đơn hàng đang được phát triển. Vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.
-                </Text>
-                {current && (
-                  <div style={{ marginTop: 12 }}>
-                    <Text strong>Thông tin đơn hàng:</Text>
+          {current && (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                message="Thông tin đơn hàng"
+                description={
+                  <div>
                     <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
                       <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
-                      <li>Ngày kết thúc thuê: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                      <li>Ngày bắt đầu thuê: <Text strong>{current.startDate ? formatDateTime(current.startDate) : "—"}</Text></li>
+                      <li>Ngày kết thúc thuê hiện tại: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
                       {(() => {
                         const days = getDaysRemaining(current.endDate);
                         if (days === null) return null;
@@ -5682,10 +5751,77 @@ export default function MyOrders() {
                       })()}
                     </ul>
                   </div>
-                )}
-              </div>
-            }
-          />
+                }
+              />
+              <Form.Item
+                label="Ngày kết thúc mới"
+                required
+                help="Vui lòng chọn ngày kết thúc mới cho đơn hàng. Ngày này phải sau ngày kết thúc hiện tại."
+              >
+                <DatePicker
+                  style={{ width: "100%" }}
+                  showTime
+                  format="DD/MM/YYYY HH:mm"
+                  placeholder="Chọn ngày kết thúc mới"
+                  value={extendedEndTime ? dayjs(extendedEndTime) : null}
+                  onChange={(date) => {
+                    if (date) {
+                      // Convert to ISO string
+                      setExtendedEndTime(date.toISOString());
+                    } else {
+                      setExtendedEndTime(null);
+                    }
+                  }}
+                  disabledDate={(currentDate) => {
+                    if (!current?.endDate || !currentDate) return false;
+                    const endDate = dayjs(current.endDate);
+                    // Disable dates before or equal to current end date
+                    return currentDate.isBefore(endDate, "day") || currentDate.isSame(endDate, "day");
+                  }}
+                  disabledTime={(currentDate) => {
+                    if (!currentDate) return {};
+                    if (!current?.endDate) return {};
+                    const endDate = dayjs(current.endDate);
+                    // If selected date is same as end date, disable times before end time
+                    if (currentDate.isSame(endDate, "day")) {
+                      return {
+                        disabledHours: () => {
+                          const hours = [];
+                          for (let i = 0; i < endDate.hour(); i++) {
+                            hours.push(i);
+                          }
+                          return hours;
+                        },
+                        disabledMinutes: (selectedHour) => {
+                          if (selectedHour === endDate.hour()) {
+                            const minutes = [];
+                            for (let i = 0; i <= endDate.minute(); i++) {
+                              minutes.push(i);
+                            }
+                            return minutes;
+                          }
+                          return [];
+                        },
+                      };
+                    }
+                    return {};
+                  }}
+                />
+              </Form.Item>
+              {extendedEndTime && current?.endDate && (() => {
+                const currentEnd = new Date(current.endDate);
+                const newEnd = new Date(extendedEndTime);
+                const diffDays = Math.ceil((newEnd - currentEnd) / (1000 * 60 * 60 * 24));
+                return (
+                  <Alert
+                    type="success"
+                    message={`Đơn hàng sẽ được gia hạn thêm ${diffDays} ngày`}
+                    description={`Ngày kết thúc mới: ${formatDateTime(extendedEndTime)}`}
+                  />
+                );
+              })()}
+            </>
+          )}
         </Space>
       </Modal>
 
