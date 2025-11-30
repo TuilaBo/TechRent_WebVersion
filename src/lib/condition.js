@@ -8,7 +8,7 @@ export function normalizeConditionDefinition(raw = {}) {
   return {
     id: raw.id ?? raw.conditionDefinitionId ?? null,
     name: raw.name ?? "",
-    deviceCategoryId: raw.deviceCategoryId ?? null,
+    deviceModelId: raw.deviceModelId ?? null,
     description: raw.description ?? "",
     impactRate: raw.impactRate ?? 0,
     damage: raw.damage ?? false,
@@ -22,14 +22,14 @@ export function normalizeConditionDefinition(raw = {}) {
 
 /** GET /api/conditions/definitions – Lấy danh sách condition definitions
  * @param {Object} params - Query parameters
- * @param {number} params.deviceCategoryId - Lọc theo deviceCategoryId (optional)
+ * @param {number} params.deviceModelId - Lọc theo deviceModelId (optional)
  * @returns {Promise<Array>} Danh sách condition definitions
  */
 export async function getConditionDefinitions(params = {}) {
-  const { deviceCategoryId } = params;
+  const { deviceModelId } = params;
   const queryParams = {};
-  if (deviceCategoryId != null) {
-    queryParams.deviceCategoryId = deviceCategoryId;
+  if (deviceModelId != null) {
+    queryParams.deviceModelId = deviceModelId;
   }
   
   const { data } = await api.get("/api/conditions/definitions", {
@@ -54,7 +54,7 @@ export async function getConditionDefinitionById(id) {
 /** POST /api/conditions/definitions – Tạo condition definition mới
  * @param {Object} conditionData - Dữ liệu condition definition
  * @param {string} conditionData.name - Tên condition definition
- * @param {number} conditionData.deviceCategoryId - ID của device category
+ * @param {number} conditionData.deviceModelId - ID của device model
  * @param {string} conditionData.description - Mô tả
  * @param {number} conditionData.impactRate - Tỷ lệ ảnh hưởng (default: 100)
  * @param {boolean} conditionData.damage - Có gây hư hỏng không
@@ -64,7 +64,7 @@ export async function getConditionDefinitionById(id) {
 export async function createConditionDefinition(conditionData) {
   const payload = {
     name: conditionData.name ?? "",
-    deviceCategoryId: conditionData.deviceCategoryId ?? 0,
+    deviceModelId: conditionData.deviceModelId ?? 0,
     description: conditionData.description ?? "",
     impactRate: conditionData.impactRate ?? 100,
     damage: conditionData.damage ?? false,
@@ -80,7 +80,7 @@ export async function createConditionDefinition(conditionData) {
  * @param {number} id - ID của condition definition cần cập nhật
  * @param {Object} conditionData - Dữ liệu condition definition cần cập nhật
  * @param {string} [conditionData.name] - Tên condition definition
- * @param {number} [conditionData.deviceCategoryId] - ID của device category
+ * @param {number} [conditionData.deviceModelId] - ID của device model
  * @param {string} [conditionData.description] - Mô tả
  * @param {number} [conditionData.impactRate] - Tỷ lệ ảnh hưởng
  * @param {boolean} [conditionData.damage] - Có gây hư hỏng không
@@ -90,7 +90,7 @@ export async function createConditionDefinition(conditionData) {
 export async function updateConditionDefinition(id, conditionData) {
   const payload = {};
   if (conditionData.name !== undefined) payload.name = conditionData.name;
-  if (conditionData.deviceCategoryId !== undefined) payload.deviceCategoryId = conditionData.deviceCategoryId;
+  if (conditionData.deviceModelId !== undefined) payload.deviceModelId = conditionData.deviceModelId;
   if (conditionData.description !== undefined) payload.description = conditionData.description;
   if (conditionData.impactRate !== undefined) payload.impactRate = conditionData.impactRate;
   if (conditionData.damage !== undefined) payload.damage = conditionData.damage;

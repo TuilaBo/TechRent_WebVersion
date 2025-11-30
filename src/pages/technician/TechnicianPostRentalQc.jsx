@@ -271,7 +271,6 @@ export default function TechnicianPostRentalQc() {
               deviceId: serialNumber, // Store serial number in form
               penaltyAmount: d.penaltyAmount || 0,
               staffNote: d.staffNote || "",
-              customerNote: d.customerNote || "",
             };
           });
           
@@ -286,7 +285,6 @@ export default function TechnicianPostRentalQc() {
             deviceId: String(d.deviceId || ""),
             penaltyAmount: d.penaltyAmount || 0,
             staffNote: d.staffNote || "",
-            customerNote: d.customerNote || "",
           })));
         }
       };
@@ -393,36 +391,32 @@ export default function TechnicianPostRentalQc() {
 
       try {
         setLoadingConditions(true);
-        const categoryIds = new Set();
         
+        // Get all unique deviceModelIds from orderDetails
+        const modelIds = new Set();
         for (const orderDetail of order.orderDetails) {
           if (orderDetail.deviceModelId) {
-            try {
-              const model = await getDeviceModelById(orderDetail.deviceModelId);
-              const categoryId = model?.deviceCategoryId || model?.categoryId;
-              if (categoryId) {
-                categoryIds.add(categoryId);
-              }
-            } catch (e) {
-              console.warn(`Failed to load model ${orderDetail.deviceModelId}:`, e);
-            }
+            modelIds.add(Number(orderDetail.deviceModelId));
           }
         }
 
+        // Load condition definitions for all device models
         const allConditions = [];
-        for (const categoryId of categoryIds) {
+        for (const modelId of modelIds) {
           try {
-            const conditions = await getConditionDefinitions({ deviceCategoryId: categoryId });
+            const conditions = await getConditionDefinitions({ deviceModelId: modelId });
             allConditions.push(...conditions);
           } catch (e) {
-            console.warn(`Failed to load conditions for category ${categoryId}:`, e);
+            console.warn(`Failed to load conditions for model ${modelId}:`, e);
           }
         }
 
+        // Remove duplicates by id
         const uniqueConditions = Array.from(
           new Map(allConditions.map(c => [c.id, c])).values()
         );
         
+        console.log("Loaded condition definitions:", uniqueConditions);
         setConditionDefinitions(uniqueConditions);
       } catch (e) {
         console.error("Error loading condition definitions:", e);
@@ -542,14 +536,19 @@ export default function TechnicianPostRentalQc() {
         }
         
         const actualDeviceId = device.deviceId || device.id;
-        discrepanciesPayload.push({
+        // Chỉ include các field được backend chấp nhận, loại bỏ customerNote
+        const cleanPayload = {
           discrepancyType: String(d.discrepancyType || "DAMAGE"),
           conditionDefinitionId: Number(d.conditionDefinitionId || 0),
           orderDetailId: resolvedOrderDetailId,
           deviceId: Number(actualDeviceId),
           staffNote: String(d.staffNote || ""),
-          customerNote: String(d.customerNote || ""),
-        });
+        };
+        
+        // Đảm bảo không có customerNote
+        delete cleanPayload.customerNote;
+        
+        discrepanciesPayload.push(cleanPayload);
       }
       
       if (missingOrderDetailRef) {
@@ -899,7 +898,6 @@ export default function TechnicianPostRentalQc() {
                       deviceId: null,
                       penaltyAmount: 0,
                       staffNote: "",
-                      customerNote: "",
                     },
                   ]);
                 }}
@@ -922,7 +920,22 @@ export default function TechnicianPostRentalQc() {
                     value: d.serial,
                     deviceId: d.serial, // Store serial as deviceId in form, convert on save
                     orderDetailId: d.orderDetailId,
+                    deviceModelId: d.deviceModelId,
                   }));
+
+                  // Find device info by serial to get deviceModelId
+                  const selectedDevice = disc.deviceId 
+                    ? availableDevices.find(d => d.value === String(disc.deviceId))
+                    : null;
+                  
+                  const deviceModelId = selectedDevice?.deviceModelId
+                    ? Number(selectedDevice.deviceModelId)
+                    : null;
+                  
+                  // Filter conditions by deviceModelId
+                  const filteredConditions = deviceModelId
+                    ? conditionDefinitions.filter(c => Number(c.deviceModelId) === deviceModelId)
+                    : conditionDefinitions;
 
                   return (
                     <Card
@@ -984,6 +997,7 @@ export default function TechnicianPostRentalQc() {
                                   ...newDiscrepancies[index],
                                   deviceId: selectedDevice ? selectedDevice.deviceId : null, // Store serial number
                                   orderDetailId: selectedDevice ? Number(selectedDevice.orderDetailId) : null,
+                                  conditionDefinitionId: null, // Reset when device changes
                                 };
                                 setDiscrepancies(newDiscrepancies);
                               }}
@@ -1012,8 +1026,9 @@ export default function TechnicianPostRentalQc() {
                                 setDiscrepancies(newDiscrepancies);
                               }}
                               loading={loadingConditions}
-                              options={conditionDefinitions.map(c => ({
-                                label: c.name,
+                              disabled={!disc.deviceId || loadingConditions}
+                              options={filteredConditions.map(c => ({
+                                label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
                                 value: c.id,
                               }))}
                             />

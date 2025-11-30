@@ -32,7 +32,7 @@ import {
   deleteConditionDefinition,
   normalizeConditionDefinition,
 } from "../../lib/condition";
-import { listDeviceCategories } from "../../lib/deviceManage";
+import { listDeviceModels } from "../../lib/deviceManage";
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -40,11 +40,11 @@ const { TextArea } = Input;
 export default function AdminCondition() {
   const [conditions, setConditions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [deviceCategories, setDeviceCategories] = useState([]);
-  const [categoryLoading, setCategoryLoading] = useState(false);
+  const [deviceModels, setDeviceModels] = useState([]);
+  const [modelLoading, setModelLoading] = useState(false);
 
   // Filter
-  const [deviceCategoryFilter, setDeviceCategoryFilter] = useState(null);
+  const [deviceModelFilter, setDeviceModelFilter] = useState(null);
 
   // Create
   const [createForm] = Form.useForm();
@@ -59,17 +59,17 @@ export default function AdminCondition() {
   const [editingCondition, setEditingCondition] = useState(null);
   const [editForm] = Form.useForm();
 
-  // Load device categories
-  const loadDeviceCategories = async () => {
+  // Load device models
+  const loadDeviceModels = async () => {
     try {
-      setCategoryLoading(true);
-      const categories = await listDeviceCategories();
-      setDeviceCategories(Array.isArray(categories) ? categories : []);
+      setModelLoading(true);
+      const models = await listDeviceModels();
+      setDeviceModels(Array.isArray(models) ? models : []);
     } catch (e) {
-      console.error("Failed to load device categories:", e);
-      setDeviceCategories([]);
+      console.error("Failed to load device models:", e);
+      setDeviceModels([]);
     } finally {
-      setCategoryLoading(false);
+      setModelLoading(false);
     }
   };
 
@@ -78,8 +78,8 @@ export default function AdminCondition() {
     try {
       setLoading(true);
       const params = {};
-      if (deviceCategoryFilter != null) {
-        params.deviceCategoryId = deviceCategoryFilter;
+      if (deviceModelFilter != null) {
+        params.deviceModelId = deviceModelFilter;
       }
       const list = await getConditionDefinitions(params);
       const mapped = list.map(normalizeConditionDefinition);
@@ -101,13 +101,13 @@ export default function AdminCondition() {
   };
 
   useEffect(() => {
-    loadDeviceCategories();
+    loadDeviceModels();
   }, []);
 
   useEffect(() => {
     loadConditions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceCategoryFilter]);
+  }, [deviceModelFilter]);
 
   // Create
   const openCreateModal = () => {
@@ -124,7 +124,7 @@ export default function AdminCondition() {
     try {
       await createConditionDefinition({
         name: vals.name,
-        deviceCategoryId: vals.deviceCategoryId,
+        deviceModelId: vals.deviceModelId,
         description: vals.description || "",
         impactRate: vals.impactRate ?? 100,
         damage: vals.damage ?? false,
@@ -156,7 +156,7 @@ export default function AdminCondition() {
     setEditingCondition(current);
     editForm.setFieldsValue({
       name: current.name,
-      deviceCategoryId: current.deviceCategoryId,
+      deviceModelId: current.deviceModelId,
       description: current.description,
       impactRate: current.impactRate,
       damage: current.damage,
@@ -172,7 +172,7 @@ export default function AdminCondition() {
     try {
       await updateConditionDefinition(id, {
         name: vals.name,
-        deviceCategoryId: vals.deviceCategoryId,
+        deviceModelId: vals.deviceModelId,
         description: vals.description,
         impactRate: vals.impactRate,
         damage: vals.damage,
@@ -199,11 +199,11 @@ export default function AdminCondition() {
     }
   };
 
-  // Get category name by ID
-  const getCategoryName = (categoryId) => {
-    if (!categoryId) return "—";
-    const category = deviceCategories.find((c) => c.deviceCategoryId === categoryId || c.id === categoryId);
-    return category?.deviceCategoryName || category?.name || categoryId;
+  // Get model name by ID
+  const getModelName = (modelId) => {
+    if (!modelId) return "—";
+    const model = deviceModels.find((m) => m.deviceModelId === modelId || m.id === modelId);
+    return model?.deviceName || model?.name || modelId;
   };
 
   const columns = [
@@ -222,11 +222,11 @@ export default function AdminCondition() {
       ellipsis: true,
     },
     {
-      title: "Danh mục thiết bị",
-      dataIndex: "deviceCategoryId",
+      title: "Mẫu thiết bị",
+      dataIndex: "deviceModelId",
       width: 180,
-      render: (categoryId) => (
-        <Tag color="blue">{getCategoryName(categoryId)}</Tag>
+      render: (modelId) => (
+        <Tag color="blue">{getModelName(modelId)}</Tag>
       ),
     },
     {
@@ -299,15 +299,15 @@ export default function AdminCondition() {
           extra={
             <Space>
               <Select
-                value={deviceCategoryFilter}
+                value={deviceModelFilter}
                 allowClear
-                placeholder="Lọc theo danh mục"
+                placeholder="Lọc theo mẫu thiết bị"
                 style={{ width: 200 }}
-                loading={categoryLoading}
-                onChange={(v) => setDeviceCategoryFilter(v)}
-                options={deviceCategories.map((c) => ({
-                  label: c.deviceCategoryName || c.name || `Category #${c.deviceCategoryId || c.id}`,
-                  value: c.deviceCategoryId || c.id,
+                loading={modelLoading}
+                onChange={(v) => setDeviceModelFilter(v)}
+                options={deviceModels.map((m) => ({
+                  label: m.deviceName || m.name || `Model #${m.deviceModelId || m.id}`,
+                  value: m.deviceModelId || m.id,
                 }))}
               />
               <Button icon={<ReloadOutlined />} onClick={loadConditions} loading={loading}>
@@ -347,16 +347,16 @@ export default function AdminCondition() {
               <Input placeholder="Ví dụ: Trầy xước nhẹ" />
             </Form.Item>
             <Form.Item
-              label="Danh mục thiết bị"
-              name="deviceCategoryId"
-              rules={[{ required: true, message: "Chọn danh mục thiết bị" }]}
+              label="Mẫu thiết bị"
+              name="deviceModelId"
+              rules={[{ required: true, message: "Chọn mẫu thiết bị" }]}
             >
               <Select
-                placeholder="Chọn danh mục"
-                loading={categoryLoading}
-                options={deviceCategories.map((c) => ({
-                  label: c.deviceCategoryName || c.name || `Category #${c.deviceCategoryId || c.id}`,
-                  value: c.deviceCategoryId || c.id,
+                placeholder="Chọn mẫu thiết bị"
+                loading={modelLoading}
+                options={deviceModels.map((m) => ({
+                  label: m.deviceName || m.name || `Model #${m.deviceModelId || m.id}`,
+                  value: m.deviceModelId || m.id,
                 }))}
               />
             </Form.Item>
@@ -420,16 +420,16 @@ export default function AdminCondition() {
               <Input />
             </Form.Item>
             <Form.Item
-              label="Danh mục thiết bị"
-              name="deviceCategoryId"
-              rules={[{ required: true, message: "Chọn danh mục thiết bị" }]}
+              label="Mẫu thiết bị"
+              name="deviceModelId"
+              rules={[{ required: true, message: "Chọn mẫu thiết bị" }]}
             >
               <Select
-                placeholder="Chọn danh mục"
-                loading={categoryLoading}
-                options={deviceCategories.map((c) => ({
-                  label: c.deviceCategoryName || c.name || `Category #${c.deviceCategoryId || c.id}`,
-                  value: c.deviceCategoryId || c.id,
+                placeholder="Chọn mẫu thiết bị"
+                loading={modelLoading}
+                options={deviceModels.map((m) => ({
+                  label: m.deviceName || m.name || `Model #${m.deviceModelId || m.id}`,
+                  value: m.deviceModelId || m.id,
                 }))}
               />
             </Form.Item>
@@ -482,8 +482,8 @@ export default function AdminCondition() {
             <Descriptions bordered column={1} size="middle">
               <Descriptions.Item label="ID">{viewingCondition.id}</Descriptions.Item>
               <Descriptions.Item label="Tên">{viewingCondition.name || "—"}</Descriptions.Item>
-              <Descriptions.Item label="Danh mục thiết bị">
-                <Tag color="blue">{getCategoryName(viewingCondition.deviceCategoryId)}</Tag>
+              <Descriptions.Item label="Mẫu thiết bị">
+                <Tag color="blue">{getModelName(viewingCondition.deviceModelId)}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Mô tả tình trạng thiết bị">
                 {viewingCondition.description || "—"}

@@ -52,6 +52,7 @@ export default function AdminShell() {
     if (location.pathname.startsWith("/admin/accounts")) return "accounts";
     if (location.pathname.startsWith("/admin/transactions")) return "transactions";
     if (location.pathname.startsWith("/admin/task-categories")) return "task-categories";
+    if (location.pathname.startsWith("/admin/task-rules")) return "task-rules";
     if (location.pathname.startsWith("/admin/conditions")) return "conditions";
     if (location.pathname.startsWith("/admin/device-terms")) return "device-terms";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
@@ -150,6 +151,11 @@ export default function AdminShell() {
               key: "task-categories",
               icon: <TagsOutlined />,
               label: <Link to="/admin/task-categories">Loại công việc</Link>,
+            },
+            {
+              key: "task-rules",
+              icon: <SettingOutlined />,
+              label: <Link to="/admin/task-rules">Task Rules</Link>,
             },
             {
               key: "conditions",

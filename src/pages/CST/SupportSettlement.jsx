@@ -24,6 +24,7 @@ import {
   Col,
   Form,
   Alert,
+  Upload,
 } from "antd";
 import {
   EyeOutlined,
@@ -31,6 +32,7 @@ import {
   EditOutlined,
   PlusOutlined,
   DollarOutlined,
+  InboxOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
@@ -45,13 +47,14 @@ import {
   createSettlement,
   updateSettlement,
   getSettlementByOrderId,
+  confirmRefundSettlement,
 } from "../../lib/settlementApi";
 import {
   getInvoiceByRentalOrderId,
-  confirmRefundSettlement,
 } from "../../lib/Payment";
 
 const { Title, Text } = Typography;
+const { Dragger } = Upload;
 
 const normalizeCustomerData = (customer) =>
   normalizeCustomer ? normalizeCustomer(customer) : customer;
@@ -144,6 +147,9 @@ export default function SupportSettlement() {
   const [savingSettlement, setSavingSettlement] = useState(false);
   const [invoiceInfo, setInvoiceInfo] = useState(null);
   const [confirmingRefund, setConfirmingRefund] = useState(false);
+  const [confirmRefundModalOpen, setConfirmRefundModalOpen] = useState(false);
+  const [proofFile, setProofFile] = useState(null);
+  const [proofPreview, setProofPreview] = useState("");
   const [customerMap, setCustomerMap] = useState({});
   const customerCacheRef = useRef({});
 
@@ -278,6 +284,15 @@ export default function SupportSettlement() {
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
+
+  // Cleanup blob URL when component unmounts
+  useEffect(() => {
+    return () => {
+      if (proofPreview) {
+        URL.revokeObjectURL(proofPreview);
+      }
+    };
+  }, [proofPreview]);
 
   // View order detail
   const viewOrderDetail = useCallback(
@@ -467,6 +482,18 @@ export default function SupportSettlement() {
     }
   }, [settlement, selectedOrder, settlementForm, viewOrderDetail, loadOrders]);
 
+  // Mở modal xác nhận hoàn cọc
+  const handleOpenConfirmRefundModal = useCallback(() => {
+    if (!settlement) {
+      toast.error("Chưa có quyết toán để xác nhận.");
+      return;
+    }
+    setConfirmRefundModalOpen(true);
+    setProofFile(null);
+    setProofPreview("");
+  }, [settlement]);
+
+  // Xác nhận hoàn cọc với ảnh bằng chứng
   const handleConfirmRefundPayment = useCallback(async () => {
     if (!settlement) {
       toast.error("Chưa có quyết toán để xác nhận.");
@@ -477,13 +504,20 @@ export default function SupportSettlement() {
       toast.error("Không tìm thấy ID của settlement.");
       return;
     }
+    if (!proofFile) {
+      toast.error("Vui lòng chọn ảnh bằng chứng.");
+      return;
+    }
     try {
       setConfirmingRefund(true);
-      await confirmRefundSettlement(settlementId);
+      await confirmRefundSettlement(settlementId, proofFile);
       toast.success(
         "Đã xác nhận giao dịch hoàn cọc cho đơn hàng #" +
           (selectedOrder?.orderId || selectedOrder?.id || "—")
       );
+      setConfirmRefundModalOpen(false);
+      setProofFile(null);
+      setProofPreview("");
       if (selectedOrder?.orderId || selectedOrder?.id) {
         await viewOrderDetail(selectedOrder.orderId || selectedOrder.id);
       } else {
@@ -498,7 +532,7 @@ export default function SupportSettlement() {
     } finally {
       setConfirmingRefund(false);
     }
-  }, [settlement, selectedOrder, viewOrderDetail, loadOrders]);
+  }, [settlement, selectedOrder, viewOrderDetail, loadOrders, proofFile]);
 
   // Table columns
   const columns = useMemo(
@@ -780,8 +814,7 @@ export default function SupportSettlement() {
                     <Button
                       type="primary"
                       icon={<DollarOutlined />}
-                      loading={confirmingRefund}
-                      onClick={handleConfirmRefundPayment}
+                      onClick={handleOpenConfirmRefundModal}
                     >
                       Xác nhận đã giao dịch hoàn cọc
                     </Button>
@@ -935,8 +968,97 @@ export default function SupportSettlement() {
           <Form.Item name="finalReturnAmount" hidden>
             <InputNumber />
           </Form.Item>
-        </Form>
+          </Form>
+        </Modal>
+
+      {/* Confirm Refund Modal with Proof Upload */}
+      <Modal
+        title="Xác nhận giao dịch hoàn cọc"
+        open={confirmRefundModalOpen}
+        onOk={handleConfirmRefundPayment}
+        onCancel={() => {
+          setConfirmRefundModalOpen(false);
+          setProofFile(null);
+          setProofPreview("");
+        }}
+        confirmLoading={confirmingRefund}
+        okText="Xác nhận"
+        cancelText="Hủy"
+        width={600}
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="large">
+          <Alert
+            type="info"
+            showIcon
+            message="Vui lòng upload ảnh bằng chứng giao dịch hoàn cọc"
+            description="Ảnh bằng chứng sẽ được lưu để xác minh giao dịch."
+          />
+          
+          <div>
+            <Text strong style={{ display: "block", marginBottom: 8 }}>
+              Ảnh bằng chứng <Text type="danger">*</Text>
+            </Text>
+            <Upload.Dragger
+              multiple={false}
+              accept=".jpg,.jpeg,.png,.webp"
+              beforeUpload={(file) => {
+                setProofFile(file);
+                const url = URL.createObjectURL(file);
+                setProofPreview(url);
+                return false; // Prevent auto upload
+              }}
+              onRemove={() => {
+                setProofFile(null);
+                if (proofPreview) {
+                  URL.revokeObjectURL(proofPreview);
+                }
+                setProofPreview("");
+              }}
+              fileList={proofFile ? [{
+                uid: '-1',
+                name: proofFile.name,
+                status: 'done',
+              }] : []}
+            >
+              {proofPreview ? (
+                <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <img
+                    src={proofPreview}
+                    alt="proof"
+                    style={{ maxHeight: 180, maxWidth: "100%", borderRadius: 8 }}
+                  />
+                </div>
+              ) : (
+                <>
+                  <p className="ant-upload-drag-icon">
+                    <InboxOutlined />
+                  </p>
+                  <p className="ant-upload-text">Thả hoặc bấm để chọn ảnh bằng chứng</p>
+                  <p className="ant-upload-hint" style={{ color: "#888", fontSize: 12 }}>
+                    Hỗ trợ: JPG, PNG, WEBP
+                  </p>
+                </>
+              )}
+            </Upload.Dragger>
+            {proofPreview && (
+              <div style={{ marginTop: 8 }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setProofFile(null);
+                    if (proofPreview) {
+                      URL.revokeObjectURL(proofPreview);
+                    }
+                    setProofPreview("");
+                  }}
+                >
+                  Chọn lại ảnh
+                </Button>
+              </div>
+            )}
+          </div>
+        </Space>
       </Modal>
-    </>
-  );
-}
+      </>
+    );
+  }

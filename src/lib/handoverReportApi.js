@@ -119,7 +119,6 @@ export async function createHandoverReportCheckout(body) {
  * @param {number} body.discrepancies[].orderDetailId - ID của order detail
  * @param {number} body.discrepancies[].deviceId - ID của device
  * @param {string} body.discrepancies[].staffNote - Ghi chú của nhân viên
- * @param {string} body.discrepancies[].customerNote - Ghi chú của khách hàng
  * @returns {Promise<Object>} Response từ API
  */
 export async function createHandoverReportCheckin(body) {
@@ -141,7 +140,6 @@ export async function createHandoverReportCheckin(body) {
           orderDetailId: Number(d.orderDetailId || 0),
           deviceId: Number(d.deviceId || 0),
           staffNote: String(d.staffNote || ""),
-          customerNote: String(d.customerNote || ""),
         }))
       : [],
   };
@@ -176,7 +174,6 @@ export async function updateHandoverReportCheckin(handoverReportId, body) {
           orderDetailId: Number(d.orderDetailId || 0),
           deviceId: Number(d.deviceId || 0),
           staffNote: String(d.staffNote || ""),
-          customerNote: String(d.customerNote || ""),
         }))
       : [],
   };

@@ -28,6 +28,7 @@ import AdminProducts from "./pages/admin/AdminProducts.jsx";
 import AdminMaintenancePlanner from "./pages/admin/AdminMaintenancePlanner.jsx";
 import AdminAccounts from "./pages/admin/AdminAccounts.jsx";
 import AdminTaskCategory from "./pages/admin/AdminTaskCategory.jsx";
+import AdminTaskRule from "./pages/admin/AdminTaskRule.jsx";
 import AdminTransactions from "./pages/admin/AdminTransactions.jsx";
 import AdminContract from "./pages/admin/AdminContract.jsx";
 import AdminCondition from "./pages/admin/AdminCondition.jsx";
@@ -122,6 +123,7 @@ export default function App() {
           <Route path="accounts" element={<AdminAccounts />} />
           <Route path="transactions" element={<AdminTransactions />} />
           <Route path="task-categories" element={<AdminTaskCategory />} />
+          <Route path="task-rules" element={<AdminTaskRule />} />
           <Route path="conditions" element={<AdminCondition />} />
           <Route path="device-terms" element={<AdminTerm />} />
         </Route>

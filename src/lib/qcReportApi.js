@@ -72,8 +72,7 @@ export async function createPreRentalQcReport(body) {
  *       conditionDefinitionId: number,
  *       orderDetailId: number,
  *       deviceId: number,
- *       staffNote: string,
- *       customerNote: string
+ *       staffNote: string
  *     }
  *   ],
  *   accessoryFile: File (optional)
@@ -95,7 +94,6 @@ export async function createPostRentalQcReport(body) {
           orderDetailId: Number(d.orderDetailId || 0),
           deviceId: Number(d.deviceId || 0),
           staffNote: String(d.staffNote || ""),
-          customerNote: String(d.customerNote || ""),
         }))
       : [],
   };
@@ -214,8 +212,7 @@ export async function updatePreRentalQcReport(qcReportId, body) {
  *       conditionDefinitionId: number,
  *       orderDetailId: number,
  *       deviceId: number,
- *       staffNote: string,
- *       customerNote: string
+ *       staffNote: string
  *     }
  *   ],
  *   accessoryFile: File (optional)
@@ -236,7 +233,6 @@ export async function updatePostRentalQcReport(qcReportId, body) {
           orderDetailId: Number(d.orderDetailId || 0),
           deviceId: Number(d.deviceId || 0),
           staffNote: String(d.staffNote || ""),
-          customerNote: String(d.customerNote || ""),
         }))
       : [],
   };
@@ -317,8 +313,7 @@ export async function createQcReport(body) {
  *       conditionDefinitionId: number,
  *       orderDetailId: number,
  *       deviceId: number,
- *       staffNote: string,
- *       customerNote: string
+ *       staffNote: string
  *     }
  *   ],
  *   accessoryFile: File (optional)
@@ -352,7 +347,6 @@ export async function updateQcReport(qcReportId, body) {
       orderDetailId: Number(d.orderDetailId || 0),
       deviceId: Number(d.deviceId || 0),
       staffNote: String(d.staffNote || ""),
-      customerNote: String(d.customerNote || ""),
     }));
   }
   

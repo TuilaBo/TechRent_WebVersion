@@ -134,8 +134,6 @@ export default function TechnicianQcDetail() {
   const [deviceConditions, setDeviceConditions] = useState([]);
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
-  // Map: deviceModelId -> deviceCategoryId
-  const [deviceCategoryMap, setDeviceCategoryMap] = useState({});
   
   // Fetch task and order details
   useEffect(() => {
@@ -588,55 +586,28 @@ export default function TechnicianQcDetail() {
 
       try {
         setLoadingConditions(true);
-        // Get all unique deviceCategoryIds from selected devices
-        const categoryIds = new Set();
+        // Get all unique deviceModelIds from selected devices
+        const modelIds = new Set();
         
-        // Get deviceCategoryId from each orderDetail's deviceModelId
+        // Collect deviceModelIds from orderDetails that have selected devices
         for (const orderDetail of orderDetails) {
           const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
           const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
           
           if (serials.length > 0 && orderDetail.deviceModelId) {
-            try {
-              const model = await getDeviceModelById(orderDetail.deviceModelId);
-              const categoryId = model?.deviceCategoryId || model?.categoryId;
-              if (categoryId) {
-                categoryIds.add(categoryId);
-              }
-            } catch (e) {
-              console.warn(`Failed to load model ${orderDetail.deviceModelId}:`, e);
-            }
+            modelIds.add(Number(orderDetail.deviceModelId));
           }
         }
 
-        // Build deviceCategoryMap: deviceModelId -> deviceCategoryId
-        const categoryMap = {};
-        for (const orderDetail of orderDetails) {
-          const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
-          const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
-          
-          if (serials.length > 0 && orderDetail.deviceModelId) {
-            try {
-              const model = await getDeviceModelById(orderDetail.deviceModelId);
-              const categoryId = model?.deviceCategoryId || model?.categoryId;
-              if (categoryId) {
-                categoryMap[orderDetail.deviceModelId] = categoryId;
-              }
-            } catch (e) {
-              console.warn(`Failed to load model ${orderDetail.deviceModelId}:`, e);
-            }
-          }
-        }
-        setDeviceCategoryMap(categoryMap);
 
-        // Load condition definitions for all categories
+        // Load condition definitions for all device models
         const allConditions = [];
-        for (const categoryId of categoryIds) {
+        for (const modelId of modelIds) {
           try {
-            const conditions = await getConditionDefinitions({ deviceCategoryId: categoryId });
+            const conditions = await getConditionDefinitions({ deviceModelId: modelId });
             allConditions.push(...conditions);
           } catch (e) {
-            console.warn(`Failed to load conditions for category ${categoryId}:`, e);
+            console.warn(`Failed to load conditions for model ${modelId}:`, e);
           }
         }
 
@@ -645,6 +616,7 @@ export default function TechnicianQcDetail() {
           new Map(allConditions.map(c => [c.id, c])).values()
         );
         
+        console.log("Loaded condition definitions:", uniqueConditions);
         setConditionDefinitions(uniqueConditions);
       } catch (e) {
         console.error("Error loading condition definitions:", e);
@@ -656,6 +628,85 @@ export default function TechnicianQcDetail() {
 
     loadConditionDefinitions();
   }, [orderDetails, selectedDevicesByOrderDetail]);
+
+  // Auto-fill device conditions when condition definitions are loaded and devices are selected
+  useEffect(() => {
+    // Only auto-fill if:
+    // 1. Not loading conditions
+    // 2. Have condition definitions
+    // 3. Have selected devices
+    // 4. No existing QC report OR deviceConditions is empty (to avoid overwriting existing data)
+    if (loadingConditions || conditionDefinitions.length === 0) {
+      return;
+    }
+
+    if (!selectedDevicesByOrderDetail || Object.keys(selectedDevicesByOrderDetail).length === 0) {
+      return;
+    }
+
+    // Don't auto-fill if there's existing QC report with deviceConditions (to preserve user data)
+    if (existingQcReport && deviceConditions.length > 0) {
+      return;
+    }
+
+    // Build map: deviceModelId -> condition definitions
+    const conditionsByModel = {};
+    conditionDefinitions.forEach(cond => {
+      const modelId = cond.deviceModelId;
+      if (modelId) {
+        const modelIdNum = Number(modelId);
+        if (!conditionsByModel[modelIdNum]) {
+          conditionsByModel[modelIdNum] = [];
+        }
+        conditionsByModel[modelIdNum].push(cond);
+      }
+    });
+
+    // Build device conditions for each selected device
+    const newDeviceConditions = [];
+    orderDetails.forEach(orderDetail => {
+      const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
+      const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
+      const deviceModelId = Number(orderDetail.deviceModelId);
+
+      if (serials.length > 0 && deviceModelId && conditionsByModel[deviceModelId]) {
+        // For each serial number, add all condition definitions for this model
+        serials.forEach(serial => {
+          conditionsByModel[deviceModelId].forEach(cond => {
+            // Check if this condition already exists for this device
+            const exists = deviceConditions.some(
+              dc => dc.deviceId === String(serial) && dc.conditionDefinitionId === cond.id
+            );
+            
+            if (!exists) {
+              newDeviceConditions.push({
+                deviceId: String(serial),
+                conditionDefinitionId: cond.id,
+                severity: "NONE", // Default severity
+                images: [],
+              });
+            }
+          });
+        });
+      }
+    });
+
+    // Only update if we have new conditions to add
+    if (newDeviceConditions.length > 0) {
+      console.log("Auto-filling device conditions:", newDeviceConditions);
+      setDeviceConditions(prev => {
+        // Check if any of the new conditions already exist to avoid duplicates
+        const existingKeys = new Set(
+          prev.map(dc => `${dc.deviceId}_${dc.conditionDefinitionId}`)
+        );
+        const toAdd = newDeviceConditions.filter(
+          nc => !existingKeys.has(`${nc.deviceId}_${nc.conditionDefinitionId}`)
+        );
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conditionDefinitions, selectedDevicesByOrderDetail, orderDetails, loadingConditions, existingQcReport]);
 
   // Helper: Get available devices list for condition selection
   const availableDevicesForConditions = useMemo(() => {
@@ -1454,14 +1505,14 @@ export default function TechnicianQcDetail() {
                     d => d.serial === condition.deviceId || d.serial === String(condition.deviceId)
                   );
                   
-                  // Get deviceCategoryId from map
-                  const deviceCategoryId = deviceInfo?.deviceModelId 
-                    ? deviceCategoryMap[deviceInfo.deviceModelId] 
+                  // Get deviceModelId from deviceInfo
+                  const deviceModelId = deviceInfo?.deviceModelId 
+                    ? Number(deviceInfo.deviceModelId) 
                     : null;
                   
-                  // Filter conditions by deviceCategoryId
-                  const filteredConditions = deviceCategoryId
-                    ? conditionDefinitions.filter(c => c.deviceCategoryId === deviceCategoryId)
+                  // Filter conditions by deviceModelId
+                  const filteredConditions = deviceModelId
+                    ? conditionDefinitions.filter(c => Number(c.deviceModelId) === deviceModelId)
                     : conditionDefinitions;
 
                   return (

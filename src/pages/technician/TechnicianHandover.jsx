@@ -1146,7 +1146,6 @@ export default function TechnicianHandover() {
   const [deviceConditions, setDeviceConditions] = useState([]);
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
-  const [deviceCategoryMap, setDeviceCategoryMap] = useState({}); // deviceModelId -> deviceCategoryId
   const [devicesMap, setDevicesMap] = useState({}); // serialNumber -> deviceId
   const isUpdateMode = Boolean(handoverReportId);
   const orderRef = useRef(null);
@@ -1574,7 +1573,7 @@ export default function TechnicianHandover() {
     loadData();
   }, [actualTaskId, nav, user, hydrateReportToForm, initialHandoverReport]);
 
-  // Load condition definitions and device category map when items are ready
+  // Load condition definitions when order details are ready
   useEffect(() => {
     const loadConditionDefinitions = async () => {
       if (!order || !Array.isArray(order.orderDetails) || order.orderDetails.length === 0) {
@@ -1585,34 +1584,22 @@ export default function TechnicianHandover() {
       try {
         setLoadingConditions(true);
         
-        // Build deviceCategoryMap: deviceModelId -> deviceCategoryId
-        const categoryMap = {};
-        const categoryIds = new Set();
-        
+        // Get all unique deviceModelIds from orderDetails
+        const modelIds = new Set();
         for (const orderDetail of order.orderDetails) {
           if (orderDetail.deviceModelId) {
-            try {
-              const model = await getDeviceModelById(orderDetail.deviceModelId);
-              const categoryId = model?.deviceCategoryId || model?.categoryId;
-              if (categoryId) {
-                categoryMap[orderDetail.deviceModelId] = categoryId;
-                categoryIds.add(categoryId);
-              }
-            } catch (e) {
-              console.warn(`Failed to load model ${orderDetail.deviceModelId}:`, e);
-            }
+            modelIds.add(Number(orderDetail.deviceModelId));
           }
         }
-        setDeviceCategoryMap(categoryMap);
 
-        // Load condition definitions for all categories
+        // Load condition definitions for all device models
         const allConditions = [];
-        for (const categoryId of categoryIds) {
+        for (const modelId of modelIds) {
           try {
-            const conditions = await getConditionDefinitions({ deviceCategoryId: categoryId });
+            const conditions = await getConditionDefinitions({ deviceModelId: modelId });
             allConditions.push(...conditions);
           } catch (e) {
-            console.warn(`Failed to load conditions for category ${categoryId}:`, e);
+            console.warn(`Failed to load conditions for model ${modelId}:`, e);
           }
         }
 
@@ -1621,6 +1608,7 @@ export default function TechnicianHandover() {
           new Map(allConditions.map(c => [c.id, c])).values()
         );
         
+        console.log("Loaded condition definitions:", uniqueConditions);
         setConditionDefinitions(uniqueConditions);
       } catch (e) {
         console.error("Error loading condition definitions:", e);
@@ -2491,18 +2479,15 @@ export default function TechnicianHandover() {
                   for (const od of order.orderDetails) {
                     const codes = (items.find(i => i.itemCode?.includes(selectedSerial))?.itemCode || "").split(",").map(s => s.trim()).filter(Boolean);
                     if (codes.includes(selectedSerial)) {
-                      deviceModelId = od.deviceModelId;
+                      deviceModelId = Number(od.deviceModelId);
                       break;
                     }
                   }
                 }
                 
-                // Get deviceCategoryId from map
-                const deviceCategoryId = deviceModelId ? deviceCategoryMap[deviceModelId] : null;
-                
-                // Filter conditions by deviceCategoryId
-                const filteredConditions = deviceCategoryId
-                  ? conditionDefinitions.filter(c => c.deviceCategoryId === deviceCategoryId)
+                // Filter conditions by deviceModelId
+                const filteredConditions = deviceModelId
+                  ? conditionDefinitions.filter(c => Number(c.deviceModelId) === deviceModelId)
                   : conditionDefinitions;
 
                 return (

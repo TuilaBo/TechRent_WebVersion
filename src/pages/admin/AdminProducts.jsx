@@ -72,6 +72,8 @@ const statusTag = (s) => {
       return <Tag color="orange">Bảo trì</Tag>;
     case "BROKEN":
       return <Tag color="red">Hỏng</Tag>;
+    case "DAMAGED":
+      return <Tag color="red">Hư hỏng</Tag>;
     default:
       return <Tag>{s}</Tag>;
   }
@@ -788,6 +790,7 @@ export default function AdminProducts() {
               { label: 'Đang thuê', value: 'RENTED' },
               { label: 'Bảo trì', value: 'MAINTENANCE' },
               { label: 'Hỏng', value: 'BROKEN' },
+              { label: 'Hư hỏng', value: 'DAMAGED' },
             ]}
           />
           <Select
@@ -845,6 +848,7 @@ export default function AdminProducts() {
                   { label: "Đang thuê", value: "RENTED" },
                   { label: "Bảo trì", value: "MAINTENANCE" },
                   { label: "Hỏng", value: "BROKEN" },
+                  { label: "Hư hỏng", value: "DAMAGED" },
                 ]}
               />
             </Form.Item>
