@@ -247,7 +247,7 @@ export default function AdminTaskRule() {
       <Card>
         <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Title level={3} style={{ margin: 0 }}>
-            Quản lý Task Rules
+            Quản lý Quy tắc Công việc 
           </Title>
           <Space>
             <Button
@@ -319,7 +319,7 @@ export default function AdminTaskRule() {
           </Form.Item>
 
           <Form.Item
-            label="Số task tối đa mỗi ngày"
+            label="Số công việc tối đa mỗi ngày"
             name="maxTasksPerDay"
             rules={[
               { required: true, message: "Vui lòng nhập số task tối đa" },

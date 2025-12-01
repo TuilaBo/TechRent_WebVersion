@@ -861,6 +861,12 @@ export default function TechnicianQcDetail() {
       return;
     }
 
+    if (!accessorySnapshotFile && !accessorySnapshotPreview) {
+      console.error("Validation failed: missing accessory snapshot");
+      message.error("Vui lòng tải lên ít nhất một ảnh bằng chứng phụ kiện");
+      return;
+    }
+
     try {
       if (postRentalDiscrepancyCount > 0) {
         message.warning("QC sau thuê đã ghi nhận sự cố. Việc cập nhật QC trước thuê có thể gặp lỗi, vui lòng phối hợp điều phối viên nếu cần.");

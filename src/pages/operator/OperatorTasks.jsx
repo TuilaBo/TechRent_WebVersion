@@ -27,6 +27,47 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 const { Search } = Input;
 
+const getErrorMessage = (error, fallback = "Có lỗi xảy ra") => {
+  const data = error?.response?.data;
+  return data?.details || data?.message || error?.message || fallback;
+};
+
+const range = (start, end) =>
+  Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i);
+
+const buildDisabledTime = (selectedDate, minDateTime, options = {}) => {
+  const { blockSameMinute = false, blockSameSecond = false } = options;
+  if (!selectedDate || !minDateTime) return {};
+  const min = dayjs(minDateTime);
+  if (selectedDate.isBefore(min, "day")) {
+    return {
+      disabledHours: () => range(0, 24),
+      disabledMinutes: () => range(0, 60),
+      disabledSeconds: () => range(0, 60),
+    };
+  }
+  if (selectedDate.isAfter(min, "day")) {
+    return {};
+  }
+  const disabledHours = range(0, min.hour());
+  const minuteCutoff = blockSameMinute ? min.minute() + 1 : min.minute();
+  const disabledMinutes =
+    selectedDate.hour() === min.hour()
+      ? range(0, Math.min(60, minuteCutoff))
+      : [];
+  const secondCutoff = blockSameSecond ? min.second() + 1 : min.second();
+  const disabledSeconds =
+    selectedDate.hour() === min.hour() && selectedDate.minute() === min.minute()
+      ? range(0, Math.min(60, secondCutoff))
+      : [];
+
+  return {
+    disabledHours: () => disabledHours,
+    disabledMinutes: () => disabledMinutes,
+    disabledSeconds: () => disabledSeconds,
+  };
+};
+
 export default function OperatorTasks() {
   const [data, setData] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -52,6 +93,22 @@ export default function OperatorTasks() {
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
   const assignedStaffIdsKey = JSON.stringify(assignedStaffIdsValue);
+  const plannedStartValue = Form.useWatch("plannedStart", form);
+  const disableStartDate = (current) =>
+    current && current < dayjs().startOf("day");
+  const disableStartTime = (date) => buildDisabledTime(date, dayjs());
+  const disableEndDate = (current) => {
+    const min = plannedStartValue
+      ? dayjs(plannedStartValue).startOf("day")
+      : dayjs().startOf("day");
+    return current && current < min;
+  };
+  const disableEndTime = (date) =>
+    buildDisabledTime(
+      date,
+      plannedStartValue ? dayjs(plannedStartValue) : dayjs(),
+      { blockSameMinute: true, blockSameSecond: true }
+    );
 
   // Load data từ API
   const loadData = async () => {
@@ -94,7 +151,7 @@ export default function OperatorTasks() {
         setOrderMap({});
       }
     } catch (e) {
-      toast.error(e?.response?.data?.message || e?.message || "Không thể tải dữ liệu");
+      toast.error(getErrorMessage(e, "Không thể tải dữ liệu"));
     } finally {
       setLoading(false);
     }
@@ -125,7 +182,7 @@ export default function OperatorTasks() {
       setLeaderboardData(sorted);
     } catch (e) {
       console.error("Error loading leaderboard:", e);
-      toast.error(e?.response?.data?.message || e?.message || "Không thể tải dữ liệu leaderboard");
+      toast.error(getErrorMessage(e, "Không thể tải dữ liệu leaderboard"));
       setLeaderboardData([]);
     } finally {
       setLeaderboardLoading(false);
@@ -196,7 +253,7 @@ export default function OperatorTasks() {
       await loadData();
     } catch (e) {
       setData(prev);
-      toast.error(e?.response?.data?.message || e?.message || "Xoá thất bại");
+      toast.error(getErrorMessage(e, "Xoá thất bại"));
     }
   };
 
@@ -239,7 +296,7 @@ export default function OperatorTasks() {
       form.resetFields();
       await loadData();
     } catch (e) {
-      toast.error(e?.response?.data?.message || e?.message || "Lưu thất bại");
+      toast.error(getErrorMessage(e, "Lưu thất bại"));
     }
   };
 
@@ -939,11 +996,15 @@ export default function OperatorTasks() {
               showTime
               style={{ width: "100%" }}
               format="DD/MM/YYYY HH:mm"
+              disabledDate={disableStartDate}
+              disabledTime={disableStartTime}
               onChange={(value) => {
                 const endTime = form.getFieldValue("plannedEnd");
-                if (value && !endTime) {
-                  const newEndTime = dayjs(value).add(1, "minute");
-                  form.setFieldValue("plannedEnd", newEndTime);
+                if (value) {
+                  const minEnd = dayjs(value).add(1, "minute");
+                  if (!endTime || !dayjs(endTime).isAfter(value)) {
+                    form.setFieldValue("plannedEnd", minEnd);
+                  }
                 }
               }}
             />
@@ -958,6 +1019,8 @@ export default function OperatorTasks() {
               showTime
               style={{ width: "100%" }}
               format="DD/MM/YYYY HH:mm"
+              disabledDate={disableEndDate}
+              disabledTime={disableEndTime}
             />
           </Form.Item>
         </Form>

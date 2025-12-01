@@ -6,8 +6,13 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import {
-  SearchOutlined, FilterOutlined, EyeOutlined,
-  ReloadOutlined, FilePdfOutlined, DownloadOutlined, ExpandOutlined, DollarOutlined, PrinterOutlined
+  EyeOutlined,
+  ReloadOutlined,
+  FilePdfOutlined,
+  DownloadOutlined,
+  ExpandOutlined,
+  DollarOutlined,
+  PrinterOutlined,
 } from "@ant-design/icons";
 import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder, extendRentalOrder } from "../../lib/rentalOrdersApi";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
@@ -24,1394 +29,55 @@ import {
   updateCustomerHandoverReportSignature
 } from "../../lib/handoverReportApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
-import jsPDF from "jspdf";
+import {
+  sanitizeContractHtml,
+  augmentContractContent,
+  GLOBAL_PRINT_CSS,
+  NATIONAL_HEADER_HTML,
+} from "../../lib/contractPrintUtils";
+import {
+  buildPrintableHandoverReportHtml,
+  elementToPdfBlobHandover,
+  translateHandoverStatus,
+} from "../../lib/handoverReportPrintUtils";
 import html2canvas from "html2canvas";
-import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
+import jsPDF from "jspdf";
+import {
+  formatVND,
+  formatDateTime,
+  diffDays,
+  createPrintSandbox,
+  cleanupPrintSandbox,
+} from "../../lib/orderUtils";
+import {
+  ORDER_STATUS_MAP,
+  ORDER_STATUS_ALIASES,
+  PAYMENT_STATUS_MAP,
+  SETTLEMENT_STATUS_MAP,
+  CONTRACT_STATUS_MAP,
+  CONTRACT_TYPE_LABELS,
+  mapInvoiceStatusToPaymentStatus,
+  splitSettlementAmounts,
+} from "../../lib/orderConstants";
+import MyOrdersList from "./MyOrdersList.jsx";
+import MyOrderContractTab from "./MyOrderContractTab.jsx";
+import MyOrderHandoverTab from "./MyOrderHandoverTab.jsx";
+import MyOrderCheckinTab from "./MyOrderCheckinTab.jsx";
+import MyOrderReturnTab from "./MyOrderReturnTab.jsx";
+import MyOrderSettlementTab from "./MyOrderSettlementTab.jsx";
 import { useLocation } from "react-router-dom";
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
+
+
+// All constants, utils, and helpers have been moved to separate files:
+// - Constants: orderConstants.js
+// - Utils: orderUtils.js
+// - Handover PDF: handoverReportPrintUtils.js
+// - Contract PDF: contractPdfUtils.js
 
 /* =========================
- * 0) CONSTS
- * ========================= */
-const ORDER_STATUS_MAP = {
-  pending:   { label: "Chờ xác nhận", color: "default" },
-  pending_kyc: { label: "Chờ xác thực thông tin", color: "orange" },
-  confirmed: { label: "Đã xác nhận",  color: "blue"    },
-  delivering:{ label: "Đang giao",    color: "cyan"    },
-  active:    { label: "Đang thuê",    color: "gold"    },
-  in_use:    { label: "Đang sử dụng", color: "geekblue" },
-  returned:  { label: "Đã trả",       color: "green"   },
-  cancelled: { label: "Đã hủy",       color: "red"     },
-  processing:{ label: "Đang xử lý",   color: "purple"  },
-  delivery_confirmed: { label: "Chuẩn bị giao hàng", color: "green" },
-  completed: { label: "Hoàn tất đơn hàng", color: "green" },
-};
-
-const ORDER_STATUS_ALIASES = {
-  "đã xác nhận giao hàng": "delivery_confirmed",
-  "da xac nhan giao hang": "delivery_confirmed",
-};
-const PAYMENT_STATUS_MAP = {
-  unpaid:   { label: "Chưa thanh toán",      color: "volcano"  },
-  paid:     { label: "Đã thanh toán",        color: "green"    },
-  refunded: { label: "Đã hoàn tiền",         color: "geekblue" },
-  partial:  { label: "Chưa thanh toán thành công",  color: "purple"   },
-};
-const SETTLEMENT_STATUS_MAP = {
-  draft: { label: "Nháp", color: "default" },
-  pending: { label: "Chờ xử lý", color: "gold" },
-  awaiting_customer: { label: "Chờ khách xác nhận", color: "orange" },
-  submitted: { label: "Đã gửi", color: "blue" },
-  issued: { label: "Đã chấp nhận", color: "green" },
-  closed: { label: "Đã tất toán", color: "geekblue" },
-  rejected: { label: "Đã từ chối", color: "red" },
-};
-
-// Map invoice status to payment status
-const mapInvoiceStatusToPaymentStatus = (invoiceStatus) => {
-  if (!invoiceStatus) return "unpaid";
-  const status = String(invoiceStatus).toUpperCase();
-  if (status === "SUCCEEDED" || status === "PAID" || status === "COMPLETED") {
-    return "paid";
-  }
-  if (status === "FAILED" || status === "CANCELLED" || status === "EXPIRED") {
-    return "unpaid";
-  }
-  if (status === "PENDING" || status === "PROCESSING") {
-    return "partial";
-  }
-  if (status === "REFUNDED") {
-    return "refunded";
-  }
-  return "unpaid";
-};
-const CONTRACT_STATUS_MAP = {
-  draft: { label: "Nháp", color: "default" },
-  pending_signature: { label: "Chờ khách hàng ký", color: "gold" },
-  pending_admin_signature: { label: "Chờ ký (admin)", color: "orange" },
-  signed: { label: "Đã ký", color: "green" },
-  active: { label: "2 bên đã ký", color: "green" },
-  expired: { label: "Hết hạn", color: "red" },
-  cancelled: { label: "Đã hủy", color: "red" },
-};
-const CONTRACT_TYPE_LABELS = { RENTAL: "Hợp đồng thuê thiết bị" };
-
-const splitSettlementAmounts = (finalAmount = 0) => {
-  const amount = Number(finalAmount || 0);
-  return {
-    refundAmount: amount > 0 ? amount : 0,
-    customerDueAmount: amount < 0 ? Math.abs(amount) : 0,
-    netAmount: amount,
-  };
-};
-
-/* =========================
- * 1) UTILS
- * ========================= */
-function formatVND(n = 0) {
-  try {
-    const num = Number(n);
-    if (Number.isNaN(num)) return "0 VNĐ";
-    const rounded = Math.round(num);
-    const formatted = rounded.toLocaleString("vi-VN", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    });
-    return `${formatted} VNĐ`;
-  } catch {
-    return `${n} VNĐ`;
-  }
-}
-function formatDateTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-/* ---------- helpers định dạng tiền & layout cho contentHtml ---------- */
-
-// Chuẩn hoá khoảng trắng HTML (&nbsp;) và dấu ":" lộn xộn
-function normalizeHtmlSpaces(html = "") {
-  if (!html) return html;
-  let out = html.replace(/&nbsp;/gi, " ");
-  out = out.replace(/\s*:\s*/g, ": ");
-  return out;
-}
-
-// chuyển "1,234.56" / "1.234,56" / "1.000" / "1000.00" -> số
-function parseAnyNumber(str = "") {
-  if (!str) return 0;
-  const s = String(str).trim();
-  if (!s) return 0;
-
-  if (s.includes(".") && s.includes(",")) {
-    const v = Number(s.replace(/\./g, "").replace(",", "."));
-    return Number.isFinite(v) ? v : 0;
-  }
-  if (!s.includes(".") && s.includes(",")) {
-    const v = Number(s.replace(",", "."));
-    return Number.isFinite(v) ? v : 0;
-  }
-  if (s.includes(".") && !s.includes(",")) {
-    const parts = s.split(".");
-    if (parts.length > 2) {
-      const v = Number(s.replace(/\./g, ""));
-      return Number.isFinite(v) ? v : 0;
-    } else {
-      const afterDot = parts[1] || "";
-      if (afterDot.length <= 2) {
-        const v = Number(s);
-        return Number.isFinite(v) ? v : 0;
-      }
-      const v = Number(s.replace(/\./g, ""));
-      return Number.isFinite(v) ? v : 0;
-    }
-  }
-  const v = Number(s.replace(/,/g, ""));
-  return Number.isFinite(v) ? v : 0;
-}
-
-function formatMoneyInHtml(html = "") {
-  if (!html) return html;
-  html = normalizeHtmlSpaces(html);
-
-  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`; // cho phép chèn tag/space giữa từ
-
-  const patterns = [
-    new RegExp(`(Tổng${SEP}tiền${SEP}thuê)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Tổng${SEP}tiền${SEP}cọc)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Tiền${SEP}cọc)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Giá${SEP}\\/?${SEP}ngày)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Tổng${SEP}tiền|Tổng${SEP}cộng)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Giá)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-  ];
-
-  for (const re of patterns) {
-    html = html.replace(re, (_, label, num) => {
-      const n = Math.round(parseAnyNumber(num));
-      return `${label}: ${n.toLocaleString("vi-VN")} VNĐ`;
-    });
-  }
-
-  // Các số lẻ có kèm đơn vị (không theo nhãn) — cũng cho phép chen thẻ
-  const unitPattern = new RegExp(`(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)\\b`, "gi");
-  html = html.replace(unitPattern, (_, num) => {
-    const n = Math.round(parseAnyNumber(num));
-    return `${n.toLocaleString("vi-VN")} VNĐ`;
-  });
-
-  return html;
-}
-
-// Format layout thiết bị + tổng tiền, và CHÈN "Tổng thanh toán"
-function formatEquipmentLayout(html = "") {
-  if (!html || typeof html !== "string") return html;
-
-  // 1) Mỗi thiết bị 1 dòng có bullet
-  html = html.replace(
-    /(?:^|\n|•\s*)?(\d+x\s+[^-]+?)\s*-\s*Giá\/ngày:([^-]+?)\s*-\s*Tiền cọc:([^•\n<]+?)(?=\s*\d+x|$|\n|Tổng)/gim,
-    '<div class="equipment-item">$1 - Giá/ngày:$2 - Tiền cọc:$3</div>'
-  );
-
-  // 2) Gom "Tổng tiền thuê" & "Tiền cọc" về cùng một dòng (nhiều cặp -> giữ NGUYÊN hết)
-  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
-  // a) Đang ở 2 dòng
-  html = html.replace(
-    new RegExp(`(Tổng${SEP}tiền${SEP}thuê:[^<\\n]+?)(?:\\s*<br\\s*\\/?>|\\n|\\s+)(Tiền${SEP}cọc:[^<\\n]+?)(?=\\s*<|$|\\n)`, "gi"),
-    '<div class="total-summary"><div class="total-rental">$1</div><div>$2</div></div>'
-  );
-  // b) Cùng dòng nhưng cách bởi space
-  html = html.replace(
-    new RegExp(`(Tổng${SEP}tiền${SEP}thuê:[^<\\n]+?)\\s+(Tiền${SEP}cọc:[^<\\n]+?)(?=\\s*<|$|\\n)`, "gi"),
-    '<div class="total-summary"><div class="total-rental">$1</div><div>$2</div></div>'
-  );
-
-  // 3) Tính & chèn "Tổng thanh toán" dựa trên CẶP CUỐI CÙNG
-  try {
-    // Lấy hết các số của "Tổng tiền thuê" & "Tiền cọc"
-    const rentReG = new RegExp(`Tổng${SEP}tiền${SEP}thuê${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(?:VNĐ|VND)`, "gi");
-    const depReG  = new RegExp(`Tiền${SEP}cọc${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(?:VNĐ|VND)`, "gi");
-
-    const rentMatches = [...html.matchAll(rentReG)];
-    const depMatches  = [...html.matchAll(depReG)];
-
-    if (rentMatches.length && depMatches.length) {
-      const lastRent = rentMatches[rentMatches.length - 1];
-      const lastDep  = depMatches[depMatches.length - 1];
-      const rent = Math.round(parseAnyNumber(lastRent[1]));
-      const dep  = Math.round(parseAnyNumber(lastDep[1]));
-      const grand = rent + dep;
-      const grandHtml = `<div class="grand-total">Tổng thanh toán: ${grand.toLocaleString("vi-VN")} VNĐ</div>`;
-
-      // Nếu đã có nhiều .total-summary ⇒ chèn SAU .total-summary CUỐI CÙNG
-      const lastSummaryRe = /<div class="total-summary">([\s\S]*?)<\/div>(?![\s\S]*<div class="total-summary">)/i;
-      if (lastSummaryRe.test(html)) {
-        html = html.replace(lastSummaryRe, (m) => `${m}\n${grandHtml}`);
-      } else {
-        // fallback: chèn sau vị trí "Tiền cọc:" CUỐI CÙNG
-        const insertPos = lastDep.index + lastDep[0].length;
-        html = html.slice(0, insertPos) + grandHtml + html.slice(insertPos);
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return html;
-}
-
-function formatDatesInHtml(html = "") {
-  if (!html || typeof html !== "string") return html;
-  const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
-  return html.replace(datePattern, (match) => {
-    try {
-      const d = new Date(match);
-      if (!Number.isNaN(d.getTime())) {
-        const pad = (num) => String(num).padStart(2, "0");
-        const day = pad(d.getDate());
-        const month = pad(d.getMonth() + 1);
-        const year = d.getFullYear();
-        const hours = pad(d.getHours());
-        const minutes = pad(d.getMinutes());
-        return `${day}/${month}/${year} ${hours}:${minutes}`;
-      }
-    } catch {
-      // ignore
-    }
-    return match;
-  });
-}
-
-function formatDateLabelsInHtml(html = "") {
-  if (!html || typeof html !== "string") return html;
-  // Thay thế label "Ngày bắt đầu" thành "Ngày bắt đầu thuê"
-  // Thay thế label "Ngày kết thúc" thành "Ngày kết thúc thuê"
-  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
-  html = html.replace(
-    new RegExp(`(Ngày${SEP}bắt${SEP}đầu)${SEP}:`, "gi"),
-    "Ngày bắt đầu thuê:"
-  );
-  html = html.replace(
-    new RegExp(`(Ngày${SEP}kết${SEP}thúc)${SEP}:`, "gi"),
-    "Ngày kết thúc thuê:"
-  );
-  return html;
-}
-
-// sạch noise + format tiền + format layout
-function sanitizeContractHtml(html = "") {
-  if (!html || typeof html !== "string") return html;
-  let out = html.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
-  out = formatDatesInHtml(out); // Format ngày trước
-  out = formatDateLabelsInHtml(out); // Format label ngày
-  out = formatMoneyInHtml(out);
-  out = formatEquipmentLayout(out);
-  return out;
-}
-
-function diffDays(startIso, endIso) {
-  if (!startIso || !endIso) return 1;
-  const s = new Date(startIso);
-  const e = new Date(endIso);
-  // Calculate based on date only (ignore time) to get accurate day count
-  const startDateOnly = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const endDateOnly = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-  const diff = endDateOnly - startDateOnly;
-  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-  return Math.max(1, days || 1);
-}
-
-function createPrintSandbox() {
-  if (typeof document === "undefined") return null;
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "-99999px";
-  container.style.top = "-99999px";
-  container.style.background = "#ffffff";
-  container.style.width = "794px";
-  container.style.minHeight = "10px";
-  container.style.zIndex = "-9999";
-  container.style.pointerEvents = "none";
-  document.body.appendChild(container);
-  return container;
-}
-
-function cleanupPrintSandbox(node) {
-  if (!node) return;
-  try {
-    node.innerHTML = "";
-    if (node.parentNode) {
-      node.parentNode.removeChild(node);
-    }
-  } catch (err) {
-    console.warn("Cleanup print sandbox error:", err);
-  }
-}
-
-/* =========================
- * 2) CSS inlined cho PDF + Quốc hiệu
- * ========================= */
-const GLOBAL_PRINT_CSS = `
-  <style>
-    h1,h2,h3 { margin: 8px 0 6px; font-weight: 700; }
-    h3 { font-size: 14px; text-transform: uppercase; }
-    p { margin: 6px 0; }
-    ol, ul { margin: 6px 0 6px 18px; padding: 0; }
-    li { margin: 3px 0; }
-    .kv { margin-bottom: 10px; }
-    .kv div { margin: 2px 0; }
-    /* Format thiết bị thuê - mỗi thiết bị 1 dòng */
-    .equipment-item { display: block; margin: 4px 0; }
-    .equipment-item::before { content: "• "; }
-    /* Format tổng tiền trên cùng 1 dòng */
-    .total-summary { display: flex; gap: 16px; margin: 8px 0; }
-    .total-summary > * { margin: 0; }
-    .total-rental { font-weight: 700; }
-    /* NEW: Tổng thanh toán */
-    .grand-total { margin: 6px 0 12px; font-weight: 700; }
-  </style>
-`;
-
-const NATIONAL_HEADER_HTML = `
-  <div style="text-align:center; margin-bottom:12px">
-    <div style="font-weight:700; font-size:14px; letter-spacing:.3px; text-transform:uppercase">
-      CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
-    </div>
-    <div style="font-size:13px; margin-top:2px">
-      Độc lập – Tự do – Hạnh phúc
-    </div>
-    <div style="width:220px; height:0; border-top:1px solid #111; margin:6px auto 0"></div>
-  </div>
-`;
-
-/* =========================
- * 3) Điều khoản mở rộng với list chuẩn
- * ========================= */
-const EXTRA_CONTRACT_HTML = `
-<section>
-  <h3>Điều 1. Các thuật ngữ sử dụng trong hợp đồng</h3>
-  <ol>
-    <li><b>Bảo dưỡng và sửa chữa nhỏ</b>: Những sửa chữa không nằm trong định kỳ sửa chữa đã dự định theo thoả thuận hai Bên hoặc định kỳ phân bổ kế toán.</li>
-    <li><b>Hao mòn tự nhiên</b>: Sự giảm giá trị thiết bị một cách tự nhiên dù sử dụng đúng công suất và bảo quản đúng quy định.</li>
-    <li><b>Máy móc, thiết bị</b>: Là các máy móc, thiết bị được quy định tại Điều 2 của hợp đồng này.</li>
-    <li><b>QC (Quality Check)</b>: Kiểm tra thiết bị sau khi trả về.</li>
-    <li><b>BOM (Bill of Materials)</b>: Danh sách phụ kiện đi kèm.</li>
-    <li><b>PBS / QAE</b>: Khoảng thời gian chuẩn bị trước & kiểm tra sau thuê — đã được tính vào lịch thuê.</li>
-  </ol>
-
-  <h3>Điều 2. Mục đích, thời hạn thuê</h3>
-  <ol>
-    <li>Thiết bị chỉ dùng vào mục đích hợp pháp theo quy định pháp luật Việt Nam.</li>
-    <li>Gia hạn phải yêu cầu trước 48h; TechRent có quyền từ chối nếu lịch kín.</li>
-  </ol>
-
-  <h3>Điều 3. Thời gian, địa điểm chuyển giao máy móc, thiết bị</h3>
-  <ol>
-    <li>Bên B chuyển giao thiết bị cho Bên A tại địa điểm giao hàng vào thời gian đã xác định theo hợp đồng.</li>
-    <li>Bên A hoàn trả thiết bị cho Bên B đúng địa điểm và thời gian đã xác định trong hợp đồng.</li>
-    <li>Việc chuyển giao phải lập biên bản bàn giao, có xác nhận của đại diện hợp lệ hai bên.</li>
-    <li>Nếu Bên A không có mặt quá 15 phút tại thời điểm nhận hàng theo hợp đồng, Bên B có quyền huỷ đơn.</li>
-  </ol>
-
-  <h3>Điều 4. Thời hạn và phương thức thanh toán</h3>
-  <ol>
-    <li>Bên A thanh toán trong 03 (ba) ngày làm việc kể từ khi nhận hoá đơn của Bên B.</li>
-    <li>Phương thức thanh toán: Chuyển khoản ngân hàng.</li>
-  </ol>
-
-  <h3>Điều 5. Chậm trả và rủi ro</h3>
-  <ol>
-    <li>Khi Bên A chậm trả tài sản thuê, Bên B có quyền yêu cầu trả lại, thu tiền thuê thời gian chậm và yêu cầu phạt vi phạm theo chính sách.</li>
-    <li>Trong thời gian chậm trả, rủi ro đối với tài sản thuộc về Bên A.</li>
-  </ol>
-
-  <h3>Điều 6. Quyền và nghĩa vụ Bên A</h3>
-  <ol>
-    <li><b>Nghĩa vụ</b>:
-      <ul>
-        <li>Thanh toán đúng và đủ theo Điều 2 & Điều 5.</li>
-        <li>Hoàn trả thiết bị đúng thời gian, số lượng, tình trạng (trừ hao mòn tự nhiên).</li>
-        <li>Nếu cố tình làm hư hỏng: cùng khắc phục; nếu không được phải bồi thường chi phí sửa chữa có hoá đơn chứng từ.</li>
-        <li>Trường hợp mất mát do lỗi Bên A: bồi thường toàn bộ giá trị còn lại tại thời điểm mất.</li>
-        <li>Không cho thuê/mượn lại cho bên thứ ba nếu không có chấp thuận bằng văn bản của Bên B.</li>
-      </ul>
-    </li>
-    <li><b>Quyền</b>:
-      <ul>
-        <li>Yêu cầu Bên B sửa chữa/bảo dưỡng định kỳ; yêu cầu giảm giá nếu hư hỏng không do lỗi Bên A.</li>
-        <li>Đơn phương đình chỉ và yêu cầu bồi thường nếu:
-          <ul>
-            <li>Quá 03 ngày làm việc gia hạn mà Bên B vẫn chưa giao, trừ bất khả kháng.</li>
-            <li>Vi phạm nghiêm trọng quy định an ninh của Bên A khi giao nhận.</li>
-            <li>Giao thiết bị nguồn gốc không rõ ràng.</li>
-          </ul>
-        </li>
-        <li>Được ưu tiên tiếp tục thuê nếu sử dụng đúng mục đích, không gây mất mát/hư hại.</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Điều 7. Quyền và nghĩa vụ Bên B</h3>
-  <ol>
-    <li><b>Nghĩa vụ</b>:
-      <ul>
-        <li>Giao đúng loại, số lượng, thời gian, địa điểm; bảo đảm thiết bị đạt tiêu chuẩn chất lượng.</li>
-        <li>Xuất biên bản bàn giao và hoá đơn theo thoả thuận.</li>
-        <li>Thực hiện lắp đặt (nếu có) dưới giám sát của Bên A.</li>
-        <li>Chịu trách nhiệm về quyền sở hữu thiết bị.</li>
-        <li>Bảo dưỡng định kỳ, sửa chữa hư hỏng không nhỏ.</li>
-        <li>Thông báo và phối hợp khắc phục khi phát hiện hư hại khi nhận lại.</li>
-        <li>Nếu không thể giao đúng hạn: thông báo bằng văn bản và gia hạn nhưng không quá 03 ngày làm việc.</li>
-        <li>Tuân thủ quy định an ninh của Bên A; gây thiệt hại phải bồi thường theo thoả thuận.</li>
-        <li>Nhắc nhở bằng văn bản nếu phát hiện Bên A dùng sai mục đích/công dụng.</li>
-      </ul>
-    </li>
-    <li><b>Quyền</b>:
-      <ul>
-        <li>Nhận đủ tiền thuê theo Điều 2 & Điều 5.</li>
-        <li>Nhận lại thiết bị đúng thời gian, số lượng, tình trạng (trừ hao mòn tự nhiên).</li>
-        <li>Gia hạn thời hạn giao thiết bị tối đa 03 ngày làm việc (có văn bản thông báo).</li>
-        <li>Yêu cầu Bên A sử dụng đúng mục đích và công dụng; yêu cầu bồi thường khi hư hỏng do lỗi Bên A.</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Điều 8. Hiệu lực của hợp đồng</h3>
-  <ol>
-    <li>Hợp đồng có hiệu lực khi một trong các bên nhận được bản có ký tên & đóng dấu của cả hai bên.</li>
-    <li>Hợp đồng hết hiệu lực khi:
-      <ul>
-        <li>Hai bên hoàn tất nghĩa vụ;</li>
-        <li>Hai bên thoả thuận chấm dứt trước hạn;</li>
-        <li>Thiết bị thuê không còn.</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Điều 9. Điều khoản chung</h3>
-  <ol>
-    <li>Hai bên cam kết thực hiện đúng hợp đồng; vướng mắc sẽ thương lượng trên tinh thần hợp tác cùng có lợi.</li>
-    <li>Tranh chấp không tự giải quyết được thì yêu cầu Toà án có thẩm quyền giải quyết; phán quyết có hiệu lực buộc thi hành.</li>
-    <li>Nếu muốn chấm dứt trước hạn phải thông báo trước 30 ngày; hoàn tất mọi nghĩa vụ thì hợp đồng tự thanh lý.</li>
-    <li>Hợp đồng lập 04 bản tiếng Việt, mỗi bên giữ 02 bản có giá trị pháp lý như nhau.</li>
-  </ol>
-</section>
-`;
-
-function augmentContractContent(detail) {
-  if (!detail) return detail;
-  const originalBase = String(detail.contentHtml || detail.contractContent || "");
-  let base = originalBase;
-  
-  // Add serial numbers from allocatedDevices to device list items
-  if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
-    const serialNumbers = Array.from(
-      new Set(
-        detail.allocatedDevices
-          .map((device) => device.serialNumber)
-          .filter(Boolean)
-      )
-    );
-    
-    if (serialNumbers.length > 0) {
-      const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
-      let modifiedBase = base;
-      
-      // Pattern 1: Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
-      const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/div>)/gi;
-      modifiedBase = modifiedBase.replace(
-        equipmentDivPattern,
-        (match, openTag, deviceInfo, priceInfo, closeTag) => {
-          return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
-        }
-      );
-      
-      // Pattern 2: Match <li>... - Giá/ngày:...</li> (fallback for unformatted HTML)
-      if (modifiedBase === base) {
-        const liPattern = /(<li>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/li>)/gi;
-        modifiedBase = modifiedBase.replace(
-          liPattern,
-          (match, openTag, deviceInfo, priceInfo, closeTag) => {
-            return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
-          }
-        );
-      }
-      
-      // Pattern 3: Match any device line with "Giá/ngày" pattern (more flexible)
-      if (modifiedBase === base) {
-        // Try to match lines that contain device info and "Giá/ngày"
-        const flexiblePattern = /(\d+x\s+[^-]+?)(\s*-\s*Giá\/ngày[^<•\n]+?)(\s*-\s*Tiền cọc[^<•\n]+?)/gi;
-        modifiedBase = modifiedBase.replace(
-          flexiblePattern,
-          (match, deviceInfo, priceInfo, depositInfo) => {
-            return `${deviceInfo}${serialText}${priceInfo}${depositInfo}`;
-          }
-        );
-      }
-      
-      // Check if replacement occurred
-      if (modifiedBase !== base) {
-        base = modifiedBase;
-      } else {
-        // If no match found, try to append after the device list
-        // Try to find the closing </ul> of device list and append serial numbers section
-        const ulPattern = /(<\/ul>)(\s*<p>)/i;
-        if (ulPattern.test(base)) {
-          const serialSection = `
-<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
-          base = base.replace(ulPattern, `$1${serialSection}$2`);
-        } else {
-          // Append at the end of device section if pattern not found
-          const serialSection = `<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
-          base = base.replace(/(<\/ul>)/i, `$1${serialSection}`);
-        }
-      }
-    }
-  }
-  
-  const mergedHtml = base + EXTRA_CONTRACT_HTML;
-  return { ...detail, contentHtml: mergedHtml };
-}
-
-/* =========================
- * Handover Report Helpers
- * ========================= */
-function parseInfoString(infoStr) {
-  if (!infoStr) return { name: "", phone: "", email: "" };
-  const parts = infoStr.split("•").map(s => s.trim()).filter(Boolean);
-  return {
-    name: parts[0] || "",
-    phone: parts[1] || "",
-    email: parts[2] || "",
-  };
-}
-
-function translateRole(role) {
-  const r = String(role || "").toUpperCase();
-  if (r === "TECHNICIAN") return "Kỹ thuật viên";
-  return role;
-}
-
-function translateHandoverStatus(status) {
-  const s = String(status || "").toUpperCase();
-  if (s === "STAFF_SIGNED") return "Nhân viên đã ký";
-  if (s === "CUSTOMER_SIGNED") return "Đã ký khách hàng";
-  if (s === "BOTH_SIGNED") return "2 bên đã ký";
-  if (s === "PENDING_STAFF_SIGNATURE") return "Chờ nhân viên ký";
-  if (s === "COMPLETED") return "Hoàn thành";
-  return status || "—";
-}
-
-function buildPrintableHandoverReportHtml(report, order = null, conditionDefinitions = []) {
-  const customerInfo = parseInfoString(report.customerInfo);
-  const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
-  const customerName = customerInfo.name || "—";
-
-  const technicianEntries = (() => {
-    const raw = [];
-    const pushTech = (tech) => {
-      if (!tech) return;
-      const name =
-        tech.fullName ||
-        tech.username ||
-        tech.staffName ||
-        tech.name ||
-        technicianInfo.name ||
-        "";
-      const phone =
-        tech.phoneNumber ||
-        tech.phone ||
-        tech.contactNumber ||
-        tech.contact ||
-        "";
-      const email = tech.email || "";
-
-      if (!name && !phone && !email) return;
-      raw.push({
-        staffId: tech.staffId || tech.id || null,
-        name,
-        phone,
-        email,
-      });
-    };
-
-    if (Array.isArray(report.deliveryStaff)) {
-      report.deliveryStaff.forEach(pushTech);
-    }
-
-    if (Array.isArray(report.technicians)) {
-      report.technicians.forEach(pushTech);
-    }
-
-    if (!raw.length && (technicianInfo.name || technicianInfo.phone || technicianInfo.email)) {
-      raw.push({
-        staffId: null,
-        name: technicianInfo.name || "—",
-        phone: technicianInfo.phone || "",
-        email: technicianInfo.email || "",
-      });
-    }
-
-    const deduped = [];
-    const seen = new Set();
-    raw.forEach((tech, idx) => {
-      const key = tech.staffId || tech.email || tech.phone || `${tech.name}-${idx}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      deduped.push(tech);
-    });
-
-    return deduped;
-  })();
-
-  const technicianDisplayName =
-    technicianEntries[0]?.name || technicianInfo.name || "—";
-  
-  // Map condition definitions by ID for quick lookup
-  const conditionMap = {};
-  conditionDefinitions.forEach(cd => {
-    conditionMap[cd.id || cd.conditionDefinitionId] = cd;
-  });
-  
-  // Build allocation map from order if available
-  const allocationMap = {};
-  if (order && Array.isArray(order.orderDetails)) {
-    order.orderDetails.forEach(od => {
-      if (od.allocations && Array.isArray(od.allocations)) {
-        od.allocations.forEach(allocation => {
-          if (allocation.allocationId) {
-            allocationMap[allocation.allocationId] = {
-              deviceModelName: od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—",
-              serialNumber: allocation.device?.serialNumber || allocation.serialNumber || "—",
-              deviceId: allocation.device?.deviceId || allocation.deviceId || null,
-              unit: "cái",
-              quantity: od.quantity || 1,
-            };
-          }
-        });
-      }
-    });
-  }
-  
-  // Build device map from deviceConditions to supplement allocationMap
-  const deviceConditionMap = {};
-  if (Array.isArray(report.deviceConditions)) {
-    report.deviceConditions.forEach(dc => {
-      if (dc.allocationId && dc.deviceId) {
-        // Try to get serial number from baselineSnapshots or deviceSerial
-        let serialNumber = dc.deviceSerial || "—";
-        if (!serialNumber && dc.baselineSnapshots && Array.isArray(dc.baselineSnapshots)) {
-          // Try to find serial number in snapshots (if available)
-          const firstSnapshot = dc.baselineSnapshots[0];
-          if (firstSnapshot && firstSnapshot.deviceSerial) {
-            serialNumber = firstSnapshot.deviceSerial;
-          }
-        }
-        
-        // If allocationId not in allocationMap, add it from deviceConditions
-        if (!allocationMap[dc.allocationId]) {
-          allocationMap[dc.allocationId] = {
-            deviceId: dc.deviceId,
-            serialNumber: serialNumber,
-            deviceModelName: "—", // Will try to get from order if available
-            unit: "cái",
-            quantity: 1,
-          };
-        } else {
-          // Update existing entry with deviceId and serialNumber if missing
-          if (!allocationMap[dc.allocationId].deviceId) {
-            allocationMap[dc.allocationId].deviceId = dc.deviceId;
-          }
-          if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
-            allocationMap[dc.allocationId].serialNumber = serialNumber;
-          }
-        }
-        
-        // Also create a deviceId -> allocationId map for lookup
-        deviceConditionMap[dc.deviceId] = {
-          allocationId: dc.allocationId,
-          serialNumber: serialNumber,
-        };
-      }
-    });
-  }
-  
-  // Try to enrich allocationMap with device info from order allocations by deviceId
-  // First, create a deviceId -> device info map from order allocations
-  const deviceInfoFromOrder = {};
-  if (order && Array.isArray(order.orderDetails)) {
-    order.orderDetails.forEach(od => {
-      const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
-      if (od.allocations && Array.isArray(od.allocations)) {
-        od.allocations.forEach(allocation => {
-          const deviceId = allocation.device?.deviceId || allocation.deviceId;
-          const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
-          if (deviceId) {
-            deviceInfoFromOrder[deviceId] = {
-              serialNumber: serialNumber || "—",
-              deviceModelName: deviceModelName,
-              allocationId: allocation.allocationId,
-            };
-          }
-        });
-      }
-    });
-  }
-  
-  // Now enrich allocationMap using deviceId from deviceConditions
-  if (Array.isArray(report.deviceConditions)) {
-    report.deviceConditions.forEach(dc => {
-      if (dc.allocationId && dc.deviceId) {
-        const deviceInfo = deviceInfoFromOrder[dc.deviceId];
-        if (deviceInfo && allocationMap[dc.allocationId]) {
-          // Update with device info from order
-          if (!allocationMap[dc.allocationId].deviceModelName || allocationMap[dc.allocationId].deviceModelName === "—") {
-            allocationMap[dc.allocationId].deviceModelName = deviceInfo.deviceModelName;
-          }
-          if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
-            allocationMap[dc.allocationId].serialNumber = deviceInfo.serialNumber;
-          }
-        }
-      }
-    });
-  }
-  
-  // Also try to find device info for items that have allocationId but not in allocationMap yet
-  if (Array.isArray(report.items)) {
-    report.items.forEach(item => {
-      if (item.allocationId && !allocationMap[item.allocationId]) {
-        // Try to find by allocationId in order
-        if (order && Array.isArray(order.orderDetails)) {
-          order.orderDetails.forEach(od => {
-            if (od.allocations && Array.isArray(od.allocations)) {
-              od.allocations.forEach(allocation => {
-                if (allocation.allocationId === item.allocationId) {
-                  const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                  const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
-                  const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
-                  
-                  allocationMap[item.allocationId] = {
-                    deviceId: deviceId,
-                    serialNumber: serialNumber || "—",
-                    deviceModelName: deviceModelName,
-                    unit: "cái",
-                    quantity: od.quantity || 1,
-                  };
-                }
-              });
-            }
-          });
-        }
-        
-        // If still not found, try to find from deviceConditions by allocationId
-        if (!allocationMap[item.allocationId] && Array.isArray(report.deviceConditions)) {
-          const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
-          if (deviceCondition && deviceCondition.deviceId) {
-            const deviceInfo = deviceInfoFromOrder[deviceCondition.deviceId];
-            if (deviceInfo) {
-              allocationMap[item.allocationId] = {
-                deviceId: deviceCondition.deviceId,
-                serialNumber: deviceInfo.serialNumber,
-                deviceModelName: deviceInfo.deviceModelName,
-                unit: "cái",
-                quantity: 1,
-              };
-            } else {
-              // Fallback: use deviceCondition data
-              let serialNumber = deviceCondition.deviceSerial || "—";
-              if (!serialNumber && deviceCondition.baselineSnapshots && Array.isArray(deviceCondition.baselineSnapshots)) {
-                const firstSnapshot = deviceCondition.baselineSnapshots[0];
-                if (firstSnapshot && firstSnapshot.deviceSerial) {
-                  serialNumber = firstSnapshot.deviceSerial;
-                }
-              }
-              
-              // Try to find device model name from order details by deviceId
-              let deviceModelName = "—";
-              if (order && Array.isArray(order.orderDetails)) {
-                for (const od of order.orderDetails) {
-                  if (od.allocations && Array.isArray(od.allocations)) {
-                    for (const allocation of od.allocations) {
-                      const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                      if (deviceId === deviceCondition.deviceId) {
-                        deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
-                        break;
-                      }
-                    }
-                    if (deviceModelName !== "—") break;
-                  }
-                }
-              }
-              
-              allocationMap[item.allocationId] = {
-                deviceId: deviceCondition.deviceId,
-                serialNumber: serialNumber,
-                deviceModelName: deviceModelName,
-                unit: "cái",
-                quantity: 1,
-              };
-            }
-          }
-        }
-      }
-    });
-  }
-  
-  // Build deviceConditions map by deviceId for quick lookup
-  const deviceConditionsByDeviceId = {};
-  if (Array.isArray(report.deviceConditions)) {
-    report.deviceConditions.forEach(dc => {
-      if (dc.deviceId) {
-        if (!deviceConditionsByDeviceId[dc.deviceId]) {
-          deviceConditionsByDeviceId[dc.deviceId] = [];
-        }
-        deviceConditionsByDeviceId[dc.deviceId].push(dc);
-      }
-    });
-  }
-
-  // Helper function to get conditions and images for a device
-  const getDeviceConditionsHtml = (deviceId) => {
-    const deviceConditions = deviceConditionsByDeviceId[deviceId] || [];
-    if (deviceConditions.length === 0) {
-      return { conditions: "—", images: "—" };
-    }
-
-    // Use Set to track unique conditions and images to avoid duplicates
-    const uniqueConditions = new Set();
-    const uniqueImages = new Set();
-    
-    deviceConditions.forEach(dc => {
-      const snapshots = dc.baselineSnapshots || dc.snapshots || [];
-      if (snapshots.length === 0) return;
-      
-      // Prioritize HANDOVER_OUT snapshot, fallback to QC_BEFORE, then others
-      const handoverOutSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "HANDOVER_OUT");
-      const qcBeforeSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "QC_BEFORE");
-      const selectedSnapshot = handoverOutSnapshot || qcBeforeSnapshot || snapshots[0];
-      
-      // Collect conditions from selected snapshot
-      const conditionDetails = selectedSnapshot.conditionDetails || [];
-      conditionDetails.forEach(cd => {
-        // Use conditionDefinitionId + severity as unique key
-        const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
-        if (!uniqueConditions.has(uniqueKey)) {
-          uniqueConditions.add(uniqueKey);
-        }
-      });
-      
-      // Collect images from selected snapshot
-      if (Array.isArray(selectedSnapshot.images)) {
-        selectedSnapshot.images.forEach(img => {
-          // Use image URL as unique key
-          const imgKey = img;
-          if (!uniqueImages.has(imgKey)) {
-            uniqueImages.add(imgKey);
-          }
-        });
-      }
-    });
-
-    // Convert Set to Array and build HTML
-    const conditionsArray = Array.from(uniqueConditions).map(key => {
-      const [conditionDefId] = key.split("_");
-      const conditionDef = conditionMap[conditionDefId];
-      const conditionName = conditionDef?.name || `Tình trạng #${conditionDefId}`;
-      return `${conditionName}`;
-    });
-    
-    const conditionsHtml = conditionsArray.length > 0 
-      ? conditionsArray.map(c => `<div>${c}</div>`).join("")
-      : "—";
-    
-    const imagesArray = Array.from(uniqueImages);
-    const imagesHtml = imagesArray.length > 0
-      ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
-          ${imagesArray.map((img, imgIdx) => {
-            const imgSrc = img.startsWith("data:image") ? img : img;
-            return `
-              <img 
-                src="${imgSrc}" 
-                alt="Ảnh ${imgIdx + 1}"
-                style="
-                  max-width:80px;
-                  max-height:80px;
-                  border:1px solid #ddd;
-                  border-radius:4px;
-                  object-fit:contain;
-                "
-                onerror="this.style.display='none';"
-              />
-            `;
-          }).join("")}
-        </div>`
-      : "—";
-
-    return { conditions: conditionsHtml, images: imagesHtml };
-  };
-
-  // Build items rows - prioritize new format with deviceSerialNumber and deviceModelName
-  const itemsRows = (report.items || []).map((item, idx) => {
-    // Get device conditions and images by deviceId
-    const deviceId = item.deviceId;
-    const { conditions, images } = deviceId ? getDeviceConditionsHtml(deviceId) : { conditions: "—", images: "—" };
-
-    // Newest format: use deviceSerialNumber and deviceModelName directly from items
-    if (item.deviceSerialNumber && item.deviceModelName) {
-      return `
-        <tr>
-          <td style="text-align:center">${idx + 1}</td>
-          <td>${item.deviceModelName}</td>
-          <td>${item.deviceSerialNumber}</td>
-          <td style="text-align:center">cái</td>
-          <td style="text-align:center">1</td>
-          <td style="text-align:center">1</td>
-          <td>${conditions}</td>
-          <td>${images}</td>
-        </tr>
-      `;
-    }
-    
-    // New format: use allocationId to get device info
-    if (item.allocationId) {
-      const deviceInfo = allocationMap[item.allocationId];
-      if (deviceInfo) {
-        // Try to get deviceId from deviceInfo or find by allocationId
-        let lookupDeviceId = deviceInfo.deviceId;
-        if (!lookupDeviceId && Array.isArray(report.deviceConditions)) {
-          const dc = report.deviceConditions.find(d => d.allocationId === item.allocationId);
-          if (dc) lookupDeviceId = dc.deviceId;
-        }
-        const { conditions, images } = lookupDeviceId ? getDeviceConditionsHtml(lookupDeviceId) : { conditions: "—", images: "—" };
-        
-        return `
-          <tr>
-            <td style="text-align:center">${idx + 1}</td>
-            <td>${deviceInfo.deviceModelName}</td>
-            <td>${deviceInfo.serialNumber}</td>
-            <td style="text-align:center">${deviceInfo.unit}</td>
-            <td style="text-align:center">${deviceInfo.quantity}</td>
-            <td style="text-align:center">${deviceInfo.quantity}</td>
-            <td>${conditions}</td>
-            <td>${images}</td>
-          </tr>
-        `;
-      } else {
-        // Nếu không tìm thấy trong allocationMap, thử lấy từ deviceConditions
-        if (Array.isArray(report.deviceConditions)) {
-          const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
-          if (deviceCondition && deviceCondition.deviceId) {
-            // Thử tìm device model name từ order details
-            let deviceModelName = "—";
-            let serialNumber = deviceCondition.deviceSerial || "—";
-            
-            if (order && Array.isArray(order.orderDetails)) {
-              for (const od of order.orderDetails) {
-                if (od.allocations && Array.isArray(od.allocations)) {
-                  for (const allocation of od.allocations) {
-                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                    if (deviceId === deviceCondition.deviceId) {
-                      deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
-                      if (!serialNumber || serialNumber === "—") {
-                        serialNumber = allocation.device?.serialNumber || allocation.serialNumber || "—";
-                      }
-                      break;
-                    }
-                  }
-                  if (deviceModelName !== "—") break;
-                }
-              }
-            }
-            
-            const { conditions, images } = deviceCondition.deviceId ? getDeviceConditionsHtml(deviceCondition.deviceId) : { conditions: "—", images: "—" };
-            
-            return `
-              <tr>
-                <td style="text-align:center">${idx + 1}</td>
-                <td>${deviceModelName}</td>
-                <td>${serialNumber}</td>
-                <td style="text-align:center">cái</td>
-                <td style="text-align:center">1</td>
-                <td style="text-align:center">1</td>
-                <td>${conditions}</td>
-                <td>${images}</td>
-              </tr>
-            `;
-          }
-        }
-        
-        // Fallback: hiển thị allocationId nếu không tìm thấy
-        return `
-          <tr>
-            <td style="text-align:center">${idx + 1}</td>
-            <td>—</td>
-            <td>— (allocationId: ${item.allocationId})</td>
-            <td style="text-align:center">cái</td>
-            <td style="text-align:center">1</td>
-            <td style="text-align:center">1</td>
-            <td>—</td>
-            <td>—</td>
-          </tr>
-        `;
-      }
-    }
-    // Old format: use itemName, itemCode
-    return `
-      <tr>
-        <td style="text-align:center">${idx + 1}</td>
-        <td>${item.itemName || "—"}</td>
-        <td>${item.itemCode || "—"}</td>
-        <td style="text-align:center">${item.unit || "—"}</td>
-        <td style="text-align:center">${item.orderedQuantity || 0}</td>
-        <td style="text-align:center">${item.deliveredQuantity || 0}</td>
-        <td>—</td>
-        <td>—</td>
-      </tr>
-    `;
-  }).join("");
-  
-  const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
-    <tr>
-      <td style="text-align:center">${idx + 1}</td>
-      <td>${q.deviceModelName || "—"}</td>
-      <td>${q.deviceSerialNumber || "—"}</td>
-      <td>${q.qualityStatus === "GOOD" ? "Tốt" : q.qualityStatus === "FAIR" ? "Khá" : q.qualityStatus === "POOR" ? "Kém" : q.qualityStatus || "—"}</td>
-      <td>${q.qualityDescription || "—"}</td>
-    </tr>
-  `).join("");
-  
-  // Determine handover type
-  const handoverType = String(report.handoverType || "").toUpperCase();
-  const isCheckin = handoverType === "CHECKIN";
-  const conditionColumnLabel = isCheckin ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị";
-  const discrepancyConditionLabel = isCheckin ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị";
-  
-  return `
-    <style>
-      .print-pdf-root,
-      .print-pdf-root * {
-        font-family: Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif !important;
-        -webkit-font-smoothing: antialiased !important;
-        -moz-osx-font-smoothing: grayscale !important;
-        text-rendering: optimizeLegibility !important;
-      }
-      .print-pdf-root h1, .print-pdf-root h2, .print-pdf-root h3 { margin: 8px 0 6px; font-weight: 700; }
-      .print-pdf-root h3 { font-size: 14px; text-transform: uppercase; }
-      .print-pdf-root p { margin: 6px 0; }
-      .print-pdf-root ol, .print-pdf-root ul { margin: 6px 0 6px 18px; padding: 0; }
-      .print-pdf-root li { margin: 3px 0; }
-      .print-pdf-root .kv { margin-bottom: 10px; }
-      .print-pdf-root .kv div { margin: 2px 0; }
-      .print-pdf-root table { width: 100%; border-collapse: collapse; margin: 8px 0; }
-      .print-pdf-root table th, .print-pdf-root table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-      .print-pdf-root table th { background-color: #f5f5f5; font-weight: 600; }
-    </style>
-    <div class="print-pdf-root"
-         style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
-      ${NATIONAL_HEADER_HTML}
-      
-      <h1 style="text-align:center; margin:16px 0">${isCheckin ? "BIÊN BẢN THU HỒI THIẾT BỊ" : "BIÊN BẢN BÀN GIAO THIẾT BỊ"}</h1>
-      
-      <section class="kv">
-        <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
-        <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
-        ${isCheckin 
-          ? `<div><b>Thời gian thu hồi:</b> ${formatDateTime(report.handoverDateTime)}</div>
-             <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
-          : `<div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
-             <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>`}
-        <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
-      </section>
-      
-      <h3>Thông tin khách hàng</h3>
-      <section class="kv">
-        <div><b>Họ và tên:</b> ${customerName}</div>
-        ${customerInfo.phone ? `<div><b>Số điện thoại:</b> ${customerInfo.phone}</div>` : ""}
-        ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
-      </section>
-      
-      <h3>Kỹ thuật viên tham gia</h3>
-      <section class="kv">
-        ${
-          technicianEntries.length
-            ? technicianEntries
-                .map(
-                  (tech) => `
-      <div style="margin-bottom:6px">
-        <b>${tech.name || "—"}</b>
-        ${
-          tech.phone
-            ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
-            : ""
-        }
-        ${
-          tech.email
-            ? `<br/><span>Email: ${tech.email}</span>`
-            : ""
-        }
-      </div>
-    `
-                )
-                .join("")
-            : `
-      <div><b>Họ và tên:</b> ${technicianInfo.name || "—"}</div>
-      ${
-        technicianInfo.phone
-          ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>`
-          : ""
-      }
-      ${
-        technicianInfo.email
-          ? `<div><b>Email:</b> ${technicianInfo.email}</div>`
-          : ""
-      }
-    `
-        }
-      </section>
-      
-      <h3>${isCheckin ? "Danh sách thiết bị thu hồi" : "Danh sách thiết bị bàn giao"}</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px">STT</th>
-            <th>Tên thiết bị</th>
-            <th>Mã thiết bị (Serial Number)</th>
-            <th style="width:80px">Đơn vị</th>
-            <th style="width:80px;text-align:center">SL đặt</th>
-            <th style="width:80px;text-align:center">SL giao</th>
-            <th>${conditionColumnLabel}</th>
-            <th>Ảnh bằng chứng</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsRows || "<tr><td colspan='8' style='text-align:center'>Không có thiết bị</td></tr>"}
-        </tbody>
-      </table>
-      
-      ${qualityRows ? `
-      <h3>Thông tin chất lượng thiết bị</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px">STT</th>
-            <th>Tên model</th>
-            <th>Serial Number</th>
-            <th>Trạng thái chất lượng</th>
-            <th>Mô tả</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${qualityRows}
-        </tbody>
-      </table>
-      ` : ""}
-      
-      ${(() => {
-        // For CHECKIN: show discrepancies
-        if (isCheckin && (report.discrepancies || []).length > 0) {
-          return `
-      <h3>Sự cố thiết bị khi thu hồi</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px">STT</th>
-            <th>Loại sự cố</th>
-            <th>Thiết bị (Serial Number)</th>
-            <th>Tình trang thiết bị</th>
-            <th>Phí phạt</th>
-            <th>Ghi chú nhân viên</th>
-           
-          </tr>
-        </thead>
-        <tbody>
-          ${(report.discrepancies || []).map((disc, idx) => {
-            // Try to get serial number from deviceId
-            let deviceSerial = disc.serialNumber || disc.deviceSerialNumber || "—";
-            if ((deviceSerial === "—" || !deviceSerial) && disc.deviceId && order && Array.isArray(order.orderDetails)) {
-              for (const od of order.orderDetails) {
-                if (od.allocations && Array.isArray(od.allocations)) {
-                  for (const allocation of od.allocations) {
-                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                    if (deviceId === disc.deviceId) {
-                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
-                      break;
-                    }
-                  }
-                  if (deviceSerial && deviceSerial !== "—") break;
-                }
-              }
-            }
-            
-            const conditionDef = conditionMap[disc.conditionDefinitionId];
-            const conditionName = conditionDef?.name || `Tình trạng  #${disc.conditionDefinitionId}`;
-            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
-                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
-                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
-            
-            // Format penalty amount
-            const penaltyAmount = disc.penaltyAmount != null && disc.penaltyAmount !== undefined 
-              ? formatVND(Number(disc.penaltyAmount))
-              : "—";
-            
-            return `
-              <tr>
-                <td style="text-align:center">${idx + 1}</td>
-                <td>${discrepancyType}</td>
-                <td>${deviceSerial}</td>
-                <td>${conditionName}</td>
-                <td style="text-align:right">${penaltyAmount}</td>
-                <td>${disc.staffNote || "—"}</td>
-                
-              </tr>
-            `;
-          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
-        </tbody>
-      </table>
-      `;
-        }
-        
-        // For CHECKOUT: deviceConditions are now shown in the items table, so no separate section needed
-        return "";
-      })()}
-      
-      ${report.createdByStaff ? `
-      <h3>Người tạo biên bản</h3>
-      <section class="kv">
-        <div><b>Họ và tên:</b> ${report.createdByStaff.fullName || report.createdByStaff.username || `Nhân viên #${report.createdByStaff.staffId}`}</div>
-        ${report.createdByStaff.email ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>` : ""}
-        ${report.createdByStaff.phoneNumber ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>` : ""}
-        ${report.createdByStaff.role ? `<div><b>Vai trò:</b> ${translateRole(report.createdByStaff.role)}</div>` : ""}
-      </section>
-      ` : ""}
-      
-      ${(report.evidenceUrls || []).length > 0 ? `
-      <h3>Ảnh bằng chứng</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
-        ${report.evidenceUrls.map((url, idx) => {
-          // Kiểm tra xem là base64 hay URL
-          const isBase64 = url.startsWith("data:image");
-          const imgSrc = isBase64 ? url : url;
-          return `
-          <div style="flex:0 0 auto;margin-bottom:8px">
-            <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">Bằng chứng ${idx + 1}</div>
-            <img 
-              src="${imgSrc}" 
-              alt="Bằng chứng ${idx + 1}"
-              style="
-                max-width:200px;
-                max-height:200px;
-                border:1px solid #ddd;
-                border-radius:4px;
-                display:block;
-                object-fit:contain;
-              "
-              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
-            />
-            <div style="display:none;padding:8px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;max-width:200px;font-size:10px;color:#666">
-              Không thể tải ảnh<br/>
-              <a href="${url}" target="_blank" style="color:#1890ff">Xem link</a>
-            </div>
-          </div>
-        `;
-        }).join("")}
-      </div>
-      ` : ""}
-      
-      <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
-        <div style="flex:1;text-align:center">
-          <div><b>KHÁCH HÀNG</b></div>
-          <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
-          </div>
-          <div>
-            ${report.customerSigned 
-              ? `<div style="color:#000;font-weight:600">${customerName}</div>` 
-              : "(Ký, ghi rõ họ tên)"}
-          </div>
-        </div>
-        <div style="flex:1;text-align:center">
-          <div><b>NHÂN VIÊN</b></div>
-          <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
-          </div>
-          <div>
-            ${report.staffSigned 
-              ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>` 
-              : "(Ký, ghi rõ họ tên)"}
-          </div>
-        </div>
-      </section>
-    </div>
-  `;
-}
-
-async function elementToPdfBlobHandover(el) {
-  if (document.fonts && document.fonts.ready) {
-    await document.fonts.ready;
-  }
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  const canvas = await html2canvas(el, {
-    scale: 2,
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: "#ffffff",
-    logging: false,
-    letterRendering: true,
-    onclone: (clonedDoc) => {
-      const clonedBody = clonedDoc.body;
-      if (clonedBody) {
-        clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        clonedBody.style.webkitFontSmoothing = "antialiased";
-        clonedBody.style.mozOsxFontSmoothing = "grayscale";
-      }
-      const allElements = clonedDoc.querySelectorAll('*');
-      allElements.forEach(elem => {
-        if (elem.style) {
-          elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        }
-      });
-    },
-  });
-
-  const pdf = new jsPDF("p", "pt", "a4");
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const ratio = pageWidth / canvas.width;
-
-  const pageCanvas = document.createElement("canvas");
-  const ctx = pageCanvas.getContext("2d");
-
-  let renderedHeight = 0;
-  while (renderedHeight < canvas.height) {
-    const sliceHeight = Math.min(pageHeight / ratio, canvas.height - renderedHeight);
-    pageCanvas.width = canvas.width;
-    pageCanvas.height = sliceHeight;
-    ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
-    ctx.drawImage(
-      canvas,
-      0, renderedHeight, canvas.width, sliceHeight,
-      0, 0, canvas.width, sliceHeight
-    );
-    const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
-    if (renderedHeight > 0) pdf.addPage();
-    pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
-    renderedHeight += sliceHeight;
-  }
-  return pdf.output("blob");
-}
-
-/* =========================
- * 4) MAP ORDER (chuẩn hoá từ BE)
+ * MAP ORDER (chuẩn hoá từ BE)
  * ========================= */
 async function mapOrderFromApi(order) {
   const backendId =
@@ -1497,13 +163,9 @@ async function mapOrderFromApi(order) {
 }
 
 /* =========================
- * 5) COMPONENT
+ * COMPONENT
  * ========================= */
 export default function MyOrders() {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState();
-  const [dateRange, setDateRange] = useState(null);
-
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingOrders, setLoadingOrders] = useState(true);
@@ -1593,11 +255,6 @@ export default function MyOrders() {
   const deeplinkOrderId = queryParams.get("orderId");
   const deeplinkTab = queryParams.get("tab");
   const deepLinkHandledRef = useRef(false);
-
-  // Layout: Table tự cuộn theo viewport
-  const TABLE_TOP_BLOCK = 40 + 40 + 16;
-  const TABLE_BOTTOM_BLOCK = 56;
-  const tableScrollY = `calc(100vh - ${TABLE_TOP_BLOCK + TABLE_BOTTOM_BLOCK}px)`;
 
   function revokeBlob(url) { try { if (url) URL.revokeObjectURL(url); } catch (e) { console.error("Error revoking blob:", e); } }
   function clearContractPreviewState() {
@@ -1737,6 +394,31 @@ export default function MyOrders() {
     loadOrders();
     loadAllContracts();
     loadCustomerProfile();
+  }, []);
+
+  // Cleanup khi rời trang / component unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (notifSocketRef.current) {
+          notifSocketRef.current.disconnect?.();
+          notifSocketRef.current = null;
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Error disconnecting notifications socket:", e);
+      }
+
+      try {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Error clearing polling interval:", e);
+      }
+    };
   }, []);
 
   // Check for orders close to return date and show notification
@@ -2105,29 +787,6 @@ export default function MyOrders() {
     }
   };
 
-  const data = useMemo(() => {
-    let rows = [...orders];
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          String(r.displayId).toLowerCase().includes(q) ||
-          r.items.some((it) => (it.name || "").toLowerCase().includes(q))
-      );
-    }
-    if (statusFilter) rows = rows.filter((r) => r.orderStatus === statusFilter);
-    if (dateRange?.length === 2) {
-      const [s, e] = dateRange;
-      const start = s.startOf("day").toDate().getTime();
-      const end = e.endOf("day").toDate().getTime();
-      rows = rows.filter((r) => {
-        const t = r.createdAt ? new Date(r.createdAt).getTime() : 0;
-        return t >= start && t <= end;
-      });
-    }
-    return rows.sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
-  }, [search, statusFilter, dateRange, orders]);
-
   const needsContractAction = useMemo(() => {
     const status = String(current?.orderStatus || current?.status || "").toUpperCase();
     return status === "PROCESSING";
@@ -2432,10 +1091,22 @@ export default function MyOrders() {
       }
       // Load invoice info
       try {
-        const invoice = await getInvoiceByRentalOrderId(idNum);
-        setInvoiceInfo(invoice || null);
+        const invoiceRes = await getInvoiceByRentalOrderId(idNum);
+        // API có thể trả về 1 object hoặc 1 mảng invoice
+        let invoice = null;
+        if (Array.isArray(invoiceRes)) {
+          invoice =
+            // Ưu tiên invoice thanh toán tiền thuê
+            invoiceRes.find(
+              (inv) =>
+                String(inv?.invoiceType || "").toUpperCase() === "RENT_PAYMENT"
+            ) || invoiceRes[0] || null;
+        } else {
+          invoice = invoiceRes || null;
+        }
+        setInvoiceInfo(invoice);
       } catch (invoiceErr) {
-        // Invoice might not exist yet, that's okay
+        // Invoice có thể chưa tồn tại – không coi là lỗi
         console.log("No invoice found for order:", idNum);
         setInvoiceInfo(null);
       }
@@ -3552,27 +2223,49 @@ export default function MyOrders() {
         const processing = (Array.isArray(res) ? res : []).filter((o) =>
           String(o?.orderStatus || o?.status || "").toLowerCase() === "processing"
         );
+
+        let hasNewProcessingOrder = false;
+        const newlySeenIds = [];
+
         for (const o of processing) {
           const id = o.orderId ?? o.id;
           if (id == null) continue;
           if (!seenProcessingRef.current.has(id)) {
             seenProcessingRef.current.add(id);
-            try { await loadOrders(); } catch {}
-            let contractsSnapshot = [];
-            try { contractsSnapshot = await loadAllContracts(); } catch {}
+            newlySeenIds.push(id);
+            hasNewProcessingOrder = true;
+          }
+        }
+
+        if (hasNewProcessingOrder) {
+          // Cập nhật lại orders & contracts một lần cho tất cả đơn mới phát hiện
+          try {
+            await loadOrders();
+          } catch {}
+
+          let contractsSnapshot = [];
+          try {
+            contractsSnapshot = await loadAllContracts();
+          } catch {}
+
+          newlySeenIds.forEach((id) => {
             const hasContractReady = hasAnyContract(id, contractsSnapshot);
             message.success(
               hasContractReady
                 ? `Đơn ${id} đã có hợp đồng. Vui lòng ký và thanh toán ngay.`
                 : `Đơn ${id} đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút.`
             );
-          }
+          });
         }
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("[Polling] Load orders failed:", e?.message || e);
       }
     };
+
+    // Không tạo thêm interval nếu đã tồn tại
+    if (pollingRef.current) return;
+
     run();
     pollingRef.current = setInterval(run, 20000);
   };
@@ -3591,282 +2284,20 @@ export default function MyOrders() {
   /* =========================
    * 7) COLUMNS
    * ========================= */
-  const columns = [
-    {
-      title: "Mã đơn",
-      dataIndex: "displayId",
-      key: "displayId",
-      width: 90,
-      fixed: "left",
-      render: (v) => <Text strong style={{ fontSize: 13 }}>{v}</Text>,
-      sorter: (a, b) => String(a.displayId).localeCompare(String(b.displayId)),
-    },
-    {
-      title: "Sản phẩm",
-      key: "items",
-      width: 220,
-      render: (_, r) => {
-        const first = r.items?.[0] || {};
-        const extra = (r.items?.length ?? 0) > 1 ? ` +${r.items.length - 1} mục` : "";
-        const imageUrl = first.image || "";
-        const productName = first.name || "—";
-        
-        return (
-          <Space size="middle">
-            {imageUrl ? (
-              <Avatar 
-                shape="square" 
-                size={40} 
-                src={imageUrl} 
-                style={{ borderRadius: 6 }}
-                onError={() => {
-                  // Fallback nếu ảnh lỗi
-                  return true;
-                }}
-              >
-                {productName.charAt(0).toUpperCase()}
-              </Avatar>
-            ) : (
-              <Avatar 
-                shape="square" 
-                size={40} 
-                style={{ borderRadius: 6, background: "#f0f0f0", color: "#999" }}
-              >
-                {productName !== "—" ? productName.charAt(0).toUpperCase() : "?"}
-              </Avatar>
-            )}
-            <div style={{ maxWidth: 150 }}>
-              <Text strong style={{ display: "block", fontSize: 13 }} ellipsis={{ tooltip: productName }}>
-                {productName}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>SL: {first.qty ?? 1}{extra}</Text>
-            </div>
-          </Space>
-        );
-      },
-    },
-    {
-      title: "Ngày tạo đơn",
-      dataIndex: "createdAt",
-      key: "createdAt",
-      width: 130,
-      render: (v) => formatDateTime(v),
-      sorter: (a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0),
-      defaultSortOrder: "descend",
-    },
-    { title: "Số ngày", dataIndex: "days", key: "days", align: "center", width: 80, sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0) },
-    {
-      title: "Tổng tiền thuê",
-      key: "rentalTotal",
-      align: "right",
-      width: 120,
-      render: (_, r) => <Text strong>{formatVND(Number(r.total || 0))}</Text>,
-      sorter: (a, b) => Number(a.total || 0) - Number(b.total || 0),
-    },
-    {
-      title: "Tổng tiền cọc",
-      key: "depositTotal",
-      align: "right",
-      width: 120,
-      render: (_, r) => {
-        const depositTotal = (r.items || []).reduce(
-          (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0
-        );
-        return <Text>{formatVND(depositTotal)}</Text>;
-      },
-      sorter: (a, b) => {
-        const aDep = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        const bDep = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        return aDep - bDep;
-      },
-    },
-    {
-      title: "Tổng thanh toán",
-      key: "grandTotal",
-      align: "right",
-      width: 140,
-      render: (_, r) => {
-        const dep = (r.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        return <Text strong>{formatVND(Number(r.total || 0) + dep)}</Text>;
-      },
-      sorter: (a, b) => {
-        const depA = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        const depB = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        return (Number(a.total || 0) + depA) - (Number(b.total || 0) + depB);
-      },
-    },
-    {
-      title: "Trạng thái",
-      dataIndex: "orderStatus",
-      key: "orderStatus",
-      width: 140,
-      render: (s) => {
-        const key = String(s || "").toLowerCase();
-        const m = ORDER_STATUS_MAP[key] || { label: s || "—", color: "default" };
-        return <Tag color={m.color} style={{ borderRadius: 20, padding: "0 12px" }}>{m.label}</Tag>;
-      },
-      filters: Object.entries(ORDER_STATUS_MAP).map(([value, { label }]) => ({ text: label, value })),
-      onFilter: (v, r) => String(r.orderStatus).toLowerCase() === String(v).toLowerCase(),
-    },
-    {
-      title: "",
-      key: "actions",
-      width: 100,
-      fixed: "right",
-      render: (_, r) => (
-        <Tooltip title="Chi tiết đơn">
-          <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => showDetail(r)} />
-        </Tooltip>
-      ),
-    },
-  ];
-
   /* =========================
    * 8) RENDER
    * ========================= */
   return (
     <>
-      <div
-        style={{
-          minHeight: "calc(100vh - var(--stacked-header,128px))",
-          marginTop: "-24px",
-          marginBottom: "-24px",
-          background: "#f0f2f5",
-          padding: "24px",
-        }}
-      >
-        <div className="h-full flex flex-col max-w-7xl mx-auto">
-          {/* Header Section */}
-          <Card
-            style={{
-              marginBottom: 16,
-              borderRadius: 12,
-              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-              border: "1px solid #eee",
-              background: "#ffffff",
-            }}
-            bodyStyle={{ padding: "16px 20px" }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-              <div>
-                <Title level={3} style={{ margin: 0, color: "#1a1a1a", fontWeight: 700, fontSize: 22 }}>
-                   Đơn thuê của tôi
-                 </Title>
-                <Text type="secondary" style={{ fontSize: 13, marginTop: 6, display: "block", color: "#666" }}>
-                   Theo dõi trạng thái đơn, thanh toán và tải hợp đồng
-                 </Text>
-              </div>
-              <Button
-                type="primary"
-                icon={<ReloadOutlined />}
-                onClick={refresh}
-                loading={loading}
-                size="middle"
-                style={{
-                  borderRadius: 8,
-                  height: 36,
-                  padding: "0 16px",
-                  fontWeight: 600,
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
-                }}
-              >
-                Tải lại
-              </Button>
-            </div>
-
-            {/* Filters Section */}
-            <Space wrap size="small" style={{ width: "100%" }}>
-              <Input
-                allowClear
-                prefix={<SearchOutlined />}
-                placeholder="Tìm theo mã đơn, tên thiết bị…"
-                size="middle"
-                style={{
-                  width: 300,
-                  borderRadius: 8,
-                  height: 36,
-                }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <RangePicker
-                onChange={setDateRange}
-                size="middle"
-                style={{
-                  borderRadius: 8,
-                  height: 36,
-                }}
-              />
-              <Dropdown
-                trigger={["click"]}
-                overlay={
-                  <Menu
-                    onClick={({ key }) => setStatusFilter(key === "all" ? undefined : key)}
-                    items={[
-                      { key: "all", label: "Tất cả trạng thái" },
-                      ...Object.entries(ORDER_STATUS_MAP).map(([k, v]) => ({ key: k, label: v.label })),
-                    ]}
-                  />
-                }
-              >
-                <Button
-                  size="middle"
-                  icon={<FilterOutlined />}
-                  style={{
-                    borderRadius: 8,
-                    height: 36,
-                    padding: "0 14px",
-                    borderColor: "#d9d9d9",
-                  }}
-                >
-                  {statusFilter ? `Lọc: ${ORDER_STATUS_MAP[statusFilter].label}` : "Lọc trạng thái"}
-                </Button>
-              </Dropdown>
-            </Space>
-          </Card>
-
-          {/* Table Section */}
-          <Card
-            style={{
-              borderRadius: 12,
-              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-              border: "none",
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-            }}
-            bodyStyle={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
-          >
-            {data.length === 0 ? (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
-                <AnimatedEmpty description="Chưa có đơn nào" />
-              </div>
-            ) : (
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <Table
-                  rowKey="id"
-                  columns={columns}
-                  dataSource={data}
-                  loading={loading || loadingOrders}
-                  size="small"
-                  bordered={false}
-                  className="modern-table"
-                  sticky
-                  scroll={{ x: 900, y: tableScrollY }}
-                  pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    position: ["bottomRight"],
-                    showTotal: (total) => `Tổng ${total} đơn`,
-                    style: { marginTop: 16 },
-                  }}
-                />
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
+      <MyOrdersList
+        orders={orders}
+        loading={loading || loadingOrders}
+        onRefresh={refresh}
+        onSelectOrder={showDetail}
+        formatDateTime={formatDateTime}
+        formatVND={formatVND}
+        orderStatusMap={ORDER_STATUS_MAP}
+      />
 
       {/* Drawer chi tiết đơn */}
       <Drawer
@@ -4216,1088 +2647,112 @@ export default function MyOrders() {
                 key: "contract",
                 label: "Hợp đồng",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    <Card
-                      style={{
-                        marginBottom: 24,
-                        borderRadius: 12,
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                        border: "1px solid #e8e8e8",
-                      }}
-                      title={
-                        <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                          Hợp đồng đã tạo
-                        </Title>
-                      }
-                    >
-                      {contractsLoading ? (
-                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                          <Text type="secondary">Đang tải danh sách hợp đồng...</Text>
-                        </div>
-                      ) : contracts.length > 0 ? (
-                        <Table
-                          rowKey="id"
-                          onRow={(record) => ({
-                            onClick: () => {
-                              const isSameContract = selectedContract?.id === record.id;
-                              setSelectedContract(record);
-                              // Auto preview when selecting a different contract or if no preview exists
-                              if (!isSameContract || !contractPdfPreviewUrl) {
-                                previewContractAsPdfInline(record);
-                              }
-                            },
-                            style: { cursor: 'pointer' }
-                          })}
-                          rowClassName={(record) => 
-                            selectedContract?.id === record.id ? 'ant-table-row-selected' : ''
-                          }
-                          columns={[
-                            { title: "Mã hợp đồng", dataIndex: "id", width: 100, render: (v) => <Text strong>#{v}</Text> },
-                            { title: "Số hợp đồng", dataIndex: "number", width: 120, render: (v) => v || "—" },
-                            {
-                              title: "Trạng thái", dataIndex: "status", width: 140,
-                              render: (status) => {
-                                const key = String(status || "").toLowerCase();
-                                const info = CONTRACT_STATUS_MAP[key];
-                                return info ? <Tag color={info.color}>{info.label}</Tag> : <Tag>{status}</Tag>;
-                              },
-                            },
-                            { title: "Ngày tạo", dataIndex: "createdAt", width: 150, render: (v) => formatDateTime(v) },
-                            { 
-                              title: "Tổng thanh toán", 
-                              key: "totalPayment", 
-                              width: 140, 
-                              align: "right", 
-                              render: (_, record) => {
-                                const totalAmount = Number(record.totalAmount || 0);
-                                const depositAmount = Number(record.depositAmount || 0);
-                                return formatVND(totalAmount + depositAmount);
-                              }
-                            },
-                            {
-                              title: "Thao tác",
-                              key: "actions",
-                              width: 220,
-                              render: (_, record) => (
-                                <Space size="small">
-                                  <Button
-                                    size="small"
-                                    icon={<EyeOutlined />}
-                                    onClick={() => {
-                                      setSelectedContract(record);
-                                      previewContractAsPdfInline(record);
-                                    }}
-                                    loading={pdfGenerating && selectedContract?.id === record.id}
-                                  >
-                                    Xem PDF
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    icon={<DownloadOutlined />}
-                                    onClick={() => handleDownloadContract(record)}
-                                    loading={pdfGenerating && selectedContract?.id === record.id}
-                                  >
-                                    Tải PDF
-                                  </Button>
-                            
-                                  {String(record.status || "").toUpperCase() === "PENDING_SIGNATURE" && (
-                                    <Button size="small" type="primary" onClick={() => handleSignContract(record.id)}>
-                                      Ký
-                                    </Button>
-                                  )}
-                                </Space>
-                              ),
-                            }
-                          ]}
-                          dataSource={contracts}
-                          pagination={false}
-                          size="small"
-                        />
-                      ) : null}
-
-                      {(() => {
-                        const items = Array.isArray(current?.items) ? current.items : [];
-                        const days = Number(current?.days || 1);
-                        const rentalTotal = items.reduce((s, it) => s + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0) * days;
-                        const depositTotal = items.reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-                        
-                        // Check payment status from invoice if available, otherwise use order paymentStatus
-                        const invoiceStatus = invoiceInfo?.invoiceStatus;
-                        const paymentStatus = invoiceStatus 
-                          ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
-                          : String(current.paymentStatus || "unpaid").toLowerCase();
-                        
-                        const canPayCurrent =
-                          ["unpaid", "partial"].includes(paymentStatus) &&
-                          String(current.orderStatus).toLowerCase() === "processing" &&
-                          hasSignedContract(current.id) &&
-                          Number((current?.total ?? rentalTotal) + depositTotal) > 0;
-
-                        if (!canPayCurrent) return null;
-
-                        return (
-                          <div style={{ padding: '16px', textAlign: 'right', borderTop: '1px solid #f0f0f0', marginTop: 16 }}>
-                            <Button
-                              type="primary"
-                              size="middle"
-                              icon={<DollarOutlined />}
-                              onClick={() => handlePayment(current)}
-                              loading={processingPayment}
-                              style={{
-                                borderRadius: 8,
-                                fontWeight: 500,
-                              }}
-                            >
-                              Thanh toán
-                            </Button>
-                          </div>
-                        );
-                      })()}
-                    </Card>
-
-                    <Card
-                      style={{
-                        borderRadius: 12,
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                        border: "1px solid #e8e8e8",
-                      }}
-                      title={
-                        <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                          Hợp đồng PDF
-                        </Title>
-                      }
-                    >
-                      <Space style={{ marginBottom: 16 }} wrap>
-                        {selectedContract && (
-                          <>
-                            <Button 
-                              icon={<ExpandOutlined />} 
-                              onClick={() => {
-                                const url = contractPdfPreviewUrl || selectedContract.contractUrl || pdfPreviewUrl;
-                                return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
-                              }}
-                            >
-                              Xem toàn màn hình
-                            </Button>
-                            {contractPdfPreviewUrl && (
-                              <>
-                                <Button 
-                                  type="primary" 
-                                  icon={<DownloadOutlined />} 
-                                  onClick={() => {
-                                    if (selectedContract) {
-                                      handleDownloadContract(selectedContract);
-                                    }
-                                  }}
-                                  loading={pdfGenerating}
-                                >
-                                  Tải hợp đồng
-                                </Button>
-                              </>
-                            )}
-                          </>
-                        )}
-                        {!contractPdfPreviewUrl && selectedContract && (
-                          <>
-                            <Button 
-                              onClick={() => previewContractAsPdfInline(selectedContract)} 
-                              loading={pdfGenerating}
-                            >
-                              Xem trước hợp đồng PDF
-                            </Button>
-                            <Button 
-                              type="primary" 
-                              onClick={() => {
-                                if (selectedContract) {
-                                  handleDownloadContract(selectedContract);
-                                }
-                              }} 
-                              loading={pdfGenerating}
-                            >
-                              Tạo & tải hợp đồng PDF
-                            </Button>
-                          </>
-                        )}
-                        {!selectedContract && (
-                          <Text type="secondary">Vui lòng chọn một hợp đồng từ danh sách để xem PDF</Text>
-                        )}
-                      </Space>
-
-                      <div
-                        style={{
-                          height: 460,
-                          border: "1px solid #e8e8e8",
-                          borderRadius: 10,
-                          overflow: "hidden",
-                          background: "#fafafa",
-                          marginTop: 12,
-                          boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        {contractPdfPreviewUrl ? (
-                          <iframe
-                            key={contractPdfPreviewUrl}
-                            title="ContractPreview"
-                            src={contractPdfPreviewUrl}
-                            style={{ width: "100%", height: "100%", border: "none" }}
-                          />
-                        ) : (
-                          <div className="h-full flex items-center justify-center">
-                            <Text type="secondary">
-                              <FilePdfOutlined /> {selectedContract ? "Nhấn 'Xem trước hợp đồng PDF' để hiển thị" : "Chưa chọn hợp đồng để hiển thị."}
-                            </Text>
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  </div>
+                  <MyOrderContractTab
+                    current={current}
+                    contracts={contracts}
+                    contractsLoading={contractsLoading}
+                    selectedContract={selectedContract}
+                    setSelectedContract={setSelectedContract}
+                    contractPdfPreviewUrl={contractPdfPreviewUrl}
+                    pdfGenerating={pdfGenerating}
+                    processingPayment={processingPayment}
+                    invoiceInfo={invoiceInfo}
+                    PAYMENT_STATUS_MAP={PAYMENT_STATUS_MAP}
+                    CONTRACT_STATUS_MAP={CONTRACT_STATUS_MAP}
+                    formatVND={formatVND}
+                    formatDateTime={formatDateTime}
+                    hasSignedContract={hasSignedContract}
+                    handlePayment={handlePayment}
+                    handleDownloadContract={handleDownloadContract}
+                    handleSignContract={handleSignContract}
+                    previewContractAsPdfInline={previewContractAsPdfInline}
+                    mapInvoiceStatusToPaymentStatus={mapInvoiceStatusToPaymentStatus}
+                    message={message}
+                    pdfPreviewUrl={pdfPreviewUrl}
+                  />
                 ),
               },
               {
                 key: "handover",
                 label: "Biên bản bàn giao",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {handoverReportsLoading ? (
-                      <Card>
-                        <Text>Đang tải biên bản bàn giao...</Text>
-                      </Card>
-                    ) : checkoutReports.length > 0 ? (
-                      <>
-                      <Card
-                        style={{
-                          marginBottom: 24,
-                          borderRadius: 12,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                          border: "1px solid #e8e8e8",
-                        }}
-                        title={
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                              Danh sách biên bản bàn giao
-                            </Title>
-                            <Button
-                              size="small"
-                              icon={<ReloadOutlined />}
-                              onClick={async () => {
-                                if (current?.id) {
-                                  await loadOrderHandoverReports(current.id);
-                                  message.success("Đã tải lại danh sách biên bản bàn giao");
-                                }
-                              }}
-                              loading={handoverReportsLoading}
-                            >
-                              Tải lại
-                            </Button>
-                          </div>
-                        }
-                      >
-                        <Table
-                          rowKey="handoverReportId"
-                          onRow={(record) => ({
-                            onClick: () => {
-                              const isSameReport = selectedHandoverReport?.handoverReportId === record.handoverReportId;
-                              setSelectedHandoverReport(record);
-                              // Auto preview when selecting a different report or if no preview exists
-                              if (!isSameReport || !handoverPdfPreviewUrl) {
-                                previewHandoverReportAsPdf(record, { target: "handover" });
-                              }
-                            },
-                            style: { cursor: 'pointer' }
-                          })}
-                          rowClassName={(record) => 
-                            selectedHandoverReport?.handoverReportId === record.handoverReportId ? 'ant-table-row-selected' : ''
-                          }
-                          columns={[
-                            { title: "Mã biên bản", dataIndex: "handoverReportId", width: 120, render: (v) => <Text strong>#{v}</Text> },
-                            {
-                              title: "Trạng thái", dataIndex: "status", width: 160,
-                              render: (status) => {
-                                const s = String(status || "").toUpperCase();
-                                const color = s === "STAFF_SIGNED" ? "green" : s === "CUSTOMER_SIGNED" ? "blue" : s === "COMPLETED" || s === "BOTH_SIGNED" ? "green" : "orange";
-                                const label = translateHandoverStatus(status);
-                                return <Tag color={color}>{label}</Tag>;
-                              },
-                            },
-                            { title: "Thời gian bàn giao", dataIndex: "handoverDateTime", width: 180, render: (v) => formatDateTime(v) },
-                            { title: "Địa điểm", dataIndex: "handoverLocation", width: 250, ellipsis: true },
-                            {
-                              title: "Thao tác",
-                              key: "actions",
-                              width: 180,
-                              render: (_, record) => {
-                                const status = String(record.status || "").toUpperCase();
-                                const isStaffSigned = status === "STAFF_SIGNED" || status === "BOTH_SIGNED";
-                                const isCustomerSigned = record.customerSigned === true || status === "CUSTOMER_SIGNED" || status === "BOTH_SIGNED" || status === "COMPLETED";
-                                const canSign = isStaffSigned && !isCustomerSigned;
-                                
-                                return (
-                                  <Space size="small" wrap>
-                                    <Button
-                                      size="small"
-                                      icon={<EyeOutlined />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedHandoverReport(record);
-                                        previewHandoverReportAsPdf(record, { target: "handover" });
-                                      }}
-                                      loading={handoverPdfGenerating && selectedHandoverReport?.handoverReportId === record.handoverReportId}
-                                    >
-                                      Xem PDF
-                                    </Button>
-                                    {canSign && (
-                                      <Button
-                                        size="small"
-                                        type="primary"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleSignHandoverReport(record.handoverReportId);
-                                        }}
-                                      >
-                                        Ký
-                                      </Button>
-                                    )}
-                                  </Space>
-                                );
-                              },
-                            }
-                          ]}
-                          dataSource={checkoutReports}
-                          pagination={false}
-                          size="small"
-                          scroll={{ x: 890 }}
-                        />
-                      </Card>
-
-                      <Card
-                        style={{
-                          borderRadius: 12,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                          border: "1px solid #e8e8e8",
-                        }}
-                        title={
-                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                            Biên bản bàn giao PDF
-                          </Title>
-                        }
-                      >
-                        <Space style={{ marginBottom: 16 }} wrap>
-                          {selectedHandoverReport && (
-                            <>
-                              <Button 
-                                icon={<ExpandOutlined />} 
-                                onClick={() => {
-                                  const url = handoverPdfPreviewUrl || handoverPdfBlobUrl;
-                                  return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
-                                }}
-                              >
-                                Xem toàn màn hình
-                              </Button>
-                              {handoverPdfPreviewUrl && (
-                                <>
-                                  <Button 
-                                    type="primary" 
-                                    icon={<DownloadOutlined />} 
-                                    onClick={() => {
-                                      if (selectedHandoverReport) {
-                                        handleDownloadHandoverPdf(selectedHandoverReport);
-                                      }
-                                    }}
-                                    loading={handoverPdfGenerating}
-                                  >
-                                    Tải biên bản
-                                  </Button>
-                                 
-                                </>
-                              )}
-                            </>
-                          )}
-                          {!handoverPdfPreviewUrl && selectedHandoverReport && (
-                            <>
-                              <Button 
-                                onClick={() => previewHandoverReportAsPdf(selectedHandoverReport, { target: "handover" })} 
-                                loading={handoverPdfGenerating}
-                              >
-                                Xem trước biên bản PDF
-                              </Button>
-                              <Button 
-                                type="primary" 
-                                onClick={() => handleDownloadHandoverPdf(selectedHandoverReport)} 
-                                loading={handoverPdfGenerating}
-                              >
-                                Tạo & tải biên bản PDF
-                              </Button>
-                            </>
-                          )}
-                          {!selectedHandoverReport && (
-                            <Text type="secondary">Vui lòng chọn một biên bản từ danh sách để xem PDF</Text>
-                          )}
-                        </Space>
-
-                        <div
-                          style={{
-                            height: 460,
-                            border: "1px solid #e8e8e8",
-                            borderRadius: 10,
-                            overflow: "hidden",
-                            background: "#fafafa",
-                            marginTop: 12,
-                            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
-                          }}
-                        >
-                          {handoverPdfPreviewUrl ? (
-                            <iframe
-                              key={handoverPdfPreviewUrl}
-                              title="HandoverReportPreview"
-                              src={handoverPdfPreviewUrl}
-                              style={{ width: "100%", height: "100%", border: "none" }}
-                            />
-                          ) : (
-                            <div className="h-full flex items-center justify-center">
-                              <Text type="secondary">
-                                <FilePdfOutlined /> {selectedHandoverReport ? "Nhấn 'Xem trước biên bản PDF' để hiển thị" : "Chưa chọn biên bản để hiển thị."}
-                              </Text>
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                      </>
-                    ) : null}
-                  </div>
+                  <MyOrderHandoverTab
+                    current={current}
+                    checkoutReports={checkoutReports}
+                    checkinReports={checkinReports}
+                    handoverReportsLoading={handoverReportsLoading}
+                    selectedHandoverReport={selectedHandoverReport}
+                    setSelectedHandoverReport={setSelectedHandoverReport}
+                    selectedCheckinReport={selectedCheckinReport}
+                    setSelectedCheckinReport={setSelectedCheckinReport}
+                    handoverPdfPreviewUrl={handoverPdfPreviewUrl}
+                    checkinPdfPreviewUrl={checkinPdfPreviewUrl}
+                    handoverPdfBlobUrl={handoverPdfBlobUrl}
+                    handoverPdfGenerating={handoverPdfGenerating}
+                    formatDateTime={formatDateTime}
+                    translateHandoverStatus={translateHandoverStatus}
+                    loadOrderHandoverReports={loadOrderHandoverReports}
+                    previewHandoverReportAsPdf={previewHandoverReportAsPdf}
+                    handleDownloadHandoverPdf={handleDownloadHandoverPdf}
+                    handleSignHandoverReport={handleSignHandoverReport}
+                    message={message}
+                  />
                 ),
               },
               {
                 key: "checkin",
                 label: "Biên bản thu hồi",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {handoverReportsLoading ? (
-                      <Card>
-                        <Text>Đang tải biên bản thu hồi...</Text>
-                      </Card>
-                    ) : checkinReports.length > 0 ? (
-                      <>
-                      <Card
-                        style={{
-                          marginBottom: 24,
-                          borderRadius: 12,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                          border: "1px solid #e8e8e8",
-                        }}
-                        title={
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                              Danh sách biên bản thu hồi
-                            </Title>
-                            <Button
-                              size="small"
-                              icon={<ReloadOutlined />}
-                              onClick={async () => {
-                                if (current?.id) {
-                                  await loadOrderHandoverReports(current.id);
-                                  message.success("Đã tải lại danh sách biên bản thu hồi");
-                                }
-                              }}
-                              loading={handoverReportsLoading}
-                            >
-                              Tải lại
-                            </Button>
-                          </div>
-                        }
-                      >
-                        <Table
-                          rowKey="handoverReportId"
-                          onRow={(record) => ({
-                            onClick: () => {
-                              const isSameReport = selectedCheckinReport?.handoverReportId === record.handoverReportId;
-                              setSelectedCheckinReport(record);
-                              // Auto preview when selecting a different report or if no preview exists
-                              if (!isSameReport || !checkinPdfPreviewUrl) {
-                                previewHandoverReportAsPdf(record, { target: "checkin" });
-                              }
-                            },
-                            style: { cursor: 'pointer' }
-                          })}
-                          rowClassName={(record) => 
-                            selectedCheckinReport?.handoverReportId === record.handoverReportId ? 'ant-table-row-selected' : ''
-                          }
-                          columns={[
-                            { title: "Mã biên bản", dataIndex: "handoverReportId", width: 120, render: (v) => <Text strong>#{v}</Text> },
-                            {
-                              title: "Trạng thái", dataIndex: "status", width: 160,
-                              render: (status) => {
-                                const s = String(status || "").toUpperCase();
-                                const color = s === "STAFF_SIGNED" ? "green" : s === "CUSTOMER_SIGNED" ? "blue" : s === "COMPLETED" || s === "BOTH_SIGNED" ? "green" : "orange";
-                                const label = translateHandoverStatus(status);
-                                return <Tag color={color}>{label}</Tag>;
-                              },
-                            },
-                            { title: "Thời gian thu hồi", dataIndex: "handoverDateTime", width: 180, render: (v) => formatDateTime(v) },
-                            { title: "Địa điểm", dataIndex: "handoverLocation", width: 250, ellipsis: true },
-                            {
-                              title: "Thao tác",
-                              key: "actions",
-                              width: 180,
-                              render: (_, record) => {
-                                const status = String(record.status || "").toUpperCase();
-                                const isStaffSigned = status === "STAFF_SIGNED" || status === "BOTH_SIGNED";
-                                const isCustomerSigned = record.customerSigned === true || status === "CUSTOMER_SIGNED" || status === "BOTH_SIGNED" || status === "COMPLETED";
-                                const canSign = isStaffSigned && !isCustomerSigned;
-                                
-                                return (
-                                  <Space size="small" wrap>
-                                    <Button
-                                      size="small"
-                                      icon={<EyeOutlined />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedCheckinReport(record);
-                                        previewHandoverReportAsPdf(record, { target: "checkin" });
-                                      }}
-                                      loading={handoverPdfGenerating && selectedCheckinReport?.handoverReportId === record.handoverReportId}
-                                    >
-                                      Xem PDF
-                                    </Button>
-                                    {canSign && (
-                                      <Button
-                                        size="small"
-                                        type="primary"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleSignHandoverReport(record.handoverReportId);
-                                        }}
-                                      >
-                                        Ký
-                                      </Button>
-                                    )}
-                                  </Space>
-                                );
-                              },
-                            }
-                          ]}
-                          dataSource={checkinReports}
-                          pagination={false}
-                          size="small"
-                          scroll={{ x: 890 }}
-                        />
-                      </Card>
-
-                      <Card
-                        style={{
-                          borderRadius: 12,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                          border: "1px solid #e8e8e8",
-                        }}
-                        title={
-                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                            Biên bản thu hồi PDF
-                          </Title>
-                        }
-                      >
-                        <Space style={{ marginBottom: 16 }} wrap>
-                          {selectedCheckinReport && (
-                            <>
-                              <Button 
-                                icon={<ExpandOutlined />} 
-                                onClick={() => {
-                                  const url = checkinPdfPreviewUrl || handoverPdfBlobUrl;
-                                  return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
-                                }}
-                              >
-                                Xem toàn màn hình
-                              </Button>
-                              {checkinPdfPreviewUrl && (
-                                <>
-                                  <Button 
-                                    type="primary" 
-                                    icon={<DownloadOutlined />} 
-                                    onClick={() => {
-                                      if (selectedCheckinReport) {
-                                        handleDownloadHandoverPdf(selectedCheckinReport);
-                                      }
-                                    }}
-                                    loading={handoverPdfGenerating}
-                                  >
-                                    Tải biên bản
-                                  </Button>
-                                </>
-                              )}
-                            </>
-                          )}
-                          {!checkinPdfPreviewUrl && selectedCheckinReport && (
-                            <>
-                              <Button 
-                                onClick={() => previewHandoverReportAsPdf(selectedCheckinReport, { target: "checkin" })} 
-                                loading={handoverPdfGenerating}
-                              >
-                                Xem trước biên bản PDF
-                              </Button>
-                              <Button 
-                                type="primary" 
-                                onClick={() => handleDownloadHandoverPdf(selectedCheckinReport)} 
-                                loading={handoverPdfGenerating}
-                              >
-                                Tạo & tải biên bản PDF
-                              </Button>
-                            </>
-                          )}
-                          {!selectedCheckinReport && (
-                            <Text type="secondary">Vui lòng chọn một biên bản từ danh sách để xem PDF</Text>
-                          )}
-                        </Space>
-
-                        <div
-                          style={{
-                            height: 460,
-                            border: "1px solid #e8e8e8",
-                            borderRadius: 10,
-                            overflow: "hidden",
-                            background: "#fafafa",
-                            marginTop: 12,
-                            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
-                          }}
-                        >
-                          {checkinPdfPreviewUrl ? (
-                            <iframe
-                              key={checkinPdfPreviewUrl}
-                              title="CheckinReportPreview"
-                              src={checkinPdfPreviewUrl}
-                              style={{ width: "100%", height: "100%", border: "none" }}
-                            />
-                          ) : (
-                            <div className="h-full flex items-center justify-center">
-                              <Text type="secondary">
-                                <FilePdfOutlined /> {selectedCheckinReport ? "Nhấn 'Xem trước biên bản PDF' để hiển thị" : "Chưa chọn biên bản để hiển thị."}
-                              </Text>
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                      </>
-                    ) : null}
-                  </div>
+                  <MyOrderCheckinTab
+                    current={current}
+                    checkinReports={checkinReports}
+                    handoverReportsLoading={handoverReportsLoading}
+                    selectedCheckinReport={selectedCheckinReport}
+                    setSelectedCheckinReport={setSelectedCheckinReport}
+                    checkinPdfPreviewUrl={checkinPdfPreviewUrl}
+                    handoverPdfBlobUrl={handoverPdfBlobUrl}
+                    handoverPdfGenerating={handoverPdfGenerating}
+                    formatDateTime={formatDateTime}
+                    translateHandoverStatus={translateHandoverStatus}
+                    loadOrderHandoverReports={loadOrderHandoverReports}
+                    previewHandoverReportAsPdf={previewHandoverReportAsPdf}
+                    handleDownloadHandoverPdf={handleDownloadHandoverPdf}
+                    handleSignHandoverReport={handleSignHandoverReport}
+                    message={message}
+                  />
                 ),
               },
               {
                 key: "return",
                 label: "Trả hàng và gia hạn",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {(() => {
-                      const daysRemaining = getDaysRemaining(current?.endDate);
-                      const isClose = isCloseToReturnDate(current);
-                      const returnConfirmed = isReturnConfirmedSync(current);
-                      const status = String(current?.orderStatus || "").toLowerCase();
-                      const canReturn = ["active", "in_use"].includes(status) && daysRemaining !== null && !returnConfirmed;
-
-                      // If return is confirmed, show thank you message
-                      if (returnConfirmed) {
-                        return (
-                          <>
-                            <Card
-                              style={{
-                                marginBottom: 24,
-                                borderRadius: 12,
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                                border: "1px solid #52c41a",
-                                background: "#f6ffed",
-                              }}
-                            >
-                              <Alert
-                                type="success"
-                                showIcon
-                                message="Cảm ơn bạn đã xác nhận trả hàng"
-                                description={
-                                  <div>
-                                    <Text>
-                                      Chúng tôi đã nhận được xác nhận trả hàng của bạn cho đơn hàng <Text strong>#{current?.displayId ?? current?.id}</Text>.
-                                    </Text>
-                                    <div style={{ marginTop: 12 }}>
-                                      <Text strong>Những việc tiếp theo:</Text>
-                                      <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
-                                        <li>Vui lòng chuẩn bị thiết bị và tất cả phụ kiện đi kèm để bàn giao</li>
-                                        <li>Đảm bảo thiết bị được đóng gói cẩn thận và an toàn</li>
-                                        <li>Kiểm tra lại danh sách thiết bị và phụ kiện theo hợp đồng trước khi bàn giao</li>
-                                      </ul>
-                                    </div>
-                                  </div>
-                                }
-                              />
-                            </Card>
-
-                            <Card
-                              style={{
-                                marginBottom: 24,
-                                borderRadius: 12,
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                                border: "1px solid #e8e8e8",
-                              }}
-                              title={
-                                <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                  Thông tin trả hàng
-                                </Title>
-                              }
-                            >
-                              <Descriptions bordered column={1} size="middle">
-                                <Descriptions.Item label="Mã đơn hàng">
-                                  <Text strong>#{current?.displayId ?? current?.id}</Text>
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Ngày bắt đầu thuê">
-                                  {current?.startDate ? formatDateTime(current.startDate) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Ngày kết thúc thuê">
-                                  {current?.endDate ? formatDateTime(current.endDate) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Số ngày thuê">
-                                  {(() => {
-                                    if (!current?.startDate || !current?.endDate) {
-                                      return current?.days ? `${current.days} ngày` : "—";
-                                    }
-                                    const rentalDays = diffDays(current.startDate, current.endDate);
-                                    return `${rentalDays} ngày`;
-                                  })()}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Trạng thái">
-                                  <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>
-                                    Đã xác nhận trả hàng
-                                  </Tag>
-                                </Descriptions.Item>
-                              </Descriptions>
-                            </Card>
-                          </>
-                        );
-                      }
-
-                      // Normal return/extend interface
-                      return (
-                        <>
-                          <Card
-                            style={{
-                              marginBottom: 24,
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                            }}
-                            title={
-                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                Thông tin trả hàng
-                              </Title>
-                            }
-                          >
-                            <Descriptions bordered column={1} size="middle">
-                              <Descriptions.Item label="Ngày bắt đầu thuê">
-                                {current?.startDate ? formatDateTime(current.startDate) : "—"}
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Ngày kết thúc thuê">
-                                {current?.endDate ? formatDateTime(current.endDate) : "—"}
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Số ngày thuê">
-                                {(() => {
-                                  if (!current?.startDate || !current?.endDate) {
-                                    return current?.days ? `${current.days} ngày` : "—";
-                                  }
-                                  const rentalDays = diffDays(current.startDate, current.endDate);
-                                  return `${rentalDays} ngày`;
-                                })()}
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Thời gian còn lại">
-                                {daysRemaining !== null ? (
-                                  <Tag color={isClose ? "orange" : "green"} style={{ fontSize: 14, padding: "4px 12px" }}>
-                                    {formatRemainingDaysText(daysRemaining)}
-                                  </Tag>
-                                ) : (
-                                  "—"
-                                )}
-                              </Descriptions.Item>
-                            </Descriptions>
-                          </Card>
-
-                          {isClose && (
-                            <Card
-                              style={{
-                                marginBottom: 24,
-                                borderRadius: 12,
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                                border: "1px solid #ffa940",
-                                background: "#fff7e6",
-                              }}
-                            >
-                              <Alert
-                                type="warning"
-                                showIcon
-                                message="Đơn hàng sắp đến hạn trả"
-                                description={
-                                  <div>
-                                    <Text>
-                                      Đơn hàng của bạn sẽ hết hạn sau 1 ngày. Vui lòng chọn một trong các tùy chọn sau:
-                                    </Text>
-                                    <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
-                                      <li><Text strong>Gia hạn:</Text> Nếu bạn muốn tiếp tục sử dụng thiết bị, vui lòng liên hệ bộ phận hỗ trợ để gia hạn.</li>
-                                      <li><Text strong>Trả hàng:</Text> Xác nhận trả hàng để chúng tôi thu hồi thiết bị đúng hạn.</li>
-                                    </ul>
-                                  </div>
-                                }
-                              />
-                            </Card>
-                          )}
-
-                          <Card
-                            style={{
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                            }}
-                            title={
-                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                Thao tác
-                              </Title>
-                            }
-                          >
-                            <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                              {canReturn && (
-                                <>
-                                  <div>
-                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
-                                      Gia hạn đơn hàng
-                                    </Text>
-                                    <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
-                                      Nếu bạn muốn tiếp tục sử dụng thiết bị, vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.
-                                    </Text>
-                                    <Button
-                                      type="default"
-                                      size="large"
-                                      onClick={() => setExtendModalOpen(true)}
-                                      style={{ width: "100%" }}
-                                    >
-                                      Yêu cầu gia hạn
-                                    </Button>
-                                  </div>
-                                  <Divider />
-                                  <div>
-                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
-                                      Xác nhận trả hàng
-                                    </Text>
-                                    
-                                    <Button
-                                      type="primary"
-                                      size="large"
-                                      onClick={() => setReturnModalOpen(true)}
-                                      style={{ width: "100%" }}
-                                      danger={isClose}
-                                    >
-                                      Xác nhận trả hàng
-                                    </Button>
-                                  </div>
-                                </>
-                              )}
-                              {!canReturn && (
-                                <Alert
-                                  type="info"
-                                  message="Đơn hàng này không thể trả hàng hoặc gia hạn"
-                                  description="Chỉ các đơn hàng đang trong trạng thái 'Đang thuê' hoặc 'Đang sử dụng' mới có thể thực hiện thao tác trả hàng hoặc gia hạn."
-                                />
-                              )}
-                            </Space>
-                          </Card>
-                        </>
-                      );
-                    })()}
-                  </div>
+                  <MyOrderReturnTab
+                    current={current}
+                    getDaysRemaining={getDaysRemaining}
+                    formatRemainingDaysText={formatRemainingDaysText}
+                    isCloseToReturnDate={isCloseToReturnDate}
+                    isReturnConfirmedSync={isReturnConfirmedSync}
+                    setReturnModalOpen={setReturnModalOpen}
+                    setExtendModalOpen={setExtendModalOpen}
+                    diffDays={diffDays}
+                    formatDateTime={formatDateTime}
+                  />
                 ),
               },
               {
                 key: "settlement",
                 label: "Quyết toán & hoàn cọc",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {settlementLoading ? (
-                      <Card>
-                        <Text>Đang tải thông tin quyết toán...</Text>
-                      </Card>
-                    ) : settlementInfo ? (
-                      <>
-                        {(() => {
-                          const totalDeposit = Number(settlementInfo.totalDeposit || 0);
-                          const damageFee = Number(settlementInfo.damageFee || 0);
-                          const lateFee = Number(settlementInfo.lateFee || 0);
-                          const accessoryFee = Number(settlementInfo.accessoryFee || 0);
-                          const totalFees = damageFee + lateFee + accessoryFee;
-                          const depositUsed = Math.min(totalDeposit, totalFees);
-                          const { refundAmount, customerDueAmount, netAmount } = splitSettlementAmounts(
-                            settlementInfo.finalReturnAmount ?? settlementInfo.finalAmount ?? 0
-                          );
-                          const highlightLabel =
-                            refundAmount > 0
-                              ? "Bạn sẽ được hoàn lại"
-                              : customerDueAmount > 0
-                              ? "Bạn cần thanh toán thêm"
-                              : "Không phát sinh số tiền cần hoàn/thu thêm";
-                          const highlightAmount = formatVND(
-                            refundAmount > 0 ? refundAmount : customerDueAmount
-                          );
-                          const highlightColor =
-                            refundAmount > 0
-                              ? "#1d4ed8" // xanh dương
-                              : customerDueAmount > 0
-                              ? "#dc2626" // đỏ
-                              : "#111";
-
-                          return (
-                        <Card
-                          style={{
-                            marginBottom: 24,
-                            borderRadius: 12,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                            border: "1px solid #e8e8e8",
-                          }}
-                          title={
-                            <Title level={5} style={{ margin: 0 }}>
-                              Thông tin quyết toán
-                            </Title>
-                          }
-                        >
-                          <Descriptions bordered column={1} size="middle">
-                            <Descriptions.Item label="Tổng tiền cọc">
-                              {formatVND(totalDeposit)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Phí hư hỏng">
-                              {formatVND(damageFee)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Phí trễ hạn">
-                              {formatVND(lateFee)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Phí phụ kiện">
-                              {formatVND(accessoryFee)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Cọc đã dùng">
-                              {formatVND(depositUsed)}
-                            </Descriptions.Item>
-                            {refundAmount > 0 && (
-                              <Descriptions.Item label="Số tiền cọc bạn sẽ được hoàn lại">
-                                <Text strong style={{ color: "#1d4ed8" }}>
-                                  {formatVND(refundAmount)}
-                                </Text>
-                              </Descriptions.Item>
-                            )}
-                            {customerDueAmount > 0 && (
-                              <Descriptions.Item label="Số tiền cần thanh toán thêm">
-                                <Text strong style={{ color: "#dc2626" }}>
-                                  {formatVND(customerDueAmount)}
-                                </Text>
-                              </Descriptions.Item>
-                            )}
-                            <Descriptions.Item label="Trạng thái">
-                              {(() => {
-                                const key = String(settlementInfo.state || "").toLowerCase();
-                                const info = SETTLEMENT_STATUS_MAP[key] || { label: settlementInfo.state || "—", color: "default" };
-                                return <Tag color={info.color}>{info.label}</Tag>;
-                              })()}
-                            </Descriptions.Item>
-                          </Descriptions>
-                          <div
-                            style={{
-                              marginTop: 16,
-                              padding: "12px 16px",
-                              borderRadius: 10,
-                              background: "#f5f5f5",
-                              border: "1px solid #d0d0d0",
-                              color: "#111",
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 6,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: "#111827",
-                                fontSize: 14,
-                                fontWeight: 600,
-                              }}
-                            >
-                              {highlightLabel}
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: netAmount === 0 ? 18 : 20,
-                                fontWeight: 600,
-                                color: highlightColor,
-                              }}
-                            >
-                              {highlightAmount}
-                            </Text>
-                            {customerDueAmount > 0 && (
-                              <Text style={{ color: "#666", fontSize: 12 }}>
-                                Số tiền hiển thị là giá trị tuyệt đối bạn cần thanh toán thêm.
-                              </Text>
-                            )}
-                          </div>
-                        </Card>
-                          );
-                        })()}
-
-                        <Card
-                          style={{
-                            borderRadius: 12,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                            border: "1px solid #e8e8e8",
-                          }}
-                        >
-                          {(() => {
-                            const state = String(settlementInfo.state || "").toUpperCase();
-                            const canRespond = !["ISSUED", "REJECTED", "CANCELLED", "CLOSED"].includes(state);
-                            if (!canRespond) {
-                              return (
-                                <Alert
-                                  type={
-                                    state === "ISSUED"
-                                      ? "success"
-                                      : state === "REJECTED"
-                                      ? "error"
-                                      : "info"
-                                  }
-                                  showIcon
-                                  message={
-                                    state === "ISSUED"
-                                      ? "Bạn đã chấp nhận quyết toán này."
-                                      : state === "REJECTED"
-                                      ? "Bạn đã từ chối quyết toán này."
-                                      : state === "CLOSED"
-                                      ? "Quyết toán đã tất toán xong. Cảm ơn bạn đã hợp tác."
-                                      : "Quyết toán đã được xử lý."
-                                  }
-                                />
-                              );
-                            }
-                            return (
-                              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                                <Alert
-                                  type="warning"
-                                  showIcon
-                                  message="Vui lòng xem và xác nhận quyết toán để hoàn tất việc hoàn cọc."
-                                />
-                                <Space>
-                                  <Button
-                                    type="primary"
-                                    loading={settlementActionLoading}
-                                    onClick={() => handleRespondSettlement(true)}
-                                  >
-                                    Chấp nhận quyết toán
-                                  </Button>
-                                  <Button
-                                    danger
-                                    loading={settlementActionLoading}
-                                    onClick={() => handleRespondSettlement(false)}
-                                  >
-                                    Từ chối
-                                  </Button>
-                                </Space>
-                              </Space>
-                            );
-                          })()}
-                        </Card>
-                      </>
-                    ) : null}
-                  </div>
+                  <MyOrderSettlementTab
+                    current={current}
+                    settlementInfo={settlementInfo}
+                    settlementLoading={settlementLoading}
+                    settlementActionLoading={settlementActionLoading}
+                    splitSettlementAmounts={splitSettlementAmounts}
+                    formatVND={formatVND}
+                    SETTLEMENT_STATUS_MAP={SETTLEMENT_STATUS_MAP}
+                    handleRespondSettlement={handleRespondSettlement}
+                  />
                 ),
               },
             ];

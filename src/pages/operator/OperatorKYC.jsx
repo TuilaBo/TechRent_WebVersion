@@ -6,7 +6,7 @@ import { listAllKycs, updateKycStatus, normalizeKycItem, listKycStatuses } from 
 import { listActiveStaff } from "../../lib/staffManage";
 import dayjs from "dayjs";
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { Search } = Input;
 
 // Map màu trạng thái KYC (tiếng Việt)
@@ -63,7 +63,12 @@ export default function AdminKyc() {
     setLoading(true);
     try {
       const rows = await listAllKycs();
-      const mapped = (Array.isArray(rows) ? rows : []).map(normalizeKycItem);
+      const mapped = (Array.isArray(rows) ? rows : [])
+        .map(normalizeKycItem)
+        .filter((item) => {
+          const status = String(item?.kycStatus || "").toUpperCase();
+          return status !== "" && status !== "NOT_STARTED";
+        });
       // Ưu tiên các status chờ duyệt lên đầu, sau đó sắp xếp theo thời gian mới nhất
       mapped.sort((a, b) => {
         const priorityA = getStatusPriority(a?.kycStatus || a?.status);

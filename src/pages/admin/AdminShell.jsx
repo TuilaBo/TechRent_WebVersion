@@ -155,7 +155,7 @@ export default function AdminShell() {
             {
               key: "task-rules",
               icon: <SettingOutlined />,
-              label: <Link to="/admin/task-rules">Task Rules</Link>,
+              label: <Link to="/admin/task-rules">Quy tắc công việc</Link>,
             },
             {
               key: "conditions",
