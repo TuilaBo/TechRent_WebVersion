@@ -110,3 +110,40 @@ export async function deleteConditionDefinition(id) {
   return res?.data?.data ?? res?.data ?? true;
 }
 
+/* ----------------------------- Device Conditions APIs ----------------------------- */
+
+/** GET /api/devices/{id}/conditions – Lấy danh sách tình trạng hiện tại của thiết bị
+ * @param {number} deviceId - ID của thiết bị
+ * @returns {Promise<Object|null>} Dữ liệu tình trạng thiết bị
+ */
+export async function getDeviceConditions(deviceId) {
+  const { data } = await api.get(`/api/devices/${Number(deviceId)}/conditions`);
+  return data?.data ?? data ?? null;
+}
+
+/** PUT /api/devices/{id}/conditions – Cập nhật tình trạng hiện tại của thiết bị
+ * @param {number} deviceId - ID của thiết bị
+ * @param {Object} payload - Dữ liệu cập nhật
+ * @param {number} payload.capturedByStaffId - ID của nhân viên thực hiện
+ * @param {Array<Object>} payload.conditions - Danh sách tình trạng
+ * @param {number} payload.conditions[].conditionDefinitionId - ID của condition definition
+ * @param {string} payload.conditions[].severity - Mức độ nghiêm trọng
+ * @param {string} [payload.conditions[].note] - Ghi chú
+ * @param {Array<string>} [payload.conditions[].images] - Danh sách URL ảnh
+ * @returns {Promise<Object>} Dữ liệu tình trạng đã cập nhật
+ */
+export async function updateDeviceConditions(deviceId, payload) {
+  const requestBody = {
+    capturedByStaffId: Number(payload.capturedByStaffId ?? 0),
+    conditions: Array.isArray(payload.conditions) ? payload.conditions.map((c) => ({
+      conditionDefinitionId: Number(c.conditionDefinitionId ?? 0),
+      severity: String(c.severity ?? ""),
+      note: String(c.note ?? ""),
+      images: Array.isArray(c.images) ? c.images.map((img) => String(img)) : [],
+    })) : [],
+  };
+  
+  const { data } = await api.put(`/api/devices/${Number(deviceId)}/conditions`, requestBody);
+  return data?.data ?? data ?? null;
+}
+

@@ -18,6 +18,7 @@ import OtpVerify from "./pages/auth/OtpVerify.jsx";
 import RentalList from "./pages/RentalList.jsx";
 import FindProduct from "./components/FindProduct.jsx";
 import CustomerLiveChat from "./pages/Customer/CustomerLiveChat.jsx";
+import CustomerInvoice from "./pages/Customer/CustomerInvoice.jsx";
 import ReturnPage from "./pages/payment/ReturnPage.jsx";
 import CancelPage from "./pages/payment/CancelPage.jsx";
 
@@ -49,6 +50,7 @@ import TechnicianQcDetail from "./pages/technician/TechnicianQcDetail.jsx";
 import TechnicianPostRentalQc from "./pages/technician/TechnicianPostRentalQc.jsx";
 import TechnicianHandover from "./pages/technician/TechnicianHandover.jsx";
 import TechnicianHandoverCheckin from "./pages/technician/TechnicianHandoverCheckin.jsx";
+import TechnicianCondition from "./pages/technician/TechnicianCondition.jsx";
 
 import SupportDesk from "./pages/CST/SupportDesk.jsx";
 import SupportShell from "./pages/CST/SupportShell.jsx";
@@ -90,6 +92,7 @@ export default function App() {
           <Route path="checkout" element={<CheckoutPage />} />
           <Route path="kyc" element={<KycPage />} />
           <Route path="profile" element={<CustomerProfile />} />
+          <Route path="invoices" element={<CustomerInvoice />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="verify-otp" element={<OtpVerify />} />
           <Route path="category/:id" element={<RentalList />} />
@@ -154,6 +157,7 @@ export default function App() {
         >
           <Route index element={<TechnicianCalendar />} />
           <Route path="reports" element={<TechnicianReports />} />
+          <Route path="conditions" element={<TechnicianCondition />} />
           <Route path="tasks/qc/:taskId" element={<TechnicianQcDetail />} />
           <Route path="tasks/post-rental-qc/:taskId" element={<TechnicianPostRentalQc />} />
           <Route path="tasks/handover/:taskId" element={<TechnicianHandover />} />

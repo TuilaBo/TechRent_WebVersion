@@ -44,7 +44,47 @@ export async function getTransactions() {
   return unwrap(data);
 }
 
-// 4) Confirm refund for settlement
+// 4) Get all invoices for current customer
+// Fetches invoice details for each rental order
+// Note: This requires importing listRentalOrders from rentalOrdersApi
+// Returns array of invoice objects
+export async function getInvoices() {
+  try {
+    // Import dynamically to avoid circular dependency
+    const { listRentalOrders } = await import("./rentalOrdersApi");
+    
+    // Get all rental orders for current customer
+    const ordersData = await listRentalOrders();
+    const ordersArray = Array.isArray(ordersData)
+      ? ordersData
+      : Array.isArray(ordersData?.data)
+      ? ordersData.data
+      : [];
+    
+    // Get order IDs
+    const orderIds = ordersArray
+      .map((o) => o.orderId || o.rentalOrderId || o.id)
+      .filter((id) => id != null);
+    
+    // Fetch invoice details for each order (in parallel)
+    const invoicePromises = orderIds.map((orderId) =>
+      getInvoiceByRentalOrderId(orderId).catch((err) => {
+        // Some orders may not have invoices yet, that's okay
+        console.warn(`No invoice found for order ${orderId}:`, err?.message);
+        return null;
+      })
+    );
+    
+    const invoices = await Promise.all(invoicePromises);
+    // Filter out null values (orders without invoices)
+    return invoices.filter((inv) => inv != null);
+  } catch (error) {
+    console.error("Error getting invoices:", error);
+    throw error;
+  }
+}
+
+// 5) Confirm refund for settlement
 // POST /api/v1/payments/settlements/{settlementId}/confirm-refund
 // Returns empty object {} on success (200 OK)
 export async function confirmRefundSettlement(settlementId) {
@@ -56,6 +96,7 @@ export default {
   createPayment,
   getInvoiceByRentalOrderId,
   getTransactions,
+  getInvoices,
   confirmRefundSettlement,
 };
 

@@ -18,7 +18,7 @@ import {
 } from "../../lib/qcReportApi";
 import { getDevicesByModelId, getAvailableDevicesByModel, listDevices } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
-import { getConditionDefinitions } from "../../lib/condition";
+import { getConditionDefinitions, getDeviceConditions } from "../../lib/condition";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -629,84 +629,10 @@ export default function TechnicianQcDetail() {
     loadConditionDefinitions();
   }, [orderDetails, selectedDevicesByOrderDetail]);
 
-  // Auto-fill device conditions when condition definitions are loaded and devices are selected
-  useEffect(() => {
-    // Only auto-fill if:
-    // 1. Not loading conditions
-    // 2. Have condition definitions
-    // 3. Have selected devices
-    // 4. No existing QC report OR deviceConditions is empty (to avoid overwriting existing data)
-    if (loadingConditions || conditionDefinitions.length === 0) {
-      return;
-    }
-
-    if (!selectedDevicesByOrderDetail || Object.keys(selectedDevicesByOrderDetail).length === 0) {
-      return;
-    }
-
-    // Don't auto-fill if there's existing QC report with deviceConditions (to preserve user data)
-    if (existingQcReport && deviceConditions.length > 0) {
-      return;
-    }
-
-    // Build map: deviceModelId -> condition definitions
-    const conditionsByModel = {};
-    conditionDefinitions.forEach(cond => {
-      const modelId = cond.deviceModelId;
-      if (modelId) {
-        const modelIdNum = Number(modelId);
-        if (!conditionsByModel[modelIdNum]) {
-          conditionsByModel[modelIdNum] = [];
-        }
-        conditionsByModel[modelIdNum].push(cond);
-      }
-    });
-
-    // Build device conditions for each selected device
-    const newDeviceConditions = [];
-    orderDetails.forEach(orderDetail => {
-      const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
-      const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
-      const deviceModelId = Number(orderDetail.deviceModelId);
-
-      if (serials.length > 0 && deviceModelId && conditionsByModel[deviceModelId]) {
-        // For each serial number, add all condition definitions for this model
-        serials.forEach(serial => {
-          conditionsByModel[deviceModelId].forEach(cond => {
-            // Check if this condition already exists for this device
-            const exists = deviceConditions.some(
-              dc => dc.deviceId === String(serial) && dc.conditionDefinitionId === cond.id
-            );
-            
-            if (!exists) {
-              newDeviceConditions.push({
-                deviceId: String(serial),
-                conditionDefinitionId: cond.id,
-                severity: "NONE", // Default severity
-                images: [],
-              });
-            }
-          });
-        });
-      }
-    });
-
-    // Only update if we have new conditions to add
-    if (newDeviceConditions.length > 0) {
-      console.log("Auto-filling device conditions:", newDeviceConditions);
-      setDeviceConditions(prev => {
-        // Check if any of the new conditions already exist to avoid duplicates
-        const existingKeys = new Set(
-          prev.map(dc => `${dc.deviceId}_${dc.conditionDefinitionId}`)
-        );
-        const toAdd = newDeviceConditions.filter(
-          nc => !existingKeys.has(`${nc.deviceId}_${nc.conditionDefinitionId}`)
-        );
-        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conditionDefinitions, selectedDevicesByOrderDetail, orderDetails, loadingConditions, existingQcReport]);
+  // Disabled auto-fill: Chỉ tự động fill khi người dùng chọn thiết bị trong card condition, không tự động fill khi chọn thiết bị từ kho
+  // useEffect(() => {
+  //   // Logic auto-fill đã được di chuyển vào onChange handler của Select thiết bị trong condition card
+  // }, [conditionDefinitions, selectedDevicesByOrderDetail, orderDetails, loadingConditions, existingQcReport]);
 
   // Helper: Get available devices list for condition selection
   const availableDevicesForConditions = useMemo(() => {
@@ -758,12 +684,95 @@ export default function TechnicianQcDetail() {
   };
 
   /** Khi chọn thay đổi per-orderDetail, giữ không vượt quá số lượng yêu cầu */
-  const onChangeOrderDetailPick = (orderDetailId, quantity, values) => {
+  const onChangeOrderDetailPick = async (orderDetailId, quantity, values) => {
     if (values.length > quantity) {
       message.warning(`Chỉ cần ${quantity} thiết bị cho order detail này.`);
       values = values.slice(0, quantity);
     }
+    
+    // Tìm thiết bị mới được thêm vào
+    const prevSerials = selectedDevicesByOrderDetail[orderDetailId] || [];
+    const newSerials = values.filter(serial => !prevSerials.includes(String(serial)));
+    
     setSelectedDevicesByOrderDetail((prev) => ({ ...prev, [orderDetailId]: values }));
+    
+    // Tự động load tình trạng cho các thiết bị mới được chọn
+    if (newSerials.length > 0) {
+      try {
+        const allDevices = await listDevices();
+        const newDeviceConditions = [];
+        
+        for (const serial of newSerials) {
+          try {
+            // Tìm deviceId từ serial number
+            const device = Array.isArray(allDevices)
+              ? allDevices.find(d => {
+                  const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+                  return deviceSerial === String(serial).toUpperCase();
+                })
+              : null;
+
+            if (device) {
+              const deviceId = Number(device.deviceId || device.id);
+              
+              // Gọi API lấy tình trạng mới nhất
+              const deviceConditionsData = await getDeviceConditions(deviceId);
+              
+              // API trả về: { data: [...] } hoặc array trực tiếp
+              let conditionsArray = [];
+              if (Array.isArray(deviceConditionsData)) {
+                conditionsArray = deviceConditionsData;
+              } else if (deviceConditionsData && Array.isArray(deviceConditionsData.data)) {
+                conditionsArray = deviceConditionsData.data;
+              }
+              
+              if (conditionsArray.length > 0) {
+                // Lấy condition mới nhất (sort theo capturedAt)
+                const latestCondition = conditionsArray
+                  .sort((a, b) => {
+                    const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
+                    const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
+                    return timeB - timeA; // Mới nhất trước
+                  })[0];
+
+                if (latestCondition && latestCondition.conditionDefinitionId) {
+                  // Map severity từ API
+                  let mappedSeverity = latestCondition.severity || "NONE";
+                  const validSeverities = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                  if (!validSeverities.includes(mappedSeverity)) {
+                    mappedSeverity = "NONE"; // Default fallback
+                  }
+                  
+                  // Kiểm tra xem condition này đã tồn tại chưa
+                  const exists = deviceConditions.some(
+                    dc => dc.deviceId === String(serial) && dc.conditionDefinitionId === latestCondition.conditionDefinitionId
+                  );
+                  
+                  if (!exists) {
+                    newDeviceConditions.push({
+                      deviceId: String(serial),
+                      conditionDefinitionId: latestCondition.conditionDefinitionId,
+                      severity: mappedSeverity,
+                      images: Array.isArray(latestCondition.images) ? latestCondition.images.filter(Boolean) : [],
+                    });
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.warn(`Không thể tải tình trạng cho thiết bị ${serial}:`, error);
+          }
+        }
+        
+        // Thêm các condition mới vào state
+        if (newDeviceConditions.length > 0) {
+          setDeviceConditions(prev => [...prev, ...newDeviceConditions]);
+          message.success(`Đã tự động điền tình trạng cho ${newDeviceConditions.length} thiết bị`);
+        }
+      } catch (error) {
+        console.warn("Không thể tải tình trạng thiết bị:", error);
+      }
+    }
   };
 
   /** Validate số lượng chọn đủ chưa */
@@ -1543,14 +1552,83 @@ export default function TechnicianQcDetail() {
                               style={{ width: "100%" }}
                               placeholder="Chọn thiết bị"
                               value={condition.deviceId ? String(condition.deviceId) : null}
-                              onChange={(value) => {
+                              onChange={async (value) => {
                                 const newConditions = [...deviceConditions];
                                 newConditions[index] = {
                                   ...newConditions[index],
                                   deviceId: value,
                                   conditionDefinitionId: null, // Reset when device changes
+                                  severity: "",
+                                  images: [],
                                 };
                                 setDeviceConditions(newConditions);
+
+                                // Tự động load tình trạng mới nhất của thiết bị khi chọn thiết bị trong condition card
+                                if (value) {
+                                  try {
+                                    // Tìm deviceId từ serial number
+                                    const allDevices = await listDevices();
+                                    const device = Array.isArray(allDevices)
+                                      ? allDevices.find(d => {
+                                          const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+                                          return deviceSerial === String(value).toUpperCase();
+                                        })
+                                      : null;
+
+                                    if (device) {
+                                      const deviceId = Number(device.deviceId || device.id);
+                                      
+                                      // Gọi API lấy tình trạng mới nhất
+                                      const deviceConditionsData = await getDeviceConditions(deviceId);
+                                      
+                                      // API trả về: { data: [...] } hoặc array trực tiếp
+                                      let conditionsArray = [];
+                                      if (Array.isArray(deviceConditionsData)) {
+                                        conditionsArray = deviceConditionsData;
+                                      } else if (deviceConditionsData && Array.isArray(deviceConditionsData.data)) {
+                                        conditionsArray = deviceConditionsData.data;
+                                      }
+                                      
+                                      if (conditionsArray.length > 0) {
+                                        // Lấy condition mới nhất (sort theo capturedAt)
+                                        const latestCondition = conditionsArray
+                                          .sort((a, b) => {
+                                            const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
+                                            const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
+                                            return timeB - timeA; // Mới nhất trước
+                                          })[0];
+
+                                        if (latestCondition && latestCondition.conditionDefinitionId) {
+                                          // Map severity từ API (có thể là "DAMAGE", "NONE", etc.) sang format của form
+                                          let mappedSeverity = latestCondition.severity || "NONE";
+                                          // Nếu severity không phải là một trong các giá trị hợp lệ, giữ nguyên hoặc map
+                                          const validSeverities = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                                          if (!validSeverities.includes(mappedSeverity)) {
+                                            // Nếu là "DAMAGE" hoặc giá trị khác, có thể map hoặc giữ nguyên
+                                            mappedSeverity = "NONE"; // Default fallback
+                                          }
+                                          
+                                          // Cập nhật condition hiện tại với dữ liệu từ API
+                                          const updatedConditions = [...deviceConditions];
+                                          updatedConditions[index] = {
+                                            ...updatedConditions[index],
+                                            deviceId: value,
+                                            conditionDefinitionId: latestCondition.conditionDefinitionId || null,
+                                            severity: mappedSeverity,
+                                            images: Array.isArray(latestCondition.images) ? latestCondition.images.filter(Boolean) : [],
+                                          };
+                                          setDeviceConditions(updatedConditions);
+                                          message.success("Đã tự động điền tình trạng mới nhất của thiết bị");
+                                        }
+                                      }
+                                    } else {
+                                      console.warn(`Không tìm thấy device với serial number: ${value}`);
+                                    }
+                                  } catch (error) {
+                                    console.warn("Không thể tải tình trạng thiết bị:", error);
+                                    // Không hiển thị lỗi để không làm gián đoạn workflow
+                                  }
+                                }
                               }}
                               options={availableDevicesForConditions.map(d => ({
                                 label: d.serial,

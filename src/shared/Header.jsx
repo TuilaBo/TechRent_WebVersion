@@ -6,6 +6,7 @@ import {
   UserOutlined,
   BellOutlined,
   SearchOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -359,6 +360,7 @@ export default function AppHeader() {
   const userMenuItems = [
     { key: "1", icon: <UserOutlined />, label: <Link to="/profile">Tài khoản</Link> },
     { key: "2", icon: <ShoppingCartOutlined />, label: <Link to="/orders">Đơn thuê</Link> },
+    { key: "4", icon: <FileTextOutlined />, label: <Link to="/invoices">Lịch sử giao dịch</Link> },
     { type: 'divider' },
     { key: "3", label: <span onClick={handleLogout}>Đăng xuất</span>, danger: true },
   ];
