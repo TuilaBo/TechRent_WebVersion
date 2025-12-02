@@ -17,6 +17,7 @@ import {
   Input,
   Modal,
   Skeleton,
+  DatePicker,
 } from "antd";
 import {
   EnvironmentOutlined,
@@ -42,6 +43,8 @@ import {
   normalizeTask,
   confirmDelivery,
   confirmRetrieval,
+  getStaffAssignments,
+  getActiveTaskRule,
 } from "../../lib/taskApi";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
@@ -1182,7 +1185,9 @@ export default function TechnicianCalendar() {
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [filterType, setFilterType] = useState("ALL");
   const [filterOrderId, setFilterOrderId] = useState("");
+  const [selectedDate, setSelectedDate] = useState(dayjs());
   const [loading, setLoading] = useState(false);
+  const [activeTaskRule, setActiveTaskRule] = useState(null);
   const [searchTaskId, setSearchTaskId] = useState("");
   // Map: taskId -> hasQcReport (boolean)
   const [hasQcReportMap, setHasQcReportMap] = useState({});
@@ -1246,11 +1251,14 @@ export default function TechnicianCalendar() {
     }
   };
 
-  // Load all tasks từ /api/staff/tasks (backend tự filter theo technician từ token)
-  const loadTasks = useCallback(async () => {
+  // Load tasks theo lịch trong ngày từ /api/staff/tasks/staff-assignments
+  const loadTasks = useCallback(async (overrideDate) => {
     try {
       setLoading(true);
-      const allTasksRaw = await listTasks();
+      // BE filter theo technician từ token, mình chỉ cần truyền ngày (YYYY-MM-DD)
+      const dateToUse = overrideDate || selectedDate || dayjs();
+      const dateStr = dayjs(dateToUse).format("YYYY-MM-DD");
+      const allTasksRaw = await getStaffAssignments({ date: dateStr });
       const allTasks = allTasksRaw.map(normalizeTask);
       const display = allTasks.map(taskToDisplay);
       setTasksAll(display);
@@ -1387,6 +1395,24 @@ export default function TechnicianCalendar() {
     } finally {
       setLoading(false);
     }
+  }, [selectedDate]);
+
+  // Fetch active task rule from admin để hiển thị cho technician
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rule = await getActiveTaskRule();
+        if (mounted) {
+          setActiveTaskRule(rule);
+        }
+      } catch (e) {
+        console.warn("Không thể tải rule tác vụ hiện hành:", e);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -2800,12 +2826,126 @@ export default function TechnicianCalendar() {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <Title level={3} style={{ margin: 0 }}>Danh sách công việc kỹ thuật</Title>
-        <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={loading}>
-          Tải lại
-        </Button>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          marginBottom: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <Title level={3} style={{ margin: 0 }}>
+          Danh sách công việc kỹ thuật
+        </Title>
+
+        <Space align="center" size={8} wrap>
+          <span style={{ fontSize: 13, color: "#667085" }}>Ngày làm việc:</span>
+          <DatePicker
+            value={selectedDate}
+            onChange={(value) => {
+              const nextDate = value || dayjs();
+              setSelectedDate(nextDate);
+              loadTasks(nextDate);
+            }}
+            format="DD/MM/YYYY"
+            allowClear={false}
+            size="middle"
+            style={{ borderRadius: 999, paddingInline: 10 }}
+          />
+          <Button
+            size="middle"
+            icon={<ReloadOutlined />}
+            onClick={() => loadTasks(selectedDate)}
+            loading={loading}
+            type="default"
+          >
+            Tải lại
+          </Button>
+        </Space>
       </div>
+
+      {/* Thông tin rule từ admin + số lượng công việc trong ngày */}
+      {activeTaskRule && (
+        <Card
+          size="small"
+          style={{
+            marginBottom: 12,
+            borderRadius: 10,
+            background: "#f9fafb",
+            border: "1px solid #edf0f4",
+          }}
+          bodyStyle={{
+            padding: 10,
+          }}
+        >
+          <Space
+            direction="vertical"
+            size={4}
+            style={{ width: "100%", textAlign: "center" }}
+          >
+            <Text strong style={{ fontSize: 13 }}>
+              Quy tắc công việc hiện hành: {activeTaskRule.name || "—"}
+            </Text>
+
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Giới hạn tối đa{" "}
+              <strong>
+                {activeTaskRule.maxTasksPerDay != null
+                  ? `${activeTaskRule.maxTasksPerDay} công việc/ngày`
+                  : "—"}
+              </strong>
+              {activeTaskRule.effectiveFrom && activeTaskRule.effectiveTo && (
+                <>
+                  {" "}
+                  • Áp dụng từ{" "}
+                  {dayjs(activeTaskRule.effectiveFrom).format("DD/MM/YYYY")} đến{" "}
+                  {dayjs(activeTaskRule.effectiveTo).format("DD/MM/YYYY")}
+                </>
+              )}
+            </Text>
+
+            {(() => {
+              const tasksCount = tasksAll.length;
+              const maxPerDay = activeTaskRule.maxTasksPerDay;
+              let color = "default";
+              if (typeof maxPerDay === "number" && maxPerDay > 0) {
+                const ratio = tasksCount / maxPerDay;
+                if (ratio >= 1) color = "red";
+                else if (ratio >= 0.8) color = "orange";
+                else color = "green";
+              } else {
+                color = "blue";
+              }
+              return (
+                <Space
+                  size={6}
+                  style={{ justifyContent: "center", width: "100%" }}
+                >
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Ngày{" "}
+                    {selectedDate ? selectedDate.format("DD/MM/YYYY") : "—"}:
+                  </Text>
+                  <Tag
+                    color={color}
+                    style={{
+                      fontSize: 12,
+                      paddingInline: 12,
+                      borderRadius: 999,
+                    }}
+                  >
+                    {tasksCount}
+                    {typeof maxPerDay === "number" && maxPerDay > 0
+                      ? ` / ${maxPerDay} công việc`
+                      : " công việc"}
+                  </Tag>
+                </Space>
+              );
+            })()}
+          </Space>
+        </Card>
+      )}
 
       <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search

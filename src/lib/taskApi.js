@@ -79,6 +79,13 @@ export async function getStaffAssignments(params = {}) {
   return Array.isArray(payload) ? payload.map(normalizeTask) : [];
 }
 
+/** GET /api/staff/tasks/active-rule – Lấy rule tác vụ hiện hành trong hệ thống */
+export async function getActiveTaskRule() {
+  const { data } = await api.get("/api/staff/tasks/active-rule");
+  // BE có thể bọc trong { status, message, data } nên ưu tiên lấy data.data
+  return data?.data ?? data ?? null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Write APIs                                                         */
 /* ------------------------------------------------------------------ */

@@ -49,6 +49,7 @@ export default function TechnicianCondition() {
   const [modelNameMap, setModelNameMap] = useState({}); // Map: deviceModelId -> deviceModelName
   const [filterStatus, setFilterStatus] = useState(undefined); // Filter by status
   const [filterModelId, setFilterModelId] = useState(undefined); // Filter by deviceModelId
+  const [filterSerial, setFilterSerial] = useState(""); // Filter by serial number
 
   // Load all devices and their models
   useEffect(() => {
@@ -176,7 +177,7 @@ export default function TechnicianCondition() {
         conditions: [
           {
             conditionDefinitionId: latestCondition.conditionDefinitionId,
-            severity: latestCondition.severity || "NONE",
+            severity: latestCondition.severity || "INFO",
             note: latestCondition.note || "",
             images: latestCondition.images || [],
           },
@@ -187,7 +188,7 @@ export default function TechnicianCondition() {
         conditions: [
           {
             conditionDefinitionId: undefined,
-            severity: "NONE",
+            severity: "INFO",
             note: "",
             images: [],
           },
@@ -213,9 +214,19 @@ export default function TechnicianCondition() {
         return modelId === Number(filterModelId);
       });
     }
+
+    if (filterSerial && filterSerial.trim()) {
+      const q = filterSerial.trim().toLowerCase();
+      filtered = filtered.filter((d) => {
+        const serial = String(
+          d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
+        ).toLowerCase();
+        return serial.includes(q);
+      });
+    }
     
     return filtered;
-  }, [devices, filterStatus, filterModelId]);
+  }, [devices, filterStatus, filterModelId, filterSerial]);
 
   // Get model options for filter
   const modelOptions = useMemo(() => {
@@ -245,7 +256,7 @@ export default function TechnicianCondition() {
       const payload = {
         conditions: values.conditions.map((c) => ({
           conditionDefinitionId: Number(c.conditionDefinitionId),
-          severity: String(c.severity || "NONE"),
+          severity: String(c.severity || "INFO"),
           note: String(c.note || ""),
           images: Array.isArray(c.images) ? c.images.filter(Boolean) : [],
         })),
@@ -343,6 +354,13 @@ export default function TechnicianCondition() {
       <Title level={3}>Quản lý tình trạng thiết bị</Title>
       <Card>
         <Space style={{ marginBottom: 16 }} wrap>
+          <Input
+            placeholder="Tìm theo Serial Number"
+            allowClear
+            style={{ minWidth: 220 }}
+            value={filterSerial}
+            onChange={(e) => setFilterSerial(e.target.value)}
+          />
           <Select
             allowClear
             placeholder="Lọc theo trạng thái"
@@ -427,13 +445,19 @@ export default function TechnicianCondition() {
                     </Descriptions.Item>
                     <Descriptions.Item label="Mức độ nghiêm trọng">
                       <Tag>
-                        {condition.severity === "DAMAGE" ? "Hư hỏng" :
-                         condition.severity === "NONE" ? "Không có" :
-                         condition.severity === "LOW" ? "Nhẹ" :
-                         condition.severity === "MEDIUM" ? "Trung bình" :
-                         condition.severity === "HIGH" ? "Nặng" :
-                         condition.severity === "CRITICAL" ? "Rất nặng" :
-                         condition.severity}
+                        {condition.severity === "DAMAGE"
+                          ? "Hư hỏng"
+                          : condition.severity === "NONE" || condition.severity === "INFO"
+                          ? "Không có"
+                          : condition.severity === "LOW"
+                          ? "Nhẹ"
+                          : condition.severity === "MEDIUM"
+                          ? "Trung bình"
+                          : condition.severity === "HIGH"
+                          ? "Nặng"
+                          : condition.severity === "CRITICAL"
+                          ? "Rất nặng"
+                          : condition.severity}
                       </Tag>
                     </Descriptions.Item>
                     <Descriptions.Item label="Ghi chú">
@@ -521,6 +545,26 @@ export default function TechnicianCondition() {
                           label: `${def.name}${def.damage ? " (Gây hư hỏng)" : ""}`,
                           value: def.id,
                         }))}
+                        onChange={(value) => {
+                          // Tìm definition tương ứng để auto-fill severity
+                          const def =
+                            conditionDefinitions.find(
+                              (d) => d.id === value || d.conditionDefinitionId === value
+                            ) || null;
+                          const conditionSeverity = def?.conditionSeverity || "INFO";
+
+                          const current = form.getFieldValue("conditions") || [];
+                          const next = [...current];
+                          if (!next[field.name]) {
+                            next[field.name] = {};
+                          }
+                          next[field.name] = {
+                            ...next[field.name],
+                            conditionDefinitionId: value,
+                            severity: conditionSeverity,
+                          };
+                          form.setFieldsValue({ conditions: next });
+                        }}
                       />
                     </Form.Item>
 
@@ -532,7 +576,7 @@ export default function TechnicianCondition() {
                       <Select
                         placeholder="Chọn mức độ"
                         options={[
-                          { label: "Không có", value: "NONE" },
+                          { label: "Không có", value: "INFO" },
                           { label: "Nhẹ", value: "LOW" },
                           { label: "Trung bình", value: "MEDIUM" },
                           { label: "Nặng", value: "HIGH" },
@@ -572,7 +616,17 @@ export default function TechnicianCondition() {
                               return f.thumbUrl || f.url || "";
                             })
                           );
-                          form.setFieldValue(["conditions", field.name, "images"], imageUrls.filter(Boolean));
+                          // Cập nhật lại mảng conditions trong form để Upload hiển thị đúng thumbnail
+                          const current = form.getFieldValue("conditions") || [];
+                          const next = [...current];
+                          if (!next[field.name]) {
+                            next[field.name] = {};
+                          }
+                          next[field.name] = {
+                            ...next[field.name],
+                            images: imageUrls.filter(Boolean),
+                          };
+                          form.setFieldsValue({ conditions: next });
                         }}
                       >
                         {(form.getFieldValue(["conditions", field.name, "images"])?.length || 0) < 5 && (

@@ -1,3 +1,4 @@
+
 // src/pages/operator/OperatorOrders.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
@@ -56,6 +57,7 @@ import { getDeviceModelById, normalizeModel as normalizeDeviceModel } from "../.
 import { getConditionDefinitions } from "../../lib/condition";
 import { getHandoverReportsByOrderId } from "../../lib/handoverReportApi";
 import { getInvoiceByRentalOrderId } from "../../lib/Payment";
+import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -1294,6 +1296,7 @@ export default function OperatorOrders() {
 
   const [orderDetailModels, setOrderDetailModels] = useState({});
   const [orderDetailMetaLoading, setOrderDetailMetaLoading] = useState(false);
+  const [detailHasPreRentalQc, setDetailHasPreRentalQc] = useState(null); // PRE_RENTAL QC tồn tại?
 
   const shouldLoadOrderItemMeta = useMemo(() => {
     const status = String(detail?.orderStatus || "").toUpperCase();
@@ -1304,6 +1307,39 @@ export default function OperatorOrders() {
       status === "DELIVERY_C"
     );
   }, [detail?.orderStatus]);
+
+  // Khi chọn 1 đơn trong drawer, kiểm tra xem đã có QC PRE_RENTAL chưa để quyết định hiển thị nút Tạo hợp đồng
+  useEffect(() => {
+    const orderId = detail?.orderId;
+    if (!orderId) {
+      setDetailHasPreRentalQc(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const qcReports = await getQcReportsByOrderId(orderId);
+        const hasPreRental =
+          Array.isArray(qcReports) &&
+          qcReports.some(
+            (rep) => String(rep.phase || "").toUpperCase() === "PRE_RENTAL"
+          );
+        if (!cancelled) {
+          setDetailHasPreRentalQc(hasPreRental);
+        }
+      } catch (e) {
+        console.warn("Không thể kiểm tra QC PRE_RENTAL cho đơn", orderId, e);
+        if (!cancelled) {
+          setDetailHasPreRentalQc(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.orderId]);
 
   const fetchAll = async () => {
     try {
@@ -1431,6 +1467,28 @@ export default function OperatorOrders() {
     }
 
     try {
+      // Kiểm tra đã có QC report PRE_RENTAL cho đơn này chưa
+      let hasPreRentalQc = false;
+      try {
+        const qcReports = await getQcReportsByOrderId(r.orderId);
+        if (Array.isArray(qcReports) && qcReports.length > 0) {
+          hasPreRentalQc = qcReports.some(
+            (rep) => String(rep.phase || "").toUpperCase() === "PRE_RENTAL"
+          );
+        }
+      } catch (qcError) {
+        // Nếu gọi API lỗi, coi như chưa có QC
+        console.error("Không thể kiểm tra QC report cho đơn", r.orderId, qcError);
+        hasPreRentalQc = false;
+      }
+
+      if (!hasPreRentalQc) {
+        message.error(
+          "Chưa có báo cáo QC trước thuê (PRE_RENTAL) cho đơn này. Vui lòng hoàn tất Pre rental QC trước khi tạo hợp đồng."
+        );
+        return;
+      }
+
       const response = await createContractFromOrder(r.orderId);
       const contract = response?.data || response;
       message.success(
@@ -2744,18 +2802,27 @@ export default function OperatorOrders() {
             <Divider />
 
             <Space>
-              {/* Chỉ cho phép tạo hợp đồng khi trạng thái đơn là "processing" và chưa có hợp đồng nào không ở trạng thái DRAFT */}
-              {String(detail.orderStatus).toUpperCase() === "PROCESSING" && (() => {
-                const hasNonDraftContract = orderContracts.some(contract => {
-                  const status = String(contract.status || "").toUpperCase();
-                  return status !== "DRAFT" && status !== "";
-                });
-                return !hasNonDraftContract;
-              })() && (
-                <Button icon={<FileTextOutlined />} onClick={() => doCreateContract(detail)} title="Tạo hợp đồng">
-                  Tạo hợp đồng
-                </Button>
-              )}
+              {/* Chỉ cho phép tạo hợp đồng khi:
+                  - Đơn đang ở trạng thái PROCESSING
+                  - Đã có QC report PRE_RENTAL
+                  - Chưa có hợp đồng nào khác ngoài DRAFT */}
+              {String(detail.orderStatus).toUpperCase() === "PROCESSING" &&
+                detailHasPreRentalQc &&
+                (() => {
+                  const hasNonDraftContract = orderContracts.some((contract) => {
+                    const status = String(contract.status || "").toUpperCase();
+                    return status !== "DRAFT" && status !== "";
+                  });
+                  return !hasNonDraftContract;
+                })() && (
+                  <Button
+                    icon={<FileTextOutlined />}
+                    onClick={() => doCreateContract(detail)}
+                    title="Tạo hợp đồng"
+                  >
+                    Tạo hợp đồng
+                  </Button>
+                )}
 
               <Popconfirm
                 title="Huỷ đơn?"

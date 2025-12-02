@@ -13,6 +13,7 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  getActiveTaskRule,
 } from "../../lib/taskApi";
 import {
   listTaskCategories,
@@ -90,6 +91,7 @@ export default function OperatorTasks() {
   const [selectedYear, setSelectedYear] = useState(dayjs().year()); // Năm được chọn
   const [selectedMonth, setSelectedMonth] = useState(dayjs().month() + 1); // Tháng được chọn (1-12)
   const [leaderboardRoleFilter, setLeaderboardRoleFilter] = useState(null); // Lọc theo role
+  const [activeTaskRule, setActiveTaskRule] = useState(null); // Rule tác vụ từ admin
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
   const assignedStaffIdsKey = JSON.stringify(assignedStaffIdsValue);
@@ -109,6 +111,50 @@ export default function OperatorTasks() {
       plannedStartValue ? dayjs(plannedStartValue) : dayjs(),
       { blockSameMinute: true, blockSameSecond: true }
     );
+
+  // Đếm số task theo từng nhân viên trong ngày được chọn (plannedStart của form)
+  const tasksPerStaffForSelectedDate = useMemo(() => {
+    const map = {};
+    if (!plannedStartValue) return map;
+    const target = dayjs(plannedStartValue);
+
+    (data || []).forEach((task) => {
+      const time = task.plannedStart || task.createdAt || task.updatedAt || null;
+      if (!time || !dayjs(time).isSame(target, "day")) return;
+
+      const staffList = Array.isArray(task.assignedStaff)
+        ? task.assignedStaff.map((s) => s.staffId ?? s.id)
+        : task.assignedStaffId
+        ? [task.assignedStaffId]
+        : [];
+
+      staffList.forEach((id) => {
+        if (!id) return;
+        map[id] = (map[id] || 0) + 1;
+      });
+    });
+
+    return map;
+  }, [data, plannedStartValue]);
+
+  // Load rule tác vụ hiện hành từ admin
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rule = await getActiveTaskRule();
+        if (!cancelled) {
+          setActiveTaskRule(rule);
+        }
+      } catch (e) {
+        console.warn("Không thể tải rule tác vụ hiện hành cho Operator:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load data từ API
   const loadData = async () => {
@@ -307,10 +353,19 @@ export default function OperatorTasks() {
 
     const selectedIds = JSON.parse(assignedStaffIdsKey || "[]");
 
-    const formatStaff = (s) => ({
-      label: `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${s.staffId ?? s.id}`,
-      value: s.staffId ?? s.id,
-    });
+    const formatStaff = (s) => {
+      const id = s.staffId ?? s.id;
+      const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${id}`;
+      const taskCount = tasksPerStaffForSelectedDate[id] || 0;
+      const label =
+        taskCount > 0
+          ? `${baseLabel} • ${taskCount} công việc trong ngày`
+          : baseLabel;
+      return {
+        label,
+        value: id,
+      };
+    };
 
     const filteredOptions = staffs
       .filter((s) => {
@@ -318,10 +373,9 @@ export default function OperatorTasks() {
         const allowed =
           role === "TECHNICIAN" || role === "CUSTOMER_SUPPORT_STAFF";
         if (!allowed) return false;
-        if (roleFilter) {
-          return role === roleFilter;
-        }
-        return true;
+        // Nếu chưa chọn "Lọc theo role" thì không hiển thị danh sách
+        if (!roleFilter) return false;
+        return role === roleFilter;
       })
       .map(formatStaff);
 
@@ -341,7 +395,7 @@ export default function OperatorTasks() {
     });
 
     return Array.from(uniqueMap.values());
-  }, [staffs, staffRoleFilterValue, assignedStaffIdsKey]);
+  }, [staffs, staffRoleFilterValue, assignedStaffIdsKey, tasksPerStaffForSelectedDate]);
 
   const statusTag = (status) => {
     switch (status) {
@@ -799,6 +853,48 @@ export default function OperatorTasks() {
               </Space>
             </div>
           </Card>
+
+          {/* Rule tác vụ từ admin (giống TechnicianCalendar) */}
+          {activeTaskRule && (
+            <Card
+              size="small"
+              style={{
+                marginBottom: 16,
+                borderRadius: 10,
+                background: "#f9fafb",
+                border: "1px solid #edf0f4",
+              }}
+              bodyStyle={{ padding: 10 }}
+            >
+              <Space
+                direction="vertical"
+                size={4}
+                style={{ width: "100%", textAlign: "center" }}
+              >
+                <Text strong style={{ fontSize: 13 }}>
+                  Quy tắc công việc hiện hành: {activeTaskRule.name || "—"}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Giới hạn tối đa{" "}
+                  <strong>
+                    {activeTaskRule.maxTasksPerDay != null
+                      ? `${activeTaskRule.maxTasksPerDay} công việc/ngày`
+                      : "—"}
+                  </strong>
+                  {activeTaskRule.effectiveFrom && activeTaskRule.effectiveTo && (
+                    <>
+                      {" "}
+                      • Áp dụng từ{" "}
+                      {dayjs(activeTaskRule.effectiveFrom).format("DD/MM/YYYY")} đến{" "}
+                      {dayjs(activeTaskRule.effectiveTo).format("DD/MM/YYYY")}
+                    </>
+                  )}
+                </Text>
+
+                {/* Người dùng đã xoá phần hiển thị Tag, giữ logic màu nhưng không render gì thêm */}
+              </Space>
+            </Card>
+          )}
 
           <Card>
             <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
