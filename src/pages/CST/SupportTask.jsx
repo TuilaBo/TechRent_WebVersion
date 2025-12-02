@@ -320,59 +320,10 @@ export default function SupportTask() {
       {
         title: "Thao tác",
         key: "actions",
-        width: 200,
+        width: 120,
         render: (_, r) => (
           <Space>
             <Button size="small" onClick={() => onClickTask(r)}>Xem</Button>
-            {(String(r.type || "").toUpperCase() === "DELIVERY" || String(r.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(r.taskCategoryName || "").toUpperCase().includes("GIAO")) && (() => {
-              const taskId = r.taskId || r.id;
-              const status = String(r.status || "").toUpperCase();
-              const isCompleted = status === "COMPLETED";
-              const isInProgress = status === "IN_PROGRESS";
-              const isConfirmed = confirmedTasks.has(taskId);
-              const isLoading = confirmingDelivery[taskId];
-              
-              return (
-                <>
-                  {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
-                  {!isCompleted && !isInProgress && !isConfirmed && (
-                    <Button
-                      size="small"
-                      type="default"
-                      loading={isLoading}
-                      onClick={() => handleConfirmDelivery(taskId)}
-                    >
-                      Xác nhận giao hàng
-                    </Button>
-                  )}
-                  {/* Hiển thị thông báo khi đã xác nhận */}
-                 
-                </>
-              );
-            })()}
-            {isPickupTask(r) && (() => {
-              const taskId = r.taskId || r.id;
-              const status = String(r.status || "").toUpperCase();
-              const isCompleted = status === "COMPLETED";
-              const isInProgress = status === "IN_PROGRESS";
-              const isConfirmed = confirmedRetrievalTasks.has(taskId);
-              const isLoading = confirmingRetrieval[taskId];
-              
-              return (
-                <>
-                  {!isCompleted && !isInProgress && !isConfirmed && (
-                    <Button
-                      size="small"
-                      type="default"
-                      loading={isLoading}
-                      onClick={() => handleConfirmRetrieval(taskId)}
-                    >
-                      Xác nhận đi lấy hàng
-                    </Button>
-                  )}
-                </>
-              );
-            })()}
           </Space>
         ),
       },

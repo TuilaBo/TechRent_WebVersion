@@ -14,7 +14,7 @@ import {
   Popconfirm,
   Descriptions,
   InputNumber,
-  Switch,
+  Tooltip,
 } from "antd";
 import {
   PlusOutlined,
@@ -36,6 +36,32 @@ import { listDeviceModels } from "../../lib/deviceManage";
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+const CONDITION_TYPE_OPTIONS = [
+  { label: "Tốt (GOOD)", value: "GOOD", color: "green" },
+  { label: "Hư hỏng (DAMAGED)", value: "DAMAGED", color: "volcano" },
+  { label: "Mất (LOST)", value: "LOST", color: "red" },
+];
+
+const CONDITION_SEVERITY_OPTIONS = [
+  { label: "Không có (INFO)", value: "INFO", color: "default" },
+  { label: "Nhẹ (LOW)", value: "LOW", color: "green" },
+  { label: "Trung bình (MEDIUM)", value: "MEDIUM", color: "gold" },
+  { label: "Nghiêm trọng (HIGH)", value: "HIGH", color: "orange" },
+  { label: "Khẩn cấp (CRITICAL)", value: "CRITICAL", color: "red" },
+];
+
+const getTypeMeta = (value) =>
+  CONDITION_TYPE_OPTIONS.find((opt) => opt.value === value) || {
+    label: value || "—",
+    color: "default",
+  };
+
+const getSeverityMeta = (value) =>
+  CONDITION_SEVERITY_OPTIONS.find((opt) => opt.value === value) || {
+    label: value || "—",
+    color: "default",
+  };
 
 export default function AdminCondition() {
   const [conditions, setConditions] = useState([]);
@@ -114,8 +140,9 @@ export default function AdminCondition() {
     createForm.resetFields();
     createForm.setFieldsValue({
       impactRate: 100,
-      damage: false,
       defaultCompensation: 0,
+      conditionType: "GOOD",
+      conditionSeverity: "INFO",
     });
     setOpenCreate(true);
   };
@@ -127,7 +154,8 @@ export default function AdminCondition() {
         deviceModelId: vals.deviceModelId,
         description: vals.description || "",
         impactRate: vals.impactRate ?? 100,
-        damage: vals.damage ?? false,
+        conditionType: vals.conditionType || "GOOD",
+        conditionSeverity: vals.conditionSeverity || "INFO",
         defaultCompensation: vals.defaultCompensation ?? 0,
       });
       toast.success("Tạo condition definition thành công");
@@ -159,7 +187,8 @@ export default function AdminCondition() {
       deviceModelId: current.deviceModelId,
       description: current.description,
       impactRate: current.impactRate,
-      damage: current.damage,
+      conditionType: current.conditionType || "GOOD",
+      conditionSeverity: current.conditionSeverity || "INFO",
       defaultCompensation: current.defaultCompensation,
     });
     setOpenEdit(true);
@@ -175,7 +204,8 @@ export default function AdminCondition() {
         deviceModelId: vals.deviceModelId,
         description: vals.description,
         impactRate: vals.impactRate,
-        damage: vals.damage,
+        conditionType: vals.conditionType,
+        conditionSeverity: vals.conditionSeverity,
         defaultCompensation: vals.defaultCompensation,
       });
       toast.success("Cập nhật condition definition thành công");
@@ -216,39 +246,56 @@ export default function AdminCondition() {
       sortDirections: ["descend", "ascend"],
     },
     {
-      title: "Tên tình trạng thiết bị", 
+      title: "Tên tình trạng", 
       dataIndex: "name",
-      width: 200,
+      width: 180,
       ellipsis: true,
     },
     {
       title: "Mẫu thiết bị",
       dataIndex: "deviceModelId",
       width: 180,
-      render: (modelId) => (
-        <Tag color="blue">{getModelName(modelId)}</Tag>
-      ),
+      ellipsis: true,
+      render: (modelId) => {
+        const modelName = getModelName(modelId);
+        return (
+          <Tooltip title={modelName}>
+            <Tag color="blue">{modelName}</Tag>
+          </Tooltip>
+        );
+      },
     },
     {
-      title: "Mô tả tình trạng thiết bị",
+      title: "Mô tả",
       dataIndex: "description",
+      width: 220,
       ellipsis: true,
       render: (text) => text || "—",
     },
     {
-      title: "Tỷ lệ ảnh hưởng đến thiết bị(%)",
+      title: "Loại tình trạng",
+      dataIndex: "conditionType",
+      width: 140,
+      render: (type) => {
+        const meta = getTypeMeta(type);
+        return <Tag color={meta.color}>{meta.label}</Tag>;
+      },
+    },
+    {
+      title: "Mức độ nghiêm trọng",
+      dataIndex: "conditionSeverity",
+      width: 160,
+      render: (sev) => {
+        const meta = getSeverityMeta(sev);
+        return <Tag color={meta.color}>{meta.label}</Tag>;
+      },
+    },
+    {
+      title: "Tỷ lệ ảnh hưởng (%)",
       dataIndex: "impactRate",
       width: 150,
       align: "center",
       render: (rate) => `${rate ?? 0}%`,
-    },
-    {
-      title: "Gây hư hỏng",
-      dataIndex: "damage",
-      width: 120,
-      align: "center",
-      render: (damage) =>
-        damage ? <Tag color="red">Có</Tag> : <Tag color="green">Không</Tag>,
     },
     {
       title: "Chi phí bồi thường mặc định",
@@ -325,7 +372,7 @@ export default function AdminCondition() {
             dataSource={conditions}
             loading={loading}
             pagination={{ pageSize: 10 }}
-            scroll={{ x: 1400 }}
+            scroll={{ x: 1600 }}
           />
         </Card>
 
@@ -376,12 +423,24 @@ export default function AdminCondition() {
               />
             </Form.Item>
             <Form.Item
-              label="Gây hư hỏng"
-              name="damage"
-              valuePropName="checked"
-              tooltip="Bật nếu condition này gây hư hỏng thiết bị"
+              label="Loại tình trạng"
+              name="conditionType"
+              rules={[{ required: true, message: "Chọn loại tình trạng" }]}
             >
-              <Switch checkedChildren="Có" unCheckedChildren="Không" />
+              <Select
+                placeholder="Chọn loại tình trạng"
+                options={CONDITION_TYPE_OPTIONS}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Mức độ nghiêm trọng"
+              name="conditionSeverity"
+              rules={[{ required: true, message: "Chọn mức độ nghiêm trọng" }]}
+            >
+              <Select
+                placeholder="Chọn mức độ"
+                options={CONDITION_SEVERITY_OPTIONS}
+              />
             </Form.Item>
             <Form.Item
               label="Chi phí bồi thường (VND)"
@@ -448,12 +507,24 @@ export default function AdminCondition() {
               />
             </Form.Item>
             <Form.Item
-              label="Gây hư hỏng"
-              name="damage"
-              valuePropName="checked"
-              tooltip="Bật nếu condition này gây hư hỏng thiết bị"
+              label="Loại tình trạng"
+              name="conditionType"
+              rules={[{ required: true, message: "Chọn loại tình trạng" }]}
             >
-              <Switch checkedChildren="Có" unCheckedChildren="Không" />
+              <Select
+                placeholder="Chọn loại tình trạng"
+                options={CONDITION_TYPE_OPTIONS}
+              />
+            </Form.Item>
+            <Form.Item
+              label="Mức độ nghiêm trọng"
+              name="conditionSeverity"
+              rules={[{ required: true, message: "Chọn mức độ nghiêm trọng" }]}
+            >
+              <Select
+                placeholder="Chọn mức độ"
+                options={CONDITION_SEVERITY_OPTIONS}
+              />
             </Form.Item>
             <Form.Item
               label="Chi phí bồi thường mặc định (VND)"
@@ -491,28 +562,23 @@ export default function AdminCondition() {
               <Descriptions.Item label="Tỷ lệ ảnh hưởng đến thiết bị">
                 {viewingCondition.impactRate ?? 0}%
               </Descriptions.Item>
-              <Descriptions.Item label="Gây hư hỏng">
-                {viewingCondition.damage ? (
-                  <Tag color="red">Có</Tag>
-                ) : (
-                  <Tag color="green">Không</Tag>
-                )}
+              <Descriptions.Item label="Loại tình trạng">
+                {(() => {
+                  const meta = getTypeMeta(viewingCondition.conditionType);
+                  return <Tag color={meta.color}>{meta.label}</Tag>;
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="Mức độ nghiêm trọng">
+                {(() => {
+                  const meta = getSeverityMeta(viewingCondition.conditionSeverity);
+                  return <Tag color={meta.color}>{meta.label}</Tag>;
+                })()}
               </Descriptions.Item>
               <Descriptions.Item label="chi phí bồi thường mặc định">
                 {Number(viewingCondition.defaultCompensation || 0).toLocaleString("vi-VN", {
                   style: "currency",
                   currency: "VND",
                 })}
-              </Descriptions.Item>
-              <Descriptions.Item label="Tạo lúc">
-                {viewingCondition.createdAt
-                  ? new Date(viewingCondition.createdAt).toLocaleString("vi-VN")
-                  : "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Cập nhật">
-                {viewingCondition.updatedAt
-                  ? new Date(viewingCondition.updatedAt).toLocaleString("vi-VN")
-                  : "—"}
               </Descriptions.Item>
             </Descriptions>
           ) : (

@@ -12,6 +12,8 @@ export function normalizeConditionDefinition(raw = {}) {
     description: raw.description ?? "",
     impactRate: raw.impactRate ?? 0,
     damage: raw.damage ?? false,
+    conditionType: raw.conditionType ?? raw.type ?? "GOOD",
+    conditionSeverity: raw.conditionSeverity ?? raw.severity ?? "INFO",
     defaultCompensation: raw.defaultCompensation ?? 0,
     createdAt: raw.createdAt ?? null,
     updatedAt: raw.updatedAt ?? null,
@@ -57,7 +59,8 @@ export async function getConditionDefinitionById(id) {
  * @param {number} conditionData.deviceModelId - ID của device model
  * @param {string} conditionData.description - Mô tả
  * @param {number} conditionData.impactRate - Tỷ lệ ảnh hưởng (default: 100)
- * @param {boolean} conditionData.damage - Có gây hư hỏng không
+ * @param {string} conditionData.conditionType - Loại tình trạng (GOOD, DAMAGED, LOST)
+ * @param {string} conditionData.conditionSeverity - Mức độ nghiêm trọng (INFO, LOW, MEDIUM, HIGH, CRITICAL)
  * @param {number} conditionData.defaultCompensation - Bồi thường mặc định (default: 0)
  * @returns {Promise<Object>} Condition definition đã tạo
  */
@@ -67,7 +70,8 @@ export async function createConditionDefinition(conditionData) {
     deviceModelId: conditionData.deviceModelId ?? 0,
     description: conditionData.description ?? "",
     impactRate: conditionData.impactRate ?? 100,
-    damage: conditionData.damage ?? false,
+    conditionType: conditionData.conditionType ?? "GOOD",
+    conditionSeverity: conditionData.conditionSeverity ?? "INFO",
     defaultCompensation: conditionData.defaultCompensation ?? 0,
   };
   
@@ -83,7 +87,8 @@ export async function createConditionDefinition(conditionData) {
  * @param {number} [conditionData.deviceModelId] - ID của device model
  * @param {string} [conditionData.description] - Mô tả
  * @param {number} [conditionData.impactRate] - Tỷ lệ ảnh hưởng
- * @param {boolean} [conditionData.damage] - Có gây hư hỏng không
+ * @param {string} [conditionData.conditionType] - Loại tình trạng
+ * @param {string} [conditionData.conditionSeverity] - Mức độ nghiêm trọng
  * @param {number} [conditionData.defaultCompensation] - Bồi thường mặc định
  * @returns {Promise<Object>} Condition definition đã cập nhật
  */
@@ -93,7 +98,8 @@ export async function updateConditionDefinition(id, conditionData) {
   if (conditionData.deviceModelId !== undefined) payload.deviceModelId = conditionData.deviceModelId;
   if (conditionData.description !== undefined) payload.description = conditionData.description;
   if (conditionData.impactRate !== undefined) payload.impactRate = conditionData.impactRate;
-  if (conditionData.damage !== undefined) payload.damage = conditionData.damage;
+  if (conditionData.conditionType !== undefined) payload.conditionType = conditionData.conditionType;
+  if (conditionData.conditionSeverity !== undefined) payload.conditionSeverity = conditionData.conditionSeverity;
   if (conditionData.defaultCompensation !== undefined) payload.defaultCompensation = conditionData.defaultCompensation;
   
   const { data } = await api.put(`/api/conditions/definitions/${Number(id)}`, payload);
@@ -124,7 +130,6 @@ export async function getDeviceConditions(deviceId) {
 /** PUT /api/devices/{id}/conditions – Cập nhật tình trạng hiện tại của thiết bị
  * @param {number} deviceId - ID của thiết bị
  * @param {Object} payload - Dữ liệu cập nhật
- * @param {number} payload.capturedByStaffId - ID của nhân viên thực hiện
  * @param {Array<Object>} payload.conditions - Danh sách tình trạng
  * @param {number} payload.conditions[].conditionDefinitionId - ID của condition definition
  * @param {string} payload.conditions[].severity - Mức độ nghiêm trọng
@@ -134,7 +139,6 @@ export async function getDeviceConditions(deviceId) {
  */
 export async function updateDeviceConditions(deviceId, payload) {
   const requestBody = {
-    capturedByStaffId: Number(payload.capturedByStaffId ?? 0),
     conditions: Array.isArray(payload.conditions) ? payload.conditions.map((c) => ({
       conditionDefinitionId: Number(c.conditionDefinitionId ?? 0),
       severity: String(c.severity ?? ""),

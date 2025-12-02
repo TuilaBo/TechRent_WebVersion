@@ -736,11 +736,14 @@ export default function TechnicianQcDetail() {
                   })[0];
 
                 if (latestCondition && latestCondition.conditionDefinitionId) {
-                  // Map severity từ API
-                  let mappedSeverity = latestCondition.severity || "NONE";
-                  const validSeverities = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                  // Map severity từ API về enum chuẩn (INFO, LOW, MEDIUM, HIGH, CRITICAL)
+                  let mappedSeverity = String(latestCondition.severity || "INFO").toUpperCase();
+                  const validSeverities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                  if (mappedSeverity === "NONE") {
+                    mappedSeverity = "INFO";
+                  }
                   if (!validSeverities.includes(mappedSeverity)) {
-                    mappedSeverity = "NONE"; // Default fallback
+                    mappedSeverity = "INFO"; // Default fallback
                   }
                   
                   // Kiểm tra xem condition này đã tồn tại chưa
@@ -1605,13 +1608,14 @@ export default function TechnicianQcDetail() {
                                           })[0];
 
                                         if (latestCondition && latestCondition.conditionDefinitionId) {
-                                          // Map severity từ API (có thể là "DAMAGE", "NONE", etc.) sang format của form
-                                          let mappedSeverity = latestCondition.severity || "NONE";
-                                          // Nếu severity không phải là một trong các giá trị hợp lệ, giữ nguyên hoặc map
-                                          const validSeverities = ["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                                          // Map severity từ API (có thể là "DAMAGE", "NONE", etc.) sang enum chuẩn
+                                          let mappedSeverity = String(latestCondition.severity || "INFO").toUpperCase();
+                                          const validSeverities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                                          if (mappedSeverity === "NONE") {
+                                            mappedSeverity = "INFO";
+                                          }
                                           if (!validSeverities.includes(mappedSeverity)) {
-                                            // Nếu là "DAMAGE" hoặc giá trị khác, có thể map hoặc giữ nguyên
-                                            mappedSeverity = "NONE"; // Default fallback
+                                            mappedSeverity = "INFO"; // Default fallback
                                           }
                                           
                                           // Cập nhật condition hiện tại với dữ liệu từ API
@@ -1645,7 +1649,7 @@ export default function TechnicianQcDetail() {
                         </Col>
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
-                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                          <Text strong style={{ display: "block", marginBottom: 4 }}>
                               Tình trạng thiết bị <Text type="danger">*</Text>
                             </Text>
                             <Select
@@ -1654,16 +1658,22 @@ export default function TechnicianQcDetail() {
                               value={condition.conditionDefinitionId}
                               onChange={(value) => {
                                 const newConditions = [...deviceConditions];
+                                const def = filteredConditions.find((c) => c.id === value);
+                                const autoSeverity =
+                                  def?.conditionSeverity ||
+                                  newConditions[index].severity ||
+                                  "NONE";
                                 newConditions[index] = {
                                   ...newConditions[index],
                                   conditionDefinitionId: value,
+                                  severity: autoSeverity,
                                 };
                                 setDeviceConditions(newConditions);
                               }}
                               loading={loadingConditions}
                               disabled={!condition.deviceId || loadingConditions}
-                              options={filteredConditions.map(c => ({
-                                label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
+                              options={filteredConditions.map((c) => ({
+                                label: c.name,
                                 value: c.id,
                               }))}
                             />
@@ -1687,11 +1697,11 @@ export default function TechnicianQcDetail() {
                                 setDeviceConditions(newConditions);
                               }}
                               options={[
-                                { label: "Không có ", value: "NONE" },
-                              { label: "Nhẹ ", value: "LOW" },
-                              { label: "Trung bình ", value: "MEDIUM" },
-                              { label: "Nặng ", value: "HIGH" },
-                              { label: "Rất nặng", value: "CRITICAL" },
+                                { label: "Không có", value: "INFO" },
+                                { label: "Nhẹ", value: "LOW" },
+                                { label: "Trung bình", value: "MEDIUM" },
+                                { label: "Nghiêm trọng", value: "HIGH" },
+                                { label: "Khẩn cấp", value: "CRITICAL" },
                               ]}
                             />
                           </div>

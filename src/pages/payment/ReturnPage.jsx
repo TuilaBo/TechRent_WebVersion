@@ -1,5 +1,5 @@
 // src/pages/payment/ReturnPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, Result, Button, Space, Typography, Spin } from "antd";
 import { CheckCircleOutlined, HomeOutlined, ShoppingOutlined } from "@ant-design/icons";
@@ -26,6 +26,65 @@ export default function ReturnPage() {
 
   // VNPay params
   const vnpResponseCode = searchParams.get("vnp_ResponseCode");
+
+  const loadInvoice = useCallback(async (rentalOrderId, retryCount = 0) => {
+    try {
+      setLoading(true);
+      const invoiceResult = await getInvoiceByRentalOrderId(rentalOrderId);
+      
+      console.log("📄 ReturnPage - Loaded invoice result:", {
+        rentalOrderId,
+        result: invoiceResult,
+        retryCount,
+      });
+      
+      // API may return a single invoice object or an array of invoices
+      let invoice = null;
+      if (Array.isArray(invoiceResult)) {
+        // If result is an array, prioritize RENT_PAYMENT type, otherwise use first invoice
+        invoice =
+          invoiceResult.find(
+            (inv) =>
+              String(inv?.invoiceType || "").toUpperCase() === "RENT_PAYMENT"
+          ) || invoiceResult[0] || null;
+      } else {
+        invoice = invoiceResult || null;
+      }
+      
+      if (invoice) {
+        console.log("📄 ReturnPage - Selected invoice:", {
+          invoiceId: invoice.invoiceId || invoice.id,
+          totalAmount: invoice.totalAmount,
+          invoiceStatus: invoice.invoiceStatus,
+        });
+        setInvoiceData(invoice);
+        setLoading(false);
+      } else {
+        // Retry after a short delay if invoice not found (backend might still be processing)
+        if (retryCount < 3) {
+          console.log(`⏳ Retrying invoice load (attempt ${retryCount + 1}/3)...`);
+          setTimeout(() => {
+            loadInvoice(rentalOrderId, retryCount + 1);
+          }, 2000); // Wait 2 seconds before retry
+          return;
+        }
+        console.warn("No invoice found for order after retries:", rentalOrderId);
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error("Error loading invoice:", err);
+      // Retry on error if we haven't exceeded retry limit
+      if (retryCount < 3) {
+        console.log(`⏳ Retrying invoice load after error (attempt ${retryCount + 1}/3)...`);
+        setTimeout(() => {
+          loadInvoice(rentalOrderId, retryCount + 1);
+        }, 2000);
+        return;
+      }
+      // Silently handle error - user can still see success message
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     // Kiểm tra nếu là VNPay và có response code
@@ -66,20 +125,7 @@ export default function ReturnPage() {
     } else {
       setLoading(false);
     }
-  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode]);
-
-  const loadInvoice = async (rentalOrderId) => {
-    try {
-      setLoading(true);
-      const invoice = await getInvoiceByRentalOrderId(rentalOrderId);
-      setInvoiceData(invoice);
-    } catch (err) {
-      console.error("Error loading invoice:", err);
-      // Silently handle error - user can still see success message
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode, loadInvoice]);
 
   if (loading) {
     return (

@@ -2545,16 +2545,22 @@ export default function TechnicianHandover() {
                             value={condition.conditionDefinitionId}
                             onChange={(value) => {
                               const newConditions = [...deviceConditions];
+                              const def = filteredConditions.find((c) => c.id === value);
+                              const autoSeverity =
+                                def?.conditionSeverity ||
+                                newConditions[index].severity ||
+                                "NONE";
                               newConditions[index] = {
                                 ...newConditions[index],
                                 conditionDefinitionId: value,
+                                severity: autoSeverity,
                               };
                               setDeviceConditions(newConditions);
                             }}
                             loading={loadingConditions}
                             disabled={!condition.deviceId || loadingConditions}
-                            options={filteredConditions.map(c => ({
-                              label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
+                            options={filteredConditions.map((c) => ({
+                              label: c.name,
                               value: c.id,
                             }))}
                           />
@@ -2578,11 +2584,11 @@ export default function TechnicianHandover() {
                               setDeviceConditions(newConditions);
                             }}
                             options={[
-                              { label: "Không có ", value: "NONE" },
-                              { label: "Nhẹ ", value: "LOW" },
-                              { label: "Trung bình ", value: "MEDIUM" },
-                              { label: "Nặng ", value: "HIGH" },
-                              { label: "Rất nặng", value: "CRITICAL" },
+                              { label: "Không có", value: "INFO" },
+                              { label: "Nhẹ", value: "LOW" },
+                              { label: "Trung bình", value: "MEDIUM" },
+                              { label: "Nghiêm trọng", value: "HIGH" },
+                              { label: "Khẩn cấp", value: "CRITICAL" },
                             ]}
                           />
                         </div>

@@ -210,6 +210,12 @@ const isOrderDeliveredOrLater = (order) => {
   return deliveredOrLaterStatuses.some(status => orderStatus.includes(status));
 };
 
+const isOrderProcessing = (order) => {
+  if (!order) return false;
+  const orderStatus = String(order.status || order.orderStatus || "").toUpperCase();
+  return orderStatus === "PROCESSING";
+};
+
 /** Kiểm tra xem task có phải là PickUp/Retrieval không */
 const isPickupTask = (task) => {
   if (!task) return false;
@@ -2316,15 +2322,6 @@ export default function TechnicianCalendar() {
                 Tạo biên bản bàn giao
               </Button>
             )}
-            {!isCompleted && !isInProgress && !isConfirmed && (
-              <Button
-                type="default"
-                loading={isLoading}
-                onClick={() => handleConfirmDelivery(taskId)}
-              >
-                Xác nhận giao hàng
-              </Button>
-            )}
             {reportForTask && (() => {
               const reportStatus = String(reportForTask.status || "").toUpperCase();
               const isBothSigned = reportStatus === "BOTH_SIGNED" || reportStatus === "COMPLETED";
@@ -2357,6 +2354,21 @@ export default function TechnicianCalendar() {
               );
             })()}
           </Space>
+          {!isCompleted && !isInProgress && !isConfirmed && (
+            <Button
+              type="primary"
+              loading={isLoading}
+              onClick={() => handleConfirmDelivery(taskId)}
+              style={{ marginTop: 16 }}
+            >
+              Xác nhận giao hàng
+            </Button>
+          )}
+          {(isCompleted || isConfirmed || isInProgress) && (
+            <Text type="success" style={{ display: "block", marginTop: 12 }}>
+              Đã xác nhận giao hàng
+            </Text>
+          )}
         </>
       );
     }
@@ -2629,6 +2641,7 @@ export default function TechnicianCalendar() {
             
             // Kiểm tra trạng thái đơn hàng - không cho cập nhật nếu đã DELIVERY_CONFIRMED hoặc sau đó
             const orderDeliveredOrLater = orderDetail ? isOrderDeliveredOrLater(orderDetail) : false;
+            const orderIsProcessing = orderDetail ? isOrderProcessing(orderDetail) : false;
             
             // Nếu COMPLETED: chỉ hiển thị nút nếu đã có QC report (chỉ cho update)
             // Nếu chưa COMPLETED: hiển thị nút tạo/cập nhật như bình thường
@@ -2644,6 +2657,19 @@ export default function TechnicianCalendar() {
                   icon={<FileTextOutlined />}
                   disabled
                   title="Không thể cập nhật QC report pre-rental khi đơn hàng đã được xác nhận giao hàng"
+                >
+                  {hasQcReport ? "Cập nhật QC Report (Đã khóa)" : "Tạo QC Report (Đã khóa)"}
+                </Button>
+              );
+            }
+
+            if (!orderIsProcessing) {
+              return (
+                <Button
+                  type="primary"
+                  icon={<FileTextOutlined />}
+                  disabled
+                  title="Chỉ có thể tạo/cập nhật QC pre-rental khi đơn hàng đang ở trạng thái PROCESSING"
                 >
                   {hasQcReport ? "Cập nhật QC Report (Đã khóa)" : "Tạo QC Report (Đã khóa)"}
                 </Button>

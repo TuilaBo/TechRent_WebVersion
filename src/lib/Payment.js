@@ -47,7 +47,7 @@ export async function getTransactions() {
 // 4) Get all invoices for current customer
 // Fetches invoice details for each rental order
 // Note: This requires importing listRentalOrders from rentalOrdersApi
-// Returns array of invoice objects
+// Returns array of invoice objects (flattened)
 export async function getInvoices() {
   try {
     // Import dynamically to avoid circular dependency
@@ -75,16 +75,43 @@ export async function getInvoices() {
       })
     );
     
-    const invoices = await Promise.all(invoicePromises);
-    // Filter out null values (orders without invoices)
-    return invoices.filter((inv) => inv != null);
+    const invoiceResults = await Promise.all(invoicePromises);
+    
+    // Flatten results: each result can be a single invoice object or an array of invoices
+    const allInvoices = [];
+    invoiceResults.forEach((result) => {
+      if (!result) return; // Skip null results
+      
+      if (Array.isArray(result)) {
+        // If result is an array, add all invoices from it
+        result.forEach((inv) => {
+          if (inv && (inv.invoiceId || inv.id)) {
+            allInvoices.push(inv);
+          }
+        });
+      } else if (result && (result.invoiceId || result.id)) {
+        // If result is a single invoice object, add it
+        allInvoices.push(result);
+      }
+    });
+    
+    return allInvoices;
   } catch (error) {
     console.error("Error getting invoices:", error);
     throw error;
   }
 }
 
-// 5) Confirm refund for settlement
+// 5) Get all invoices (Admin only)
+// GET /api/v1/payments/invoices
+// Admin xem toàn bộ hóa đơn đã phát hành
+// Returns array of invoice objects
+export async function getAllInvoices() {
+  const { data } = await api.get("/api/v1/payments/invoices");
+  return unwrap(data);
+}
+
+// 6) Confirm refund for settlement
 // POST /api/v1/payments/settlements/{settlementId}/confirm-refund
 // Returns empty object {} on success (200 OK)
 export async function confirmRefundSettlement(settlementId) {
@@ -97,6 +124,7 @@ export default {
   getInvoiceByRentalOrderId,
   getTransactions,
   getInvoices,
+  getAllInvoices,
   confirmRefundSettlement,
 };
 

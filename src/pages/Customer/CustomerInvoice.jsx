@@ -16,6 +16,7 @@ import {
   Row,
   Col,
   Statistic,
+  Select,
 } from "antd";
 import {
   EyeOutlined,
@@ -41,7 +42,7 @@ const formatCurrency = (amount) => {
 // Helper: Translate invoice type
 const translateInvoiceType = (type) => {
   const map = {
-    RENT_PAYMENT: "Thanh toán thuê",
+    RENT_PAYMENT: "Thanh toán đơn thuê",
     DEPOSIT: "Đặt cọc",
     DEPOSIT_REFUND: "Hoàn cọc",
     DAMAGE_FEE: "Phí hư hỏng",
@@ -81,6 +82,11 @@ export default function CustomerInvoice() {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
+  
+  // Filters
+  const [filterOrderId, setFilterOrderId] = useState(null);
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState(null);
+  const [filterInvoiceType, setFilterInvoiceType] = useState(null);
 
   // Load invoices and orders
   useEffect(() => {
@@ -104,6 +110,13 @@ export default function CustomerInvoice() {
           : Array.isArray(ordersData?.data)
           ? ordersData.data
           : [];
+        
+        console.log("📊 CustomerInvoice - Loaded data:", {
+          invoicesCount: invoicesArray.length,
+          ordersCount: ordersArray.length,
+          invoices: invoicesArray,
+          orders: ordersArray,
+        });
         
         setInvoices(invoicesArray);
         setOrders(ordersArray);
@@ -145,19 +158,57 @@ export default function CustomerInvoice() {
 
   // Handle view invoice details
   const handleViewInvoice = async (invoice) => {
+    // Set invoice immediately to show data we already have
     setSelectedInvoice(invoice);
     setViewModalOpen(true);
     
-    // Load full invoice details if needed
-    if (invoice.rentalOrderId && !invoice.proofUrl) {
+    // Load full invoice details to get complete data (like proofUrl, etc.)
+    // Only reload if we have rentalOrderId
+    if (invoice.rentalOrderId) {
       try {
         setLoadingInvoice(true);
-        const fullInvoice = await getInvoiceByRentalOrderId(invoice.rentalOrderId);
-        if (fullInvoice) {
-          setSelectedInvoice(fullInvoice);
+        const invoiceResult = await getInvoiceByRentalOrderId(invoice.rentalOrderId);
+        
+        console.log("📄 CustomerInvoice - Loaded invoice details:", {
+          invoiceId: invoice.invoiceId || invoice.id,
+          rentalOrderId: invoice.rentalOrderId,
+          result: invoiceResult,
+        });
+        
+        // API may return a single invoice object or an array of invoices
+        let invoicesArray = [];
+        if (Array.isArray(invoiceResult)) {
+          invoicesArray = invoiceResult;
+        } else if (invoiceResult && (invoiceResult.invoiceId || invoiceResult.id)) {
+          invoicesArray = [invoiceResult];
+        }
+        
+        // Find the invoice that matches the current invoiceId
+        // Compare as both string and number to handle type mismatches
+        const currentInvoiceId = invoice.invoiceId || invoice.id;
+        const matchedInvoice = invoicesArray.find((inv) => {
+          const invId = inv.invoiceId || inv.id;
+          return (
+            invId === currentInvoiceId ||
+            String(invId) === String(currentInvoiceId) ||
+            Number(invId) === Number(currentInvoiceId)
+          );
+        });
+        
+        // Use matched invoice if found, otherwise keep current invoice
+        if (matchedInvoice) {
+          console.log("✅ CustomerInvoice - Found matching invoice:", matchedInvoice);
+          setSelectedInvoice(matchedInvoice);
+        } else {
+          console.warn("⚠️ CustomerInvoice - No matching invoice found, keeping current:", {
+            currentInvoiceId,
+            availableIds: invoicesArray.map((inv) => inv.invoiceId || inv.id),
+          });
+          // Keep the current invoice (it already has data from tableData)
         }
       } catch (error) {
-        console.error("Error loading invoice details:", error);
+        console.error("❌ CustomerInvoice - Error loading invoice details:", error);
+        // Keep the current invoice even if loading fails
       } finally {
         setLoadingInvoice(false);
       }
@@ -262,8 +313,28 @@ export default function CustomerInvoice() {
     },
   ];
 
+  // Get unique values for filters
+  const filterOptions = useMemo(() => {
+    const orderIds = new Set();
+    const paymentMethods = new Set();
+    const invoiceTypes = new Set();
+    
+    invoices.forEach((invoice) => {
+      const orderId = invoice.rentalOrderId || invoice.orderId;
+      if (orderId) orderIds.add(orderId);
+      if (invoice.paymentMethod) paymentMethods.add(invoice.paymentMethod);
+      if (invoice.invoiceType) invoiceTypes.add(invoice.invoiceType);
+    });
+    
+    return {
+      orderIds: Array.from(orderIds).sort((a, b) => Number(b) - Number(a)),
+      paymentMethods: Array.from(paymentMethods).sort(),
+      invoiceTypes: Array.from(invoiceTypes).sort(),
+    };
+  }, [invoices]);
+
   // Prepare table data - group by order
-  const tableData = useMemo(() => {
+  const allTableData = useMemo(() => {
     const result = [];
     Object.keys(invoicesByOrder).forEach((orderId) => {
       const orderInvoices = invoicesByOrder[orderId];
@@ -285,6 +356,31 @@ export default function CustomerInvoice() {
       return dateB - dateA;
     });
   }, [invoicesByOrder, getOrderInfo]);
+
+  // Filter table data based on selected filters
+  const tableData = useMemo(() => {
+    let filtered = allTableData;
+    
+    // Filter by order ID
+    if (filterOrderId) {
+      filtered = filtered.filter((item) => {
+        const orderId = item.rentalOrderId || item.orderId;
+        return orderId === filterOrderId || String(orderId) === String(filterOrderId);
+      });
+    }
+    
+    // Filter by payment method
+    if (filterPaymentMethod) {
+      filtered = filtered.filter((item) => item.paymentMethod === filterPaymentMethod);
+    }
+    
+    // Filter by invoice type
+    if (filterInvoiceType) {
+      filtered = filtered.filter((item) => item.invoiceType === filterInvoiceType);
+    }
+    
+    return filtered;
+  }, [allTableData, filterOrderId, filterPaymentMethod, filterInvoiceType]);
 
   // Calculate statistics
   const stats = useMemo(() => {
@@ -376,6 +472,71 @@ export default function CustomerInvoice() {
           </Button>
         }
       >
+        {/* Filters */}
+        <div style={{ marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Select
+            placeholder="Lọc theo đơn hàng"
+            allowClear
+            style={{ minWidth: 180 }}
+            value={filterOrderId}
+            onChange={setFilterOrderId}
+            showSearch
+            filterOption={(input, option) =>
+              String(option?.label || "").toLowerCase().includes(input.toLowerCase())
+            }
+          >
+            {filterOptions.orderIds.map((orderId) => {
+              const order = getOrderInfo(Number(orderId));
+              const displayId = order?.rentalOrderCode || order?.orderCode || order?.displayId || orderId;
+              return (
+                <Select.Option key={orderId} value={orderId} label={`Đơn #${displayId}`}>
+                  Đơn #{displayId}
+                </Select.Option>
+              );
+            })}
+          </Select>
+
+          <Select
+            placeholder="Lọc theo phương thức thanh toán"
+            allowClear
+            style={{ minWidth: 200 }}
+            value={filterPaymentMethod}
+            onChange={setFilterPaymentMethod}
+          >
+            {filterOptions.paymentMethods.map((method) => (
+              <Select.Option key={method} value={method}>
+                {translatePaymentMethod(method)}
+              </Select.Option>
+            ))}
+          </Select>
+
+          <Select
+            placeholder="Lọc theo loại hóa đơn"
+            allowClear
+            style={{ minWidth: 200 }}
+            value={filterInvoiceType}
+            onChange={setFilterInvoiceType}
+          >
+            {filterOptions.invoiceTypes.map((type) => (
+              <Select.Option key={type} value={type}>
+                {translateInvoiceType(type)}
+              </Select.Option>
+            ))}
+          </Select>
+
+          {(filterOrderId || filterPaymentMethod || filterInvoiceType) && (
+            <Button
+              onClick={() => {
+                setFilterOrderId(null);
+                setFilterPaymentMethod(null);
+                setFilterInvoiceType(null);
+              }}
+            >
+              Xóa bộ lọc
+            </Button>
+          )}
+        </div>
+
         {tableData.length === 0 ? (
           <Empty
             description="Chưa có hóa đơn nào"
@@ -453,21 +614,21 @@ export default function CustomerInvoice() {
               <Descriptions.Item label="Phương thức thanh toán">
                 {translatePaymentMethod(selectedInvoice.paymentMethod)}
               </Descriptions.Item>
-              <Descriptions.Item label="Ngày phát hành">
+              {/* <Descriptions.Item label="Ngày phát hành">
                 {selectedInvoice.issueDate
                   ? dayjs(selectedInvoice.issueDate).format("DD/MM/YYYY HH:mm")
                   : "—"}
-              </Descriptions.Item>
+              </Descriptions.Item> */}
               <Descriptions.Item label="Ngày thanh toán">
                 {selectedInvoice.paymentDate
                   ? dayjs(selectedInvoice.paymentDate).format("DD/MM/YYYY HH:mm")
                   : "—"}
               </Descriptions.Item>
-              <Descriptions.Item label="Hạn thanh toán">
+              {/* <Descriptions.Item label="Hạn thanh toán">
                 {selectedInvoice.dueDate
                   ? dayjs(selectedInvoice.dueDate).format("DD/MM/YYYY HH:mm")
                   : "—"}
-              </Descriptions.Item>
+              </Descriptions.Item> */}
             </Descriptions>
 
             <Divider />

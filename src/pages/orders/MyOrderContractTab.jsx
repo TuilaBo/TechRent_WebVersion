@@ -20,7 +20,6 @@ export default function MyOrderContractTab({
   pdfGenerating,
   processingPayment,
   invoiceInfo,
-  PAYMENT_STATUS_MAP,
   CONTRACT_STATUS_MAP,
   formatVND,
   formatDateTime,
@@ -33,6 +32,13 @@ export default function MyOrderContractTab({
   message,
   pdfPreviewUrl,
 }) {
+  // Ẩn các hợp đồng ở trạng thái "Nháp" đối với khách hàng
+  const visibleContracts = Array.isArray(contracts)
+    ? contracts.filter(
+        (c) => String(c?.status || "").toUpperCase() !== "DRAFT"
+      )
+    : [];
+
   return (
     <div style={{ padding: 24 }}>
       <Card
@@ -52,7 +58,7 @@ export default function MyOrderContractTab({
           <div style={{ textAlign: "center", padding: "40px 0" }}>
             <Text type="secondary">Đang tải danh sách hợp đồng...</Text>
           </div>
-        ) : contracts.length > 0 ? (
+        ) : visibleContracts.length > 0 ? (
           <Table
             rowKey="id"
             onRow={(record) => ({
@@ -152,7 +158,7 @@ export default function MyOrderContractTab({
                 ),
               },
             ]}
-            dataSource={contracts}
+            dataSource={visibleContracts}
             pagination={false}
             size="small"
           />

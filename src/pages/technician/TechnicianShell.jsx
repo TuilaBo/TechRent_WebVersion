@@ -27,7 +27,6 @@ export default function TechnicianShell() {
         </div>
         <Menu theme="dark" selectedKeys={[sel]} items={[
           { key: "calendar", icon: <CalendarOutlined />, label: "Lịch công việc", onClick: () => nav("/technician") },
-          { key: "reports",  icon: <FileTextOutlined />,   label: "Tạo báo cáo",   onClick: () => nav("/technician/reports") },
           { key: "conditions", icon: <ToolOutlined />, label: "Tình trạng thiết bị", onClick: () => nav("/technician/conditions") },
         ]}/>
       </Sider>

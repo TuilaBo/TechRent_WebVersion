@@ -21,7 +21,6 @@ import toast from "react-hot-toast";
 import { listDevices } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getDeviceConditions, updateDeviceConditions, getConditionDefinitions } from "../../lib/condition";
-import { useAuthStore } from "../../store/authStore";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -37,8 +36,6 @@ const fileToBase64 = (file) => {
 };
 
 export default function TechnicianCondition() {
-  const user = useAuthStore((s) => s.user);
-  const fetchMe = useAuthStore((s) => s.fetchMe);
   const [loading, setLoading] = useState(false);
   const [devices, setDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
@@ -52,15 +49,6 @@ export default function TechnicianCondition() {
   const [modelNameMap, setModelNameMap] = useState({}); // Map: deviceModelId -> deviceModelName
   const [filterStatus, setFilterStatus] = useState(undefined); // Filter by status
   const [filterModelId, setFilterModelId] = useState(undefined); // Filter by deviceModelId
-
-  // Fetch user info if not available
-  useEffect(() => {
-    if (!user && fetchMe) {
-      fetchMe().catch((error) => {
-        console.warn("Failed to fetch user info:", error);
-      });
-    }
-  }, [user, fetchMe]);
 
   // Load all devices and their models
   useEffect(() => {
@@ -253,36 +241,8 @@ export default function TechnicianCondition() {
 
     try {
       const deviceId = selectedDevice.deviceId || selectedDevice.id;
-      
-      // Try to get staffId from user object (optional - backend will get from token if not provided)
-      let staffId = 
-        user?.staffId || 
-        user?.id || 
-        user?.userId || 
-        user?.staff?.id || 
-        user?.staff?.staffId ||
-        null;
 
-      // If still no staffId, try to fetch user info
-      if (!staffId && fetchMe) {
-        try {
-          const fetchedUser = await fetchMe();
-          staffId = 
-            fetchedUser?.staffId || 
-            fetchedUser?.id || 
-            fetchedUser?.userId || 
-            fetchedUser?.staff?.id || 
-            fetchedUser?.staff?.staffId ||
-            null;
-        } catch (error) {
-          console.warn("Failed to fetch user info, backend will use token:", error);
-        }
-      }
-
-      // Backend tự động lấy capturedByStaffId từ token nếu không gửi hoặc gửi 0
-      // Vẫn cố gắng gửi staffId nếu có, nhưng không bắt buộc
       const payload = {
-        capturedByStaffId: staffId ? Number(staffId) : 0, // Backend sẽ tự lấy từ token nếu là 0
         conditions: values.conditions.map((c) => ({
           conditionDefinitionId: Number(c.conditionDefinitionId),
           severity: String(c.severity || "NONE"),
