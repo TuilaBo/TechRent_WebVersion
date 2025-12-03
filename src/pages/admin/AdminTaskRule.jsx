@@ -106,10 +106,10 @@ export default function AdminTaskRule() {
       if (editing) {
         const id = editing.taskRuleId ?? editing.id;
         await updateTaskRule(id, payload);
-        toast.success("Cập nhật rule thành công");
+        toast.success("Cập nhật Quy tắc thành công");
       } else {
         await createTaskRule(payload);
-        toast.success("Thêm rule thành công");
+        toast.success("Thêm Quy tắc thành công");
       }
       setOpen(false);
       setEditing(null);
@@ -146,7 +146,7 @@ export default function AdminTaskRule() {
       sorter: (a, b) => (a.taskRuleId ?? a.id) - (b.taskRuleId ?? b.id),
     },
     {
-      title: "Tên rule",
+      title: "Tên Quy tắc",
       dataIndex: "name",
       key: "name",
       ellipsis: true,
@@ -262,7 +262,7 @@ export default function AdminTaskRule() {
               icon={<PlusOutlined />}
               onClick={openCreate}
             >
-              Thêm rule mới
+              Thêm Quy tắc mới
             </Button>
           </Space>
         </div>
@@ -282,7 +282,7 @@ export default function AdminTaskRule() {
       </Card>
 
       <Modal
-        title={editing ? "Cập nhật rule" : "Thêm rule mới"}
+        title={editing ? "Cập nhật Quy tắc" : "Thêm Quy tắc mới"}
         open={open}
         onCancel={() => {
           setOpen(false);
@@ -301,11 +301,11 @@ export default function AdminTaskRule() {
           onFinish={submit}
         >
           <Form.Item
-            label="Tên rule"
+            label="Tên Quy tắc"
             name="name"
-            rules={[{ required: true, message: "Vui lòng nhập tên rule" }]}
+            rules={[{ required: true, message: "Vui lòng nhập tên quy tắc" }]}
           >
-            <Input placeholder="Nhập tên rule" />
+            <Input placeholder="Nhập tên quy tắc" />
           </Form.Item>
 
           <Form.Item

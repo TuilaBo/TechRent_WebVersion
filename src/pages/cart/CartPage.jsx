@@ -1018,11 +1018,11 @@ export default function CartPage() {
                       </Text>
                       <TimePicker
                         value={endTime}
+                        onChange={(t) => {
+                          setEndTime(t);
+                        }}
                         format="HH:mm"
                         style={{ width: "100%" }}
-                        disabled
-                        inputReadOnly
-                        placeholder="Giống giờ bắt đầu"
                       />
                     </div>
                   </div>

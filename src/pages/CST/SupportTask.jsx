@@ -88,12 +88,15 @@ const fmtDate = (date) => {
 const fmtOrderStatus = (s) => {
   const v = String(s || "").toUpperCase();
   if (!v) return "—";
+  if (v.includes("DELIVERY_CONFIRMED") || v === "DELIVERY_CONFIRMED") return "Chuẩn bị giao hàng";
+  if (v.includes("IN_USE") || v === "IN_USE") return "Đang sử dụng";
   if (v.includes("PENDING")) return "Chờ xử lý";
   if (v.includes("PROCESSING")) return "Đang xử lý";
   if (v.includes("COMPLETED") || v.includes("DONE")) return "Đã hoàn thành";
   if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
   if (v.includes("DELIVERED")) return "Đã giao";
   if (v.includes("RETURNED")) return "Đã trả";
+  if (v.includes("DELIVERING")) return "Đang giao";
   return v;
 };
 
@@ -268,7 +271,7 @@ export default function SupportTask() {
   const columns = useMemo(
     () => [
       {
-        title: "Mã nhiệm vụ",
+        title: "Mã công việc",
         dataIndex: "id",
         key: "id",
         render: (v, r) => r.id || r.taskId || "—",
@@ -369,7 +372,7 @@ export default function SupportTask() {
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
               {t.status ? (() => {
@@ -440,14 +443,17 @@ export default function SupportTask() {
                               style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
                             />
                           ) : null}
-                          <div>
+                          <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600 }}>
                               {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
                             </div>
-                            {d.deviceModel && (
-                              <div style={{ color: "#667085" }}>
-                                {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ""}
-                                Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                              <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                {orderDetail.allocatedDevices
+                                  .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                  .map((ad, idx) => (
+                                    <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                  ))}
                               </div>
                             )}
                           </div>

@@ -382,74 +382,7 @@ const EXTRA_CONTRACT_HTML = `
 function augmentContractContent(detail) {
   if (!detail) return detail;
   const originalBase = String(detail.contentHtml || detail.contractContent || "");
-  let base = originalBase;
-  
-  // Add serial numbers from allocatedDevices to device list items
-  if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
-    const serialNumbers = Array.from(
-      new Set(
-        detail.allocatedDevices
-          .map((device) => device.serialNumber)
-          .filter(Boolean)
-      )
-    );
-    
-    if (serialNumbers.length > 0) {
-      const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
-      let modifiedBase = base;
-      
-      // Pattern 1: Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
-      const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/div>)/gi;
-      modifiedBase = modifiedBase.replace(
-        equipmentDivPattern,
-        (match, openTag, deviceInfo, priceInfo, closeTag) => {
-          return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
-        }
-      );
-      
-      // Pattern 2: Match <li>... - Giá/ngày:...</li> (fallback for unformatted HTML)
-      if (modifiedBase === base) {
-        const liPattern = /(<li>)([^<]*?)(\s*-\s*Giá\/ngày[^<]*?)(<\/li>)/gi;
-        modifiedBase = modifiedBase.replace(
-          liPattern,
-          (match, openTag, deviceInfo, priceInfo, closeTag) => {
-            return `${openTag}${deviceInfo}${serialText}${priceInfo}${closeTag}`;
-          }
-        );
-      }
-      
-      // Pattern 3: Match any device line with "Giá/ngày" pattern (more flexible)
-      if (modifiedBase === base) {
-        // Try to match lines that contain device info and "Giá/ngày"
-        const flexiblePattern = /(\d+x\s+[^-]+?)(\s*-\s*Giá\/ngày[^<•\n]+?)(\s*-\s*Tiền cọc[^<•\n]+?)/gi;
-        modifiedBase = modifiedBase.replace(
-          flexiblePattern,
-          (match, deviceInfo, priceInfo, depositInfo) => {
-            return `${deviceInfo}${serialText}${priceInfo}${depositInfo}`;
-          }
-        );
-      }
-      
-      // Check if replacement occurred
-      if (modifiedBase !== base) {
-        base = modifiedBase;
-      } else {
-        // If no match found, try to append after the device list
-        // Try to find the closing </ul> of device list and append serial numbers section
-        const ulPattern = /(<\/ul>)(\s*<p>)/i;
-        if (ulPattern.test(base)) {
-          const serialSection = `
-<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
-          base = base.replace(ulPattern, `$1${serialSection}$2`);
-        } else {
-          // Append at the end of device section if pattern not found
-          const serialSection = `<p><strong>Serial Number thiết bị:</strong> ${serialNumbers.join(", ")}</p>`;
-          base = base.replace(/(<\/ul>)/i, `$1${serialSection}`);
-        }
-      }
-    }
-  }
-  
+  const base = originalBase;
   const mergedHtml = base + EXTRA_CONTRACT_HTML;
   return { ...detail, contentHtml: mergedHtml };
 }
@@ -496,34 +429,6 @@ function buildPrintableHtml(detail, customer, kyc) {
   const customerPhone = customer?.phoneNumber || "";
   const identificationCode = kyc?.identificationCode || "";
   let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
-  
-  // Add serial numbers from allocatedDevices after sanitization
-  if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
-    const serialNumbers = detail.allocatedDevices
-      .map(device => device.serialNumber)
-      .filter(Boolean);
-    
-    if (serialNumbers.length > 0) {
-      const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
-      
-      // Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
-      // Pattern: match device info before "Giá/ngày" and insert serial number
-      const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]+?)(\s*-\s*Giá\/ngày[^<]+?)(<\/div>)/gi;
-      const originalContentHtml = contentHtml;
-      contentHtml = contentHtml.replace(
-        equipmentDivPattern,
-        (match, openTag, deviceInfo, priceAndDeposit, closeTag) => {
-          // Insert serial number after device info, before price info
-          return `${openTag}${deviceInfo.trim()}${serialText}${priceAndDeposit}${closeTag}`;
-        }
-      );
-      
-      // Debug: log if replacement didn't occur
-      if (contentHtml === originalContentHtml) {
-        console.warn("Serial number injection failed. HTML pattern:", contentHtml.substring(0, 200));
-      }
-    }
-  }
   
   const termsBlock = detail.terms
     ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
@@ -1075,7 +980,7 @@ function revokeBlob(url) {
         columns={[
           { title: "ID", dataIndex: "id", width: 90 },
           { title: "Số hợp đồng", dataIndex: "number", width: 160, ellipsis: true },
-          { title: "Khách hàng", dataIndex: "customerId", width: 120 },
+          // { title: "Khách hàng", dataIndex: "customerName", width: 180, render: (name, record) => name || `Khách #${record.customerId}` },
           { title: "Đơn hàng", dataIndex: "orderId", width: 120 },
           { title: "Trạng thái", dataIndex: "status", width: 140, render: statusTag },
           { title: "Tổng tiền", dataIndex: "totalAmount", width: 140, render: (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "—") },

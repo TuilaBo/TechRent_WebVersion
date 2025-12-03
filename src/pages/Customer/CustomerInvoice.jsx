@@ -634,14 +634,8 @@ export default function CustomerInvoice() {
             <Divider />
 
             <Descriptions bordered column={1} size="small">
-              <Descriptions.Item label="Tổng tiền (chưa thuế)">
+              <Descriptions.Item label="Tổng tiền">
                 <Text strong>{formatCurrency(selectedInvoice.subTotal || 0)}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="Thuế">
-                {formatCurrency(selectedInvoice.taxAmount || 0)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Giảm giá">
-                {formatCurrency(selectedInvoice.discountAmount || 0)}
               </Descriptions.Item>
               {selectedInvoice.depositApplied && (
                 <Descriptions.Item label="Cọc đã áp dụng">

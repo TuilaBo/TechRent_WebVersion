@@ -1956,7 +1956,7 @@ export default function TechnicianHandoverCheckin() {
           await loadHandoverReports(order.orderId || order.id);
         }
         // Quay lại trang lịch kỹ thuật sau khi cập nhật thành công
-        nav(-1);
+        nav("/technician");
         return;
       }
 
@@ -2089,7 +2089,8 @@ export default function TechnicianHandoverCheckin() {
         await loadHandoverReports(order.orderId || order.id);
       }
 
-      setShowSignatureForm(false);
+      nav("/technician");
+      return;
     } catch (e) {
       console.error("Sign handover report error:", e);
       toast.error(
@@ -2762,7 +2763,7 @@ export default function TechnicianHandoverCheckin() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Điều kiện thiết bị <Text type="danger">*</Text>
+                            Tình trạng thiết bị <Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}

@@ -15,9 +15,17 @@ function normalizeDeviceTerm(raw = {}) {
     content: raw.content,
     active: raw.active,
 
-    // Thông tin thiết bị / danh mục
+    // Thông tin model / thiết bị / danh mục
+    // ✅ BE mới: dùng deviceModelId / deviceModelName
+    deviceModelId:
+      raw.deviceModelId ?? raw.deviceModel?.deviceModelId ?? raw.modelId ?? null,
+    deviceModelName:
+      raw.deviceModelName ?? raw.deviceModel?.deviceName ?? raw.modelName ?? null,
+
+    // Giữ lại cho backward compatibility (nếu còn data cũ)
     deviceId: raw.deviceId ?? null,
     deviceSerialNumber: raw.deviceSerialNumber ?? null,
+
     deviceCategoryId: raw.deviceCategoryId ?? null,
     deviceCategoryName: raw.deviceCategoryName ?? null,
 
@@ -27,12 +35,15 @@ function normalizeDeviceTerm(raw = {}) {
 }
 
 /**
- * Lấy danh sách điều khoản (filter optional theo deviceId, deviceCategoryId, active)
+ * Lấy danh sách điều khoản (filter optional theo deviceModelId, deviceCategoryId, active)
+ * (vẫn cho phép deviceId để tương thích nếu BE cũ)
  */
 export async function listDeviceTerms(filters = {}) {
-  const { deviceId, deviceCategoryId, active } = filters || {};
+  const { deviceModelId, deviceId, deviceCategoryId, active } = filters || {};
   const params = {};
-  if (deviceId != null) params.deviceId = deviceId;
+  if (deviceModelId != null) params.deviceModelId = deviceModelId;
+  else if (deviceId != null) params.deviceId = deviceId; // fallback legacy
+
   if (deviceCategoryId != null) params.deviceCategoryId = deviceCategoryId;
   if (typeof active === "boolean") params.active = active;
 
@@ -52,8 +63,17 @@ export async function getDeviceTermById(termId) {
 }
 
 /**
- * Tạo mới điều khoản cho thiết bị hoặc loại thiết bị
- * @param {{ title: string, content: string, deviceId?: number|null, deviceCategoryId?: number|null, active?: boolean }} payload
+ * Tạo mới điều khoản cho mẫu thiết bị hoặc loại thiết bị
+ * @param {{ title: string, content: string, deviceModelId?: number|null, deviceCategoryId?: number|null, active?: boolean }} payload
+ *
+ * Body BE mới:
+ * {
+ *   "title": "Điều khoản bảo hành thiết bị",
+ *   "content": "string",
+ *   "deviceModelId": 0,
+ *   "deviceCategoryId": 0,
+ *   "active": true
+ * }
  */
 export async function createDeviceTerm(payload) {
   if (!payload) throw new Error("payload is required");
@@ -64,6 +84,7 @@ export async function createDeviceTerm(payload) {
 
 /**
  * Cập nhật điều khoản theo ID
+ * Body giống create: có deviceModelId, deviceCategoryId
  */
 export async function updateDeviceTerm(termId, payload) {
   if (termId == null) throw new Error("termId is required");

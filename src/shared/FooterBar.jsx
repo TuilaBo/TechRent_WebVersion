@@ -1,4 +1,5 @@
 import React from "react";
+import { Link as RouterLink } from "react-router-dom";
 import {
   Layout,
   Row,
@@ -79,7 +80,7 @@ const supportLinks = [
   { label: "Hướng dẫn thuê", href: "#" },
   { label: "Bảo hành & đổi trả", href: "#" },
   { label: "Câu hỏi thường gặp", href: "#" },
-  { label: "Chính sách & điều khoản", href: "#" },
+  { label: "Chính sách & điều khoản", href: "/policies" },
 ];
 
 const socialLinks = [
@@ -302,15 +303,28 @@ export default function FooterBar() {
               Hỗ trợ
             </Title>
             <Space direction="vertical" size={8}>
-              {supportLinks.map((link) => (
-                <Link
-                  key={link.label}
-                  href={link.href}
-                  style={{ color: "rgba(255,255,255,0.75)" }}
-                >
-                  {link.label}
-                </Link>
-              ))}
+              {supportLinks.map((link) => {
+                if (link.href.startsWith("/")) {
+                  return (
+                    <RouterLink
+                      key={link.label}
+                      to={link.href}
+                      style={{ color: "rgba(255,255,255,0.75)" }}
+                    >
+                      {link.label}
+                    </RouterLink>
+                  );
+                }
+                return (
+                  <Link
+                    key={link.label}
+                    href={link.href}
+                    style={{ color: "rgba(255,255,255,0.75)" }}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
             </Space>
           </Col>
 
@@ -381,9 +395,9 @@ export default function FooterBar() {
           </Col>
           <Col>
             <Space size={16}>
-              <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>
+              <RouterLink to="/policies" style={{ color: "rgba(255,255,255,0.65)" }}>
                 Điều khoản
-              </Link>
+              </RouterLink>
               <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>
                 Bảo mật
               </Link>

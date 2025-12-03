@@ -37,34 +37,6 @@ export function buildPrintableHtml(detail, customer, kyc) {
   const identificationCode = kyc?.identificationCode || "";
   let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
   
-  // Add serial numbers from allocatedDevices after sanitization
-  if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
-    const serialNumbers = detail.allocatedDevices
-      .map(device => device.serialNumber)
-      .filter(Boolean);
-    
-    if (serialNumbers.length > 0) {
-      const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
-      
-      // Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
-      // Pattern: match device info before "Giá/ngày" and insert serial number
-      const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]+?)(\s*-\s*Giá\/ngày[^<]+?)(<\/div>)/gi;
-      const originalContentHtml = contentHtml;
-      contentHtml = contentHtml.replace(
-        equipmentDivPattern,
-        (match, openTag, deviceInfo, priceAndDeposit, closeTag) => {
-          // Insert serial number after device info, before price info
-          return `${openTag}${deviceInfo.trim()}${serialText}${priceAndDeposit}${closeTag}`;
-        }
-      );
-      
-      // Debug: log if replacement didn't occur
-      if (contentHtml === originalContentHtml) {
-        console.warn("Serial number injection failed. HTML pattern:", contentHtml.substring(0, 200));
-      }
-    }
-  }
-  
   const termsBlock = detail.terms
     ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
     : "";

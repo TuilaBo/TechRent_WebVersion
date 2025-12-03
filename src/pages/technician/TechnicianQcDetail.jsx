@@ -28,30 +28,30 @@ const translateStatus = (status) => {
   const s = String(status || "").toUpperCase();
   const map = {
     // Task Status
-    "PENDING": "Đang chờ",
-    "IN_PROGRESS": "Đang xử lý",
-    "COMPLETED": "Hoàn thành",
-    "CANCELLED": "Đã hủy",
+    PENDING: "Đang chờ",
+    IN_PROGRESS: "Đang xử lý",
+    COMPLETED: "Hoàn thành",
+    CANCELLED: "Đã hủy",
     // QC Result
-    "READY_FOR_SHIPPING": "Sẵn sàng giao",
-    "PRE_RENTAL_FAILED": "QC trước thuê thất bại",
-    "READY_FOR_RE_STOCK": "Sẵn sàng nhập kho",
-    "POST_RENTAL_FAILED": "QC sau thuê thất bại",
+    READY_FOR_SHIPPING: "Sẵn sàng giao",
+    PRE_RENTAL_FAILED: "QC trước thuê thất bại",
+    READY_FOR_RE_STOCK: "Sẵn sàng nhập kho",
+    POST_RENTAL_FAILED: "QC sau thuê thất bại",
     // Order Status
-    "PENDING_PAYMENT": "Chờ thanh toán",
-    "PENDING_CONFIRMATION": "Chờ xác nhận",
-    "CONFIRMED": "Đã xác nhận",
-    "SHIPPED": "Đã giao hàng",
-    "DELIVERED": "Đã nhận hàng",
-    "RETURNED": "Đã trả hàng",
-    "AVAILABLE": "Có sẵn",
-    "PROCESSING": "Đang xử lý",
+    PENDING_PAYMENT: "Chờ thanh toán",
+    PENDING_CONFIRMATION: "Chờ xác nhận",
+    CONFIRMED: "Đã xác nhận",
+    SHIPPED: "Đã giao hàng",
+    DELIVERED: "Đã nhận hàng",
+    RETURNED: "Đã trả hàng",
+    AVAILABLE: "Có sẵn",
+    PROCESSING: "Đang xử lý",
     // Device Status
-    "PRE_RENTAL_QC": "Kiểm tra trước thuê",
-    "RENTING": "Đang thuê",
-    "RENTED": "Đang thuê",
-    "MAINTENANCE": "Bảo trì",
-    "BROKEN": "Hỏng",
+    PRE_RENTAL_QC: "Kiểm tra trước thuê",
+    RENTING: "Đang thuê",
+    RENTED: "Đang thuê",
+    MAINTENANCE: "Bảo trì",
+    BROKEN: "Hỏng",
   };
   return map[s] || status;
 };
@@ -95,9 +95,9 @@ const fileToBase64 = (file) => {
 /** Checklist mẫu theo category */
 const QC_CHECKLIST_BY_CATEGORY = {
   "VR/AR": ["Vệ sinh ống kính", "Kiểm tra theo dõi chuyển động (tracking)", "Kiểm tra pin", "Kiểm tra dây cáp", "Cập nhật phần mềm (firmware)"],
-  "Console": ["Vệ sinh máy", "Chạy thử game demo", "Kiểm tra tay cầm", "Kiểm tra cổng HDMI", "Cập nhật hệ thống"],
-  "Camera": ["Kiểm tra cảm biến", "Kiểm tra màn trập", "Kiểm tra pin & sạc", "Kiểm tra thẻ nhớ", "Vệ sinh ống kính"],
-  "Drone": ["Kiểm tra cánh quạt", "Kiểm tra GPS", "Kiểm tra pin", "Hiệu chỉnh la bàn (compass)", "Kiểm tra quay video"],
+  Console: ["Vệ sinh máy", "Chạy thử game demo", "Kiểm tra tay cầm", "Kiểm tra cổng HDMI", "Cập nhật hệ thống"],
+  Camera: ["Kiểm tra cảm biến", "Kiểm tra màn trập", "Kiểm tra pin & sạc", "Kiểm tra thẻ nhớ", "Vệ sinh ống kính"],
+  Drone: ["Kiểm tra cánh quạt", "Kiểm tra GPS", "Kiểm tra pin", "Hiệu chỉnh la bàn (compass)", "Kiểm tra quay video"],
 };
 
 /**/
@@ -106,9 +106,9 @@ export default function TechnicianQcDetail() {
   const nav = useNavigate();
   const { taskId: paramTaskId } = useParams();
   const { state } = useLocation();
-  
+
   const actualTaskId = paramTaskId || state?.task?.id || state?.task?.taskId;
-  
+
   // States
   const [loading, setLoading] = useState(true);
   const [task, setTask] = useState(null);
@@ -123,7 +123,7 @@ export default function TechnicianQcDetail() {
   const [existingQcReport, setExistingQcReport] = useState(null);
   const [loadingQcReport, setLoadingQcReport] = useState(false);
   const [saving, setSaving] = useState(false);
-  
+
   const [result, setResult] = useState("READY_FOR_SHIPPING");
   const [findings, setFindings] = useState("");
   const [accessorySnapshotFile, setAccessorySnapshotFile] = useState(null);
@@ -134,7 +134,7 @@ export default function TechnicianQcDetail() {
   const [deviceConditions, setDeviceConditions] = useState([]);
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
-  
+
   // Fetch task and order details
   useEffect(() => {
     const loadData = async () => {
@@ -142,7 +142,7 @@ export default function TechnicianQcDetail() {
         setLoading(false);
         return;
       }
-      
+
       try {
         setLoading(true);
         // Fetch task
@@ -152,25 +152,27 @@ export default function TechnicianQcDetail() {
           nav(-1);
           return;
         }
-        
+
         const normalizedTask = normalizeTask(taskData);
         setTask(normalizedTask);
-        
+
         // Fetch order details
         if (normalizedTask.orderId) {
           const orderData = await getRentalOrderById(normalizedTask.orderId);
+          console.log("📦 [DEBUG] Order Data from API:", orderData);
+          console.log("📦 [DEBUG] Order Details:", orderData?.orderDetails);
           setOrder(orderData);
 
           // Fetch existing QC report by orderId (only for matching phase)
           try {
             setLoadingQcReport(true);
             const qcReports = await getQcReportsByOrderId(normalizedTask.orderId);
-            
+
             if (Array.isArray(qcReports) && qcReports.length > 0) {
               const taskIdNum = Number(normalizedTask.taskId || normalizedTask.id);
               const taskIdStr = String(normalizedTask.taskId || normalizedTask.id);
-              
-              let matchingReport = qcReports.find(r => {
+
+              let matchingReport = qcReports.find((r) => {
                 const reportPhase = String(r.phase || "").toUpperCase();
                 if (reportPhase !== "PRE_RENTAL") return false;
                 const reportTaskId = r.taskId;
@@ -181,15 +183,19 @@ export default function TechnicianQcDetail() {
                   (reportTaskIdStr && taskIdStr && reportTaskIdStr === taskIdStr)
                 );
               });
-              
+
               if (!matchingReport) {
-                matchingReport = qcReports.find(r => String(r.phase || "").toUpperCase() === "PRE_RENTAL");
+                matchingReport = qcReports.find((r) => String(r.phase || "").toUpperCase() === "PRE_RENTAL");
               }
-              
+
+              console.log("📋 [DEBUG] Existing QC Report:", matchingReport);
+              console.log("📋 [DEBUG] QC Report devices:", matchingReport?.devices);
+              console.log("📋 [DEBUG] QC Report orderDetailSerialNumbers:", matchingReport?.orderDetailSerialNumbers);
+              console.log("📋 [DEBUG] QC Report orderDetailId:", matchingReport?.orderDetailId);
               setExistingQcReport(matchingReport || null);
-              
+
               // Track POST_RENTAL discrepancies (nếu có) để cảnh báo khi update
-              const postReportSummary = qcReports.find(r => String(r.phase || "").toUpperCase() === "POST_RENTAL");
+              const postReportSummary = qcReports.find((r) => String(r.phase || "").toUpperCase() === "POST_RENTAL");
               if (postReportSummary) {
                 if (Array.isArray(postReportSummary.discrepancies) && postReportSummary.discrepancies.length > 0) {
                   setPostRentalDiscrepancyCount(postReportSummary.discrepancies.length);
@@ -227,7 +233,7 @@ export default function TechnicianQcDetail() {
         setLoading(false);
       }
     };
-    
+
     loadData();
   }, [actualTaskId, nav]);
 
@@ -243,7 +249,6 @@ export default function TechnicianQcDetail() {
         const devicesMap = {};
         const namesMap = {};
 
-        // Normal flow: fetch devices from API (for PRE_RENTAL or if PRE_RENTAL report not found)
         // Lấy startDate và endDate từ order
         const startDate = order.startDate || order.rentalStartDate;
         const endDate = order.endDate || order.rentalEndDate;
@@ -282,36 +287,40 @@ export default function TechnicianQcDetail() {
             const name = model?.deviceName || model?.name || null;
 
             const availableDevices = Array.isArray(devices)
-              ? (start && end
-                  ? devices
-                  : devices.filter((device) => {
-                      const status = String(
-                        device.status || device.deviceStatus || device.state || ""
-                      ).toUpperCase();
-                      return status === "AVAILABLE";
-                    }))
+              ? start && end
+                ? devices
+                : devices.filter((device) => {
+                    const status = String(
+                      device.status || device.deviceStatus || device.state || ""
+                    ).toUpperCase();
+                    return status === "AVAILABLE";
+                  })
               : [];
 
             return { orderDetailId, devices: availableDevices, deviceModelId, name };
           } catch (e) {
             console.error(`Lỗi khi fetch devices cho modelId ${deviceModelId}:`, e);
+            console.log("DeviceModelId:", deviceModelId);
             toast.error(`Không thể tải devices cho model ${deviceModelId}`);
             return { orderDetailId, devices: [], deviceModelId, name: null };
           }
         });
 
         const results = await Promise.all(fetchPromises);
-        
+
         // Build devicesMap
         results.forEach(({ orderDetailId, devices, deviceModelId, name }) => {
           devicesMap[orderDetailId] = devices;
           if (deviceModelId != null && name) namesMap[deviceModelId] = name;
         });
 
+        console.log("🔧 [DEBUG] Fetched Devices Map (by OrderDetail):", devicesMap);
+        console.log("🔧 [DEBUG] Model Names Map:", namesMap);
         setDevicesByOrderDetail(devicesMap);
         setModelNameById((prev) => ({ ...prev, ...namesMap }));
       } catch (e) {
         console.error("Lỗi khi fetch devices:", e);
+        console.log("device", e?.response?.data);
         toast.error("Không thể tải danh sách thiết bị từ kho");
       } finally {
         setLoadingDevices(false);
@@ -321,10 +330,7 @@ export default function TechnicianQcDetail() {
     fetchDevices();
   }, [order]);
 
-  /** ---------- MOCK INVENTORY TRONG KHO ----------
-   * Map: orderDetailId -> danh sách serial/asset code có sẵn
-   * (Sau này thay bằng API: GET /inventory?orderDetailId=...)
-   */
+  /** ---------- MOCK INVENTORY TRONG KHO ---------- */
   const INVENTORY = useMemo(
     () => ({
       // Mock data - sau này sẽ fetch từ API dựa trên orderDetailId
@@ -342,47 +348,36 @@ export default function TechnicianQcDetail() {
     []
   );
 
-  // Load existing QC report data into form when it's available (form fields only)
+  // Load existing QC report data into form when it's available
   useEffect(() => {
     if (existingQcReport) {
       console.log("🔄 Loading existing QC report data into form:", existingQcReport);
-      
-      // Populate form fields with existing QC report data (works for both PRE_RENTAL and POST_RENTAL)
-      // Điền result
+
       if (existingQcReport.result) {
         const resultValue = String(existingQcReport.result).toUpperCase();
-        console.log("✅ Setting result:", resultValue);
         setResult(resultValue);
       }
-      
-      // Điền findings
+
       if (existingQcReport.findings) {
-        const findingsValue = String(existingQcReport.findings);
-        console.log("✅ Setting findings:", findingsValue);
-        setFindings(findingsValue);
+        setFindings(String(existingQcReport.findings));
       }
-      
-      // Điền accessory snapshot
+
       if (existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl) {
         const url = existingQcReport.accessorySnapShotUrl || existingQcReport.accessorySnapshotUrl;
-        console.log("✅ Setting accessory snapshot URL:", url);
         setAccessorySnapshotPreview(url);
       }
-      
-      // Parse và load deviceConditions từ existingQcReport
+
+      // Parse deviceConditions
       if (Array.isArray(existingQcReport.deviceConditions) && existingQcReport.deviceConditions.length > 0) {
-        console.log("📋 Loading deviceConditions from existing report:", existingQcReport.deviceConditions);
         const parsedDeviceConditions = [];
-        const deviceSerialMap = new Map(); // deviceSerial -> parsed condition
-        
+        const deviceSerialMap = new Map();
+
         existingQcReport.deviceConditions.forEach((dc) => {
           const deviceSerial = dc.deviceSerial || String(dc.deviceId || "");
           if (!deviceSerial) return;
-          
-          // Nếu đã có entry cho deviceSerial này, merge images
+
           if (deviceSerialMap.has(deviceSerial)) {
             const existing = deviceSerialMap.get(deviceSerial);
-            // Merge images từ snapshots mới
             if (Array.isArray(dc.snapshots)) {
               dc.snapshots.forEach((snapshot) => {
                 if (Array.isArray(snapshot.images)) {
@@ -392,43 +387,38 @@ export default function TechnicianQcDetail() {
             }
             return;
           }
-          
-          // Tìm snapshot đầu tiên có conditionDetails
+
           let selectedConditionDetail = null;
           const allImages = new Set();
-          
+
           if (Array.isArray(dc.snapshots)) {
-            // Ưu tiên snapshot có source là QC_BEFORE hoặc BASELINE
             const qcBeforeSnapshot = dc.snapshots.find(
-              (s) => String(s.source || "").toUpperCase() === "QC_BEFORE" ||
-                    String(s.snapshotType || "").toUpperCase() === "BASELINE"
+              (s) =>
+                String(s.source || "").toUpperCase() === "QC_BEFORE" ||
+                String(s.snapshotType || "").toUpperCase() === "BASELINE"
             );
             const snapshotToUse = qcBeforeSnapshot || dc.snapshots[0];
-            
+
             if (snapshotToUse) {
-              // Lấy conditionDetail đầu tiên
               if (Array.isArray(snapshotToUse.conditionDetails) && snapshotToUse.conditionDetails.length > 0) {
                 selectedConditionDetail = snapshotToUse.conditionDetails[0];
               }
-              
-              // Collect images từ snapshot này
+
               if (Array.isArray(snapshotToUse.images)) {
-                snapshotToUse.images.forEach(img => allImages.add(img));
+                snapshotToUse.images.forEach((img) => allImages.add(img));
               }
             }
-            
-            // Cũng collect images từ các snapshots khác
+
             dc.snapshots.forEach((snapshot) => {
               if (Array.isArray(snapshot.images)) {
-                snapshot.images.forEach(img => allImages.add(img));
+                snapshot.images.forEach((img) => allImages.add(img));
               }
             });
           }
-          
-          // Chỉ tạo entry nếu có conditionDetail
+
           if (selectedConditionDetail) {
             const parsedCondition = {
-              deviceId: deviceSerial, // Use serial number as deviceId
+              deviceId: deviceSerial,
               conditionDefinitionId: selectedConditionDetail.conditionDefinitionId,
               severity: selectedConditionDetail.severity || "NONE",
               images: Array.from(allImages),
@@ -437,94 +427,93 @@ export default function TechnicianQcDetail() {
             parsedDeviceConditions.push(parsedCondition);
           }
         });
-        
-        console.log("✅ Parsed device conditions (deduplicated):", parsedDeviceConditions);
+
         setDeviceConditions(parsedDeviceConditions);
       } else {
-        // Reset nếu không có deviceConditions
         setDeviceConditions([]);
       }
     }
   }, [existingQcReport]);
 
-  // Load serial numbers from existing QC report (separate useEffect to ensure order is ready)
+  // Load serial numbers from existing QC report
   useEffect(() => {
     if (existingQcReport && order && Array.isArray(order.orderDetails) && order.orderDetails.length > 0) {
-      console.log("📦 Loading serial numbers from existing QC report");
-      console.log("📦 Order details:", order.orderDetails);
-      
-      // Build selectedDevicesByOrderDetail from existing QC report
-      // This logic works for both PRE_RENTAL and POST_RENTAL reports
+      console.log("🔄 [DEBUG] Loading serial numbers from existing QC report...");
+      console.log("🔄 [DEBUG] Order Details:", order.orderDetails);
       const serialMap = {};
-      
-      // Priority 1: Use orderDetailSerialNumbers if available (most reliable)
-      if (existingQcReport.orderDetailSerialNumbers && typeof existingQcReport.orderDetailSerialNumbers === 'object') {
-        console.log("📦 Loading devices from orderDetailSerialNumbers:", existingQcReport.orderDetailSerialNumbers);
+
+      if (existingQcReport.orderDetailSerialNumbers && typeof existingQcReport.orderDetailSerialNumbers === "object") {
         Object.keys(existingQcReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
           const serials = existingQcReport.orderDetailSerialNumbers[orderDetailId];
           if (Array.isArray(serials)) {
             serialMap[String(orderDetailId)] = serials.map(String);
           }
         });
-      }
-      
-      // Priority 2: Use orderDetailId (single) + devices array
-      else if (existingQcReport.orderDetailId && Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
-        console.log("📦 Loading devices from orderDetailId + devices array");
+      } else if (existingQcReport.orderDetailId && Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
         const reportOrderDetailId = Number(existingQcReport.orderDetailId);
-        const serials = existingQcReport.devices
-          .map(d => d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id)
+        const allSerials = existingQcReport.devices
+          .map((d) => d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id)
           .filter(Boolean)
           .map(String);
-        
-        if (serials.length > 0) {
-          // Map serial numbers vào orderDetailId từ report
-          serialMap[String(reportOrderDetailId)] = serials;
-          
-          // Nếu có orderDetails, cũng map vào các orderDetails có cùng deviceModelId
+
+        if (allSerials.length > 0) {
           const ods = Array.isArray(order?.orderDetails) ? order.orderDetails : [];
+          
+          // Track used serials to avoid duplicates - start empty
+          const usedSerials = new Set();
+
+          // First, find and assign serials to the reportOrderDetailId
+          const reportOd = ods.find(od => String(od.orderDetailId || od.id) === String(reportOrderDetailId));
+          if (reportOd) {
+            const quantity = Number(reportOd.quantity ?? 1);
+            const assignedToReport = allSerials.slice(0, quantity);
+            serialMap[String(reportOrderDetailId)] = assignedToReport;
+            assignedToReport.forEach(serial => usedSerials.add(serial));
+          } else {
+            // If reportOrderDetailId not found in current order, assign all serials to it
+            serialMap[String(reportOrderDetailId)] = allSerials;
+            allSerials.forEach(serial => usedSerials.add(serial));
+          }
+
+          // Then, for other orderDetails with matching device models, assign remaining serials
           if (ods.length > 0) {
-            // Lấy deviceModelId từ devices trong report
             const deviceModelIds = new Set(
               existingQcReport.devices
-                .map(d => Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN))
-                .filter(id => !Number.isNaN(id))
+                .map((d) => Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN))
+                .filter((id) => !Number.isNaN(id))
             );
-            
-            // Map vào các orderDetails có cùng deviceModelId
+
             ods.forEach((od) => {
               const odId = String(od.orderDetailId || od.id);
               const modelId = Number(od.deviceModelId ?? NaN);
               const quantity = Number(od.quantity ?? 1);
-              
-              // Nếu orderDetailId khớp hoặc deviceModelId khớp, map serial numbers
-              if (odId === String(reportOrderDetailId) || (deviceModelIds.has(modelId) && !serialMap[odId])) {
-                // Nếu chưa có serial numbers cho orderDetail này, map từ devices
-                if (!serialMap[odId]) {
-                  const matchingSerials = existingQcReport.devices
-                    .filter(d => {
-                      const dModelId = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
-                      return !Number.isNaN(dModelId) && dModelId === modelId;
-                    })
-                    .map(d => d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id)
-                    .filter(Boolean)
-                    .map(String)
-                    .slice(0, quantity);
-                  
-                  if (matchingSerials.length > 0) {
-                    serialMap[odId] = matchingSerials;
-                  }
-                }
+
+              // Skip if already assigned or not matching model
+              if (serialMap[odId] || !deviceModelIds.has(modelId)) {
+                return;
+              }
+
+              const matchingSerials = existingQcReport.devices
+                .filter((d) => {
+                  const dModelId = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
+                  const serial = d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id;
+                  // Only include if model matches and serial hasn't been used yet
+                  return !Number.isNaN(dModelId) && dModelId === modelId && !usedSerials.has(String(serial));
+                })
+                .map((d) => d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id)
+                .filter(Boolean)
+                .map(String)
+                .slice(0, quantity);
+
+              if (matchingSerials.length > 0) {
+                serialMap[odId] = matchingSerials;
+                // Mark these serials as used
+                matchingSerials.forEach(serial => usedSerials.add(serial));
               }
             });
           }
         }
-      }
-      
-      // Priority 3: Use devices array only (group by deviceModelId)
-      else if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
-        console.log("📦 Loading devices from devices array (grouped by model)");
-        // 1) Gom nhóm devices theo deviceModelId -> danh sách serial
+      } else if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
         const groupByModel = existingQcReport.devices.reduce((acc, d) => {
           const mid = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
           const serial = d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id;
@@ -534,41 +523,35 @@ export default function TechnicianQcDetail() {
           return acc;
         }, {});
 
-        // 2) Duyệt toàn bộ orderDetails, gán serial theo deviceModelId tương ứng (giới hạn theo quantity)
+        // Track used serials to avoid duplicates across orderDetails
+        const usedSerials = new Set();
+
         const ods = Array.isArray(order?.orderDetails) ? order.orderDetails : [];
         ods.forEach((od) => {
           const odId = od.orderDetailId || od.id;
           const modelId = Number(od.deviceModelId ?? NaN);
           const quantity = Number(od.quantity ?? 1);
           if (!odId || !modelId) return;
+          
           const pool = groupByModel[modelId] || [];
-          if (pool.length > 0) {
-            serialMap[String(odId)] = pool.slice(0, Math.max(1, quantity));
+          // Filter out already used serials
+          const availablePool = pool.filter(serial => !usedSerials.has(serial));
+          
+          if (availablePool.length > 0) {
+            const assignedSerials = availablePool.slice(0, Math.max(1, quantity));
+            serialMap[String(odId)] = assignedSerials;
+            // Mark these serials as used
+            assignedSerials.forEach(serial => usedSerials.add(serial));
           }
         });
       }
-      
-      // Set selectedDevicesByOrderDetail if we found any serial numbers
+
+      console.log("✅ [DEBUG] Final Serial Map to be set:", serialMap);
       if (Object.keys(serialMap).length > 0) {
-        console.log("✅ Setting selectedDevicesByOrderDetail:", serialMap);
-        console.log("✅ Serial map details:", Object.keys(serialMap).map(key => ({
-          orderDetailId: key,
-          serials: serialMap[key],
-          count: serialMap[key].length
-        })));
         setSelectedDevicesByOrderDetail(serialMap);
-      } else {
-        console.warn("⚠️ No serial numbers found in existing QC report");
-        console.warn("⚠️ Report structure:", {
-          hasOrderDetailSerialNumbers: !!existingQcReport.orderDetailSerialNumbers,
-          hasOrderDetailId: !!existingQcReport.orderDetailId,
-          hasDevices: Array.isArray(existingQcReport.devices),
-          devicesCount: Array.isArray(existingQcReport.devices) ? existingQcReport.devices.length : 0
-        });
       }
     }
   }, [existingQcReport, order]);
-
 
   // Get order details from order
   const orderDetails = useMemo(() => {
@@ -586,21 +569,17 @@ export default function TechnicianQcDetail() {
 
       try {
         setLoadingConditions(true);
-        // Get all unique deviceModelIds from selected devices
         const modelIds = new Set();
-        
-        // Collect deviceModelIds from orderDetails that have selected devices
+
         for (const orderDetail of orderDetails) {
           const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
           const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
-          
+
           if (serials.length > 0 && orderDetail.deviceModelId) {
             modelIds.add(Number(orderDetail.deviceModelId));
           }
         }
 
-
-        // Load condition definitions for all device models
         const allConditions = [];
         for (const modelId of modelIds) {
           try {
@@ -611,12 +590,8 @@ export default function TechnicianQcDetail() {
           }
         }
 
-        // Remove duplicates by id
-        const uniqueConditions = Array.from(
-          new Map(allConditions.map(c => [c.id, c])).values()
-        );
-        
-        console.log("Loaded condition definitions:", uniqueConditions);
+        const uniqueConditions = Array.from(new Map(allConditions.map((c) => [c.id, c])).values());
+
         setConditionDefinitions(uniqueConditions);
       } catch (e) {
         console.error("Error loading condition definitions:", e);
@@ -629,18 +604,13 @@ export default function TechnicianQcDetail() {
     loadConditionDefinitions();
   }, [orderDetails, selectedDevicesByOrderDetail]);
 
-  // Disabled auto-fill: Chỉ tự động fill khi người dùng chọn thiết bị trong card condition, không tự động fill khi chọn thiết bị từ kho
-  // useEffect(() => {
-  //   // Logic auto-fill đã được di chuyển vào onChange handler của Select thiết bị trong condition card
-  // }, [conditionDefinitions, selectedDevicesByOrderDetail, orderDetails, loadingConditions, existingQcReport]);
-
   // Helper: Get available devices list for condition selection
   const availableDevicesForConditions = useMemo(() => {
     const devices = [];
     Object.keys(selectedDevicesByOrderDetail).forEach((orderDetailId) => {
       const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
-      const orderDetail = orderDetails.find(od => String(od.orderDetailId || od.id) === orderDetailId);
-      
+      const orderDetail = orderDetails.find((od) => String(od.orderDetailId || od.id) === orderDetailId);
+
       serials.forEach((serial) => {
         devices.push({
           serial: String(serial),
@@ -653,7 +623,6 @@ export default function TechnicianQcDetail() {
   }, [selectedDevicesByOrderDetail, orderDetails]);
 
   const checklist = useMemo(() => {
-    // Có thể lấy từ taskCategoryName hoặc từ category của order
     return QC_CHECKLIST_BY_CATEGORY[task?.taskCategoryName] || [];
   }, [task]);
 
@@ -665,112 +634,132 @@ export default function TechnicianQcDetail() {
     orderDetails.forEach((orderDetail) => {
       const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
       const quantity = orderDetail.quantity || 1;
-      
-      // Lấy devices từ API, extract serialNumbers
+
       const devices = devicesByOrderDetail[orderDetailId] || [];
       const serialNumbers = devices
-        .map(device => device.serialNumber || device.serial || device.serialNo || device.id)
+        .map((device) => device.serialNumber || device.serial || device.serialNo || device.id)
         .filter(Boolean);
-      
-      // Fallback về mock nếu không có devices từ API
-      const avail = serialNumbers.length > 0 
-        ? serialNumbers 
-        : (INVENTORY[orderDetailId] || INVENTORY.default || []);
-      
+
+      const avail =
+        serialNumbers.length > 0 ? serialNumbers : INVENTORY[orderDetailId] || INVENTORY.default || [];
+
       next[orderDetailId] = avail.slice(0, quantity).map(String);
     });
     setSelectedDevicesByOrderDetail(next);
     message.success("Đã gợi ý đủ số lượng từ kho.");
   };
 
-  /** Khi chọn thay đổi per-orderDetail, giữ không vượt quá số lượng yêu cầu */
+  /** Khi chọn thay đổi per-orderDetail, giữ không vượt quá số lượng yêu cầu
+   *  và XÓA các tình trạng của serial đã bị bỏ chọn
+   */
   const onChangeOrderDetailPick = async (orderDetailId, quantity, values) => {
+    // Giới hạn số lượng theo quantity
     if (values.length > quantity) {
       message.warning(`Chỉ cần ${quantity} thiết bị cho order detail này.`);
       values = values.slice(0, quantity);
     }
-    
-    // Tìm thiết bị mới được thêm vào
-    const prevSerials = selectedDevicesByOrderDetail[orderDetailId] || [];
-    const newSerials = values.filter(serial => !prevSerials.includes(String(serial)));
-    
-    setSelectedDevicesByOrderDetail((prev) => ({ ...prev, [orderDetailId]: values }));
-    
-    // Tự động load tình trạng cho các thiết bị mới được chọn
+
+    // Chuẩn hóa về string
+    const normalizedValues = values.map(String);
+    const prevSerials = (selectedDevicesByOrderDetail[orderDetailId] || []).map(String);
+
+    // Serial mới được thêm
+    const newSerials = normalizedValues.filter((serial) => !prevSerials.includes(serial));
+
+    // Build map chọn mới nhất cho toàn bộ orderDetails
+    const newSelectedMap = {
+      ...selectedDevicesByOrderDetail,
+      [orderDetailId]: normalizedValues,
+    };
+
+    // Tập tất cả serial còn đang được chọn trên toàn đơn
+    const allowedSerials = new Set(
+      Object.values(newSelectedMap)
+        .flat()
+        .map((s) => String(s))
+    );
+
+    // Cập nhật state chọn serial
+    setSelectedDevicesByOrderDetail(newSelectedMap);
+
+    // XÓA hết các deviceConditions của những serial không còn được chọn
+    setDeviceConditions((prev) =>
+      prev.filter((dc) => allowedSerials.has(String(dc.deviceId)))
+    );
+
+    // ------------------------------------------------------------------
+    // Tự động load tình trạng cho các serial mới được chọn
+    // ------------------------------------------------------------------
     if (newSerials.length > 0) {
       try {
         const allDevices = await listDevices();
         const newDeviceConditions = [];
-        
+
         for (const serial of newSerials) {
           try {
-            // Tìm deviceId từ serial number
             const device = Array.isArray(allDevices)
-              ? allDevices.find(d => {
-                  const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+              ? allDevices.find((d) => {
+                  const deviceSerial = String(
+                    d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
+                  ).toUpperCase();
                   return deviceSerial === String(serial).toUpperCase();
                 })
               : null;
 
-            if (device) {
-              const deviceId = Number(device.deviceId || device.id);
-              
-              // Gọi API lấy tình trạng mới nhất
-              const deviceConditionsData = await getDeviceConditions(deviceId);
-              
-              // API trả về: { data: [...] } hoặc array trực tiếp
-              let conditionsArray = [];
-              if (Array.isArray(deviceConditionsData)) {
-                conditionsArray = deviceConditionsData;
-              } else if (deviceConditionsData && Array.isArray(deviceConditionsData.data)) {
-                conditionsArray = deviceConditionsData.data;
-              }
-              
-              if (conditionsArray.length > 0) {
-                // Lấy condition mới nhất (sort theo capturedAt)
-                const latestCondition = conditionsArray
-                  .sort((a, b) => {
-                    const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
-                    const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
-                    return timeB - timeA; // Mới nhất trước
-                  })[0];
+            if (!device) continue;
 
-                if (latestCondition && latestCondition.conditionDefinitionId) {
-                  // Map severity từ API về enum chuẩn (INFO, LOW, MEDIUM, HIGH, CRITICAL)
-                  let mappedSeverity = String(latestCondition.severity || "INFO").toUpperCase();
-                  const validSeverities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
-                  if (mappedSeverity === "NONE") {
-                    mappedSeverity = "INFO";
-                  }
-                  if (!validSeverities.includes(mappedSeverity)) {
-                    mappedSeverity = "INFO"; // Default fallback
-                  }
-                  
-                  // Kiểm tra xem condition này đã tồn tại chưa
-                  const exists = deviceConditions.some(
-                    dc => dc.deviceId === String(serial) && dc.conditionDefinitionId === latestCondition.conditionDefinitionId
-                  );
-                  
-                  if (!exists) {
-                    newDeviceConditions.push({
-                      deviceId: String(serial),
-                      conditionDefinitionId: latestCondition.conditionDefinitionId,
-                      severity: mappedSeverity,
-                      images: Array.isArray(latestCondition.images) ? latestCondition.images.filter(Boolean) : [],
-                    });
-                  }
-                }
-              }
+            const deviceId = Number(device.deviceId || device.id);
+
+            const deviceConditionsData = await getDeviceConditions(deviceId);
+
+            let conditionsArray = [];
+            if (Array.isArray(deviceConditionsData)) {
+              conditionsArray = deviceConditionsData;
+            } else if (deviceConditionsData && Array.isArray(deviceConditionsData.data)) {
+              conditionsArray = deviceConditionsData.data;
             }
+
+            if (conditionsArray.length === 0) continue;
+
+            const latestCondition = conditionsArray
+              .sort((a, b) => {
+                const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
+                const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
+                return timeB - timeA;
+              })[0];
+
+            if (!latestCondition || !latestCondition.conditionDefinitionId) continue;
+
+            let mappedSeverity = String(latestCondition.severity || "INFO").toUpperCase();
+            const validSeverities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+            if (mappedSeverity === "NONE") mappedSeverity = "INFO";
+            if (!validSeverities.includes(mappedSeverity)) {
+              mappedSeverity = "INFO";
+            }
+
+            newDeviceConditions.push({
+              deviceId: String(serial),
+              conditionDefinitionId: latestCondition.conditionDefinitionId,
+              severity: mappedSeverity,
+              images: Array.isArray(latestCondition.images)
+                ? latestCondition.images.filter(Boolean)
+                : [],
+            });
           } catch (error) {
             console.warn(`Không thể tải tình trạng cho thiết bị ${serial}:`, error);
           }
         }
-        
-        // Thêm các condition mới vào state
+
         if (newDeviceConditions.length > 0) {
-          setDeviceConditions(prev => [...prev, ...newDeviceConditions]);
-          message.success(`Đã tự động điền tình trạng cho ${newDeviceConditions.length} thiết bị`);
+          setDeviceConditions((prev) => {
+            const filteredPrev = prev.filter((dc) =>
+              allowedSerials.has(String(dc.deviceId))
+            );
+            return [...filteredPrev, ...newDeviceConditions];
+          });
+          message.success(
+            `Đã tự động điền tình trạng cho ${newDeviceConditions.length} thiết bị`
+          );
         }
       } catch (error) {
         console.warn("Không thể tải tình trạng thiết bị:", error);
@@ -790,149 +779,106 @@ export default function TechnicianQcDetail() {
   };
 
   const onSave = async () => {
-    if (saving) return; // 防抖，避免重复提交
-    console.log("=== onSave called ===");
-    console.log("task:", task);
-    console.log("actualTaskId:", actualTaskId);
-    console.log("orderDetails:", orderDetails);
-    console.log("selectedDevicesByOrderDetail:", selectedDevicesByOrderDetail);
-    console.log("selectedDevicesByOrderDetail (detailed):", JSON.stringify(selectedDevicesByOrderDetail, null, 2));
-    console.log("findings:", findings);
-    console.log("isPickComplete():", isPickComplete());
-    
-    // Debug chi tiết từng order detail
-    if (orderDetails.length > 0) {
-      console.log("=== Order Details Analysis ===");
-      orderDetails.forEach((od, idx) => {
-        const orderDetailId = od.orderDetailId || od.id;
-        const quantity = od.quantity || 1;
-        const picked = selectedDevicesByOrderDetail[orderDetailId] || [];
-        console.log(`OrderDetail #${idx + 1}:`, {
-          orderDetailId,
-          quantity,
-          pickedCount: picked.length,
-          pickedItems: picked,
-          isComplete: picked.length === quantity
-        });
-      });
-    }
-    
+    if (saving) return;
     if (!task || !actualTaskId) {
-      console.error("Validation failed: missing task or actualTaskId");
       message.error("Không có thông tin task");
       return;
     }
 
     if (!isPickComplete()) {
-      console.error("Validation failed: pick not complete");
-      
-      // Chi tiết từng order detail để debug
-      const incompleteDetails = orderDetails.map(od => {
+      const incompleteDetails = orderDetails.map((od) => {
         const orderDetailId = od.orderDetailId || od.id;
         const quantity = od.quantity || 1;
         const picked = selectedDevicesByOrderDetail[orderDetailId] || [];
-        const status = picked.length === quantity ? "✓ OK" : `✗ THIẾU (cần ${quantity}, đã chọn ${picked.length})`;
+        const status =
+          picked.length === quantity ? "✓ OK" : `✗ THIẾU (cần ${quantity}, đã chọn ${picked.length})`;
         return {
           orderDetailId,
           quantity,
           picked: picked.length,
           selected: picked,
-          status
+          status,
         };
       });
-      
-      console.log("Order details check:", incompleteDetails);
-      
-      // Tìm các order detail chưa đủ để hiển thị message rõ ràng hơn
-      const missingDetails = incompleteDetails.filter(d => d.picked !== d.quantity);
+
+      const missingDetails = incompleteDetails.filter((d) => d.picked !== d.quantity);
       if (missingDetails.length > 0) {
-        const missingList = missingDetails.map(d => `Order Detail #${d.orderDetailId}: cần ${d.quantity}, đã chọn ${d.picked}`);
-        console.error("Missing details:", missingList);
-        
-        // Hiển thị message với danh sách rõ ràng
+        const missingList = missingDetails.map(
+          (d) => `Order Detail #${d.orderDetailId}: cần ${d.quantity}, đã chọn ${d.picked}`
+        );
         const errorMsg = `Vui lòng chọn đủ thiết bị: ${missingList.join("; ")}`;
-        message.error(errorMsg, 6); // Hiển thị 6 giây
+        message.error(errorMsg, 6);
       } else {
-        message.error("Vui lòng chọn đủ số lượng thiết bị cho mỗi mục trong đơn hàng.", 6);
+        message.error(
+          "Vui lòng chọn đủ số lượng thiết bị cho mỗi mục trong đơn hàng.",
+          6
+        );
       }
       return;
     }
 
     if (!findings.trim()) {
-      console.error("Validation failed: findings is empty");
       message.error("Vui lòng nhập Ghi chú/Phát hiện");
       return;
     }
 
     if (!accessorySnapshotFile && !accessorySnapshotPreview) {
-      console.error("Validation failed: missing accessory snapshot");
       message.error("Vui lòng tải lên ít nhất một ảnh bằng chứng phụ kiện");
       return;
     }
 
     try {
       if (postRentalDiscrepancyCount > 0) {
-        message.warning("QC sau thuê đã ghi nhận sự cố. Việc cập nhật QC trước thuê có thể gặp lỗi, vui lòng phối hợp điều phối viên nếu cần.");
+        message.warning(
+          "QC sau thuê đã ghi nhận sự cố. Việc cập nhật QC trước thuê có thể gặp lỗi, vui lòng phối hợp điều phối viên nếu cần."
+        );
       }
-      
+
       setSaving(true);
-      console.log("Starting to build payload...");
-      
-      // Map orderDetails thành orderDetailSerialNumbers format
-      // Format: { "355": [serialNumbers], "356": [serialNumbers], ... }
-      // Backend mong đợi key là orderDetailId (Long), nhưng JSON chỉ hỗ trợ string keys
-      // Backend sẽ tự parse string key thành Long
+
       const orderDetailSerialNumbers = {};
-      
+
       orderDetails.forEach((orderDetail) => {
         const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
         const serialNumbers = selectedDevicesByOrderDetail[orderDetailId] || [];
-        
-        // Dùng orderDetailId trực tiếp làm key (sẽ được convert thành string trong JSON)
-        // Backend sẽ parse lại thành Long
         const key = String(orderDetailId);
-        // Đảm bảo serialNumbers là array of strings
         orderDetailSerialNumbers[key] = serialNumbers.map(String);
-        
-        console.log(`Mapped orderDetailId ${orderDetailId} (key: "${key}"):`, serialNumbers);
       });
 
-      // Build deviceConditions payload
-      // Need to convert serial numbers to deviceIds
       const allDevices = await listDevices();
-      
-      // First, convert serial numbers to deviceIds and deduplicate
-      const deviceConditionsMap = new Map(); // key: "deviceId_conditionDefinitionId_severity" -> { deviceId, conditionDefinitionId, severity, images: Set }
-      
+      const deviceConditionsMap = new Map();
+
       for (const condition of deviceConditions) {
         if (!condition.deviceId || !condition.conditionDefinitionId || !condition.severity) {
-          continue; // Skip incomplete conditions
+          continue;
         }
-        
-        // Find device by serial number
+
         const device = Array.isArray(allDevices)
-          ? allDevices.find(d => {
-              const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
+          ? allDevices.find((d) => {
+              const deviceSerial = String(
+                d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
+              ).toUpperCase();
               return deviceSerial === String(condition.deviceId).toUpperCase();
             })
           : null;
-        
+
         if (device) {
           const deviceId = Number(device.deviceId || device.id);
           const conditionDefinitionId = Number(condition.conditionDefinitionId);
           const severity = String(condition.severity);
-          
-          // Create unique key for deduplication
+
           const key = `${deviceId}_${conditionDefinitionId}_${severity}`;
-          
+
           if (deviceConditionsMap.has(key)) {
-            // Merge images if entry already exists
             const existing = deviceConditionsMap.get(key);
-            const newImages = Array.isArray(condition.images) ? condition.images.map(String) : [];
-            newImages.forEach(img => existing.images.add(img));
+            const newImages = Array.isArray(condition.images)
+              ? condition.images.map(String)
+              : [];
+            newImages.forEach((img) => existing.images.add(img));
           } else {
-            // Create new entry
-            const images = new Set(Array.isArray(condition.images) ? condition.images.map(String) : []);
+            const images = new Set(
+              Array.isArray(condition.images) ? condition.images.map(String) : []
+            );
             deviceConditionsMap.set(key, {
               deviceId,
               conditionDefinitionId,
@@ -942,16 +888,16 @@ export default function TechnicianQcDetail() {
           }
         }
       }
-      
-      // Convert Map to array
-      const deviceConditionsPayload = Array.from(deviceConditionsMap.values()).map(entry => ({
-        deviceId: entry.deviceId,
-        conditionDefinitionId: entry.conditionDefinitionId,
-        severity: entry.severity,
-        images: Array.from(entry.images),
-      }));
 
-      // Base payload cho PRE_RENTAL
+      const deviceConditionsPayload = Array.from(deviceConditionsMap.values()).map(
+        (entry) => ({
+          deviceId: entry.deviceId,
+          conditionDefinitionId: entry.conditionDefinitionId,
+          severity: entry.severity,
+          images: Array.from(entry.images),
+        })
+      );
+
       const basePayload = {
         taskId: Number(actualTaskId),
         orderDetailSerialNumbers,
@@ -961,37 +907,35 @@ export default function TechnicianQcDetail() {
         accessoryFile: accessorySnapshotFile || null,
       };
 
-
-      console.log("QC report payload:", basePayload);
-      
-      // Check if updating existing report or creating new one
       const taskStatus = String(task?.status || "").toUpperCase();
       const isCompleted = taskStatus === "COMPLETED";
       const qcReportId = existingQcReport?.qcReportId || existingQcReport?.id;
-      
-      // Nếu status là COMPLETED nhưng chưa có QC report -> không cho tạo mới
+
       if (isCompleted && !qcReportId) {
-        message.error("Task đã hoàn thành. Chỉ có thể cập nhật QC report đã tồn tại, không thể tạo mới.");
+        message.error(
+          "Task đã hoàn thành. Chỉ có thể cập nhật QC report đã tồn tại, không thể tạo mới."
+        );
         return;
       }
-      
+
       if (existingQcReport && qcReportId) {
-        console.log("Calling update QC report...");
-        console.log("Existing QC Report:", existingQcReport);
-        console.log("Order Details:", orderDetails);
-        console.log("Selected Devices:", selectedDevicesByOrderDetail);
-        
-        // Build orderDetailSerialNumbers - ưu tiên lấy từ existing report để giữ nguyên allocations
         let finalOrderDetailSerialNumbers = {};
-        if (existingQcReport.orderDetailSerialNumbers && typeof existingQcReport.orderDetailSerialNumbers === "object") {
-          Object.keys(existingQcReport.orderDetailSerialNumbers).forEach((orderDetailId) => {
-            const serials = existingQcReport.orderDetailSerialNumbers[orderDetailId];
-            if (Array.isArray(serials)) {
-              finalOrderDetailSerialNumbers[orderDetailId] = serials.map(String);
+        if (
+          existingQcReport.orderDetailSerialNumbers &&
+          typeof existingQcReport.orderDetailSerialNumbers === "object"
+        ) {
+          Object.keys(existingQcReport.orderDetailSerialNumbers).forEach(
+            (orderDetailId) => {
+              const serials = existingQcReport.orderDetailSerialNumbers[orderDetailId];
+              if (Array.isArray(serials)) {
+                finalOrderDetailSerialNumbers[orderDetailId] = serials.map(String);
+              }
             }
-          });
-          console.log("✅ PRE_RENTAL: Using orderDetailSerialNumbers from existing report:", finalOrderDetailSerialNumbers);
-        } else if (Array.isArray(existingQcReport.devices) && existingQcReport.devices.length > 0) {
+          );
+        } else if (
+          Array.isArray(existingQcReport.devices) &&
+          existingQcReport.devices.length > 0
+        ) {
           const devicesByModel = {};
           existingQcReport.devices.forEach((d) => {
             const modelId = Number(d.deviceModelId ?? d.modelId ?? d.device_model_id ?? NaN);
@@ -1001,38 +945,35 @@ export default function TechnicianQcDetail() {
               devicesByModel[modelId].push(String(serial));
             }
           });
-          
+
           orderDetails.forEach((od) => {
             const orderDetailId = od.orderDetailId || od.id;
             const modelId = Number(od.deviceModelId ?? NaN);
             const quantity = Number(od.quantity ?? 1);
             if (orderDetailId != null && modelId && devicesByModel[modelId]) {
-              finalOrderDetailSerialNumbers[orderDetailId] = devicesByModel[modelId].slice(0, quantity).map(String);
+              finalOrderDetailSerialNumbers[orderDetailId] = devicesByModel[modelId]
+                .slice(0, quantity)
+                .map(String);
             }
           });
-          console.log("✅ PRE_RENTAL: Built orderDetailSerialNumbers from devices array:", finalOrderDetailSerialNumbers);
         } else {
           orderDetails.forEach((orderDetail) => {
             const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
-            const serialNumbers = selectedDevicesByOrderDetail[String(orderDetailId)] ||
-                                  selectedDevicesByOrderDetail[orderDetail.orderDetailId] ||
-                                  selectedDevicesByOrderDetail[orderDetail.id] ||
-                                  [];
+            const serialNumbers =
+              selectedDevicesByOrderDetail[String(orderDetailId)] ||
+              selectedDevicesByOrderDetail[orderDetail.orderDetailId] ||
+              selectedDevicesByOrderDetail[orderDetail.id] ||
+              [];
             if (serialNumbers.length > 0) {
               finalOrderDetailSerialNumbers[orderDetailId] = serialNumbers.map(String);
             }
           });
-          console.log("⚠️ PRE_RENTAL: Using orderDetailSerialNumbers from selectedDevicesByOrderDetail (fallback):", finalOrderDetailSerialNumbers);
         }
-        
-        // Nếu vẫn không có, dùng từ basePayload
+
         if (Object.keys(finalOrderDetailSerialNumbers).length === 0) {
           finalOrderDetailSerialNumbers = basePayload.orderDetailSerialNumbers;
-          console.log("⚠️ Using orderDetailSerialNumbers from basePayload:", finalOrderDetailSerialNumbers);
         }
-        
-        console.log("📦 Final orderDetailSerialNumbers for update:", JSON.stringify(finalOrderDetailSerialNumbers, null, 2));
-        
+
         const updatePayload = {
           orderDetailSerialNumbers: finalOrderDetailSerialNumbers,
           result: basePayload.result,
@@ -1040,99 +981,80 @@ export default function TechnicianQcDetail() {
           accessoryFile: basePayload.accessoryFile,
           deviceConditions: basePayload.deviceConditions,
         };
-        console.log("🔁 updatePreRentalQcReport payload:", JSON.stringify({
-          ...updatePayload,
-          accessoryFile: updatePayload.accessoryFile ? "(binary)" : null,
-        }, null, 2));
-        
+
         await updatePreRentalQcReport(qcReportId, updatePayload);
-        
-        console.log("Update QC report succeeded");
         toast.success("Đã cập nhật QC report thành công!");
       } else {
-        console.log("Calling create QC report...");
-        
-        console.log("🆕 createPreRentalQcReport payload:", JSON.stringify({
-          ...basePayload,
-          accessoryFile: basePayload.accessoryFile ? "(binary)" : null,
-        }, null, 2));
         const createdReport = await createPreRentalQcReport(basePayload);
-        
-        console.log("Create QC report succeeded, response:", createdReport);
         toast.success("Đã tạo QC report thành công!");
-        
-        // Sau khi tạo thành công, load lại QC report để fill vào form
+
         const newQcReportId = createdReport?.qcReportId || createdReport?.id;
         if (newQcReportId) {
           try {
-            console.log("Loading created QC report for editing:", newQcReportId);
             const loadedReport = await getPreRentalQcReportById(newQcReportId);
-            
+
             if (loadedReport) {
-              console.log("Loaded QC report:", loadedReport);
-              
-              // Set existingQcReport để form chuyển sang chế độ update
               setExistingQcReport(loadedReport);
-              
-              // Parse deviceConditions từ response format sang input format
-              if (Array.isArray(loadedReport.deviceConditions) && loadedReport.deviceConditions.length > 0) {
+
+              if (
+                Array.isArray(loadedReport.deviceConditions) &&
+                loadedReport.deviceConditions.length > 0
+              ) {
                 const parsedDeviceConditions = [];
-                const deviceSerialMap = new Map(); // deviceSerial -> parsed condition
-                
+                const deviceSerialMap = new Map();
+
                 loadedReport.deviceConditions.forEach((dc) => {
                   const deviceSerial = dc.deviceSerial || String(dc.deviceId || "");
                   if (!deviceSerial) return;
-                  
-                  // Nếu đã có entry cho deviceSerial này, merge images
+
                   if (deviceSerialMap.has(deviceSerial)) {
                     const existing = deviceSerialMap.get(deviceSerial);
-                    // Merge images từ snapshots mới
                     if (Array.isArray(dc.snapshots)) {
                       dc.snapshots.forEach((snapshot) => {
                         if (Array.isArray(snapshot.images)) {
-                          existing.images = [...new Set([...existing.images, ...snapshot.images])];
+                          existing.images = [
+                            ...new Set([...existing.images, ...snapshot.images]),
+                          ];
                         }
                       });
                     }
                     return;
                   }
-                  
-                  // Tìm snapshot đầu tiên có conditionDetails
+
                   let selectedConditionDetail = null;
                   const allImages = new Set();
-                  
+
                   if (Array.isArray(dc.snapshots)) {
-                    // Ưu tiên snapshot có source là QC_BEFORE hoặc BASELINE
                     const qcBeforeSnapshot = dc.snapshots.find(
-                      (s) => String(s.source || "").toUpperCase() === "QC_BEFORE" ||
-                            String(s.snapshotType || "").toUpperCase() === "BASELINE"
+                      (s) =>
+                        String(s.source || "").toUpperCase() === "QC_BEFORE" ||
+                        String(s.snapshotType || "").toUpperCase() === "BASELINE"
                     );
                     const snapshotToUse = qcBeforeSnapshot || dc.snapshots[0];
-                    
+
                     if (snapshotToUse) {
-                      // Lấy conditionDetail đầu tiên
-                      if (Array.isArray(snapshotToUse.conditionDetails) && snapshotToUse.conditionDetails.length > 0) {
+                      if (
+                        Array.isArray(snapshotToUse.conditionDetails) &&
+                        snapshotToUse.conditionDetails.length > 0
+                      ) {
                         selectedConditionDetail = snapshotToUse.conditionDetails[0];
                       }
-                      
-                      // Collect images từ snapshot này
+
                       if (Array.isArray(snapshotToUse.images)) {
-                        snapshotToUse.images.forEach(img => allImages.add(img));
+                        snapshotToUse.images.forEach((img) => allImages.add(img));
                       }
                     }
-                    
-                    // Cũng collect images từ các snapshots khác
+
                     dc.snapshots.forEach((snapshot) => {
                       if (Array.isArray(snapshot.images)) {
-                        snapshot.images.forEach(img => allImages.add(img));
+                        snapshot.images.forEach((img) => allImages.add(img));
                       }
                     });
                   }
-                  
-                  // Chỉ tạo entry nếu có conditionDetail
+
                   if (selectedConditionDetail) {
                     const parsedCondition = {
-                      deviceId: deviceSerial, // Use serial number as deviceId
+                      deviceId: deviceSerial,
                       conditionDefinitionId: selectedConditionDetail.conditionDefinitionId,
                       severity: selectedConditionDetail.severity || "NONE",
                       images: Array.from(allImages),
@@ -1141,38 +1063,34 @@ export default function TechnicianQcDetail() {
                     parsedDeviceConditions.push(parsedCondition);
                   }
                 });
-                
-                console.log("Parsed device conditions (deduplicated):", parsedDeviceConditions);
+
                 setDeviceConditions(parsedDeviceConditions);
               }
             }
           } catch (e) {
             console.error("Failed to load created QC report:", e);
-            // Không block flow nếu load thất bại
           }
         }
-        
-        // Sau khi tạo thành công, navigate về trang trước sau một delay ngắn
+
         message.success("QC report đã được tạo thành công!");
         setTimeout(() => {
           nav(-1);
         }, 1500);
       }
-      
-      // Nếu là POST_RENTAL và result là READY_FOR_RE_STOCK, hiện modal cập nhật status
-      if (existingQcReport && qcReportId) {
+
+      if (existingQcReport && (existingQcReport.qcReportId || existingQcReport.id)) {
         setTimeout(() => {
           nav(-1);
         }, 1500);
       }
     } catch (e) {
       console.error("Create QC report error:", e);
-      console.error("Error details:", {
-        message: e?.message,
-        response: e?.response?.data,
-        stack: e?.stack
-      });
-      toast.error(e?.response?.data?.message || e?.response?.data?.details || e?.message || "Không thể tạo QC report");
+      toast.error(
+        e?.response?.data?.message ||
+          e?.response?.data?.details ||
+          e?.message ||
+          "Không thể tạo QC report"
+      );
     } finally {
       setSaving(false);
     }
@@ -1219,9 +1137,13 @@ export default function TechnicianQcDetail() {
       {/* Thông tin task và đơn hàng */}
       <Card title="Thông tin công việc" className="mb-3">
         <Descriptions bordered size="small" column={2}>
-          <Descriptions.Item label="Mã công việc">{task.taskId || task.id}</Descriptions.Item>
+          <Descriptions.Item label="Mã công việc">
+            {task.taskId || task.id}
+          </Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{task.orderId || "—"}</Descriptions.Item>
-          <Descriptions.Item label="Loại công việc">{task.taskCategoryName || "—"}</Descriptions.Item>
+          <Descriptions.Item label="Loại công việc">
+            {task.taskCategoryName || "—"}
+          </Descriptions.Item>
           <Descriptions.Item label="Trạng thái của công việc">
             <Tag color={getStatusColor(task.status)}>
               {translateStatus(task.status) || "—"}
@@ -1229,8 +1151,9 @@ export default function TechnicianQcDetail() {
           </Descriptions.Item>
           {order && (
             <>
-              <Descriptions.Item label="Số loại sản phẩm">{orderDetails.length}</Descriptions.Item>
-              
+              <Descriptions.Item label="Số loại sản phẩm">
+                {orderDetails.length}
+              </Descriptions.Item>
             </>
           )}
         </Descriptions>
@@ -1247,13 +1170,18 @@ export default function TechnicianQcDetail() {
               {existingQcReport.orderId || order?.orderId || order?.id || "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Mã chi tiết đơn">
-              {existingQcReport.orderDetailId || (orderDetails.length > 0 ? orderDetails.map(od => od.orderDetailId || od.id).join(", ") : "—")}
+              {existingQcReport.orderDetailId ||
+                (orderDetails.length > 0
+                  ? orderDetails.map((od) => od.orderDetailId || od.id).join(", ")
+                  : "—")}
             </Descriptions.Item>
             <Descriptions.Item label="Người tạo">
               {existingQcReport.createdBy || "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Thời gian tạo">
-              {existingQcReport.createdAt ? dayjs(existingQcReport.createdAt).format("DD/MM/YYYY HH:mm") : "—"}
+              {existingQcReport.createdAt
+                ? dayjs(existingQcReport.createdAt).format("DD/MM/YYYY HH:mm")
+                : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Giai đoạn">
               {String(existingQcReport.phase || "").toUpperCase()}
@@ -1262,7 +1190,9 @@ export default function TechnicianQcDetail() {
               {String(existingQcReport.result || "").toUpperCase()}
             </Descriptions.Item>
             <Descriptions.Item label="Số serial được chọn" span={2}>
-              {Array.isArray(existingQcReport.devices) ? existingQcReport.devices.length : 0}
+              {Array.isArray(existingQcReport.devices)
+                ? existingQcReport.devices.length
+                : 0}
             </Descriptions.Item>
           </Descriptions>
         </Card>
@@ -1274,7 +1204,7 @@ export default function TechnicianQcDetail() {
           title={
             <Space>
               Chọn thiết bị từ kho
-              <Button onClick={autoPick}>Gợi ý đủ số lượng</Button>
+              {/* <Button onClick={autoPick}>Gợi ý đủ số lượng</Button> */}
             </Space>
           }
           className="mb-3"
@@ -1287,16 +1217,28 @@ export default function TechnicianQcDetail() {
 
               const devices = devicesByOrderDetail[orderDetailId] || [];
               const serialNumbersFromDevices = devices
-                .map(device => device.serialNumber || device.serial || device.serialNo || device.deviceId || device.id)
+                .map(
+                  (device) =>
+                    device.serialNumber ||
+                    device.serial ||
+                    device.serialNo ||
+                    device.deviceId ||
+                    device.id
+                )
                 .filter(Boolean)
                 .map(String);
 
-              const serialNumbersFromOrder = orderDetail.serialNumbers || orderDetail.serialNumberList || [];
-              const mockSerialNumbers = INVENTORY[orderDetailId] || INVENTORY.default || [];
+              const serialNumbersFromOrder =
+                orderDetail.serialNumbers || orderDetail.serialNumberList || [];
+              const mockSerialNumbers =
+                INVENTORY[orderDetailId] || INVENTORY.default || [];
 
-              const availableSerialNumbers = serialNumbersFromDevices.length > 0
-                ? serialNumbersFromDevices
-                : (serialNumbersFromOrder.length > 0 ? serialNumbersFromOrder : mockSerialNumbers);
+              const availableSerialNumbers =
+                serialNumbersFromDevices.length > 0
+                  ? serialNumbersFromDevices
+                  : serialNumbersFromOrder.length > 0
+                  ? serialNumbersFromOrder
+                  : mockSerialNumbers;
 
               const serialOptions = availableSerialNumbers.map((serial) => ({
                 label: String(serial),
@@ -1321,12 +1263,15 @@ export default function TechnicianQcDetail() {
                   >
                     <div style={{ marginBottom: 8 }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        Mẫu thiết bị: {modelNameById[deviceModelId] || `#${deviceModelId}`} • Số lượng: {quantity}
+                        Mẫu thiết bị:{" "}
+                        {modelNameById[deviceModelId] || `#${deviceModelId}`} • Số
+                        lượng: {quantity}
                       </Text>
                       <div style={{ marginTop: 4 }}>
                         {loadingDevices ? (
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            <Spin size="small" style={{ marginRight: 4 }} /> Đang tải...
+                            <Spin size="small" style={{ marginRight: 4 }} /> Đang
+                            tải...
                           </Text>
                         ) : serialNumbersFromDevices.length > 0 ? (
                           <Text type="success" style={{ fontSize: 11 }}>
@@ -1352,14 +1297,18 @@ export default function TechnicianQcDetail() {
                       }
                       style={{ width: "100%" }}
                       value={picked.map(String)}
-                      onChange={(vals) => onChangeOrderDetailPick(orderDetailId, quantity, vals)}
+                      onChange={(vals) =>
+                        onChangeOrderDetailPick(orderDetailId, quantity, vals)
+                      }
                       options={serialOptions}
                       maxTagCount="responsive"
                       showSearch
                       disabled={loadingDevices}
                       loading={loadingDevices}
                       filterOption={(input, option) =>
-                        (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+                        (option?.label ?? "")
+                          .toLowerCase()
+                          .includes(input.toLowerCase())
                       }
                     />
                   </Card>
@@ -1369,13 +1318,17 @@ export default function TechnicianQcDetail() {
           </Row>
           {!isPickComplete() && (
             <div style={{ marginTop: 8 }}>
-              <Text type="warning">*Vui lòng chọn đủ số lượng thiết bị cho mỗi loại sản phẩm.</Text>
+              <Text type="warning">
+                *Vui lòng chọn đủ số lượng thiết bị cho mỗi loại sản phẩm.
+              </Text>
             </div>
           )}
         </Card>
       ) : (
         <Card className="mb-3">
-          <Text type="secondary">Chưa có order details. Vui lòng kiểm tra lại đơn hàng.</Text>
+          <Text type="secondary">
+            Chưa có order details. Vui lòng kiểm tra lại đơn hàng.
+          </Text>
         </Card>
       )}
 
@@ -1447,7 +1400,8 @@ export default function TechnicianQcDetail() {
                 const f = file?.originFileObj || file;
                 if (f) {
                   setAccessorySnapshotFile(f);
-                  const url = file.thumbUrl || file.url || (f ? URL.createObjectURL(f) : "");
+                  const url =
+                    file.thumbUrl || file.url || (f ? URL.createObjectURL(f) : "");
                   setAccessorySnapshotPreview(url);
                 } else {
                   setAccessorySnapshotFile(null);
@@ -1456,7 +1410,14 @@ export default function TechnicianQcDetail() {
               }}
             >
               {accessorySnapshotPreview ? (
-                <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div
+                  style={{
+                    height: 180,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
                   <img
                     src={accessorySnapshotPreview}
                     alt="accessory"
@@ -1469,13 +1430,20 @@ export default function TechnicianQcDetail() {
                     <InboxOutlined />
                   </p>
                   <p>Thả hoặc bấm để chọn 1 ảnh phụ kiện</p>
-                  <p style={{ color: "#888", fontSize: 12 }}>Hỗ trợ: JPG, PNG, WEBP</p>
+                  <p style={{ color: "#888", fontSize: 12 }}>
+                    Hỗ trợ: JPG, PNG, WEBP
+                  </p>
                 </>
               )}
             </Upload.Dragger>
             {accessorySnapshotPreview && (
               <div style={{ marginTop: 8 }}>
-                <Button onClick={() => { setAccessorySnapshotFile(null); setAccessorySnapshotPreview(""); }}>
+                <Button
+                  onClick={() => {
+                    setAccessorySnapshotFile(null);
+                    setAccessorySnapshotPreview("");
+                  }}
+                >
                   Chọn lại ảnh
                 </Button>
               </div>
@@ -1485,7 +1453,14 @@ export default function TechnicianQcDetail() {
           {/* Device Conditions Section */}
           <Divider />
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+            >
               <Text strong style={{ fontSize: 16 }}>
                 Tình trạng của thiết bị
               </Text>
@@ -1493,7 +1468,9 @@ export default function TechnicianQcDetail() {
                 type="dashed"
                 onClick={() => {
                   if (availableDevicesForConditions.length === 0) {
-                    message.warning("Vui lòng chọn thiết bị trước khi thêm điều kiện");
+                    message.warning(
+                      "Vui lòng chọn thiết bị trước khi thêm điều kiện"
+                    );
                     return;
                   }
                   setDeviceConditions([
@@ -1510,27 +1487,32 @@ export default function TechnicianQcDetail() {
                 + Thêm tình trạng thiết bị
               </Button>
             </div>
-            
+
             {deviceConditions.length === 0 ? (
-              <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-                Chưa có tình trạng nào được thêm. Nhấn nút "Thêm tình trạng thiết bị" để bắt đầu.
+              <Text
+                type="secondary"
+                style={{ display: "block", marginTop: 8 }}
+              >
+                Chưa có tình trạng nào được thêm. Nhấn nút "Thêm tình trạng
+                thiết bị" để bắt đầu.
               </Text>
             ) : (
               <Space direction="vertical" style={{ width: "100%" }} size="middle">
                 {deviceConditions.map((condition, index) => {
-                  // Find device info by serial
                   const deviceInfo = availableDevicesForConditions.find(
-                    d => d.serial === condition.deviceId || d.serial === String(condition.deviceId)
+                    (d) =>
+                      d.serial === condition.deviceId ||
+                      d.serial === String(condition.deviceId)
                   );
-                  
-                  // Get deviceModelId from deviceInfo
-                  const deviceModelId = deviceInfo?.deviceModelId 
-                    ? Number(deviceInfo.deviceModelId) 
+
+                  const deviceModelId = deviceInfo?.deviceModelId
+                    ? Number(deviceInfo.deviceModelId)
                     : null;
-                  
-                  // Filter conditions by deviceModelId
+
                   const filteredConditions = deviceModelId
-                    ? conditionDefinitions.filter(c => Number(c.deviceModelId) === deviceModelId)
+                    ? conditionDefinitions.filter(
+                        (c) => Number(c.deviceModelId) === deviceModelId
+                      )
                     : conditionDefinitions;
 
                   return (
@@ -1544,7 +1526,9 @@ export default function TechnicianQcDetail() {
                           danger
                           size="small"
                           onClick={() => {
-                            setDeviceConditions(deviceConditions.filter((_, i) => i !== index));
+                            setDeviceConditions(
+                              deviceConditions.filter((_, i) => i !== index)
+                            );
                           }}
                         >
                           Xóa
@@ -1554,93 +1538,146 @@ export default function TechnicianQcDetail() {
                       <Row gutter={16}>
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
-                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                            <Text
+                              strong
+                              style={{ display: "block", marginBottom: 4 }}
+                            >
                               Thiết bị <Text type="danger">*</Text>
                             </Text>
                             <Select
                               style={{ width: "100%" }}
                               placeholder="Chọn thiết bị"
-                              value={condition.deviceId ? String(condition.deviceId) : null}
+                              value={
+                                condition.deviceId ? String(condition.deviceId) : null
+                              }
                               onChange={async (value) => {
                                 const newConditions = [...deviceConditions];
                                 newConditions[index] = {
                                   ...newConditions[index],
                                   deviceId: value,
-                                  conditionDefinitionId: null, // Reset when device changes
+                                  conditionDefinitionId: null,
                                   severity: "",
                                   images: [],
                                 };
                                 setDeviceConditions(newConditions);
 
-                                // Tự động load tình trạng mới nhất của thiết bị khi chọn thiết bị trong condition card
                                 if (value) {
                                   try {
-                                    // Tìm deviceId từ serial number
                                     const allDevices = await listDevices();
                                     const device = Array.isArray(allDevices)
-                                      ? allDevices.find(d => {
-                                          const deviceSerial = String(d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || "").toUpperCase();
-                                          return deviceSerial === String(value).toUpperCase();
+                                      ? allDevices.find((d) => {
+                                          const deviceSerial = String(
+                                            d.serialNumber ||
+                                              d.serial ||
+                                              d.serialNo ||
+                                              d.deviceId ||
+                                              d.id ||
+                                              ""
+                                          ).toUpperCase();
+                                          return (
+                                            deviceSerial ===
+                                            String(value).toUpperCase()
+                                          );
                                         })
                                       : null;
 
                                     if (device) {
-                                      const deviceId = Number(device.deviceId || device.id);
-                                      
-                                      // Gọi API lấy tình trạng mới nhất
-                                      const deviceConditionsData = await getDeviceConditions(deviceId);
-                                      
-                                      // API trả về: { data: [...] } hoặc array trực tiếp
+                                      const deviceId = Number(
+                                        device.deviceId || device.id
+                                      );
+
+                                      const deviceConditionsData =
+                                        await getDeviceConditions(deviceId);
+
                                       let conditionsArray = [];
                                       if (Array.isArray(deviceConditionsData)) {
                                         conditionsArray = deviceConditionsData;
-                                      } else if (deviceConditionsData && Array.isArray(deviceConditionsData.data)) {
-                                        conditionsArray = deviceConditionsData.data;
+                                      } else if (
+                                        deviceConditionsData &&
+                                        Array.isArray(deviceConditionsData.data)
+                                      ) {
+                                        conditionsArray =
+                                          deviceConditionsData.data;
                                       }
-                                      
+
                                       if (conditionsArray.length > 0) {
-                                        // Lấy condition mới nhất (sort theo capturedAt)
                                         const latestCondition = conditionsArray
                                           .sort((a, b) => {
-                                            const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
-                                            const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
-                                            return timeB - timeA; // Mới nhất trước
+                                            const timeA = a.capturedAt
+                                              ? new Date(
+                                                  a.capturedAt
+                                                ).getTime()
+                                              : 0;
+                                            const timeB = b.capturedAt
+                                              ? new Date(
+                                                  b.capturedAt
+                                                ).getTime()
+                                              : 0;
+                                            return timeB - timeA;
                                           })[0];
 
-                                        if (latestCondition && latestCondition.conditionDefinitionId) {
-                                          // Map severity từ API (có thể là "DAMAGE", "NONE", etc.) sang enum chuẩn
-                                          let mappedSeverity = String(latestCondition.severity || "INFO").toUpperCase();
-                                          const validSeverities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
-                                          if (mappedSeverity === "NONE") {
+                                        if (
+                                          latestCondition &&
+                                          latestCondition.conditionDefinitionId
+                                        ) {
+                                          let mappedSeverity = String(
+                                            latestCondition.severity || "INFO"
+                                          ).toUpperCase();
+                                          const validSeverities = [
+                                            "INFO",
+                                            "LOW",
+                                            "MEDIUM",
+                                            "HIGH",
+                                            "CRITICAL",
+                                          ];
+                                          if (mappedSeverity === "NONE")
+                                            mappedSeverity = "INFO";
+                                          if (
+                                            !validSeverities.includes(
+                                              mappedSeverity
+                                            )
+                                          ) {
                                             mappedSeverity = "INFO";
                                           }
-                                          if (!validSeverities.includes(mappedSeverity)) {
-                                            mappedSeverity = "INFO"; // Default fallback
-                                          }
-                                          
-                                          // Cập nhật condition hiện tại với dữ liệu từ API
-                                          const updatedConditions = [...deviceConditions];
+
+                                          const updatedConditions = [
+                                            ...deviceConditions,
+                                          ];
                                           updatedConditions[index] = {
                                             ...updatedConditions[index],
                                             deviceId: value,
-                                            conditionDefinitionId: latestCondition.conditionDefinitionId || null,
+                                            conditionDefinitionId:
+                                              latestCondition.conditionDefinitionId ||
+                                              null,
                                             severity: mappedSeverity,
-                                            images: Array.isArray(latestCondition.images) ? latestCondition.images.filter(Boolean) : [],
+                                            images: Array.isArray(
+                                              latestCondition.images
+                                            )
+                                              ? latestCondition.images.filter(
+                                                  Boolean
+                                                )
+                                              : [],
                                           };
                                           setDeviceConditions(updatedConditions);
-                                          message.success("Đã tự động điền tình trạng mới nhất của thiết bị");
+                                          message.success(
+                                            "Đã tự động điền tình trạng mới nhất của thiết bị"
+                                          );
                                         }
                                       }
                                     } else {
-                                      console.warn(`Không tìm thấy device với serial number: ${value}`);
+                                      console.warn(
+                                        `Không tìm thấy device với serial number: ${value}`
+                                      );
                                     }
                                   } catch (error) {
-                                    console.warn("Không thể tải tình trạng thiết bị:", error);
-                                    // Không hiển thị lỗi để không làm gián đoạn workflow
+                                    console.warn(
+                                      "Không thể tải tình trạng thiết bị:",
+                                      error
+                                    );
                                   }
                                 }
                               }}
-                              options={availableDevicesForConditions.map(d => ({
+                              options={availableDevicesForConditions.map((d) => ({
                                 label: d.serial,
                                 value: d.serial,
                               }))}
@@ -1649,7 +1686,10 @@ export default function TechnicianQcDetail() {
                         </Col>
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
-                          <Text strong style={{ display: "block", marginBottom: 4 }}>
+                            <Text
+                              strong
+                              style={{ display: "block", marginBottom: 4 }}
+                            >
                               Tình trạng thiết bị <Text type="danger">*</Text>
                             </Text>
                             <Select
@@ -1658,7 +1698,9 @@ export default function TechnicianQcDetail() {
                               value={condition.conditionDefinitionId}
                               onChange={(value) => {
                                 const newConditions = [...deviceConditions];
-                                const def = filteredConditions.find((c) => c.id === value);
+                                const def = filteredConditions.find(
+                                  (c) => c.id === value
+                                );
                                 const autoSeverity =
                                   def?.conditionSeverity ||
                                   newConditions[index].severity ||
@@ -1681,8 +1723,12 @@ export default function TechnicianQcDetail() {
                         </Col>
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
-                            <Text strong style={{ display: "block", marginBottom: 4 }}>
-                              Mức độ nghiêm trọng (Severity) <Text type="danger">*</Text>
+                            <Text
+                              strong
+                              style={{ display: "block", marginBottom: 4 }}
+                            >
+                              Mức độ nghiêm trọng (Severity){" "}
+                              <Text type="danger">*</Text>
                             </Text>
                             <Select
                               style={{ width: "100%" }}
@@ -1708,7 +1754,10 @@ export default function TechnicianQcDetail() {
                         </Col>
                         <Col xs={24} md={12}>
                           <div style={{ marginBottom: 12 }}>
-                            <Text strong style={{ display: "block", marginBottom: 4 }}>
+                            <Text
+                              strong
+                              style={{ display: "block", marginBottom: 4 }}
+                            >
                               Ảnh bằng chứng
                             </Text>
                             <Upload
@@ -1716,21 +1765,24 @@ export default function TechnicianQcDetail() {
                               accept=".jpg,.jpeg,.png,.webp"
                               beforeUpload={() => false}
                               listType="picture-card"
-                              fileList={condition.images?.map((img, imgIdx) => ({
-                                uid: `img-${index}-${imgIdx}`,
-                                name: `image-${imgIdx + 1}.jpg`,
-                                status: "done",
-                                url: typeof img === "string" ? img : (img?.url || img?.thumbUrl || ""),
-                              })) || []}
+                              fileList={
+                                condition.images?.map((img, imgIdx) => ({
+                                  uid: `img-${index}-${imgIdx}`,
+                                  name: `image-${imgIdx + 1}.jpg`,
+                                  status: "done",
+                                  url:
+                                    typeof img === "string"
+                                      ? img
+                                      : img?.url || img?.thumbUrl || "",
+                                })) || []
+                              }
                               onChange={async ({ fileList }) => {
                                 const newConditions = [...deviceConditions];
                                 const imageUrls = await Promise.all(
                                   fileList.map(async (f) => {
                                     if (f.originFileObj) {
-                                      // Convert file thành base64 giống TechnicianHandover
                                       return await fileToBase64(f.originFileObj);
                                     }
-                                    // Nếu BE trả về sẵn chuỗi ảnh (URL/base64) thì giữ nguyên
                                     return f.thumbUrl || f.url || "";
                                   })
                                 );
@@ -1741,7 +1793,7 @@ export default function TechnicianQcDetail() {
                                 setDeviceConditions(newConditions);
                               }}
                             >
-                              {((condition.images?.length || 0) < 5) && (
+                              {(condition.images?.length || 0) < 5 && (
                                 <div>
                                   <InboxOutlined />
                                   <div style={{ marginTop: 8 }}>Tải ảnh</div>
@@ -1760,13 +1812,16 @@ export default function TechnicianQcDetail() {
         </Space>
       </Card>
 
-      {/* Checklist (optional, for reference) */}
+      {/* Checklist (optional) */}
       {checklist.length > 0 && (
         <Card title="Checklist tham khảo" className="mb-3">
           <Space direction="vertical" style={{ width: "100%" }}>
             <div>
               <Text strong>Tiến độ</Text>
-              <Progress percent={percent} style={{ maxWidth: 360, marginLeft: 12 }} />
+              <Progress
+                percent={percent}
+                style={{ maxWidth: 360, marginLeft: 12 }}
+              />
             </div>
 
             <Checkbox.Group
@@ -1788,17 +1843,18 @@ export default function TechnicianQcDetail() {
 
       <Space>
         <Button onClick={() => nav(-1)}>Hủy</Button>
-        <Button 
-          type="primary" 
+        <Button
+          type="primary"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            console.log("Button clicked!");
             try {
               onSave();
             } catch (error) {
               console.error("Error in button onClick:", error);
-              message.error("Có lỗi xảy ra: " + (error?.message || "Unknown error"));
+              message.error(
+                "Có lỗi xảy ra: " + (error?.message || "Unknown error")
+              );
             }
           }}
           disabled={loading || loadingQcReport}

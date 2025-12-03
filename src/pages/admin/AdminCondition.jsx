@@ -1,3 +1,19 @@
+/**
+ * ============================================
+ * ADMIN CONDITION MANAGEMENT PAGE
+ * ============================================
+ * 
+ * Trang quản lý định nghĩa tình trạng thiết bị (Condition Definitions)
+ * Cho phép admin tạo, xem, sửa, xóa các định nghĩa về tình trạng thiết bị
+ * 
+ * Mỗi condition definition bao gồm:
+ * - Tên tình trạng (vd: "Trầy xước nhẹ", "Vỡ màn hình")
+ * - Loại tình trạng: GOOD/DAMAGED/LOST
+ * - Mức độ nghiêm trọng: INFO/LOW/MEDIUM/HIGH/CRITICAL
+ * - Mẫu thiết bị áp dụng (deviceModelId)
+ * - Chi phí bồi thường mặc định
+ */
+
 // src/pages/admin/AdminCondition.jsx
 import React, { useEffect, useState } from "react";
 import {
@@ -37,55 +53,198 @@ import { listDeviceModels } from "../../lib/deviceManage";
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
+/**
+ * CONDITION TYPE OPTIONS
+ * 3 loại tình trạng chính của thiết bị
+ * - GOOD: Thiết bị tốt, không có vấn đề
+ * - DAMAGED: Thiết bị hư hỏng (có thể ở nhiều mức độ khác nhau)
+ * - LOST: Thiết bị bị mất hoàn toàn
+ */
 const CONDITION_TYPE_OPTIONS = [
-  { label: "Tốt (GOOD)", value: "GOOD", color: "green" },
-  { label: "Hư hỏng (DAMAGED)", value: "DAMAGED", color: "volcano" },
-  { label: "Mất (LOST)", value: "LOST", color: "red" },
+  { label: "Tốt", value: "GOOD", color: "green" },
+  { label: "Hư hỏng", value: "DAMAGED", color: "volcano" },
+  { label: "Mất", value: "LOST", color: "red" },
 ];
 
+/**
+ * SEVERITY OPTIONS
+ * 5 mức độ nghiêm trọng của tình trạng
+ * - INFO: Chỉ thông tin, không có vấn đề (dùng cho GOOD)
+ * - LOW: Nhẹ - trầy xước nhỏ, không ảnh hưởng chức năng
+ * - MEDIUM: Trung bình - hư hỏng nhẹ, ảnh hưởng một phần
+ * - HIGH: Nghiêm trọng - hư hỏng nặng, ảnh hưởng nhiều chức năng
+ * - CRITICAL: Khẩn cấp - hỏng hoàn toàn hoặc mất thiết bị
+ */
 const CONDITION_SEVERITY_OPTIONS = [
-  { label: "Không có (INFO)", value: "INFO", color: "default" },
-  { label: "Nhẹ (LOW)", value: "LOW", color: "green" },
-  { label: "Trung bình (MEDIUM)", value: "MEDIUM", color: "gold" },
-  { label: "Nghiêm trọng (HIGH)", value: "HIGH", color: "orange" },
-  { label: "Khẩn cấp (CRITICAL)", value: "CRITICAL", color: "red" },
+  { label: "Không có ", value: "INFO", color: "default" },
+  { label: "Nhẹ ", value: "LOW", color: "green" },
+  { label: "Trung bình ", value: "MEDIUM", color: "gold" },
+  { label: "Nghiêm trọng ", value: "HIGH", color: "orange" },
+  { label: "Khẩn cấp ", value: "CRITICAL", color: "red" },
 ];
 
+/**
+ * Helper: Lấy metadata (label, color) của condition type
+ * @param {string} value - Giá trị conditionType (GOOD/DAMAGED/LOST)
+ * @returns {object} - {label, color}
+ */
 const getTypeMeta = (value) =>
   CONDITION_TYPE_OPTIONS.find((opt) => opt.value === value) || {
     label: value || "—",
     color: "default",
   };
 
+/**
+ * Helper: Lấy metadata (label, color) của severity
+ * @param {string} value - Giá trị severity (INFO/LOW/MEDIUM/HIGH/CRITICAL)
+ * @returns {object} - {label, color}
+ */
 const getSeverityMeta = (value) =>
   CONDITION_SEVERITY_OPTIONS.find((opt) => opt.value === value) || {
     label: value || "—",
     color: "default",
   };
 
+/**
+ * Helper: Lấy danh sách severity options được phép dựa trên conditionType
+ * 
+ * LOGIC NGHIỆP VỤ:
+ * - GOOD: Chỉ cho phép INFO (không có vấn đề)
+ * - LOST: Chỉ cho phép CRITICAL (mất thiết bị là nghiêm trọng nhất)
+ * - DAMAGED: Cho phép LOW, MEDIUM, HIGH, CRITICAL (không có INFO)
+ * 
+ * @param {string} conditionType - Loại tình trạng
+ * @returns {array} - Danh sách severity options được phép
+ */
+const getSeverityOptionsByType = (conditionType) => {
+  if (conditionType === "GOOD") {
+    // Thiết bị tốt chỉ có severity = INFO
+    return CONDITION_SEVERITY_OPTIONS.filter((opt) => opt.value === "INFO");
+  }
+  if (conditionType === "LOST") {
+    // Thiết bị mất chỉ có severity = CRITICAL
+    return CONDITION_SEVERITY_OPTIONS.filter((opt) => opt.value === "CRITICAL");
+  }
+  if (conditionType === "DAMAGED") {
+    // Thiết bị hư hỏng có thể có nhiều mức độ (trừ INFO)
+    return CONDITION_SEVERITY_OPTIONS.filter((opt) => opt.value !== "INFO");
+  }
+  return CONDITION_SEVERITY_OPTIONS;
+};
+
+/**
+ * Helper: Lấy severity mặc định dựa trên conditionType
+ * Tự động set severity phù hợp khi user chọn conditionType
+ * 
+ * @param {string} conditionType - Loại tình trạng
+ * @returns {string} - Severity mặc định
+ */
+const getDefaultSeverityByType = (conditionType) => {
+  if (conditionType === "GOOD") return "INFO";
+  if (conditionType === "LOST") return "CRITICAL";
+  if (conditionType === "DAMAGED") return "LOW";
+  return "INFO";
+};
+
+/**
+ * ============================================
+ * MAIN COMPONENT: AdminCondition
+ * ============================================
+ */
 export default function AdminCondition() {
+  // ==================== STATE QUẢN LÝ DỮ LIỆU ====================
+  
+  /**
+   * conditions: Danh sách tất cả condition definitions
+   * Mỗi item gồm: id, name, deviceModelId, description, conditionType, conditionSeverity, defaultCompensation
+   */
   const [conditions, setConditions] = useState([]);
+  
+  /**
+   * loading: Trạng thái đang tải danh sách conditions
+   */
   const [loading, setLoading] = useState(false);
+  
+  /**
+   * deviceModels: Danh sách các mẫu thiết bị (để filter và select)
+   * Dùng cho dropdown chọn mẫu thiết bị khi tạo/sửa condition
+   */
   const [deviceModels, setDeviceModels] = useState([]);
+  
+  /**
+   * modelLoading: Trạng thái đang tải danh sách device models
+   */
   const [modelLoading, setModelLoading] = useState(false);
 
-  // Filter
+  // ==================== STATE FILTER ====================
+  
+  /**
+   * deviceModelFilter: ID của device model để lọc danh sách conditions
+   * null = hiển thị tất cả, có giá trị = chỉ hiển thị conditions của model đó
+   */
   const [deviceModelFilter, setDeviceModelFilter] = useState(null);
 
-  // Create
+  // ==================== STATE MODAL TẠO MỚI ====================
+  
+  /**
+   * createForm: Form instance của Ant Design cho modal tạo mới
+   */
   const [createForm] = Form.useForm();
+  
+  /**
+   * openCreate: Trạng thái hiển thị modal tạo mới
+   */
   const [openCreate, setOpenCreate] = useState(false);
+  
+  /**
+   * createConditionType: Watch giá trị conditionType trong form tạo
+   * Dùng để auto-update severity options khi user chọn conditionType
+   * Ví dụ: conditionType = "GOOD" => severity options chỉ có "INFO"
+   */
+  const createConditionType = Form.useWatch("conditionType", createForm);
 
-  // View
+  // ==================== STATE MODAL XEM CHI TIẾT ====================
+  
+  /**
+   * openView: Trạng thái hiển thị modal xem chi tiết
+   */
   const [openView, setOpenView] = useState(false);
+  
+  /**
+   * viewingCondition: Data của condition đang được xem
+   */
   const [viewingCondition, setViewingCondition] = useState(null);
 
-  // Edit
+  // ==================== STATE MODAL CHỈNH SỬA ====================
+  
+  /**
+   * openEdit: Trạng thái hiển thị modal chỉnh sửa
+   */
   const [openEdit, setOpenEdit] = useState(false);
+  
+  /**
+   * editingCondition: Data của condition đang được sửa
+   */
   const [editingCondition, setEditingCondition] = useState(null);
+  
+  /**
+   * editForm: Form instance của Ant Design cho modal sửa
+   */
   const [editForm] = Form.useForm();
+  
+  /**
+   * editConditionType: Watch giá trị conditionType trong form sửa
+   * Tương tự createConditionType, dùng để auto-update severity options
+   */
+  const editConditionType = Form.useWatch("conditionType", editForm);
 
-  // Load device models
+  // ==================== API FUNCTIONS ====================
+
+  /**
+   * loadDeviceModels: Load danh sách device models từ API
+   * Gọi 1 lần khi component mount
+   * Dùng cho dropdown chọn device model
+   */
   const loadDeviceModels = async () => {
     try {
       setModelLoading(true);
@@ -99,23 +258,40 @@ export default function AdminCondition() {
     }
   };
 
-  // Load conditions
+  /**
+   * loadConditions: Load danh sách condition definitions từ API
+   * 
+   * LOGIC:
+   * 1. Nếu có deviceModelFilter, chỉ load conditions của model đó
+   * 2. Normalize dữ liệu từ API
+   * 3. Sort theo thời gian tạo (mới nhất trước)
+   * 
+   * @async
+   */
   const loadConditions = async () => {
     try {
       setLoading(true);
+      
+      // Tạo params cho API request
       const params = {};
       if (deviceModelFilter != null) {
         params.deviceModelId = deviceModelFilter;
       }
+      
+      // Gọi API lấy danh sách conditions
       const list = await getConditionDefinitions(params);
+      
+      // Normalize dữ liệu
       const mapped = list.map(normalizeConditionDefinition);
-      // Sort mới nhất trước
+      
+      // Sort mới nhất trước (theo createdAt hoặc updatedAt)
       mapped.sort((a, b) => {
         const ta = new Date(a?.createdAt || a?.updatedAt || 0).getTime();
         const tb = new Date(b?.createdAt || b?.updatedAt || 0).getTime();
         if (tb !== ta) return tb - ta;
         return (b?.id || 0) - (a?.id || 0);
       });
+      
       setConditions(mapped);
     } catch (e) {
       toast.error(
@@ -126,20 +302,41 @@ export default function AdminCondition() {
     }
   };
 
+  // ==================== LIFECYCLE HOOKS ====================
+
+  /**
+   * useEffect: Load device models khi component mount
+   * Chỉ chạy 1 lần
+   */
   useEffect(() => {
     loadDeviceModels();
   }, []);
 
+  /**
+   * useEffect: Reload conditions khi filter thay đổi
+   * Phụ thuộc vào deviceModelFilter
+   */
   useEffect(() => {
     loadConditions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceModelFilter]);
 
-  // Create
+  // ==================== MODAL TẠO MỚI - HANDLERS ====================
+
+  /**
+   * openCreateModal: Mở modal tạo condition mới
+   * 
+   * LOGIC:
+   * 1. Reset form về trạng thái rỗng
+   * 2. Set giá trị mặc định:
+   *    - defaultCompensation = 0
+   *    - conditionType = "GOOD"
+   *    - conditionSeverity = "INFO"
+   * 3. Hiển thị modal
+   */
   const openCreateModal = () => {
     createForm.resetFields();
     createForm.setFieldsValue({
-      impactRate: 100,
       defaultCompensation: 0,
       conditionType: "GOOD",
       conditionSeverity: "INFO",
@@ -147,13 +344,24 @@ export default function AdminCondition() {
     setOpenCreate(true);
   };
 
+  /**
+   * submitCreate: Xử lý submit form tạo mới
+   * 
+   * FLOW:
+   * 1. Gọi API createConditionDefinition với dữ liệu từ form
+   * 2. Hiển thị thông báo thành công
+   * 3. Đóng modal
+   * 4. Reload danh sách conditions
+   * 
+   * @param {object} vals - Form values
+   * @async
+   */
   const submitCreate = async (vals) => {
     try {
       await createConditionDefinition({
         name: vals.name,
         deviceModelId: vals.deviceModelId,
         description: vals.description || "",
-        impactRate: vals.impactRate ?? 100,
         conditionType: vals.conditionType || "GOOD",
         conditionSeverity: vals.conditionSeverity || "INFO",
         defaultCompensation: vals.defaultCompensation ?? 0,
@@ -166,7 +374,20 @@ export default function AdminCondition() {
     }
   };
 
-  // View
+  // ==================== MODAL XEM CHI TIẾT - HANDLERS ====================
+
+  /**
+   * onView: Xem chi tiết 1 condition definition
+   * 
+   * FLOW:
+   * 1. Gọi API getConditionDefinitionById để lấy đầy đủ thông tin
+   * 2. Normalize dữ liệu
+   * 3. Lưu vào state viewingCondition
+   * 4. Hiển thị modal xem
+   * 
+   * @param {object} row - Row data từ table
+   * @async
+   */
   const onView = async (row) => {
     const id = row.id;
     try {
@@ -178,7 +399,19 @@ export default function AdminCondition() {
     }
   };
 
-  // Edit
+  // ==================== MODAL CHỈNH SỬA - HANDLERS ====================
+
+  /**
+   * openEditModal: Mở modal sửa condition
+   * 
+   * FLOW:
+   * 1. Normalize dữ liệu row hiện tại
+   * 2. Lưu vào state editingCondition
+   * 3. Populate form với dữ liệu hiện tại
+   * 4. Hiển thị modal sửa
+   * 
+   * @param {object} row - Row data từ table
+   */
   const openEditModal = (row) => {
     const current = normalizeConditionDefinition(row);
     setEditingCondition(current);
@@ -186,7 +419,6 @@ export default function AdminCondition() {
       name: current.name,
       deviceModelId: current.deviceModelId,
       description: current.description,
-      impactRate: current.impactRate,
       conditionType: current.conditionType || "GOOD",
       conditionSeverity: current.conditionSeverity || "INFO",
       defaultCompensation: current.defaultCompensation,
@@ -194,6 +426,19 @@ export default function AdminCondition() {
     setOpenEdit(true);
   };
 
+  /**
+   * submitEdit: Xử lý submit form chỉnh sửa
+   * 
+   * FLOW:
+   * 1. Kiểm tra có đang edit condition nào không
+   * 2. Gọi API updateConditionDefinition với ID và dữ liệu mới
+   * 3. Hiển thị thông báo thành công
+   * 4. Đóng modal và clear state
+   * 5. Reload danh sách conditions
+   * 
+   * @param {object} vals - Form values
+   * @async
+   */
   const submitEdit = async (vals) => {
     if (!editingCondition) return;
     const id = editingCondition.id;
@@ -203,7 +448,6 @@ export default function AdminCondition() {
         name: vals.name,
         deviceModelId: vals.deviceModelId,
         description: vals.description,
-        impactRate: vals.impactRate,
         conditionType: vals.conditionType,
         conditionSeverity: vals.conditionSeverity,
         defaultCompensation: vals.defaultCompensation,
@@ -217,7 +461,21 @@ export default function AdminCondition() {
     }
   };
 
-  // Delete
+  // ==================== XÓA CONDITION ====================
+
+  /**
+   * onDelete: Xóa 1 condition definition
+   * 
+   * FLOW:
+   * 1. Gọi API deleteConditionDefinition với ID
+   * 2. Hiển thị thông báo
+   * 3. Reload danh sách
+   * 
+   * NOTE: Nếu condition đang được sử dụng, server sẽ từ chối xóa
+   * 
+   * @param {object} row - Row data từ table
+   * @async
+   */
   const onDelete = async (row) => {
     const id = row.id;
     try {
@@ -229,13 +487,36 @@ export default function AdminCondition() {
     }
   };
 
-  // Get model name by ID
+  // ==================== HELPER FUNCTIONS ====================
+
+  /**
+   * getModelName: Lấy tên device model theo ID
+   * Tìm trong danh sách deviceModels đã load
+   * 
+   * @param {number} modelId - Device model ID
+   * @returns {string} - Tên device model hoặc modelId nếu không tìm thấy
+   */
   const getModelName = (modelId) => {
     if (!modelId) return "—";
     const model = deviceModels.find((m) => m.deviceModelId === modelId || m.id === modelId);
     return model?.deviceName || model?.name || modelId;
   };
 
+  // ==================== TABLE COLUMNS CONFIGURATION ====================
+
+  /**
+   * columns: Cấu hình các cột của bảng
+   * 
+   * Các cột bao gồm:
+   * 1. ID - Có sort, mặc định sort descend
+   * 2. Tên tình trạng - Text thường
+   * 3. Mẫu thiết bị - Tag màu xanh với tooltip
+   * 4. Mô tả - Text hoặc "—"
+   * 5. Loại tình trạng - Tag với màu theo CONDITION_TYPE_OPTIONS
+   * 6. Mức độ nghiêm trọng - Tag với màu theo CONDITION_SEVERITY_OPTIONS
+   * 7. Chi phí bồi thường - Format VND currency
+   * 8. Thao tác - Buttons: Xem, Sửa, Xóa (với Popconfirm)
+   */
   const columns = [
     {
       title: "ID",
@@ -291,13 +572,6 @@ export default function AdminCondition() {
       },
     },
     {
-      title: "Tỷ lệ ảnh hưởng (%)",
-      dataIndex: "impactRate",
-      width: 150,
-      align: "center",
-      render: (rate) => `${rate ?? 0}%`,
-    },
-    {
       title: "Chi phí bồi thường mặc định",
       dataIndex: "defaultCompensation",
       width: 180,
@@ -333,6 +607,8 @@ export default function AdminCondition() {
       ),
     },
   ];
+
+  // ==================== RENDER UI ====================
 
   return (
     <div className="min-h-screen bg-white">
@@ -411,18 +687,6 @@ export default function AdminCondition() {
               <TextArea rows={3} placeholder="Mô tả chi tiết về condition..." />
             </Form.Item>
             <Form.Item
-              label="Tỷ lệ ảnh hưởng đến thiết bị(%)"
-              name="impactRate"
-              rules={[{ required: true, message: "Nhập tỷ lệ ảnh hưởng" }]}
-            >
-              <InputNumber
-                min={0}
-                max={100}
-                style={{ width: "100%" }}
-                placeholder="0-100"
-              />
-            </Form.Item>
-            <Form.Item
               label="Loại tình trạng"
               name="conditionType"
               rules={[{ required: true, message: "Chọn loại tình trạng" }]}
@@ -430,16 +694,22 @@ export default function AdminCondition() {
               <Select
                 placeholder="Chọn loại tình trạng"
                 options={CONDITION_TYPE_OPTIONS}
+                onChange={(value) => {
+                  const defaultSeverity = getDefaultSeverityByType(value);
+                  createForm.setFieldsValue({ conditionSeverity: defaultSeverity });
+                }}
               />
             </Form.Item>
             <Form.Item
               label="Mức độ nghiêm trọng"
               name="conditionSeverity"
+              dependencies={["conditionType"]}
               rules={[{ required: true, message: "Chọn mức độ nghiêm trọng" }]}
             >
               <Select
                 placeholder="Chọn mức độ"
-                options={CONDITION_SEVERITY_OPTIONS}
+                options={getSeverityOptionsByType(createConditionType)}
+                disabled={createConditionType === "GOOD" || createConditionType === "LOST"}
               />
             </Form.Item>
             <Form.Item
@@ -496,17 +766,6 @@ export default function AdminCondition() {
               <TextArea rows={3} />
             </Form.Item>
             <Form.Item
-              label="Tỷ lệ ảnh hưởng (%)"
-              name="impactRate"
-              rules={[{ required: true, message: "Nhập tỷ lệ ảnh hưởng" }]}
-            >
-              <InputNumber
-                min={0}
-                max={100}
-                style={{ width: "100%" }}
-              />
-            </Form.Item>
-            <Form.Item
               label="Loại tình trạng"
               name="conditionType"
               rules={[{ required: true, message: "Chọn loại tình trạng" }]}
@@ -514,16 +773,22 @@ export default function AdminCondition() {
               <Select
                 placeholder="Chọn loại tình trạng"
                 options={CONDITION_TYPE_OPTIONS}
+                onChange={(value) => {
+                  const defaultSeverity = getDefaultSeverityByType(value);
+                  editForm.setFieldsValue({ conditionSeverity: defaultSeverity });
+                }}
               />
             </Form.Item>
             <Form.Item
               label="Mức độ nghiêm trọng"
               name="conditionSeverity"
+              dependencies={["conditionType"]}
               rules={[{ required: true, message: "Chọn mức độ nghiêm trọng" }]}
             >
               <Select
                 placeholder="Chọn mức độ"
-                options={CONDITION_SEVERITY_OPTIONS}
+                options={getSeverityOptionsByType(editConditionType)}
+                disabled={editConditionType === "GOOD" || editConditionType === "LOST"}
               />
             </Form.Item>
             <Form.Item
@@ -558,9 +823,6 @@ export default function AdminCondition() {
               </Descriptions.Item>
               <Descriptions.Item label="Mô tả tình trạng thiết bị">
                 {viewingCondition.description || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Tỷ lệ ảnh hưởng đến thiết bị">
-                {viewingCondition.impactRate ?? 0}%
               </Descriptions.Item>
               <Descriptions.Item label="Loại tình trạng">
                 {(() => {

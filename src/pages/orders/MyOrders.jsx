@@ -1072,7 +1072,7 @@ export default function MyOrders() {
       return;
     }
     clearContractPreviewState();
-    setCurrent(record);
+  setCurrent(record);
     setSettlementInfo(null);
     setDetailOpen(true);
     setDetailTab("overview");
@@ -1082,12 +1082,39 @@ export default function MyOrders() {
       const fullOrder = await getRentalOrderById(idNum);
       if (fullOrder) {
         const mapped = await Promise.all([mapOrderFromApi(fullOrder)]);
-        const merged = mapped[0];
-        setCurrent(prev => ({
+      const merged = mapped[0];
+
+      setCurrent((prev) => {
+        const prevItems = Array.isArray(prev?.items) ? prev.items : [];
+        const mergedItems = Array.isArray(merged?.items) ? merged.items : [];
+
+        // Giữ lại tên & ảnh đã được enrich từ danh sách orders (prev.items)
+        const mergedWithEnrichedItems =
+          mergedItems.length > 0
+            ? mergedItems.map((mi) => {
+                const match = prevItems.find(
+                  (pi) =>
+                    (pi.deviceModelId != null &&
+                      pi.deviceModelId === mi.deviceModelId) ||
+                    (pi.name && mi.name && pi.name === mi.name)
+                );
+                return {
+                  ...mi,
+                  name: match?.name || mi.name,
+                  image: match?.image || mi.image,
+                };
+              })
+            : prevItems;
+
+        return {
           ...prev,
           ...merged,
-          items: (merged?.items?.length ? merged.items : prev.items) ?? [],
-        }));
+          items:
+            (mergedWithEnrichedItems && mergedWithEnrichedItems.length > 0
+              ? mergedWithEnrichedItems
+              : prevItems) ?? [],
+        };
+      });
       }
       // Load invoice info
       try {
@@ -1857,34 +1884,6 @@ export default function MyOrders() {
     const identificationCode = kyc?.identificationCode || "";
     let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
     
-    // Add serial numbers from allocatedDevices after sanitization
-    if (detail.allocatedDevices && Array.isArray(detail.allocatedDevices) && detail.allocatedDevices.length > 0) {
-      const serialNumbers = detail.allocatedDevices
-        .map(device => device.serialNumber)
-        .filter(Boolean);
-      
-      if (serialNumbers.length > 0) {
-        const serialText = ` - Serial: ${serialNumbers.join(", ")}`;
-        
-        // Match <div class="equipment-item">... - Giá/ngày:... - Tiền cọc:...</div>
-        // Pattern: match device info before "Giá/ngày" and insert serial number
-        const equipmentDivPattern = /(<div\s+class=["']equipment-item["']>)([^<]+?)(\s*-\s*Giá\/ngày[^<]+?)(<\/div>)/gi;
-        const originalContentHtml = contentHtml;
-        contentHtml = contentHtml.replace(
-          equipmentDivPattern,
-          (match, openTag, deviceInfo, priceAndDeposit, closeTag) => {
-            // Insert serial number after device info, before price info
-            return `${openTag}${deviceInfo.trim()}${serialText}${priceAndDeposit}${closeTag}`;
-          }
-        );
-        
-        // Debug: log if replacement didn't occur
-        if (contentHtml === originalContentHtml) {
-          console.warn("Serial number injection failed. HTML pattern:", contentHtml.substring(0, 200));
-        }
-      }
-    }
-    
     const termsBlock = detail.terms
       ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
       : "";
@@ -2520,7 +2519,7 @@ export default function MyOrders() {
                           >
                             <Descriptions bordered column={2} size="middle">
                             <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
-                            <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
+                            <Descriptions.Item label="Ngày tạo đơn">{formatDateTime(current.createdAt)}</Descriptions.Item>
                             <Descriptions.Item label="Ngày bắt đầu thuê">
                               {current.startDate ? formatDateTime(current.startDate) : "—"}
                             </Descriptions.Item>

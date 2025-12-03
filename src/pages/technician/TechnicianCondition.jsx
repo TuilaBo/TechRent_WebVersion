@@ -20,7 +20,11 @@ import { EditOutlined, EyeOutlined, InboxOutlined } from "@ant-design/icons";
 import toast from "react-hot-toast";
 import { listDevices } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
-import { getDeviceConditions, updateDeviceConditions, getConditionDefinitions } from "../../lib/condition";
+import {
+  getDeviceConditions,
+  updateDeviceConditions,
+  getConditionDefinitions,
+} from "../../lib/condition";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -51,57 +55,58 @@ export default function TechnicianCondition() {
   const [filterModelId, setFilterModelId] = useState(undefined); // Filter by deviceModelId
   const [filterSerial, setFilterSerial] = useState(""); // Filter by serial number
 
-  // Load all devices and their models
+  // ✅ Hàm load tất cả devices & model, để có thể gọi lại sau khi cập nhật
+  const loadDevices = async () => {
+    try {
+      setLoading(true);
+      const devicesData = await listDevices();
+      const devicesArray = Array.isArray(devicesData) ? devicesData : [];
+      setDevices(devicesArray);
+
+      // Load device models cho tất cả modelId
+      const uniqueModelIds = new Set();
+      devicesArray.forEach((device) => {
+        const modelId = device.deviceModelId || device.modelId;
+        if (modelId) {
+          uniqueModelIds.add(Number(modelId));
+        }
+      });
+
+      const modelPromises = Array.from(uniqueModelIds).map(async (modelId) => {
+        try {
+          const model = await getDeviceModelById(modelId);
+          return {
+            modelId,
+            name: model?.deviceName || model?.name || `Model #${modelId}`,
+          };
+        } catch (error) {
+          console.warn(`Failed to load model ${modelId}:`, error);
+          return {
+            modelId,
+            name: `Model #${modelId}`,
+          };
+        }
+      });
+
+      const modelResults = await Promise.all(modelPromises);
+      const nameMap = {};
+      modelResults.forEach(({ modelId, name }) => {
+        nameMap[modelId] = name;
+      });
+      setModelNameMap(nameMap);
+    } catch (error) {
+      toast.error(error?.message || "Không thể tải danh sách thiết bị");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load all devices and their models (lần đầu)
   useEffect(() => {
-    const loadDevices = async () => {
-      try {
-        setLoading(true);
-        const devicesData = await listDevices();
-        const devicesArray = Array.isArray(devicesData) ? devicesData : [];
-        setDevices(devicesArray);
-
-        // Load device models for all unique deviceModelIds
-        const uniqueModelIds = new Set();
-        devicesArray.forEach((device) => {
-          const modelId = device.deviceModelId || device.modelId;
-          if (modelId) {
-            uniqueModelIds.add(Number(modelId));
-          }
-        });
-
-        // Load all device models concurrently
-        const modelPromises = Array.from(uniqueModelIds).map(async (modelId) => {
-          try {
-            const model = await getDeviceModelById(modelId);
-            return {
-              modelId,
-              name: model?.deviceName || model?.name || `Model #${modelId}`,
-            };
-          } catch (error) {
-            console.warn(`Failed to load model ${modelId}:`, error);
-            return {
-              modelId,
-              name: `Model #${modelId}`,
-            };
-          }
-        });
-
-        const modelResults = await Promise.all(modelPromises);
-        const nameMap = {};
-        modelResults.forEach(({ modelId, name }) => {
-          nameMap[modelId] = name;
-        });
-        setModelNameMap(nameMap);
-      } catch (error) {
-        toast.error(error?.message || "Không thể tải danh sách thiết bị");
-      } finally {
-        setLoading(false);
-      }
-    };
     loadDevices();
   }, []);
 
-  // Load condition definitions when device is selected
+  // Load condition definitions khi chọn thiết bị
   useEffect(() => {
     const loadDefinitions = async () => {
       if (!selectedDevice?.deviceModelId) {
@@ -126,12 +131,12 @@ export default function TechnicianCondition() {
     loadDefinitions();
   }, [selectedDevice]);
 
-  // Load device conditions when viewing/updating
+  // Load device conditions theo deviceId
   const loadDeviceConditions = async (deviceId) => {
     try {
       setLoadingConditions(true);
       const conditionsData = await getDeviceConditions(deviceId);
-      
+
       // API trả về: { data: [...] } hoặc array trực tiếp
       let conditionsArray = [];
       if (Array.isArray(conditionsData)) {
@@ -139,7 +144,7 @@ export default function TechnicianCondition() {
       } else if (conditionsData && Array.isArray(conditionsData.data)) {
         conditionsArray = conditionsData.data;
       }
-      
+
       setDeviceConditions(conditionsArray);
       return conditionsArray;
     } catch (error) {
@@ -152,27 +157,27 @@ export default function TechnicianCondition() {
     }
   };
 
-  // Handle view device conditions
+  // Xem tình trạng
   const handleViewConditions = async (device) => {
     setSelectedDevice(device);
     setViewModalOpen(true);
     await loadDeviceConditions(device.deviceId || device.id);
   };
 
-  // Handle update device conditions
+  // Cập nhật tình trạng
   const handleUpdateConditions = async (device) => {
     setSelectedDevice(device);
     setUpdateModalOpen(true);
     const conditions = await loadDeviceConditions(device.deviceId || device.id);
-    
-    // Initialize form with existing conditions or empty
+
     if (conditions.length > 0) {
-      const latestCondition = conditions.sort((a, b) => {
-        const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
-        const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
-        return timeB - timeA;
-      })[0];
-      
+      const latestCondition = conditions
+        .sort((a, b) => {
+          const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
+          const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
+          return timeB - timeA;
+        })[0];
+
       form.setFieldsValue({
         conditions: [
           {
@@ -197,17 +202,17 @@ export default function TechnicianCondition() {
     }
   };
 
-  // Filter devices based on status and model
+  // Filter devices
   const filteredDevices = useMemo(() => {
     let filtered = Array.isArray(devices) ? devices.slice() : [];
-    
+
     if (filterStatus) {
       filtered = filtered.filter((d) => {
         const status = String(d.status || "").toUpperCase();
         return status === String(filterStatus).toUpperCase();
       });
     }
-    
+
     if (filterModelId) {
       filtered = filtered.filter((d) => {
         const modelId = Number(d.deviceModelId || d.modelId || 0);
@@ -224,11 +229,11 @@ export default function TechnicianCondition() {
         return serial.includes(q);
       });
     }
-    
+
     return filtered;
   }, [devices, filterStatus, filterModelId, filterSerial]);
 
-  // Get model options for filter
+  // Options model filter
   const modelOptions = useMemo(() => {
     const uniqueModelIds = new Set();
     devices.forEach((device) => {
@@ -237,7 +242,7 @@ export default function TechnicianCondition() {
         uniqueModelIds.add(Number(modelId));
       }
     });
-    
+
     return Array.from(uniqueModelIds)
       .map((modelId) => ({
         label: modelNameMap[modelId] || `Model #${modelId}`,
@@ -246,7 +251,7 @@ export default function TechnicianCondition() {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [devices, modelNameMap]);
 
-  // Handle form submit
+  // ✅ Submit cập nhật: reload lại devices + conditions, không cần F5
   const handleSubmit = async (values) => {
     if (!selectedDevice) return;
 
@@ -264,13 +269,16 @@ export default function TechnicianCondition() {
 
       await updateDeviceConditions(deviceId, payload);
       toast.success("Đã cập nhật tình trạng thiết bị thành công");
+
+      // 🔁 Reload lại list thiết bị (trong trường hợp status/cờ khác thay đổi)
+      await loadDevices();
+
+      // 🔁 Reload lại conditions cho thiết bị này và show trong modal xem
+      await loadDeviceConditions(deviceId);
+
       setUpdateModalOpen(false);
       form.resetFields();
-      
-      // Reload conditions if view modal is open
-      if (viewModalOpen) {
-        await loadDeviceConditions(deviceId);
-      }
+      setViewModalOpen(true); // mở modal xem để hiển thị tình trạng mới
     } catch (error) {
       toast.error(error?.message || "Không thể cập nhật tình trạng thiết bị");
     }
@@ -287,7 +295,8 @@ export default function TechnicianCondition() {
     {
       title: "Serial Number",
       dataIndex: "serialNumber",
-      render: (_, record) => record.serialNumber || record.serial || record.serialNo || "—",
+      render: (_, record) =>
+        record.serialNumber || record.serial || record.serialNo || "—",
     },
     {
       title: "Mẫu thiết bị",
@@ -297,9 +306,12 @@ export default function TechnicianCondition() {
         if (modelId && modelNameMap[modelId]) {
           return modelNameMap[modelId];
         }
-        // Fallback: try to get from record if available
         const model = record.deviceModel || record.model;
-        return model?.deviceName || model?.name || (modelId ? `Model #${modelId}` : "—");
+        return (
+          model?.deviceName ||
+          model?.name ||
+          (modelId ? `Model #${modelId}` : "—")
+        );
       },
     },
     {
@@ -399,7 +411,9 @@ export default function TechnicianCondition() {
 
       {/* View Conditions Modal */}
       <Modal
-        title={`Tình trạng thiết bị: ${selectedDevice?.serialNumber || selectedDevice?.serial || "—"}`}
+        title={`Tình trạng thiết bị: ${
+          selectedDevice?.serialNumber || selectedDevice?.serial || "—"
+        }`}
         open={viewModalOpen}
         onCancel={() => {
           setViewModalOpen(false);
@@ -428,26 +442,34 @@ export default function TechnicianCondition() {
             <Spin size="large" />
           </div>
         ) : deviceConditions.length === 0 ? (
-          <Text type="secondary">Thiết bị chưa có tình trạng được ghi nhận.</Text>
+          <Text type="secondary">
+            Thiết bị chưa có tình trạng được ghi nhận.
+          </Text>
         ) : (
           <Space direction="vertical" style={{ width: "100%" }} size="large">
             {deviceConditions
               .sort((a, b) => {
-                const timeA = a.capturedAt ? new Date(a.capturedAt).getTime() : 0;
-                const timeB = b.capturedAt ? new Date(b.capturedAt).getTime() : 0;
+                const timeA = a.capturedAt
+                  ? new Date(a.capturedAt).getTime()
+                  : 0;
+                const timeB = b.capturedAt
+                  ? new Date(b.capturedAt).getTime()
+                  : 0;
                 return timeB - timeA;
               })
               .map((condition, index) => (
                 <Card key={index} size="small" title={`Tình trạng #${index + 1}`}>
                   <Descriptions bordered size="small" column={1}>
                     <Descriptions.Item label="Tình trạng">
-                      {condition.conditionDefinitionName || `Condition #${condition.conditionDefinitionId}`}
+                      {condition.conditionDefinitionName ||
+                        `Condition #${condition.conditionDefinitionId}`}
                     </Descriptions.Item>
                     <Descriptions.Item label="Mức độ nghiêm trọng">
                       <Tag>
                         {condition.severity === "DAMAGE"
                           ? "Hư hỏng"
-                          : condition.severity === "NONE" || condition.severity === "INFO"
+                          : condition.severity === "NONE" ||
+                            condition.severity === "INFO"
                           ? "Không có"
                           : condition.severity === "LOW"
                           ? "Nhẹ"
@@ -465,7 +487,9 @@ export default function TechnicianCondition() {
                     </Descriptions.Item>
                     <Descriptions.Item label="Thời gian ghi nhận">
                       {condition.capturedAt
-                        ? dayjs(condition.capturedAt).format("DD/MM/YYYY HH:mm")
+                        ? dayjs(condition.capturedAt).format(
+                            "DD/MM/YYYY HH:mm"
+                          )
                         : "—"}
                     </Descriptions.Item>
                     {condition.images && condition.images.length > 0 && (
@@ -478,7 +502,10 @@ export default function TechnicianCondition() {
                                 src={img}
                                 width={100}
                                 height={100}
-                                style={{ objectFit: "cover", borderRadius: 4 }}
+                                style={{
+                                  objectFit: "cover",
+                                  borderRadius: 4,
+                                }}
                               />
                             ))}
                           </Space>
@@ -494,7 +521,9 @@ export default function TechnicianCondition() {
 
       {/* Update Conditions Modal */}
       <Modal
-        title={`Cập nhật tình trạng: ${selectedDevice?.serialNumber || selectedDevice?.serial || "—"}`}
+        title={`Cập nhật tình trạng: ${
+          selectedDevice?.serialNumber || selectedDevice?.serial || "—"
+        }`}
         open={updateModalOpen}
         onCancel={() => {
           setUpdateModalOpen(false);
@@ -506,11 +535,7 @@ export default function TechnicianCondition() {
         okText="Lưu"
         cancelText="Hủy"
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSubmit}
-        >
+        <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.List name="conditions">
             {(fields, { add, remove }) => (
               <>
@@ -536,24 +561,34 @@ export default function TechnicianCondition() {
                     <Form.Item
                       name={[field.name, "conditionDefinitionId"]}
                       label="Tình trạng thiết bị"
-                      rules={[{ required: true, message: "Vui lòng chọn tình trạng" }]}
+                      rules={[
+                        {
+                          required: true,
+                          message: "Vui lòng chọn tình trạng",
+                        },
+                      ]}
                     >
                       <Select
                         placeholder="Chọn tình trạng"
                         loading={loadingDefinitions}
                         options={conditionDefinitions.map((def) => ({
-                          label: `${def.name}${def.damage ? " (Gây hư hỏng)" : ""}`,
+                          label: `${def.name}${
+                            def.damage ? " (Gây hư hỏng)" : ""
+                          }`,
                           value: def.id,
                         }))}
                         onChange={(value) => {
-                          // Tìm definition tương ứng để auto-fill severity
                           const def =
                             conditionDefinitions.find(
-                              (d) => d.id === value || d.conditionDefinitionId === value
+                              (d) =>
+                                d.id === value ||
+                                d.conditionDefinitionId === value
                             ) || null;
-                          const conditionSeverity = def?.conditionSeverity || "INFO";
+                          const conditionSeverity =
+                            def?.conditionSeverity || "INFO";
 
-                          const current = form.getFieldValue("conditions") || [];
+                          const current =
+                            form.getFieldValue("conditions") || [];
                           const next = [...current];
                           if (!next[field.name]) {
                             next[field.name] = {};
@@ -571,7 +606,12 @@ export default function TechnicianCondition() {
                     <Form.Item
                       name={[field.name, "severity"]}
                       label="Mức độ nghiêm trọng"
-                      rules={[{ required: true, message: "Vui lòng chọn mức độ" }]}
+                      rules={[
+                        {
+                          required: true,
+                          message: "Vui lòng chọn mức độ",
+                        },
+                      ]}
                     >
                       <Select
                         placeholder="Chọn mức độ"
@@ -585,11 +625,11 @@ export default function TechnicianCondition() {
                       />
                     </Form.Item>
 
-                    <Form.Item
-                      name={[field.name, "note"]}
-                      label="Ghi chú"
-                    >
-                      <Input.TextArea rows={3} placeholder="Nhập ghi chú (tùy chọn)" />
+                    <Form.Item name={[field.name, "note"]} label="Ghi chú">
+                      <Input.TextArea
+                        rows={3}
+                        placeholder="Nhập ghi chú (tùy chọn)"
+                      />
                     </Form.Item>
 
                     <Form.Item
@@ -601,12 +641,21 @@ export default function TechnicianCondition() {
                         accept=".jpg,.jpeg,.png,.webp"
                         beforeUpload={() => false}
                         listType="picture-card"
-                        fileList={form.getFieldValue(["conditions", field.name, "images"])?.map((img, imgIdx) => ({
-                          uid: `img-${field.name}-${imgIdx}`,
-                          name: `image-${imgIdx + 1}.jpg`,
-                          status: "done",
-                          url: typeof img === "string" ? img : (img?.url || img?.thumbUrl || ""),
-                        })) || []}
+                        fileList={
+                          form.getFieldValue([
+                            "conditions",
+                            field.name,
+                            "images",
+                          ])?.map((img, imgIdx) => ({
+                            uid: `img-${field.name}-${imgIdx}`,
+                            name: `image-${imgIdx + 1}.jpg`,
+                            status: "done",
+                            url:
+                              typeof img === "string"
+                                ? img
+                                : img?.url || img?.thumbUrl || "",
+                          })) || []
+                        }
                         onChange={async ({ fileList }) => {
                           const imageUrls = await Promise.all(
                             fileList.map(async (f) => {
@@ -616,8 +665,8 @@ export default function TechnicianCondition() {
                               return f.thumbUrl || f.url || "";
                             })
                           );
-                          // Cập nhật lại mảng conditions trong form để Upload hiển thị đúng thumbnail
-                          const current = form.getFieldValue("conditions") || [];
+                          const current =
+                            form.getFieldValue("conditions") || [];
                           const next = [...current];
                           if (!next[field.name]) {
                             next[field.name] = {};
@@ -629,7 +678,11 @@ export default function TechnicianCondition() {
                           form.setFieldsValue({ conditions: next });
                         }}
                       >
-                        {(form.getFieldValue(["conditions", field.name, "images"])?.length || 0) < 5 && (
+                        {(form.getFieldValue([
+                          "conditions",
+                          field.name,
+                          "images",
+                        ])?.length || 0) < 5 && (
                           <div>
                             <InboxOutlined />
                             <div style={{ marginTop: 8 }}>Tải ảnh</div>
@@ -655,4 +708,3 @@ export default function TechnicianCondition() {
     </div>
   );
 }
-

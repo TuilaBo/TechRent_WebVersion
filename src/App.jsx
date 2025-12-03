@@ -19,6 +19,7 @@ import RentalList from "./pages/RentalList.jsx";
 import FindProduct from "./components/FindProduct.jsx";
 import CustomerLiveChat from "./pages/Customer/CustomerLiveChat.jsx";
 import CustomerInvoice from "./pages/Customer/CustomerInvoice.jsx";
+import CustomerPolicy from "./pages/Customer/CustomerPolicy.jsx";
 import ReturnPage from "./pages/payment/ReturnPage.jsx";
 import CancelPage from "./pages/payment/CancelPage.jsx";
 
@@ -34,6 +35,7 @@ import AdminTransactions from "./pages/admin/AdminTransactions.jsx";
 import AdminContract from "./pages/admin/AdminContract.jsx";
 import AdminCondition from "./pages/admin/AdminCondition.jsx";
 import AdminTerm from "./pages/admin/AdminTerm.jsx";
+import AdminPolicy from "./pages/admin/AdminPolicy.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
 import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
@@ -100,6 +102,7 @@ export default function App() {
           <Route path="chat" element={<CustomerLiveChat />} />
           {/* Alias để tránh 404 khi truy cập /customer/chat */}
           <Route path="customer/chat" element={<CustomerLiveChat />} />
+          <Route path="policies" element={<CustomerPolicy />} />
           <Route path="payment/return" element={<ReturnPage />} />
           <Route path="payment/cancel" element={<CancelPage />} />
           {/* Route cho PayOS redirect về /cancel thay vì /payment/cancel */}
@@ -129,6 +132,7 @@ export default function App() {
           <Route path="task-rules" element={<AdminTaskRule />} />
           <Route path="conditions" element={<AdminCondition />} />
           <Route path="device-terms" element={<AdminTerm />} />
+          <Route path="policies" element={<AdminPolicy />} />
         </Route>
 
         <Route

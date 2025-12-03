@@ -15,6 +15,24 @@ function formatVNDHelper(n = 0) {
   }
 }
 
+// Mapping trạng thái hóa đơn sang tiếng Việt
+const INVOICE_STATUS_MAP = {
+  PENDING: "Chờ thanh toán",
+  SUCCEEDED: "Đã thanh toán",
+  COMPLETED: "Hoàn thành",
+  CANCELLED: "Đã hủy",
+  REFUNDED: "Đã hoàn tiền",
+  OVERDUE: "Quá hạn",
+  PROCESSING: "Đang xử lý",
+  FAILED: "Thất bại",
+};
+
+function translateStatus(status) {
+  if (!status) return "";
+  const upperStatus = String(status).toUpperCase();
+  return INVOICE_STATUS_MAP[upperStatus] || status;
+}
+
 export default function ReturnPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -181,23 +199,23 @@ export default function ReturnPage() {
                         )}
                         {invoiceData.subTotal && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <Text type="secondary">Tạm tính:</Text>
-                            <Text type="secondary">
+                            {/* <Text type="secondary">Tạm tính:</Text> */}
+                            {/* <Text type="secondary">
                               {formatVNDHelper(invoiceData.subTotal)}
-                            </Text>
+                            </Text> */}
                           </div>
                         )}
                       </Space>
                     </div>
                     {invoiceData.invoiceStatus && (
                       <Text type="secondary">
-                        Trạng thái: <Text strong>{invoiceData.invoiceStatus}</Text>
+                        Trạng thái: <Text strong>{translateStatus(invoiceData.invoiceStatus)}</Text>
                       </Text>
                     )}
                   </>
                 )}
                 <Text type="secondary" style={{ fontSize: 14 }}>
-                  Cảm ơn bạn đã thanh toán! Đơn hàng của bạn đang được xử lý.
+                  Cảm ơn bạn đã thanh toán! bạn đã thanh toán thành công cho đơn thuê.
                 </Text>
               </Space>
             }
@@ -215,7 +233,7 @@ export default function ReturnPage() {
                 key="orders"
                 size="large"
                 icon={<ShoppingOutlined />}
-                onClick={() => navigate("/orders")}
+                onClick={() => navigate(orderId ? `/orders?orderId=${orderId}` : "/orders")}
               >
                 Xem đơn hàng
               </Button>,
@@ -226,4 +244,3 @@ export default function ReturnPage() {
     </div>
   );
 }
-

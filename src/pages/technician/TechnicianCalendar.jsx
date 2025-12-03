@@ -1,20 +1,6 @@
 // src/pages/technician/TechnicianCalendar.jsx
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import {
-  Card,
-  List,
-  Tag,
-  Space,
-  Button,
-  Drawer,
-  Descriptions,
-  Upload,
-  Typography,
-  Divider,
-  message,
-  Select,
-  Table,
-  Input,
+import {Card,List,Tag,Space,Button,Drawer,Descriptions, Upload,Typography, Divider, message,Select,Table, Input,
   Modal,
   Skeleton,
   DatePicker,
@@ -38,7 +24,6 @@ import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import {
-  listTasks,
   getTaskById,
   normalizeTask,
   confirmDelivery,
@@ -117,7 +102,7 @@ const fmtOrderStatus = (s) => {
     "PENDING": "Chờ xử lý",
     "PROCESSING": "Đang xử lý",
     "CONFIRMED": "Đã xác nhận",
-    "DELIVERY_CONFIRMED": "Đã xác nhận giao hàng",
+    "DELIVERY_CONFIRMED": "Chuẩn bị giao hàng",
     "IN_USE": "Đang sử dụng",
     "PENDING_RETURN": "Chờ trả hàng",
     "RETURNED": "Đã trả hàng",
@@ -130,6 +115,7 @@ const fmtOrderStatus = (s) => {
     "READY_FOR_SHIPPING": "Sẵn sàng giao hàng",
     "PRE_RENTAL_QC": "Kiểm tra trước cho thuê",
     "POST_RENTAL_QC": "Kiểm tra sau cho thuê",
+    "DELIVERING": "Đang giao",
   };
   
   // Tìm exact match trước
@@ -2293,14 +2279,18 @@ export default function TechnicianCalendar() {
                           {d.deviceModel?.image ? (
                             <img src={d.deviceModel.image} alt={d.deviceModel.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }} />
                           ) : null}
-                          <div>
+                          <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600 }}>
                               {d.deviceModel?.name || `Model #${d.deviceModelId}`} {`× ${d.quantity}`}
                             </div>
-                            {d.deviceModel && (
-                              <div style={{ color: '#667085' }}>
-                                {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ''}
-                                Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                            
+                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                              <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                {orderDetail.allocatedDevices
+                                  .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                  .map((ad, idx) => (
+                                    <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                  ))}
                               </div>
                             )}
                           </div>
@@ -2487,7 +2477,7 @@ export default function TechnicianCalendar() {
                           {d.deviceModel?.image ? (
                             <img src={d.deviceModel.image} alt={d.deviceModel.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }} />
                           ) : null}
-                          <div>
+                          <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600 }}>
                               {d.deviceModel?.name || `Model #${d.deviceModelId}`} {`× ${d.quantity}`}
                             </div>
@@ -2495,6 +2485,15 @@ export default function TechnicianCalendar() {
                               <div style={{ color: '#667085' }}>
                                 {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ''}
                                 Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                              </div>
+                            )}
+                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                              <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                {orderDetail.allocatedDevices
+                                  .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                  .map((ad, idx) => (
+                                    <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                  ))}
                               </div>
                             )}
                           </div>
@@ -2637,7 +2636,7 @@ export default function TechnicianCalendar() {
                           {d.deviceModel?.image ? (
                             <img src={d.deviceModel.image} alt={d.deviceModel.name} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6 }} />
                           ) : null}
-                          <div>
+                          <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600 }}>
                               {d.deviceModel?.name || `Model #${d.deviceModelId}`} {`× ${d.quantity}`}
                             </div>
@@ -2645,6 +2644,15 @@ export default function TechnicianCalendar() {
                               <div style={{ color: '#667085' }}>
                                 {d.deviceModel.brand ? `${d.deviceModel.brand} • ` : ''}
                                 Cọc: {fmtVND((d.deviceModel.deviceValue || 0) * (d.deviceModel.depositPercent || 0))}
+                              </div>
+                            )}
+                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                              <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                {orderDetail.allocatedDevices
+                                  .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                  .map((ad, idx) => (
+                                    <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                  ))}
                               </div>
                             )}
                           </div>
@@ -2975,11 +2983,9 @@ export default function TechnicianCalendar() {
           options={[
             { label: "Tất cả", value: "ALL" },
             { label: "Pre rental QC (check QC trước giao)", value: "PRE_RENTAL_QC" },
+            { label: "Post rental QC (QC sau thuê)", value: "POST_RENTAL_QC" },
             { label: "Pick up rental order (Thu hồi thiết bị)", value: "PICKUP" },
-            { label: "CHECK QC outbound", value: "QC" },
-            { label: "CHECK BIÊN BẢN", value: "HANDOVER_CHECK" },
-            { label: "BẢO TRÌ THIẾT BỊ", value: "MAINTAIN" },
-            { label: "ĐI GIAO THIẾT BỊ", value: "DELIVERY" },
+            { label: "Delivery (Giao hàng)", value: "DELIVERY" },
           ]}
         />
         <Input.Search
@@ -3009,8 +3015,18 @@ export default function TechnicianCalendar() {
               if (filterType !== "ALL") {
                 if (filterType === "PRE_RENTAL_QC") {
                   typeMatch = isPreRentalQC(t);
+                } else if (filterType === "POST_RENTAL_QC") {
+                  typeMatch = isPostRentalQC(t);
                 } else if (filterType === "PICKUP") {
                   typeMatch = isPickupTask(t);
+                } else if (filterType === "DELIVERY") {
+                  const taskType = String(t.type || "").toUpperCase();
+                  const taskCategoryName = String(t.taskCategoryName || "").toUpperCase();
+                  const description = String(t.description || t.title || "").toUpperCase();
+                  typeMatch = taskType === "DELIVERY" || 
+                             taskCategoryName.includes("DELIVERY") || 
+                             taskCategoryName.includes("GIAO") ||
+                             description.includes("GIAO");
                 } else {
                   typeMatch = String(t.type || "").toUpperCase() === String(filterType).toUpperCase();
                 }
