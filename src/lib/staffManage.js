@@ -104,14 +104,14 @@ export async function updateStaffStatus(staffId, isActive) {
  */
 // Đúng theo swagger: staffRole là query param
 export async function updateStaffRole(staffId, staffRole) {
-    const { data } = await api.put(
-      `/api/admin/staff/${Number(staffId)}/role`,
-      null,
-      { params: { staffRole } }      // ✅ truyền qua query
-    );
-    return data?.data ?? data ?? null; // 1 số BE trả object, 1 số trả true
-  }
-  
+  const { data } = await api.put(
+    `/api/admin/staff/${Number(staffId)}/role`,
+    null,
+    { params: { staffRole } }      // ✅ truyền qua query
+  );
+  return data?.data ?? data ?? null; // 1 số BE trả object, 1 số trả true
+}
+
 
 /* ---------------------------------------------------
  * Queries phụ
@@ -196,4 +196,29 @@ export async function getStaffPerformanceCompletions({ year, month, staffRole, p
 
   const { data } = await api.get("/api/staff/performance/completions", { params });
   return data?.data ?? data ?? {};
+}
+
+/** GET /api/staff/tasks/category-stats – Lấy thống kê công việc theo category của nhân viên
+ * @param {Object} params - Query parameters
+ * @param {number} params.staffId - Staff ID (required)
+ * @param {string} params.date - Date (required, format: YYYY-MM-DD)
+ * @param {number} [params.categoryId] - Task Category ID (optional, filter by specific category)
+ * @returns {Promise<Array>} Array of category stats with { staffId, staffName, taskCategoryId, taskCategoryName, taskCount, maxTasksPerDay }
+ */
+export async function getStaffCategoryStats({ staffId, date, categoryId }) {
+  if (!staffId || !date) {
+    throw new Error("staffId and date are required parameters");
+  }
+
+  const params = {
+    staffId: Number(staffId),
+    date: date,
+  };
+
+  if (categoryId) {
+    params.categoryId = Number(categoryId);
+  }
+
+  const { data } = await api.get("/api/staff/tasks/category-stats", { params });
+  return data?.data ?? data ?? [];
 }

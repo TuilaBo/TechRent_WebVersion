@@ -19,7 +19,7 @@ import {
   listTaskCategories,
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
-import { listActiveStaff, getStaffPerformanceCompletions } from "../../lib/staffManage";
+import { listActiveStaff, getStaffPerformanceCompletions, getStaffCategoryStats } from "../../lib/staffManage";
 import { getRentalOrderById, listRentalOrders, fmtVND } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
@@ -95,7 +95,10 @@ export default function OperatorTasks() {
   const [leaderboardPageSize, setLeaderboardPageSize] = useState(20); // Kích thước trang
   const [leaderboardTotal, setLeaderboardTotal] = useState(0); // Tổng số records
   const [taskRules, setTaskRules] = useState([]); // Danh sách rules theo category
+  const [staffCategoryStats, setStaffCategoryStats] = useState({}); // { staffId -> { taskCount, maxTasksPerDay } }
+  const [loadingCategoryStats, setLoadingCategoryStats] = useState(false);
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
+  const taskCategoryIdValue = Form.useWatch("taskCategoryId", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
   const assignedStaffIdsKey = JSON.stringify(assignedStaffIdsValue);
   const plannedStartValue = Form.useWatch("plannedStart", form);
@@ -128,8 +131,8 @@ export default function OperatorTasks() {
       const staffList = Array.isArray(task.assignedStaff)
         ? task.assignedStaff.map((s) => s.staffId ?? s.id)
         : task.assignedStaffId
-        ? [task.assignedStaffId]
-        : [];
+          ? [task.assignedStaffId]
+          : [];
 
       staffList.forEach((id) => {
         if (!id) return;
@@ -147,7 +150,7 @@ export default function OperatorTasks() {
       try {
         // Load all active rules
         const allRules = await listTaskRules({ active: true });
-        
+
         if (!cancelled) {
           // Hiển thị tất cả active rules
           setTaskRules(allRules);
@@ -161,6 +164,61 @@ export default function OperatorTasks() {
       cancelled = true;
     };
   }, []);
+
+  // Load category stats for all active staff when taskCategoryId and plannedStart are selected
+  useEffect(() => {
+    if (!taskCategoryIdValue || !plannedStartValue) {
+      setStaffCategoryStats({});
+      return;
+    }
+
+    let cancelled = false;
+    const dateStr = dayjs(plannedStartValue).format('YYYY-MM-DD');
+
+    (async () => {
+      setLoadingCategoryStats(true);
+      const statsMap = {};
+
+      // Fetch stats for each staff in parallel
+      const promises = staffs
+        .filter(s => ['TECHNICIAN', 'CUSTOMER_SUPPORT_STAFF'].includes(String(s.staffRole || s.role || '').toUpperCase()))
+        .map(async (s) => {
+          try {
+            const id = s.staffId ?? s.id;
+            // Pass categoryId to filter on server side
+            const stats = await getStaffCategoryStats({
+              staffId: id,
+              date: dateStr,
+              categoryId: taskCategoryIdValue
+            });
+            // API returns filtered result for the category
+            const catStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
+            // Store stats - if empty array, mark as free (rảnh)
+            statsMap[id] = catStat ? {
+              taskCount: catStat.taskCount || 0,
+              maxTasksPerDay: catStat.maxTasksPerDay || 0,
+              taskCategoryName: catStat.taskCategoryName || '',
+              isEmpty: false
+            } : {
+              taskCount: 0,
+              maxTasksPerDay: 0,
+              isEmpty: true // No tasks assigned for this category
+            };
+          } catch (e) {
+            console.warn(`Failed to load category stats for staff ${s.staffId}:`, e);
+          }
+        });
+
+      await Promise.all(promises);
+
+      if (!cancelled) {
+        setStaffCategoryStats(statsMap);
+        setLoadingCategoryStats(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [taskCategoryIdValue, plannedStartValue, staffs]);
 
   // Load data từ API
   const loadData = async () => {
@@ -177,11 +235,11 @@ export default function OperatorTasks() {
         const statusB = String(b?.status || "").toUpperCase();
         const isPendingA = statusA === "PENDING";
         const isPendingB = statusB === "PENDING";
-        
+
         // Ưu tiên PENDING lên đầu
         if (isPendingA && !isPendingB) return -1;
         if (!isPendingA && isPendingB) return 1;
-        
+
         // Nếu cùng status (hoặc cả hai đều không phải PENDING), sort mới nhất lên đầu
         const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
         const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
@@ -216,7 +274,7 @@ export default function OperatorTasks() {
   // Load leaderboard data
   const loadLeaderboard = useCallback(async () => {
     if (!selectedYear || !selectedMonth) return;
-    
+
     setLeaderboardLoading(true);
     try {
       const params = {
@@ -365,15 +423,50 @@ export default function OperatorTasks() {
 
     const formatStaff = (s) => {
       const id = s.staffId ?? s.id;
-      const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${id}`;
-      const taskCount = tasksPerStaffForSelectedDate[id] || 0;
-      const label =
-        taskCount > 0
-          ? `${baseLabel} • ${taskCount} công việc trong ngày`
-          : baseLabel;
+      const catStat = staffCategoryStats[id];
+      const taskCount = catStat?.taskCount ?? tasksPerStaffForSelectedDate[id] ?? 0;
+      const maxTasks = catStat?.maxTasksPerDay ?? 0;
+
+      let limitLabel = '';
+      let limitColor = 'inherit';
+
+      // Check if we have category stats for this staff
+      if (catStat) {
+        if (catStat.isEmpty) {
+          // Empty array = staff is free for this category
+          limitLabel = ' • Rảnh';
+          limitColor = '#52c41a'; // green - free
+        } else if (maxTasks > 0) {
+          if (taskCount >= maxTasks) {
+            limitColor = '#ff4d4f'; // red - at limit
+          } else {
+            limitColor = '#1890ff'; // blue - has tasks but not at limit
+          }
+          limitLabel = ` • [${taskCount}/${maxTasks}]`;
+        } else {
+          // Has tasks but no limit set
+          limitLabel = ` • ${taskCount} việc`;
+          limitColor = '#1890ff'; // blue
+        }
+      } else if (taskCount > 0) {
+        // Fallback to local count
+        limitLabel = ` • ${taskCount} việc`;
+        limitColor = '#1890ff'; // blue
+      }
+
+      const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""}${limitLabel}`;
+
       return {
-        label,
+        label: (
+          <span style={{ color: limitColor !== 'inherit' ? limitColor : undefined }}>
+            {baseLabel}
+            {catStat && maxTasks > 0 && taskCount >= maxTasks && (
+              <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}> ⚠️</span>
+            )}
+          </span>
+        ),
         value: id,
+        disabled: false, // Operator can still select, just shows warning
       };
     };
 
@@ -405,7 +498,7 @@ export default function OperatorTasks() {
     });
 
     return Array.from(uniqueMap.values());
-  }, [staffs, staffRoleFilterValue, assignedStaffIdsKey, tasksPerStaffForSelectedDate]);
+  }, [staffs, staffRoleFilterValue, assignedStaffIdsKey, tasksPerStaffForSelectedDate, staffCategoryStats]);
 
   const statusTag = (status) => {
     switch (status) {
@@ -518,10 +611,10 @@ export default function OperatorTasks() {
   }, [data, searchQuery]);
 
   const columns = [
-    { 
-      title: "ID", 
-      dataIndex: "taskId", 
-      width: 70, 
+    {
+      title: "ID",
+      dataIndex: "taskId",
+      width: 70,
       sorter: (a, b) => a.taskId - b.taskId,
       render: (v) => <strong>#{v}</strong>,
     },
@@ -538,8 +631,8 @@ export default function OperatorTasks() {
           <Space direction="vertical" size="small">
             <Space>
               <span>#{id}</span>
-              <Button 
-                size="small" 
+              <Button
+                size="small"
                 type="link"
                 style={{ padding: 0, height: 'auto' }}
                 onClick={() => openOrderDetail(id)}
@@ -836,7 +929,7 @@ export default function OperatorTasks() {
       render: (count, record) => {
         const completedCount = count || record.completionCount || 0;
         const breakdown = record.taskCompletionsByCategory || [];
-        
+
         return (
           <div>
             <Statistic
@@ -898,7 +991,7 @@ export default function OperatorTasks() {
                   Quy tắc công việc hiện hành: {taskRules[0]?.name || "—"}
                 </Text>
               </div>
-              
+
               <Space direction="vertical" size={6} style={{ width: "100%" }}>
                 {taskRules.map((rule) => {
                   const category = categories.find(
@@ -907,13 +1000,13 @@ export default function OperatorTasks() {
                   const categoryName = category?.name || `Loại ${rule.taskCategoryId}`;
                   const role = rule.staffRole || "—";
                   const limit = rule.maxTasksPerDay;
-                  const fromDate = rule.effectiveFrom 
+                  const fromDate = rule.effectiveFrom
                     ? dayjs(rule.effectiveFrom).format("DD/MM/YYYY")
                     : "—";
                   const toDate = rule.effectiveTo
                     ? dayjs(rule.effectiveTo).format("DD/MM/YYYY")
                     : "—";
-                  
+
                   return (
                     <div key={rule.taskRuleId} style={{ fontSize: 12, color: "#555" }}>
                       <Text strong>{categoryName}</Text>
@@ -1076,8 +1169,8 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item 
-            label="Mã đơn hàng" 
+          <Form.Item
+            label="Mã đơn hàng"
             name="orderId"
             tooltip={editing ? "Không thể thay đổi mã đơn hàng sau khi tạo công việc" : undefined}
           >
@@ -1109,8 +1202,8 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item 
-            label="Nhân viên phụ trách" 
+          <Form.Item
+            label="Nhân viên phụ trách"
             name="assignedStaffIds"
           >
             <Select
