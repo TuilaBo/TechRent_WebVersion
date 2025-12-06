@@ -48,6 +48,23 @@ export function getTechnicianStatusColor(status) {
   );
 }
 
+// Map task status to Ant Design Badge status
+export function getTaskBadgeStatus(status) {
+  const key = String(status || "").toUpperCase();
+  switch (key) {
+    case "PENDING":
+      return "warning";    // Cần xử lý
+    case "IN_PROGRESS":
+      return "processing"; // Đang thực hiện
+    case "COMPLETED":
+      return "success";    // Đã hoàn thành
+    case "CANCELLED":
+      return "error";      // Đã hủy
+    default:
+      return "default";
+  }
+}
+
 /** -------------------------------------------------
  *  APIs
  * ------------------------------------------------- */
