@@ -42,6 +42,7 @@ import {
   TagsOutlined,
   MoneyCollectOutlined,
   FileTextOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -57,26 +58,26 @@ const { Text } = Typography;
  */
 export default function AdminShell() {
   // ==================== STATE ====================
-  
+
   /**
    * collapsed: Trạng thái thu gọn sidebar
    * false = sidebar mở rộng, true = sidebar thu gọn
    */
   const [collapsed, setCollapsed] = useState(false);
-  
+
   // ==================== HOOKS ====================
-  
+
   /**
    * location: Lấy đường dẫn hiện tại từ React Router
    * Dùng để highlight menu item tương ứng
    */
   const location = useLocation();
-  
+
   /**
    * navigate: Function để điều hướng sau khi logout
    */
   const navigate = useNavigate();
-  
+
   /**
    * user, logout: Lấy từ AuthContext
    * - user: Thông tin user đang đăng nhập
@@ -221,6 +222,11 @@ export default function AdminShell() {
               key: "transactions",
               icon: <MoneyCollectOutlined />,
               label: <Link to="/admin/transactions">Giao dịch</Link>,
+            },
+            {
+              key: "maintenance",
+              icon: <ToolOutlined />,
+              label: <Link to="/admin/maintenance-schedule">Lịch bảo trì</Link>,
             },
 
             {

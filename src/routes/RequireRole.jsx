@@ -34,7 +34,19 @@ export default function RequireRole({ role, children }) {
       : user?.role === role;
 
   if (!hasRole) {
-    return <Navigate to="/" replace />;
+    // Redirect to role-specific dashboard instead of home page
+    const userRole = Array.isArray(user?.roles) ? user.roles[0] : user?.role;
+    
+    const roleRedirects = {
+      ADMIN: "/admin",
+      OPERATOR: "/operator",
+      TECHNICIAN: "/technician",
+      CUSTOMER_SUPPORT_STAFF: "/support",
+      CUSTOMER: "/",
+    };
+
+    const redirectTo = roleRedirects[userRole] || "/";
+    return <Navigate to={redirectTo} replace />;
   }
 
   return children;
