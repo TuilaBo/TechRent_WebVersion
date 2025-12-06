@@ -13,8 +13,8 @@ import {
   createTask,
   updateTask,
   deleteTask,
-  getActiveTaskRule,
 } from "../../lib/taskApi";
+import { listTaskRules } from "../../lib/taskRulesApi";
 import {
   listTaskCategories,
   normalizeTaskCategory,
@@ -91,7 +91,7 @@ export default function OperatorTasks() {
   const [selectedYear, setSelectedYear] = useState(dayjs().year()); // Năm được chọn
   const [selectedMonth, setSelectedMonth] = useState(dayjs().month() + 1); // Tháng được chọn (1-12)
   const [leaderboardRoleFilter, setLeaderboardRoleFilter] = useState(null); // Lọc theo role
-  const [activeTaskRule, setActiveTaskRule] = useState(null); // Rule tác vụ từ admin
+  const [taskRules, setTaskRules] = useState([]); // Danh sách rules theo category
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
   const assignedStaffIdsKey = JSON.stringify(assignedStaffIdsValue);
@@ -137,17 +137,20 @@ export default function OperatorTasks() {
     return map;
   }, [data, plannedStartValue]);
 
-  // Load rule tác vụ hiện hành từ admin
+  // Load task rules cho tất cả roles (operator assign cho mọi người)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const rule = await getActiveTaskRule();
+        // Load all active rules
+        const allRules = await listTaskRules({ active: true });
+        
         if (!cancelled) {
-          setActiveTaskRule(rule);
+          // Hiển thị tất cả active rules
+          setTaskRules(allRules);
         }
       } catch (e) {
-        console.warn("Không thể tải rule tác vụ hiện hành cho Operator:", e);
+        console.warn("Không thể tải danh sách task rules:", e);
       }
     })();
 
@@ -854,44 +857,48 @@ export default function OperatorTasks() {
             </div>
           </Card>
 
-          {/* Rule tác vụ từ admin (giống TechnicianCalendar) */}
-          {activeTaskRule && (
+          {/* Task Rules Display - Simple Text List */}
+          {taskRules && taskRules.length > 0 && (
             <Card
               size="small"
               style={{
                 marginBottom: 16,
-                borderRadius: 10,
-                background: "#f9fafb",
-                border: "1px solid #edf0f4",
+                borderRadius: 8,
+                background: "#fafafa",
+                border: "1px solid #e0e0e0",
               }}
-              bodyStyle={{ padding: 10 }}
+              bodyStyle={{ padding: "12px 16px" }}
             >
-              <Space
-                direction="vertical"
-                size={4}
-                style={{ width: "100%", textAlign: "center" }}
-              >
+              <div style={{ textAlign: "center", marginBottom: 12 }}>
                 <Text strong style={{ fontSize: 13 }}>
-                  Quy tắc công việc hiện hành: {activeTaskRule.name || "—"}
+                  Quy tắc công việc hiện hành: {taskRules[0]?.name || "—"}
                 </Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Giới hạn tối đa{" "}
-                  <strong>
-                    {activeTaskRule.maxTasksPerDay != null
-                      ? `${activeTaskRule.maxTasksPerDay} công việc/ngày`
-                      : "—"}
-                  </strong>
-                  {activeTaskRule.effectiveFrom && activeTaskRule.effectiveTo && (
-                    <>
-                      {" "}
-                      • Áp dụng từ{" "}
-                      {dayjs(activeTaskRule.effectiveFrom).format("DD/MM/YYYY")} đến{" "}
-                      {dayjs(activeTaskRule.effectiveTo).format("DD/MM/YYYY")}
-                    </>
-                  )}
-                </Text>
-
-                {/* Người dùng đã xoá phần hiển thị Tag, giữ logic màu nhưng không render gì thêm */}
+              </div>
+              
+              <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                {taskRules.map((rule) => {
+                  const category = categories.find(
+                    (c) => c.taskCategoryId === rule.taskCategoryId
+                  );
+                  const categoryName = category?.name || `Loại ${rule.taskCategoryId}`;
+                  const role = rule.staffRole || "—";
+                  const limit = rule.maxTasksPerDay;
+                  const fromDate = rule.effectiveFrom 
+                    ? dayjs(rule.effectiveFrom).format("DD/MM/YYYY")
+                    : "—";
+                  const toDate = rule.effectiveTo
+                    ? dayjs(rule.effectiveTo).format("DD/MM/YYYY")
+                    : "—";
+                  
+                  return (
+                    <div key={rule.taskRuleId} style={{ fontSize: 12, color: "#555" }}>
+                      <Text strong>{categoryName}</Text>
+                      <Text type="secondary"> ({role}): </Text>
+                      <Text>tối đa <strong>{limit}</strong> công việc/ngày</Text>
+                      <Text type="secondary"> • Hiệu lực từ {fromDate} đến {toDate}</Text>
+                    </div>
+                  );
+                })}
               </Space>
             </Card>
           )}

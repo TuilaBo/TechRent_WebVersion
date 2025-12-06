@@ -10,6 +10,8 @@ import { api } from "./api";
  * @param {boolean} payload.active - Trạng thái active
  * @param {string} payload.effectiveFrom - Ngày bắt đầu hiệu lực (ISO 8601)
  * @param {string} payload.effectiveTo - Ngày kết thúc hiệu lực (ISO 8601)
+ * @param {string} payload.staffRole - Vai trò staff (ADMIN, OPERATOR, TECHNICIAN, CUSTOMER_SUPPORT_STAFF)
+ * @param {number} payload.taskCategoryId - ID của task category
  * @returns {Promise<any>} Response data
  */
 export async function createTaskRule(payload) {
@@ -58,6 +60,8 @@ export async function getTaskRuleById(taskRuleId) {
  * @param {boolean} payload.active - Trạng thái active
  * @param {string} payload.effectiveFrom - Ngày bắt đầu hiệu lực (ISO 8601)
  * @param {string} payload.effectiveTo - Ngày kết thúc hiệu lực (ISO 8601)
+ * @param {string} payload.staffRole - Vai trò staff (ADMIN, OPERATOR, TECHNICIAN, CUSTOMER_SUPPORT_STAFF)
+ * @param {number} payload.taskCategoryId - ID của task category
  * @returns {Promise<any>} Response data
  */
 export async function updateTaskRule(taskRuleId, payload) {
@@ -89,6 +93,8 @@ export function normalizeTaskRule(raw = {}) {
     active: Boolean(raw.active ?? false),
     effectiveFrom: raw.effectiveFrom ?? null,
     effectiveTo: raw.effectiveTo ?? null,
+    staffRole: raw.staffRole ?? null,
+    taskCategoryId: raw.taskCategoryId ?? null,
     createdAt: raw.createdAt ?? null,
     updatedAt: raw.updatedAt ?? null,
   };

@@ -31,6 +31,8 @@ import {
   getStaffAssignments,
   getActiveTaskRule,
 } from "../../lib/taskApi";
+import { listTaskRules } from "../../lib/taskRulesApi";
+import { listTaskCategories } from "../../lib/taskCategoryApi";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
   TECH_TASK_STATUS,
@@ -1174,6 +1176,8 @@ export default function TechnicianCalendar() {
   const [selectedDate, setSelectedDate] = useState(dayjs());
   const [loading, setLoading] = useState(false);
   const [activeTaskRule, setActiveTaskRule] = useState(null);
+  const [taskRules, setTaskRules] = useState([]); // Task rules theo category
+  const [categories, setCategories] = useState([]); // Task categories
   const [searchTaskId, setSearchTaskId] = useState("");
   // Map: taskId -> hasQcReport (boolean)
   const [hasQcReportMap, setHasQcReportMap] = useState({});
@@ -1383,7 +1387,35 @@ export default function TechnicianCalendar() {
     }
   }, [selectedDate]);
 
-  // Fetch active task rule from admin để hiển thị cho technician
+  // Load task rules cho TECHNICIAN
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [allRules, allCategories] = await Promise.all([
+          listTaskRules({ active: true }),
+          listTaskCategories(),
+        ]);
+        
+        if (!cancelled) {
+          // Filter rules for TECHNICIAN role
+          const technicianRules = allRules.filter(
+            (rule) => rule.staffRole === "TECHNICIAN"
+          );
+          setTaskRules(technicianRules);
+          setCategories(allCategories);
+        }
+      } catch (e) {
+        console.warn("Không thể tải danh sách task rules:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch active task rule từ admin (legacy - for backward compatibility)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -2951,6 +2983,51 @@ export default function TechnicianCalendar() {
                 </Space>
               );
             })()}
+          </Space>
+        </Card>
+      )}
+
+      {/* Task Rules Display - Simple Text List */}
+      {taskRules && taskRules.length > 0 && (
+        <Card
+          size="small"
+          style={{
+            marginBottom: 16,
+            borderRadius: 8,
+            background: "#fafafa",
+            border: "1px solid #e0e0e0",
+          }}
+          bodyStyle={{ padding: "12px 16px" }}
+        >
+          <div style={{ textAlign: "center", marginBottom: 12 }}>
+            <Text strong style={{ fontSize: 13 }}>
+              Quy tắc công việc theo loại: {taskRules[0]?.name || "—"}
+            </Text>
+          </div>
+          
+          <Space direction="vertical" size={6} style={{ width: "100%" }}>
+            {taskRules.map((rule) => {
+              const category = categories.find(
+                (c) => c.taskCategoryId === rule.taskCategoryId
+              );
+              const categoryName = category?.name || `Loại ${rule.taskCategoryId}`;
+              const limit = rule.maxTasksPerDay;
+              const fromDate = rule.effectiveFrom 
+                ? dayjs(rule.effectiveFrom).format("DD/MM/YYYY")
+                : "—";
+              const toDate = rule.effectiveTo
+                ? dayjs(rule.effectiveTo).format("DD/MM/YYYY")
+                : "—";
+              
+              return (
+                <div key={rule.taskRuleId} style={{ fontSize: 12, color: "#555" }}>
+                  <Text strong>{categoryName}</Text>
+                  <Text type="secondary"> (TECHNICIAN): </Text>
+                  <Text>tối đa <strong>{limit}</strong> công việc/ngày</Text>
+                  <Text type="secondary"> • Hiệu lực từ {fromDate} đến {toDate}</Text>
+                </div>
+              );
+            })}
           </Space>
         </Card>
       )}
