@@ -14,6 +14,7 @@ import {
   Tag,
   DatePicker,
   Card,
+  Select,
 } from "antd";
 import {
   PlusOutlined,
@@ -31,9 +32,18 @@ import {
   getActiveTaskRule,
   normalizeTaskRule,
 } from "../../lib/taskRulesApi";
+import { listTaskCategories } from "../../lib/taskCategoryApi";
 
 const { Title } = Typography;
 const { TextArea } = Input;
+
+// Staff role options
+const STAFF_ROLE_OPTIONS = [
+  { label: "Admin", value: "ADMIN" },
+  { label: "Operator", value: "OPERATOR" },
+  { label: "Technician", value: "TECHNICIAN" },
+  { label: "Customer Support Staff", value: "CUSTOMER_SUPPORT_STAFF" },
+];
 
 export default function AdminTaskRule() {
   const [loading, setLoading] = useState(false);
@@ -42,6 +52,7 @@ export default function AdminTaskRule() {
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
   const [activeRule, setActiveRule] = useState(null);
+  const [taskCategories, setTaskCategories] = useState([]);
 
   const loadRules = async () => {
     try {
@@ -64,8 +75,18 @@ export default function AdminTaskRule() {
     }
   };
 
+  const loadTaskCategories = async () => {
+    try {
+      const categories = await listTaskCategories();
+      setTaskCategories(categories);
+    } catch (e) {
+      console.error("Failed to load task categories:", e);
+    }
+  };
+
   useEffect(() => {
     loadRules();
+    loadTaskCategories();
   }, []);
 
   const openCreate = () => {
@@ -88,6 +109,8 @@ export default function AdminTaskRule() {
       active: record.active ?? false,
       effectiveFrom: record.effectiveFrom ? dayjs(record.effectiveFrom) : null,
       effectiveTo: record.effectiveTo ? dayjs(record.effectiveTo) : null,
+      staffRole: record.staffRole ?? null,
+      taskCategoryId: record.taskCategoryId ?? null,
     });
     setOpen(true);
   };
@@ -101,6 +124,8 @@ export default function AdminTaskRule() {
         active: Boolean(values.active ?? false),
         effectiveFrom: values.effectiveFrom ? values.effectiveFrom.toISOString() : null,
         effectiveTo: values.effectiveTo ? values.effectiveTo.toISOString() : null,
+        staffRole: values.staffRole ?? null,
+        taskCategoryId: values.taskCategoryId ? Number(values.taskCategoryId) : null,
       };
 
       if (editing) {
@@ -350,6 +375,31 @@ export default function AdminTaskRule() {
               showTime
               format="DD/MM/YYYY HH:mm"
               placeholder="Chọn ngày bắt đầu"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Staff Role"
+            name="staffRole"
+            rules={[{ required: true, message: "Vui lòng chọn staff role" }]}
+          >
+            <Select
+              placeholder="Chọn staff role"
+              options={STAFF_ROLE_OPTIONS}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Task Category"
+            name="taskCategoryId"
+            rules={[{ required: true, message: "Vui lòng chọn task category" }]}
+          >
+            <Select
+              placeholder="Chọn task category"
+              options={taskCategories.map(cat => ({
+                label: cat.name,
+                value: cat.taskCategoryId,
+              }))}
             />
           </Form.Item>
 

@@ -85,25 +85,16 @@ export default function App() {
       >
         <Routes>
           {/* ✅ Chỉ chứa <Route> hoặc <React.Fragment> */}
+          {/* Public routes - accessible to everyone */}
           <Route path="/" element={<LayoutRoot />}>
             <Route index element={<Home />} />
             <Route path="login" element={<LoginForm />} />
             <Route path="register" element={<RegisterForm />} />
             <Route path="devices/:id" element={<DeviceDetail />} />
-            <Route path="orders" element={<MyOrders />} />
-            <Route path="cart" element={<CartPage />} />
-            <Route path="checkout" element={<CheckoutPage />} />
-            <Route path="kyc" element={<KycPage />} />
-            <Route path="profile" element={<CustomerProfile />} />
-            <Route path="invoices" element={<CustomerInvoice />} />
-            <Route path="notifications" element={<NotificationsPage />} />
-            <Route path="verify-otp" element={<OtpVerify />} />
             <Route path="category/:id" element={<RentalList />} />
             <Route path="search" element={<FindProduct />} />
-            <Route path="chat" element={<CustomerLiveChat />} />
-            {/* Alias để tránh 404 khi truy cập /customer/chat */}
-            <Route path="customer/chat" element={<CustomerLiveChat />} />
-            <Route path="policies" element={<CustomerPolicy />} />
+            <Route path="verify-otp" element={<OtpVerify />} />
+            {/* Payment callback routes - accessible to all for payment processing */}
             <Route path="payment/return" element={<ReturnPage />} />
             <Route path="payment/cancel" element={<CancelPage />} />
             {/* Route cho PayOS redirect về /cancel thay vì /payment/cancel */}
@@ -112,6 +103,28 @@ export default function App() {
             {/* Route cho VNPay redirect về /success và /failure */}
             <Route path="success" element={<ReturnPage />} />
             <Route path="failure" element={<CancelPage />} />
+          </Route>
+
+          {/* Customer-only routes - protected from staff access */}
+          <Route
+            path="/"
+            element={
+              <RequireRole role="CUSTOMER">
+                <LayoutRoot />
+              </RequireRole>
+            }
+          >
+            <Route path="orders" element={<MyOrders />} />
+            <Route path="cart" element={<CartPage />} />
+            <Route path="checkout" element={<CheckoutPage />} />
+            <Route path="kyc" element={<KycPage />} />
+            <Route path="profile" element={<CustomerProfile />} />
+            <Route path="invoices" element={<CustomerInvoice />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="chat" element={<CustomerLiveChat />} />
+            {/* Alias để tránh 404 khi truy cập /customer/chat */}
+            <Route path="customer/chat" element={<CustomerLiveChat />} />
+            <Route path="policies" element={<CustomerPolicy />} />
           </Route>
 
           <Route
