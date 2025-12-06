@@ -19,7 +19,7 @@ import {
   listTaskCategories,
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
-import { listActiveStaff, getStaffCompletionLeaderboard } from "../../lib/staffManage";
+import { listActiveStaff, getStaffPerformanceCompletions } from "../../lib/staffManage";
 import { getRentalOrderById, listRentalOrders, fmtVND } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
@@ -91,6 +91,9 @@ export default function OperatorTasks() {
   const [selectedYear, setSelectedYear] = useState(dayjs().year()); // Năm được chọn
   const [selectedMonth, setSelectedMonth] = useState(dayjs().month() + 1); // Tháng được chọn (1-12)
   const [leaderboardRoleFilter, setLeaderboardRoleFilter] = useState(null); // Lọc theo role
+  const [leaderboardPage, setLeaderboardPage] = useState(0); // Trang hiện tại
+  const [leaderboardPageSize, setLeaderboardPageSize] = useState(20); // Kích thước trang
+  const [leaderboardTotal, setLeaderboardTotal] = useState(0); // Tổng số records
   const [taskRules, setTaskRules] = useState([]); // Danh sách rules theo category
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
@@ -219,24 +222,28 @@ export default function OperatorTasks() {
       const params = {
         year: selectedYear,
         month: selectedMonth,
+        page: leaderboardPage,
+        size: leaderboardPageSize,
+        sort: "completedTaskCount,desc",
       };
       if (leaderboardRoleFilter) {
         params.staffRole = leaderboardRoleFilter;
       }
-      const result = await getStaffCompletionLeaderboard(params);
-      // Sort by completion count descending
-      const sorted = Array.isArray(result) 
-        ? result.sort((a, b) => (b.completedTaskCount || b.completionCount || 0) - (a.completedTaskCount || a.completionCount || 0))
-        : [];
-      setLeaderboardData(sorted);
+      const result = await getStaffPerformanceCompletions(params);
+      // Handle paginated response
+      const content = result?.content || [];
+      const total = result?.totalElements || 0;
+      setLeaderboardData(content);
+      setLeaderboardTotal(total);
     } catch (e) {
       console.error("Error loading leaderboard:", e);
       toast.error(getErrorMessage(e, "Không thể tải dữ liệu leaderboard"));
       setLeaderboardData([]);
+      setLeaderboardTotal(0);
     } finally {
       setLeaderboardLoading(false);
     }
-  }, [selectedYear, selectedMonth, leaderboardRoleFilter]);
+  }, [selectedYear, selectedMonth, leaderboardRoleFilter, leaderboardPage, leaderboardPageSize]);
 
   // Load leaderboard when tab changes or filters change
   useEffect(() => {
@@ -811,7 +818,7 @@ export default function OperatorTasks() {
       ),
     },
     {
-      title: "Role",
+      title: "Vai trò",
       dataIndex: "staffRole",
       key: "staffRole",
       width: 150,
@@ -825,15 +832,32 @@ export default function OperatorTasks() {
       title: "Số công việc hoàn thành",
       dataIndex: "completedTaskCount",
       key: "completedTaskCount",
-      width: 180,
-      align: "center",
+      width: 300,
       render: (count, record) => {
         const completedCount = count || record.completionCount || 0;
+        const breakdown = record.taskCompletionsByCategory || [];
+        
         return (
-          <Statistic
-            value={completedCount}
-            valueStyle={{ color: "#3f8600", fontSize: 20, fontWeight: "bold" }}
-          />
+          <div>
+            <Statistic
+              value={completedCount}
+              valueStyle={{ color: "#3f8600", fontSize: 20, fontWeight: "bold" }}
+              suffix="công việc"
+            />
+            {breakdown.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, lineHeight: "1.6" }}>
+                <Text type="secondary" strong>Chi tiết theo loại:</Text>
+                <div style={{ marginTop: 4 }}>
+                  {breakdown.map((item, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                      <Text style={{ fontSize: 12 }}>• {item.taskCategoryName || `Category #${item.taskCategoryId}`}</Text>
+                      <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{item.completedCount}</Tag>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         );
       },
     },
@@ -965,11 +989,14 @@ export default function OperatorTasks() {
                   <Space>
                     <span>Lọc theo role:</span>
                     <Select
-                      style={{ width: 200 }}
+                      style={{ width: 250 }}
                       allowClear
                       placeholder="Tất cả role"
                       value={leaderboardRoleFilter}
-                      onChange={setLeaderboardRoleFilter}
+                      onChange={(value) => {
+                        setLeaderboardRoleFilter(value);
+                        setLeaderboardPage(0); // Reset về trang đầu khi đổi filter
+                      }}
                       options={[
                         { label: "TECHNICIAN", value: "TECHNICIAN" },
                         { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
@@ -986,7 +1013,21 @@ export default function OperatorTasks() {
                   rowKey={(record) => `${record.staffId || record.id || Math.random()}`}
                   columns={leaderboardColumns}
                   dataSource={leaderboardData}
-                  pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `Tổng ${total} nhân viên` }}
+                  pagination={{
+                    current: leaderboardPage + 1, // Ant Design uses 1-based index
+                    pageSize: leaderboardPageSize,
+                    total: leaderboardTotal,
+                    showSizeChanger: true,
+                    showTotal: (total) => `Tổng ${total} nhân viên`,
+                    onChange: (page, pageSize) => {
+                      setLeaderboardPage(page - 1); // Convert to 0-based index
+                      setLeaderboardPageSize(pageSize);
+                    },
+                    onShowSizeChange: (current, size) => {
+                      setLeaderboardPage(0); // Reset về trang đầu khi đổi page size
+                      setLeaderboardPageSize(size);
+                    },
+                  }}
                   scroll={{ x: 800 }}
                 />
               ) : (
