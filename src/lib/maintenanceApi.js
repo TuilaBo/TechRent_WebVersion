@@ -19,3 +19,15 @@ export const getMaintenanceScheduleById = async (id) => {
     const response = await api.get(`/api/maintenance/schedules/${id}`);
     return response.data;
 };
+
+export const updateMaintenanceStatus = async (id, status, files = []) => {
+    const formData = new FormData();
+    formData.append('status', status);
+    files.forEach((file) => {
+        formData.append('files', file);
+    });
+    const response = await api.patch(`/api/maintenance/schedules/${id}/status`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+};

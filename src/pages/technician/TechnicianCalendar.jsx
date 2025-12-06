@@ -19,6 +19,8 @@ import {
     Calendar,
     Badge,
     Tabs,
+    Form,
+    Radio,
 } from "antd";
 import {
     EnvironmentOutlined,
@@ -62,7 +64,8 @@ import {
     getActiveMaintenanceSchedules,
     getPriorityMaintenanceSchedules,
     getInactiveMaintenanceSchedules,
-    getMaintenanceScheduleById
+    getMaintenanceScheduleById,
+    updateMaintenanceStatus
 } from "../../lib/maintenanceApi";
 
 dayjs.extend(isBetween);
@@ -1145,6 +1148,50 @@ export default function TechnicianCalendar() {
     // Maintenance Detail State
     const [maintenanceDetail, setMaintenanceDetail] = useState(null);
     const [maintenanceDrawerOpen, setMaintenanceDrawerOpen] = useState(false);
+
+    // Maintenance Status Update Modal State
+    const [updateStatusModalOpen, setUpdateStatusModalOpen] = useState(false);
+    const [selectedMaintenance, setSelectedMaintenance] = useState(null);
+    const [updatingStatus, setUpdatingStatus] = useState(false);
+    const [statusForm] = Form.useForm();
+    const [uploadFileList, setUploadFileList] = useState([]);
+
+    const openUpdateStatusModal = (record) => {
+        setSelectedMaintenance(record);
+        statusForm.resetFields();
+        setUploadFileList([]);
+        setUpdateStatusModalOpen(true);
+    };
+
+    const handleUpdateStatus = async () => {
+        try {
+            const values = await statusForm.validateFields();
+            setUpdatingStatus(true);
+
+            const files = uploadFileList.map(f => f.originFileObj);
+            await updateMaintenanceStatus(
+                selectedMaintenance.maintenanceScheduleId,
+                values.status,
+                files
+            );
+
+            toast.success("Cập nhật trạng thái thành công!");
+            setUpdateStatusModalOpen(false);
+            setSelectedMaintenance(null);
+            loadTasks(); // Reload data
+        } catch (e) {
+            console.error(e);
+            toast.error(e?.response?.data?.message || "Không thể cập nhật trạng thái");
+        } finally {
+            setUpdatingStatus(false);
+        }
+    };
+
+    const canUpdateMaintenanceStatus = (record) => {
+        const status = String(record.status || "").toUpperCase();
+        // Only allow update if NOT COMPLETED or FAILED
+        return status !== "COMPLETED" && status !== "FAILED";
+    };
 
     const viewMaintenanceDetail = async (id) => {
         if (!id) return;
@@ -3132,60 +3179,47 @@ export default function TechnicianCalendar() {
                                 <Table
                                     dataSource={allMaintenance}
                                     rowKey="maintenanceScheduleId"
+                                    scroll={{ x: 800 }}
+                                    size="small"
                                     columns={[
-                                        { title: 'Thiết bị', render: (r) => <b>{r.deviceModelName}</b> },
-                                        { title: 'S/N', dataIndex: 'deviceSerialNumber' },
-                                        { title: 'Loại', dataIndex: 'deviceCategoryName' },
+                                        { title: 'Thiết bị', width: 120, render: (r) => <b>{r.deviceModelName}</b> },
+                                        { title: 'S/N', width: 140, dataIndex: 'deviceSerialNumber' },
                                         {
-                                            title: 'Trạng thái', render: (r) => {
+                                            title: 'Trạng thái', width: 100, render: (r) => {
                                                 const status = getMaintenanceBadgeStatus(r);
                                                 const statusText = {
                                                     'warning': 'Cần xử lý',
                                                     'processing': 'Đang thực hiện',
                                                     'success': 'Đã hoàn thành',
-                                                    'error': 'Quá hạn/Không hoạt động'
+                                                    'error': 'Quá hạn'
                                                 };
                                                 return <Tag color={status}>{statusText[status] || r.status}</Tag>;
                                             }
                                         },
+                                        { title: 'Thời gian', width: 100, render: (r) => `${dayjs(r.nextMaintenanceDate).format('DD/MM')} - ${r.nextMaintenanceEndDate ? dayjs(r.nextMaintenanceEndDate).format('DD/MM') : '...'}` },
                                         {
-                                            title: 'Lý do ưu tiên', dataIndex: 'priorityReason', render: (p) => {
-                                                if (!p) return '-';
-                                                let color = 'default';
-                                                if (p === 'UNDER_MAINTENANCE') color = 'processing';
-                                                if (p === 'RENTAL_CONFLICT') color = 'red';
-                                                if (p === 'SCHEDULED_MAINTENANCE') color = 'orange';
-                                                if (p === 'USAGE_THRESHOLD') color = 'gold';
-                                                return <Tag color={color}>{p}</Tag>
-                                            }
-                                        },
-                                        { title: 'Thời gian', render: (r) => `${dayjs(r.nextMaintenanceDate).format('DD/MM')} - ${r.nextMaintenanceEndDate ? dayjs(r.nextMaintenanceEndDate).format('DD/MM') : '...'}` },
-                                        {
-                                            title: '',
-                                            render: (r) => <Button onClick={() => viewMaintenanceDetail(r.maintenanceScheduleId)}>Chi tiết</Button>
+                                            title: 'Hành động',
+                                            width: 180,
+                                            fixed: 'right',
+                                            render: (r) => (
+                                                <Space size="small">
+                                                    <Button size="small" onClick={() => viewMaintenanceDetail(r.maintenanceScheduleId)}>Chi tiết</Button>
+                                                    <Button
+                                                        size="small"
+                                                        type="primary"
+                                                        onClick={() => openUpdateStatusModal(r)}
+                                                        disabled={!canUpdateMaintenanceStatus(r)}
+                                                    >
+                                                        Bảo trì
+                                                    </Button>
+                                                </Space>
+                                            )
                                         }
                                     ]}
                                     pagination={false}
                                 />
                             );
                         })()
-                    },
-                    {
-                        key: '4',
-                        label: 'Tất cả công việc',
-                        children: (
-                            <Table
-                                dataSource={getCalendarData(selectedDate).tasks}
-                                rowKey={(r) => r.id || r.taskId}
-                                columns={[
-                                    { title: 'Task', dataIndex: 'title' },
-                                    { title: 'Loại', dataIndex: 'type', render: (t) => <Tag color={TYPES[t]?.color || 'default'}>{TYPES[t]?.label || t}</Tag> },
-                                    { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
-                                    { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
-                                ]}
-                                pagination={false}
-                            />
-                        )
                     }
                 ]} />
             </Modal>
@@ -3309,6 +3343,53 @@ export default function TechnicianCalendar() {
                     mozOsxFontSmoothing: "grayscale"
                 }}
             />
+
+            {/* Maintenance Status Update Modal */}
+            <Modal
+                title={`Cập nhật trạng thái bảo trì - ${selectedMaintenance?.deviceSerialNumber || ''}`}
+                open={updateStatusModalOpen}
+                onCancel={() => {
+                    setUpdateStatusModalOpen(false);
+                    setSelectedMaintenance(null);
+                }}
+                onOk={handleUpdateStatus}
+                okText="Cập nhật"
+                cancelText="Hủy"
+                confirmLoading={updatingStatus}
+            >
+                <Form form={statusForm} layout="vertical">
+                    <Form.Item
+                        name="status"
+                        label="Trạng thái"
+                        rules={[{ required: true, message: 'Vui lòng chọn trạng thái' }]}
+                    >
+                        <Radio.Group>
+                            <Space direction="vertical">
+                                <Radio value="DELAYED">Tạm hoãn (DELAYED)</Radio>
+                                <Radio value="COMPLETED">Hoàn thành (COMPLETED)</Radio>
+                                <Radio value="FAILED">Thất bại (FAILED)</Radio>
+                            </Space>
+                        </Radio.Group>
+                    </Form.Item>
+                    <Form.Item label="Ảnh bằng chứng (tùy chọn)">
+                        <Upload
+                            listType="picture-card"
+                            fileList={uploadFileList}
+                            onChange={({ fileList }) => setUploadFileList(fileList)}
+                            beforeUpload={() => false}
+                            multiple
+                            accept="image/*"
+                        >
+                            {uploadFileList.length < 5 && (
+                                <div>
+                                    <InboxOutlined />
+                                    <div style={{ marginTop: 8 }}>Chọn ảnh</div>
+                                </div>
+                            )}
+                        </Upload>
+                    </Form.Item>
+                </Form>
+            </Modal>
         </div >
     );
 }
