@@ -43,7 +43,7 @@ import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
 import OperatorOrders from "./pages/operator/OperatorOrders.jsx";
 import OperatorTasks from "./pages/operator/OperatorTasks.jsx";
 import OperatorShifts from "./pages/operator/OperatorShifts.jsx";
-import OperatorKyc from "./pages/operator/OperatorKyc.jsx";
+import OperatorKyc from "./pages/operator/OperatorKYC.jsx";
 import OperatorOrderDetail from "./pages/operator/OperatorOrderDetail.jsx";
 
 import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
