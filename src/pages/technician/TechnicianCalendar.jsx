@@ -1317,19 +1317,35 @@ export default function TechnicianCalendar() {
                 maintenanceScheduleId: item.maintenanceScheduleId,
                 deviceSerialNumber: item.device?.serialNumber,
                 deviceModelName: item.device?.deviceModel?.deviceName,
+                deviceImageUrl: item.device?.deviceModel?.imageURL,
                 deviceCategoryName: item.device?.deviceModel?.deviceCategory?.deviceCategoryName,
                 nextMaintenanceDate: item.startDate,
                 nextMaintenanceEndDate: item.endDate,
-                priorityReason: 'UNDER_MAINTENANCE'
+                // Don't set priorityReason here, will be inherited from priority if exists
             }));
 
-            // Combine and sort
-            const combinedMaintenance = [...rawPriority, ...rawActive];
+            // Create a map of priorityReason by maintenanceScheduleId from priority API
+            const priorityReasonMap = new Map();
+            rawPriority.forEach(item => {
+                if (item.maintenanceScheduleId && item.priorityReason) {
+                    priorityReasonMap.set(item.maintenanceScheduleId, item.priorityReason);
+                }
+            });
 
-            // Deduplicate by maintenanceScheduleId
+            // Combine: priority items first, then active items (with priorityReason inherited)
+            const combinedMaintenance = [
+                ...rawPriority,
+                ...rawActive.map(item => ({
+                    ...item,
+                    // Inherit priorityReason from priority API if available
+                    priorityReason: priorityReasonMap.get(item.maintenanceScheduleId) || item.priorityReason || null
+                }))
+            ];
+
+            // Deduplicate by maintenanceScheduleId - PREFER PRIORITY items (they come first)
             const uniqueMaintenanceMap = new Map();
             combinedMaintenance.forEach(item => {
-                if (item.maintenanceScheduleId) {
+                if (item.maintenanceScheduleId && !uniqueMaintenanceMap.has(item.maintenanceScheduleId)) {
                     uniqueMaintenanceMap.set(item.maintenanceScheduleId, item);
                 }
             });
@@ -3207,16 +3223,77 @@ export default function TechnicianCalendar() {
                         label: 'Bảo trì',
                         children: (() => {
                             const { maintenance, inactive } = getCalendarData(selectedDate);
-                            const allMaintenance = [...maintenance, ...inactive];
+
+                            // Get priority IDs from prioritySchedules for matching
+                            const priorityIds = new Set(prioritySchedules.map(p => p.maintenanceScheduleId));
+
+                            // Combine and sort: priority items first, then by priorityReason
+                            const priorityOrder = { 'RENTAL_CONFLICT': 1, 'SCHEDULED_MAINTENANCE': 2, 'USAGE_THRESHOLD': 3 };
+                            const allMaintenance = [...maintenance, ...inactive].sort((a, b) => {
+                                // Priority schedules first
+                                const aPriority = priorityIds.has(a.maintenanceScheduleId) ? 0 : 1;
+                                const bPriority = priorityIds.has(b.maintenanceScheduleId) ? 0 : 1;
+                                if (aPriority !== bPriority) return aPriority - bPriority;
+
+                                // Then by priorityReason
+                                const pa = priorityOrder[a.priorityReason] || 99;
+                                const pb = priorityOrder[b.priorityReason] || 99;
+                                return pa - pb;
+                            });
+
+                            // DEBUG: Console log for priority schedules
+                            console.log("DEBUG [Bảo trì Tab] prioritySchedules:", prioritySchedules);
+                            console.log("DEBUG [Bảo trì Tab] priorityIds (maintenanceScheduleId):", [...priorityIds]);
+                            console.log("DEBUG [Bảo trì Tab] allMaintenance after sorting:", allMaintenance.map(m => ({
+                                id: m.maintenanceScheduleId,
+                                name: m.deviceModelName,
+                                priorityReason: m.priorityReason,
+                                isPriority: priorityIds.has(m.maintenanceScheduleId)
+                            })));
+
+                            const getPriorityTag = (item) => {
+                                const reason = item.priorityReason;
+                                const config = {
+                                    'RENTAL_CONFLICT': { color: 'red', label: 'Ưu tiên' },
+                                    'SCHEDULED_MAINTENANCE': { color: 'orange', label: 'Bình thường' },
+                                    'USAGE_THRESHOLD': { color: 'blue', label: 'Thấp' },
+                                };
+                                const c = config[reason];
+                                if (c) {
+                                    return <Tag color={c.color}>{c.label}</Tag>;
+                                }
+                                return <Tag color="default">—</Tag>;
+                            };
+
                             return (
                                 <Table
                                     dataSource={allMaintenance}
                                     rowKey="maintenanceScheduleId"
-                                    scroll={{ x: 800 }}
+                                    scroll={{ x: 950 }}
                                     size="small"
                                     columns={[
-                                        { title: 'Thiết bị', width: 120, render: (r) => <b>{r.deviceModelName}</b> },
-                                        { title: 'S/N', width: 140, dataIndex: 'deviceSerialNumber' },
+                                        {
+                                            title: 'Thiết bị',
+                                            width: 200,
+                                            render: (r) => (
+                                                <Space>
+                                                    {r.deviceImageUrl && (
+                                                        <img
+                                                            src={r.deviceImageUrl}
+                                                            alt={r.deviceModelName}
+                                                            style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }}
+                                                        />
+                                                    )}
+                                                    <div>
+                                                        <div style={{ fontWeight: 'bold' }}>{r.deviceModelName || '—'}</div>
+                                                        <div style={{ fontSize: 11, color: '#888' }}>SN: {r.deviceSerialNumber || '—'}</div>
+                                                    </div>
+                                                </Space>
+                                            )
+                                        },
+                                        {
+                                            title: 'Ưu tiên', width: 130, render: (r) => getPriorityTag(r)
+                                        },
                                         {
                                             title: 'Trạng thái', width: 100, render: (r) => {
                                                 const status = getMaintenanceBadgeStatus(r);
@@ -3232,7 +3309,7 @@ export default function TechnicianCalendar() {
                                         { title: 'Thời gian', width: 100, render: (r) => `${dayjs(r.nextMaintenanceDate).format('DD/MM')} - ${r.nextMaintenanceEndDate ? dayjs(r.nextMaintenanceEndDate).format('DD/MM') : '...'}` },
                                         {
                                             title: 'Hành động',
-                                            width: 180,
+                                            width: 160,
                                             fixed: 'right',
                                             render: (r) => (
                                                 <Space size="small">

@@ -15,6 +15,7 @@ import {
     DatePicker,
     InputNumber,
     Select,
+    Popconfirm,
 } from "antd";
 import {
     ReloadOutlined,
@@ -25,11 +26,13 @@ import {
     EyeOutlined,
     RightOutlined,
     DownOutlined,
+    DeleteOutlined,
 } from "@ant-design/icons";
 import {
     getActiveMaintenanceSchedules,
     getMaintenanceSchedulesByDevice,
-    createMaintenanceScheduleByDevice
+    createMaintenanceScheduleByDevice,
+    deleteMaintenanceSchedule
 } from "../../lib/maintenanceScheduleApi";
 import { api } from "../../lib/api";
 import CreateScheduleByCategoryModal from "../../components/CreateScheduleByCategoryModal";
@@ -263,16 +266,44 @@ export default function AdminMaintenanceSchedule() {
                 title: "Hành động",
                 key: "actions",
                 align: "center",
+                width: 180,
                 render: (_, schedule) => (
-                    <Button
-                        size="small"
-                        type="link"
-                        icon={<EyeOutlined />}
-                        onClick={() => handleViewDeviceDetail(schedule.device?.deviceId)}
-                        loading={loadingDeviceId === schedule.device?.deviceId} // Only show loading for this specific device
-                    >
-                        Chi tiết
-                    </Button>
+                    <Space size="small">
+                        <Button
+                            size="small"
+                            type="link"
+                            icon={<EyeOutlined />}
+                            onClick={() => handleViewDeviceDetail(schedule.device?.deviceId)}
+                            loading={loadingDeviceId === schedule.device?.deviceId}
+                        >
+                            Chi tiết
+                        </Button>
+                        <Popconfirm
+                            title="Xóa lịch bảo trì"
+                            description="Bạn có chắc muốn xóa lịch bảo trì này?"
+                            onConfirm={async () => {
+                                try {
+                                    await deleteMaintenanceSchedule(schedule.maintenanceScheduleId);
+                                    toast.success("Xóa lịch bảo trì thành công");
+                                    fetchSchedules(true);
+                                } catch (err) {
+                                    toast.error(err?.response?.data?.message || "Không thể xóa lịch bảo trì");
+                                }
+                            }}
+                            okText="Xóa"
+                            cancelText="Hủy"
+                            okButtonProps={{ danger: true }}
+                        >
+                            <Button
+                                size="small"
+                                type="link"
+                                danger
+                                icon={<DeleteOutlined />}
+                            >
+                                Xóa
+                            </Button>
+                        </Popconfirm>
+                    </Space>
                 ),
             },
         ];
