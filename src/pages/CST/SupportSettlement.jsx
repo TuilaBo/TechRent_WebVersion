@@ -24,6 +24,7 @@ import {
   Col,
   Form,
   Alert,
+  Upload,
 } from "antd";
 import {
   EyeOutlined,
@@ -31,6 +32,7 @@ import {
   EditOutlined,
   PlusOutlined,
   DollarOutlined,
+  InboxOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
@@ -45,13 +47,14 @@ import {
   createSettlement,
   updateSettlement,
   getSettlementByOrderId,
+  confirmRefundSettlement,
 } from "../../lib/settlementApi";
 import {
   getInvoiceByRentalOrderId,
-  confirmRefundSettlement,
 } from "../../lib/Payment";
 
 const { Title, Text } = Typography;
+const { Dragger } = Upload;
 
 const normalizeCustomerData = (customer) =>
   normalizeCustomer ? normalizeCustomer(customer) : customer;
@@ -77,12 +80,6 @@ const formatCurrency = (amount) => {
 const fmtDate = (date) => {
   if (!date) return "—";
   return dayjs(date).format("DD/MM/YYYY");
-};
-
-// Format datetime
-const fmtDateTime = (date) => {
-  if (!date) return "—";
-  return dayjs(date).format("DD/MM/YYYY HH:mm");
 };
 
 const renderCustomerInfo = (order = {}, detail = null, opts = {}) => {
@@ -130,18 +127,12 @@ const renderCustomerInfo = (order = {}, detail = null, opts = {}) => {
   );
 };
 
-// Status tag for orders
-const statusTag = (status) => {
-  const s = String(status || "").toUpperCase();
-  const map = {
-    PENDING: { label: "Chờ xử lý", color: "orange" },
-    PROCESSING: { label: "Đang xử lý", color: "blue" },
-    IN_USE: { label: "Đang sử dụng", color: "geekblue" },
-    RETURNED: { label: "Đã trả", color: "green" },
-    CANCELLED: { label: "Đã hủy", color: "red" },
+const splitFinalAmounts = (finalAmount = 0) => {
+  const amount = Number(finalAmount || 0);
+  return {
+    refundAmount: amount > 0 ? amount : 0,
+    customerDueAmount: amount < 0 ? Math.abs(amount) : 0,
   };
-  const item = map[s] || { label: s, color: "default" };
-  return <Tag color={item.color}>{item.label}</Tag>;
 };
 
 export default function SupportSettlement() {
@@ -156,6 +147,9 @@ export default function SupportSettlement() {
   const [savingSettlement, setSavingSettlement] = useState(false);
   const [invoiceInfo, setInvoiceInfo] = useState(null);
   const [confirmingRefund, setConfirmingRefund] = useState(false);
+  const [confirmRefundModalOpen, setConfirmRefundModalOpen] = useState(false);
+  const [proofFile, setProofFile] = useState(null);
+  const [proofPreview, setProofPreview] = useState("");
   const [customerMap, setCustomerMap] = useState({});
   const customerCacheRef = useRef({});
 
@@ -291,6 +285,15 @@ export default function SupportSettlement() {
     loadOrders();
   }, [loadOrders]);
 
+  // Cleanup blob URL when component unmounts
+  useEffect(() => {
+    return () => {
+      if (proofPreview) {
+        URL.revokeObjectURL(proofPreview);
+      }
+    };
+  }, [proofPreview]);
+
   // View order detail
   const viewOrderDetail = useCallback(
     async (orderId) => {
@@ -353,41 +356,49 @@ export default function SupportSettlement() {
 
         // Fetch existing settlement
         try {
-          const existingSettlement = await getSettlementByOrderId(orderId);
-          setSettlement(existingSettlement);
-          if (existingSettlement) {
-            // Giữ nguyên dữ liệu settlement hiện có (totalRent hiện được hiểu là tổng tiền cọc)
+          const settlementResponse = await getSettlementByOrderId(orderId);
+          const settlementData = settlementResponse?.data ?? settlementResponse ?? null;
+          setSettlement(settlementData);
+
+          if (settlementData) {
+            const split = splitFinalAmounts(
+              settlementData.finalReturnAmount ?? settlementData.finalAmount ?? 0
+            );
             settlementForm.setFieldsValue({
-              totalRent: existingSettlement.totalRent || 0,
-              damageFee: existingSettlement.damageFee || 0,
-              lateFee: existingSettlement.lateFee || 0,
-              accessoryFee: existingSettlement.accessoryFee || 0,
-              depositUsed: existingSettlement.depositUsed || 0,
-              finalAmount: existingSettlement.finalAmount || 0,
+              totalDeposit: settlementData.totalDeposit ?? (order?.depositAmount || 0),
+              damageFee: settlementData.damageFee || 0,
+              lateFee: settlementData.lateFee || 0,
+              accessoryFee: settlementData.accessoryFee || 0,
+              refundAmount: split.refundAmount,
+              customerDueAmount: split.customerDueAmount,
+              finalReturnAmount:
+                settlementData.finalReturnAmount ??
+                settlementData.finalAmount ??
+                split.refundAmount - split.customerDueAmount,
             });
           } else {
-            // Không có settlement -> mặc định tổng tiền cọc = tiền cọc của đơn
             const depositAmount = order?.depositAmount || 0;
             settlementForm.setFieldsValue({
-              totalRent: depositAmount, // dùng field totalRent để lưu "tổng tiền cọc"
+              totalDeposit: depositAmount,
               damageFee: 0,
               lateFee: 0,
               accessoryFee: 0,
-              depositUsed: 0,
-              finalAmount: depositAmount, // ban đầu hoàn lại toàn bộ cọc
+              refundAmount: depositAmount,
+              customerDueAmount: 0,
+              finalReturnAmount: depositAmount,
             });
           }
         } catch {
-          // Lỗi khi load settlement -> coi như chưa có, khởi tạo theo tiền cọc
           setSettlement(null);
           const depositAmount = order?.depositAmount || 0;
           settlementForm.setFieldsValue({
-            totalRent: depositAmount,
+            totalDeposit: depositAmount,
             damageFee: 0,
             lateFee: 0,
             accessoryFee: 0,
-            depositUsed: 0,
-            finalAmount: depositAmount,
+            refundAmount: depositAmount,
+            customerDueAmount: 0,
+            finalReturnAmount: depositAmount,
           });
         }
 
@@ -406,21 +417,36 @@ export default function SupportSettlement() {
   // Calculate final amount when other fields change
   const calculateFinalAmount = useCallback(() => {
     const values = settlementForm.getFieldsValue();
-    const totalRent = Number(values.totalRent || 0); // hiện đang là "tổng tiền cọc"
+    const totalDeposit = Number(values.totalDeposit || 0);
     const damageFee = Number(values.damageFee || 0);
     const lateFee = Number(values.lateFee || 0);
     const accessoryFee = Number(values.accessoryFee || 0);
-    const depositUsed = Number(values.depositUsed || 0);
-    // Số tiền cuối cùng = Tổng tiền cọc - (các loại phí + phần cọc đã dùng)
-    const finalAmount =
-      totalRent - (damageFee + lateFee + accessoryFee + depositUsed);
-    settlementForm.setFieldsValue({ finalAmount: Math.max(0, finalAmount) });
+    const diff = totalDeposit - (damageFee + lateFee + accessoryFee);
+    const refundAmount = diff > 0 ? diff : 0;
+    const customerDueAmount = diff < 0 ? Math.abs(diff) : 0;
+    settlementForm.setFieldsValue({
+      refundAmount,
+      customerDueAmount,
+      finalReturnAmount: diff,
+    });
   }, [settlementForm]);
 
   // Save settlement (create or update)
   const handleSaveSettlement = useCallback(async () => {
     try {
+      // Nếu settlement đã tất toán (CLOSED) thì không cho cập nhật nữa
+      if (
+        settlement &&
+        String(settlement.state || "").toUpperCase() === "CLOSED"
+      ) {
+        toast.error("Quyết toán này đã được tất toán, không thể cập nhật.");
+        return;
+      }
+
       const values = await settlementForm.validateFields();
+      const { refundAmount = 0, customerDueAmount = 0 } = values;
+      const finalReturnAmount = Number(refundAmount || 0) - Number(customerDueAmount || 0);
+      values.finalReturnAmount = finalReturnAmount;
       setSavingSettlement(true);
 
       if (settlement?.settlementId || settlement?.id) {
@@ -456,6 +482,18 @@ export default function SupportSettlement() {
     }
   }, [settlement, selectedOrder, settlementForm, viewOrderDetail, loadOrders]);
 
+  // Mở modal xác nhận hoàn cọc
+  const handleOpenConfirmRefundModal = useCallback(() => {
+    if (!settlement) {
+      toast.error("Chưa có quyết toán để xác nhận.");
+      return;
+    }
+    setConfirmRefundModalOpen(true);
+    setProofFile(null);
+    setProofPreview("");
+  }, [settlement]);
+
+  // Xác nhận hoàn cọc với ảnh bằng chứng
   const handleConfirmRefundPayment = useCallback(async () => {
     if (!settlement) {
       toast.error("Chưa có quyết toán để xác nhận.");
@@ -466,13 +504,20 @@ export default function SupportSettlement() {
       toast.error("Không tìm thấy ID của settlement.");
       return;
     }
+    if (!proofFile) {
+      toast.error("Vui lòng chọn ảnh bằng chứng.");
+      return;
+    }
     try {
       setConfirmingRefund(true);
-      await confirmRefundSettlement(settlementId);
+      await confirmRefundSettlement(settlementId, proofFile);
       toast.success(
         "Đã xác nhận giao dịch hoàn cọc cho đơn hàng #" +
           (selectedOrder?.orderId || selectedOrder?.id || "—")
       );
+      setConfirmRefundModalOpen(false);
+      setProofFile(null);
+      setProofPreview("");
       if (selectedOrder?.orderId || selectedOrder?.id) {
         await viewOrderDetail(selectedOrder.orderId || selectedOrder.id);
       } else {
@@ -487,7 +532,7 @@ export default function SupportSettlement() {
     } finally {
       setConfirmingRefund(false);
     }
-  }, [settlement, selectedOrder, viewOrderDetail, loadOrders]);
+  }, [settlement, selectedOrder, viewOrderDetail, loadOrders, proofFile]);
 
   // Table columns
   const columns = useMemo(
@@ -576,7 +621,7 @@ export default function SupportSettlement() {
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
-          Giải quyết và tranh chấp
+          Giải quyết Quyết toán 
         </Title>
         <Button
           icon={<ReloadOutlined />}
@@ -617,9 +662,6 @@ export default function SupportSettlement() {
             <Descriptions bordered size="small" column={1}>
               <Descriptions.Item label="Mã đơn">
                 {selectedOrder.orderId || selectedOrder.id || "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Trạng thái">
-                {statusTag(selectedOrder.status)}
               </Descriptions.Item>
               <Descriptions.Item label="Khách hàng">
                 {renderCustomerInfo(selectedOrder, customerDetail)}
@@ -669,31 +711,7 @@ export default function SupportSettlement() {
 
             {invoiceInfo && (
               <>
-                <Divider />
-                <Title level={5}>Thông tin hoàn trả cọc</Title>
-                <Descriptions bordered size="small" column={1}>
-                  <Descriptions.Item label="Trạng thái thanh toán">
-                    <Tag
-                      color={
-                        invoiceInfo.invoiceStatus === "SUCCEEDED"
-                          ? "green"
-                          : "orange"
-                      }
-                    >
-                      {invoiceInfo.invoiceStatus === "SUCCEEDED"
-                        ? "Đã thanh toán"
-                        : "Chưa thanh toán"}
-                    </Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Tổng tiền cọc">
-                    {formatCurrency(invoiceInfo.totalAmount || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Ngày thanh toán">
-                    {invoiceInfo.paymentDate
-                      ? fmtDateTime(invoiceInfo.paymentDate)
-                      : "—"}
-                  </Descriptions.Item>
-                </Descriptions>
+                
               </>
             )}
 
@@ -734,38 +752,56 @@ export default function SupportSettlement() {
               <>
                 <Divider />
                 <Title level={5}>Quyết toán hiện có</Title>
-                <Descriptions bordered size="small" column={1}>
-                  <Descriptions.Item label="Tổng tiền cọc">
-                    {formatCurrency(settlement.totalRent || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Phí hư hỏng">
-                    {formatCurrency(settlement.damageFee || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Phí trễ">
-                    {formatCurrency(settlement.lateFee || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Phí phụ kiện">
-                    {formatCurrency(settlement.accessoryFee || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Cọc đã dùng">
-                    {formatCurrency(settlement.depositUsed || 0)}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Số tiền cuối cùng">
-                    <Text strong>
-                      {formatCurrency(settlement.finalAmount || 0)}
-                    </Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Trạng thái">
-                    {(() => {
-                      const key = String(settlement.state || "").toLowerCase();
-                      const info = SETTLEMENT_STATUS_MAP[key] || {
-                        label: settlement.state || "—",
-                        color: "default",
-                      };
-                      return <Tag color={info.color}>{info.label}</Tag>;
-                    })()}
-                  </Descriptions.Item>
-                </Descriptions>
+                {(() => {
+                  const split = splitFinalAmounts(
+                    settlement.finalReturnAmount ?? settlement.finalAmount ?? 0
+                  );
+                  const { refundAmount, customerDueAmount } = split;
+
+                  return (
+                    <Descriptions bordered size="small" column={1}>
+                      <Descriptions.Item label="Tổng tiền cọc">
+                        {formatCurrency(settlement.totalDeposit || 0)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí hư hỏng">
+                        {formatCurrency(settlement.damageFee || 0)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí trễ">
+                        {formatCurrency(settlement.lateFee || 0)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí phụ kiện">
+                        {formatCurrency(settlement.accessoryFee || 0)}
+                      </Descriptions.Item>
+
+                      {refundAmount > 0 && (
+                        <Descriptions.Item label="Số tiền cần hoàn cho khách">
+                          <Text strong style={{ color: "#1d4ed8" }}>
+                            {formatCurrency(refundAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      {customerDueAmount > 0 && (
+                        <Descriptions.Item label="Số tiền đền bù khách cần thanh toán thêm">
+                          <Text strong style={{ color: "#dc2626" }}>
+                            {formatCurrency(customerDueAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      <Descriptions.Item label="Trạng thái">
+                        {(() => {
+                          const key = String(settlement.state || "").toLowerCase();
+                          const info = SETTLEMENT_STATUS_MAP[key] || {
+                            label: settlement.state || "—",
+                            color: "default",
+                          };
+                          return <Tag color={info.color}>{info.label}</Tag>;
+                        })()}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  );
+                })()}
                 {String(settlement.state || "").toUpperCase() === "ISSUED" && (
                   <div style={{ marginTop: 16 }}>
                     <Alert
@@ -778,26 +814,38 @@ export default function SupportSettlement() {
                     <Button
                       type="primary"
                       icon={<DollarOutlined />}
-                      loading={confirmingRefund}
-                      onClick={handleConfirmRefundPayment}
+                      onClick={handleOpenConfirmRefundModal}
                     >
-                      Xác nhận giao dịch hoàn cọc
+                      Xác nhận đã giao dịch hoàn cọc
                     </Button>
                   </div>
                 )}
               </>
             )}
 
-            <Divider />
-            <Space>
-              <Button
-                type="primary"
-                icon={settlement ? <EditOutlined /> : <PlusOutlined />}
-                onClick={() => setSettlementModalOpen(true)}
-              >
-                {settlement ? "Cập nhật Settlement" : "Tạo Settlement"}
-              </Button>
-            </Space>
+            {(() => {
+              const isClosed =
+                settlement &&
+                String(settlement.state || "").toUpperCase() === "CLOSED";
+
+              // Nếu đã tất toán (CLOSED) thì không cho cập nhật nữa
+              if (isClosed) return null;
+
+              return (
+                <>
+                  <Divider />
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={settlement ? <EditOutlined /> : <PlusOutlined />}
+                      onClick={() => setSettlementModalOpen(true)}
+                    >
+                      {settlement ? "Cập nhật Settlement" : "Tạo Settlement"}
+                    </Button>
+                  </Space>
+                </>
+              );
+            })()}
           </>
         )}
       </Drawer>
@@ -820,7 +868,7 @@ export default function SupportSettlement() {
           onValuesChange={calculateFinalAmount}
         >
           <Form.Item
-            name="totalRent"
+            name="totalDeposit"
             label="Tổng tiền cọc"
             rules={[{ required: true, message: "Vui lòng nhập tổng tiền cọc" }]}
           >
@@ -884,27 +932,9 @@ export default function SupportSettlement() {
           </Form.Item>
 
           <Form.Item
-            name="depositUsed"
-            label="Cọc đã dùng"
-            rules={[{ required: true, message: "Vui lòng nhập cọc đã dùng" }]}
-          >
-            <InputNumber
-              style={{ width: "100%" }}
-              formatter={(value) =>
-                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-              }
-              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
-              min={0}
-              addonAfter="VND"
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="finalAmount"
-            label="Số tiền cuối cùng"
-            rules={[
-              { required: true, message: "Vui lòng nhập số tiền cuối cùng" },
-            ]}
+            name="refundAmount"
+            label="Số tiền cần hoàn cho khách"
+            rules={[{ required: true, message: "Vui lòng nhập số tiền cần hoàn" }]}
           >
             <InputNumber
               style={{ width: "100%" }}
@@ -917,8 +947,118 @@ export default function SupportSettlement() {
               readOnly
             />
           </Form.Item>
-        </Form>
+
+          <Form.Item
+            name="customerDueAmount"
+            label="Số tiền khách cần thanh toán thêm"
+            rules={[{ required: true, message: "Vui lòng nhập số tiền khách cần thanh toán" }]}
+          >
+            <InputNumber
+              style={{ width: "100%" }}
+              formatter={(value) =>
+                `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+              }
+              parser={(value) => value.replace(/\$\s?|(,*)/g, "")}
+              min={0}
+              addonAfter="VND"
+              readOnly
+            />
+          </Form.Item>
+
+          <Form.Item name="finalReturnAmount" hidden>
+            <InputNumber />
+          </Form.Item>
+          </Form>
+        </Modal>
+
+      {/* Confirm Refund Modal with Proof Upload */}
+      <Modal
+        title="Xác nhận giao dịch hoàn cọc"
+        open={confirmRefundModalOpen}
+        onOk={handleConfirmRefundPayment}
+        onCancel={() => {
+          setConfirmRefundModalOpen(false);
+          setProofFile(null);
+          setProofPreview("");
+        }}
+        confirmLoading={confirmingRefund}
+        okText="Xác nhận"
+        cancelText="Hủy"
+        width={600}
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="large">
+          <Alert
+            type="info"
+            showIcon
+            message="Vui lòng upload ảnh bằng chứng giao dịch hoàn cọc"
+            description="Ảnh bằng chứng sẽ được lưu để xác minh giao dịch."
+          />
+          
+          <div>
+            <Text strong style={{ display: "block", marginBottom: 8 }}>
+              Ảnh bằng chứng <Text type="danger">*</Text>
+            </Text>
+            <Upload.Dragger
+              multiple={false}
+              accept=".jpg,.jpeg,.png,.webp"
+              beforeUpload={(file) => {
+                setProofFile(file);
+                const url = URL.createObjectURL(file);
+                setProofPreview(url);
+                return false; // Prevent auto upload
+              }}
+              onRemove={() => {
+                setProofFile(null);
+                if (proofPreview) {
+                  URL.revokeObjectURL(proofPreview);
+                }
+                setProofPreview("");
+              }}
+              fileList={proofFile ? [{
+                uid: '-1',
+                name: proofFile.name,
+                status: 'done',
+              }] : []}
+            >
+              {proofPreview ? (
+                <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <img
+                    src={proofPreview}
+                    alt="proof"
+                    style={{ maxHeight: 180, maxWidth: "100%", borderRadius: 8 }}
+                  />
+                </div>
+              ) : (
+                <>
+                  <p className="ant-upload-drag-icon">
+                    <InboxOutlined />
+                  </p>
+                  <p className="ant-upload-text">Thả hoặc bấm để chọn ảnh bằng chứng</p>
+                  <p className="ant-upload-hint" style={{ color: "#888", fontSize: 12 }}>
+                    Hỗ trợ: JPG, PNG, WEBP
+                  </p>
+                </>
+              )}
+            </Upload.Dragger>
+            {proofPreview && (
+              <div style={{ marginTop: 8 }}>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setProofFile(null);
+                    if (proofPreview) {
+                      URL.revokeObjectURL(proofPreview);
+                    }
+                    setProofPreview("");
+                  }}
+                >
+                  Chọn lại ảnh
+                </Button>
+              </div>
+            )}
+          </div>
+        </Space>
       </Modal>
-    </>
-  );
-}
+      </>
+    );
+  }

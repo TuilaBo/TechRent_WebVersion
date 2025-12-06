@@ -13,6 +13,7 @@ import {
   Tag,
   Typography,
   Upload,
+  Image,
 } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -63,12 +64,16 @@ const statusTag = (s) => {
       return <Tag color="green">Có sẵn</Tag>;
     case "PRE_RENTAL_QC":
       return <Tag color="gold">Kiểm tra trước thuê</Tag>;
+    case "POST_RENTAL_QC":
+      return <Tag color="purple">QC sau thuê</Tag>;
     case "RENTING":
       return <Tag color="blue">Đang thuê</Tag>;
     case "MAINTENANCE":
       return <Tag color="orange">Bảo trì</Tag>;
     case "BROKEN":
       return <Tag color="red">Hỏng</Tag>;
+    case "DAMAGED":
+      return <Tag color="red">Hư hỏng</Tag>;
     default:
       return <Tag>{s}</Tag>;
   }
@@ -336,6 +341,46 @@ export default function AdminProducts() {
         dataIndex: "deviceModelId",
         width: 90,
         render: (_, r) => r.deviceModelId ?? r.id,
+      },
+      {
+        title: "Hình ảnh",
+        dataIndex: "imageUrl",
+        width: 120,
+        render: (imageUrl, r) => {
+          const url = imageUrl || r.imageURL || r.image || null;
+          if (url) {
+            return (
+              <Image
+                src={url}
+                alt={r.deviceName || r.name || "Device"}
+                width={80}
+                height={80}
+                style={{ objectFit: "cover", borderRadius: 4 }}
+                preview={{
+                  mask: "Xem",
+                }}
+                fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik00MCAzMEM0My4zMTM3IDMwIDQ2IDMyLjY4NjMgNDYgMzZDMzYgMzkuMzEzNyAzMy4zMTM3IDQyIDMwIDQyQzI2LjY4NjMgNDIgMjQgMzkuMzEzNyAyNCAzNkMyNCAzMi42ODYzIDI2LjY4NjMgMzAgMzAgMzBINDBaIiBmaWxsPSIjQ0NDQ0NDIi8+CjxwYXRoIGQ9Ik0yMCA1MEwzMCA0MEw0MCA1MEw1MCA0MEw2MCA1MFY2MEgyMFY1MFoiIGZpbGw9IiNDQ0NDQ0MiLz4KPC9zdmc+"
+              />
+            );
+          }
+          return (
+            <div
+              style={{
+                width: 80,
+                height: 80,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "#f5f5f5",
+                borderRadius: 4,
+                color: "#999",
+                fontSize: 12,
+              }}
+            >
+              Không có ảnh
+            </div>
+          );
+        },
       },
       {
         title: "Tên mẫu",
@@ -741,9 +786,11 @@ export default function AdminProducts() {
             options={[
               { label: 'Có sẵn', value: 'AVAILABLE' },
               { label: 'Kiểm tra trước thuê', value: 'PRE_RENTAL_QC' },
+              { label: 'QC sau thuê', value: 'POST_RENTAL_QC' },
               { label: 'Đang thuê', value: 'RENTED' },
               { label: 'Bảo trì', value: 'MAINTENANCE' },
               { label: 'Hỏng', value: 'BROKEN' },
+              { label: 'Hư hỏng', value: 'DAMAGED' },
             ]}
           />
           <Select
@@ -797,9 +844,11 @@ export default function AdminProducts() {
                 options={[
                   { label: "Có sẵn", value: "AVAILABLE" },
                   { label: "Kiểm tra trước thuê", value: "PRE_RENTAL_QC" },
+                  { label: "QC sau thuê", value: "POST_RENTAL_QC" },
                   { label: "Đang thuê", value: "RENTED" },
                   { label: "Bảo trì", value: "MAINTENANCE" },
                   { label: "Hỏng", value: "BROKEN" },
+                  { label: "Hư hỏng", value: "DAMAGED" },
                 ]}
               />
             </Form.Item>

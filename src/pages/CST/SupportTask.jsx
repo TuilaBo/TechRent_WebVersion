@@ -88,12 +88,15 @@ const fmtDate = (date) => {
 const fmtOrderStatus = (s) => {
   const v = String(s || "").toUpperCase();
   if (!v) return "—";
+  if (v.includes("DELIVERY_CONFIRMED") || v === "DELIVERY_CONFIRMED") return "Chuẩn bị giao hàng";
+  if (v.includes("IN_USE") || v === "IN_USE") return "Đang sử dụng";
   if (v.includes("PENDING")) return "Chờ xử lý";
   if (v.includes("PROCESSING")) return "Đang xử lý";
   if (v.includes("COMPLETED") || v.includes("DONE")) return "Đã hoàn thành";
   if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
   if (v.includes("DELIVERED")) return "Đã giao";
   if (v.includes("RETURNED")) return "Đã trả";
+  if (v.includes("DELIVERING")) return "Đang giao";
   return v;
 };
 
@@ -268,14 +271,14 @@ export default function SupportTask() {
   const columns = useMemo(
     () => [
       {
-        title: "Mã nhiệm vụ",
+        title: "Mã công việc",
         dataIndex: "id",
         key: "id",
         render: (v, r) => r.id || r.taskId || "—",
         width: 120,
       },
       {
-        title: "Loại",
+        title: "Loại công việc",
         dataIndex: "taskCategoryName",
         key: "category",
         render: (_, r) => r.taskCategoryName || TYPES[r.type]?.label || r.type,
@@ -320,57 +323,10 @@ export default function SupportTask() {
       {
         title: "Thao tác",
         key: "actions",
-        width: 200,
+        width: 120,
         render: (_, r) => (
           <Space>
             <Button size="small" onClick={() => onClickTask(r)}>Xem</Button>
-            {r.type === "DELIVERY" && (() => {
-              const taskId = r.taskId || r.id;
-              const status = String(r.status || "").toUpperCase();
-              const isCompleted = status === "COMPLETED";
-              const isInProgress = status === "IN_PROGRESS";
-              const isConfirmed = confirmedTasks.has(taskId);
-              const isLoading = confirmingDelivery[taskId];
-              
-              // Chỉ hiển thị nút khi chưa hoàn thành, chưa đang xử lý và chưa được xác nhận
-              if (isCompleted || isInProgress || isConfirmed) {
-                return null;
-              }
-              
-              return (
-                <Button
-                  size="small"
-                  type="default"
-                  loading={isLoading}
-                  onClick={() => handleConfirmDelivery(taskId)}
-                >
-                  Xác nhận giao hàng
-                </Button>
-              );
-            })()}
-            {isPickupTask(r) && (() => {
-              const taskId = r.taskId || r.id;
-              const status = String(r.status || "").toUpperCase();
-              const isCompleted = status === "COMPLETED";
-              const isInProgress = status === "IN_PROGRESS";
-              const isConfirmed = confirmedRetrievalTasks.has(taskId);
-              const isLoading = confirmingRetrieval[taskId];
-              
-              return (
-                <>
-                  {!isCompleted && !isInProgress && !isConfirmed && (
-                    <Button
-                      size="small"
-                      type="default"
-                      loading={isLoading}
-                      onClick={() => handleConfirmRetrieval(taskId)}
-                    >
-                      Xác nhận đi lấy hàng
-                    </Button>
-                  )}
-                </>
-              );
-            })()}
           </Space>
         ),
       },
@@ -391,52 +347,130 @@ export default function SupportTask() {
       </Space>
     );
 
-    if (t.type === "DELIVERY") {
+    const taskTypeNormalized = String(t.type || t.taskCategoryName || "").toUpperCase();
+    const isDeliveryTask =
+      taskTypeNormalized.includes("DELIVERY") || taskTypeNormalized.includes("GIAO");
+    if (isDeliveryTask) {
       const taskId = t.taskId || t.id;
       const status = String(t.status || "").toUpperCase();
       const isCompleted = status === "COMPLETED";
       const isInProgress = status === "IN_PROGRESS";
       const isConfirmed = confirmedTasks.has(taskId);
       const isLoading = confirmingDelivery[taskId];
-      
+
+      const customerName =
+        customerDetail?.fullName ||
+        customerDetail?.username ||
+        orderDetail?.customerName ||
+        "—";
+      const customerPhone = customerDetail?.phoneNumber || "";
+      const customerEmail = customerDetail?.email || "";
+      const address = orderDetail?.shippingAddress || t.address || "—";
+
       return (
         <>
           {header}
           <Divider />
           <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
-            <Descriptions.Item label="Mã đơn">{t.orderId}</Descriptions.Item>
-            <Descriptions.Item label="Thiết bị">{t.device}</Descriptions.Item>
-            <Descriptions.Item label="Khách hàng">
-              {t.customer} &nbsp; <PhoneOutlined /> {t.phone}
+            <Descriptions.Item label="Mã công việc">{t.taskId || t.id || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Trạng thái">
+              {t.status ? (() => {
+                const { bg, text } = getTechnicianStatusColor(t.status);
+                return <Tag style={{ backgroundColor: bg, color: text, border: "none" }}>{fmtStatus(t.status)}</Tag>;
+              })() : "—"}
             </Descriptions.Item>
-            <Descriptions.Item label="Địa chỉ">
-              <Space>
-                <EnvironmentOutlined />
-                {t.address}
-              </Space>
+            <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Thời gian dự kiến">
+              {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}{" "}
+              {t.plannedEnd ? `→ ${fmtDateTime(t.plannedEnd)}` : ""}
             </Descriptions.Item>
-            <Descriptions.Item label="Thời gian giao">
-              {t.deliveryWindow?.start ? (
-                <>
-                  {fmtDateTime(t.deliveryWindow.start)} →{" "}
-                  {t.deliveryWindow?.end ? dayjs(t.deliveryWindow.end).format("HH:mm") : "—"}
-                </>
-              ) : "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label="Ghi chú">{t.note || "—"}</Descriptions.Item>
+            {isCompleted && (
+              <>
+                <Descriptions.Item label="Thời gian hoàn thành">
+                  {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                </Descriptions.Item>
+              </>
+            )}
           </Descriptions>
+
+          {orderDetail && (
+            <>
+              <Divider />
+              <Title level={5} style={{ marginTop: 0 }}>
+                Chi tiết đơn #{orderDetail.orderId || orderDetail.id}
+              </Title>
+              <Descriptions bordered size="small" column={1}>
+                <Descriptions.Item label="Trạng thái đơn">
+                  {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Khách hàng">
+                  <Space direction="vertical" size={0}>
+                    <span>{customerName}</span>
+                    {customerPhone && (
+                      <span>
+                        <PhoneOutlined /> {customerPhone}
+                      </span>
+                    )}
+                    {customerEmail && <span>{customerEmail}</span>}
+                  </Space>
+                </Descriptions.Item>
+                <Descriptions.Item label="Địa chỉ giao">
+                  <Space>
+                    <EnvironmentOutlined />
+                    {address}
+                  </Space>
+                </Descriptions.Item>
+                <Descriptions.Item label="Thời gian thuê">
+                  {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} →{" "}
+                  {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
+                </Descriptions.Item>
+              </Descriptions>
+              {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                <>
+                  <Divider />
+                  <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                  <List
+                    size="small"
+                    dataSource={orderDetail.orderDetails}
+                    renderItem={(d) => (
+                      <List.Item>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          {d.deviceModel?.image ? (
+                            <img
+                              src={d.deviceModel.image}
+                              alt={d.deviceModel.name}
+                              style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
+                            />
+                          ) : null}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600 }}>
+                              {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
+                            </div>
+                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                              <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                {orderDetail.allocatedDevices
+                                  .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                  .map((ad, idx) => (
+                                    <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                </>
+              )}
+            </>
+          )}
+
           <Divider />
           {!isCompleted && !isInProgress && !isConfirmed && (
-            <Space>
-              <Button
-                type="primary"
-                loading={isLoading}
-                onClick={() => handleConfirmDelivery(taskId)}
-              >
-                Xác nhận giao hàng
-              </Button>
-            </Space>
+            <Button type="primary" loading={isLoading} onClick={() => handleConfirmDelivery(taskId)}>
+              Xác nhận giao hàng
+            </Button>
           )}
           {(isCompleted || isConfirmed || isInProgress) && (
             <Text type="success">Đã xác nhận giao hàng</Text>
@@ -645,7 +679,7 @@ export default function SupportTask() {
         )}
         <Divider />
         <Space wrap>
-          {t.type === "DELIVERY" && (() => {
+          {(String(t.type || "").toUpperCase() === "DELIVERY" || String(t.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(t.taskCategoryName || "").toUpperCase().includes("GIAO")) && (() => {
             const taskId = t.taskId || t.id;
             const status = String(t.status || "").toUpperCase();
             const isCompleted = status === "COMPLETED";
@@ -653,19 +687,21 @@ export default function SupportTask() {
             const isConfirmed = confirmedTasks.has(taskId);
             const isLoading = confirmingDelivery[taskId];
             
-            // Chỉ hiển thị nút khi chưa hoàn thành, chưa đang xử lý và chưa được xác nhận
-            if (isCompleted || isInProgress || isConfirmed) {
-              return null;
-            }
-            
             return (
-              <Button
-                type="primary"
-                loading={isLoading}
-                onClick={() => handleConfirmDelivery(taskId)}
-              >
-                Xác nhận giao hàng
-              </Button>
+              <>
+                {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
+                {!isCompleted && !isInProgress && !isConfirmed && (
+                  <Button
+                    type="primary"
+                    loading={isLoading}
+                    onClick={() => handleConfirmDelivery(taskId)}
+                  >
+                    Xác nhận giao hàng
+                  </Button>
+                )}
+                {/* Hiển thị thông báo khi đã xác nhận */}
+               
+              </>
             );
           })()}
           {isPickupTask(t) && (() => {

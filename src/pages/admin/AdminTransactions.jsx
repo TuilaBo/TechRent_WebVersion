@@ -14,11 +14,16 @@ import {
   Col,
   Statistic,
   Empty,
+  Modal,
+  Descriptions,
+  Divider,
+  Image,
+  Spin,
 } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { ReloadOutlined, EyeOutlined, FileTextOutlined, DownloadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
-import { getTransactions } from "../../lib/Payment";
+import { getTransactions, getInvoiceByRentalOrderId } from "../../lib/Payment";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -60,6 +65,30 @@ const formatCurrency = (value) =>
     currency: "VND",
   });
 
+// Helper: Translate invoice type
+const translateInvoiceType = (type) => {
+  const map = {
+    RENT_PAYMENT: "Thanh toán đơn thuê",
+    DEPOSIT: "Đặt cọc",
+    DEPOSIT_REFUND: "Hoàn cọc",
+    DAMAGE_FEE: "Phí hư hỏng",
+    LATE_FEE: "Phí trễ",
+    ACCESSORY_FEE: "Phí phụ kiện",
+  };
+  return map[type] || type;
+};
+
+// Helper: Translate payment method
+const translatePaymentMethod = (method) => {
+  const map = {
+    VNPAY: "VNPay",
+    PAYOS: "PayOS",
+    BANK_ACCOUNT: "Chuyển khoản",
+    CASH: "Tiền mặt",
+  };
+  return map[method] || method;
+};
+
 export default function AdminTransactions() {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -69,6 +98,11 @@ export default function AdminTransactions() {
   const [transactionType, setTransactionType] = useState("ALL");
   const [invoiceStatus, setInvoiceStatus] = useState("ALL");
   const [dateRange, setDateRange] = useState([]);
+
+  // Invoice modal state
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -225,7 +259,99 @@ export default function AdminTransactions() {
       render: (value) => value || "—",
       width: 140,
     },
+    {
+      title: "Thao tác",
+      key: "actions",
+      width: 150,
+      fixed: "right",
+      render: (_, record) => {
+        // Only show "Xem hóa đơn" if transaction has rentalOrderId
+        if (!record.rentalOrderId) {
+          return <Text type="secondary">—</Text>;
+        }
+        return (
+          <Button
+            icon={<EyeOutlined />}
+            size="small"
+            onClick={() => handleViewInvoice(record)}
+          >
+            Xem hóa đơn
+          </Button>
+        );
+      },
+    },
   ];
+
+  // Handle view invoice
+  const handleViewInvoice = async (transaction) => {
+    if (!transaction.rentalOrderId) {
+      toast.error("Giao dịch này không có đơn hàng liên quan.");
+      return;
+    }
+
+    try {
+      setLoadingInvoice(true);
+      setInvoiceModalOpen(true);
+      setSelectedInvoice(null);
+
+      // Fetch invoice details by rentalOrderId
+      const invoiceResult = await getInvoiceByRentalOrderId(transaction.rentalOrderId);
+      
+      // API may return a single invoice object or an array of invoices
+      let invoicesArray = [];
+      if (Array.isArray(invoiceResult)) {
+        invoicesArray = invoiceResult;
+      } else if (invoiceResult && (invoiceResult.invoiceId || invoiceResult.id)) {
+        invoicesArray = [invoiceResult];
+      }
+
+      // If transaction has invoiceId, try to find matching invoice
+      if (transaction.invoiceId && invoicesArray.length > 0) {
+        const matchedInvoice = invoicesArray.find((inv) => {
+          const invId = inv.invoiceId || inv.id;
+          const txInvoiceId = transaction.invoiceId;
+          return (
+            invId === txInvoiceId ||
+            String(invId) === String(txInvoiceId) ||
+            Number(invId) === Number(txInvoiceId)
+          );
+        });
+        
+        if (matchedInvoice) {
+          setSelectedInvoice(matchedInvoice);
+        } else if (invoicesArray.length > 0) {
+          // If no exact match, use the first invoice
+          setSelectedInvoice(invoicesArray[0]);
+        }
+      } else if (invoicesArray.length > 0) {
+        // If no invoiceId in transaction, use the first invoice
+        setSelectedInvoice(invoicesArray[0]);
+      } else {
+        toast.warning("Không tìm thấy hóa đơn cho đơn hàng này.");
+      }
+    } catch (error) {
+      console.error("Error loading invoice:", error);
+      toast.error(error?.response?.data?.message || error?.message || "Không thể tải thông tin hóa đơn.");
+    } finally {
+      setLoadingInvoice(false);
+    }
+  };
+
+  // Handle download invoice PDF
+  const handleDownloadInvoice = (invoice) => {
+    const pdfUrl = invoice.pdfUrl || invoice.proofUrl;
+    if (pdfUrl) {
+      const link = document.createElement("a");
+      link.href = pdfUrl;
+      link.download = `invoice-${invoice.invoiceId || invoice.id}.pdf`;
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      toast.error("Không có file PDF để tải");
+    }
+  };
 
   return (
     <div style={{ padding: 24 }}>
@@ -333,10 +459,132 @@ export default function AdminTransactions() {
                 <Empty description="Không có giao dịch nào phù hợp với bộ lọc." />
               ),
             }}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 1200 }}
           />
         </Card>
       </Space>
+
+      {/* Invoice Detail Modal */}
+      <Modal
+        title={
+          <Space>
+            <FileTextOutlined />
+            <span>Chi tiết hóa đơn #{selectedInvoice?.invoiceId || "—"}</span>
+          </Space>
+        }
+        open={invoiceModalOpen}
+        onCancel={() => {
+          setInvoiceModalOpen(false);
+          setSelectedInvoice(null);
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setInvoiceModalOpen(false);
+            setSelectedInvoice(null);
+          }}>
+            Đóng
+          </Button>,
+          selectedInvoice && (selectedInvoice.pdfUrl || selectedInvoice.proofUrl) && (
+            <Button
+              key="download"
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => handleDownloadInvoice(selectedInvoice)}
+            >
+              Tải hóa đơn
+            </Button>
+          ),
+        ]}
+        width={800}
+      >
+        {loadingInvoice ? (
+          <div style={{ textAlign: "center", padding: 40 }}>
+            <Spin size="large" />
+          </div>
+        ) : selectedInvoice ? (
+          <div>
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="Mã hóa đơn" span={2}>
+                <Text strong>#{selectedInvoice.invoiceId || selectedInvoice.id}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Mã đơn hàng">
+                {selectedInvoice.rentalOrderId
+                  ? `#${selectedInvoice.rentalOrderId}`
+                  : "—"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Loại hóa đơn">
+                <Tag color="blue">
+                  {translateInvoiceType(selectedInvoice.invoiceType)}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Trạng thái">
+                {(() => {
+                  const status = String(selectedInvoice.invoiceStatus || "").toUpperCase();
+                  const color = invoiceStatusColor[status] || "default";
+                  const label =
+                    status === "SUCCEEDED"
+                      ? "THÀNH CÔNG"
+                      : status === "PENDING"
+                      ? "ĐANG XỬ LÝ"
+                      : status === "FAILED"
+                      ? "THẤT BẠI"
+                      : status === "CANCELLED"
+                      ? "ĐÃ HỦY"
+                      : status || "—";
+                  return <Tag color={color}>{label}</Tag>;
+                })()}
+              </Descriptions.Item>
+              <Descriptions.Item label="Phương thức thanh toán">
+                {translatePaymentMethod(selectedInvoice.paymentMethod)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Ngày thanh toán">
+                {selectedInvoice.paymentDate
+                  ? dayjs(selectedInvoice.paymentDate).format("DD/MM/YYYY HH:mm")
+                  : "—"}
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Divider />
+
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="Tổng tiền">
+                <Text strong>{formatCurrency(selectedInvoice.subTotal || 0)}</Text>
+              </Descriptions.Item>
+              {selectedInvoice.depositApplied && (
+                <Descriptions.Item label="Cọc đã áp dụng">
+                  {formatCurrency(selectedInvoice.depositApplied)}
+                </Descriptions.Item>
+              )}
+              <Descriptions.Item label="Tổng thanh toán">
+                <Text strong style={{ fontSize: 18, color: "#1890ff" }}>
+                  {formatCurrency(selectedInvoice.totalAmount || 0)}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+
+            {selectedInvoice.proofUrl && (
+              <>
+                <Divider />
+                <div>
+                  <Text strong style={{ display: "block", marginBottom: 12 }}>
+                    Ảnh bằng chứng thanh toán
+                  </Text>
+                  <Image
+                    src={selectedInvoice.proofUrl}
+                    alt="Proof"
+                    style={{ maxWidth: "100%", borderRadius: 8 }}
+                    preview={{
+                      mask: "Xem ảnh",
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <Empty description="Không có thông tin hóa đơn" />
+        )}
+      </Modal>
     </div>
   );
 }

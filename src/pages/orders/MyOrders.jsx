@@ -1,15 +1,20 @@
-// src/pages/orders/MyOrders.jsx
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Table, Tag, Typography, Input, DatePicker, Space, Button,
   Dropdown, Menu, Tooltip, message, Drawer, Descriptions,
   Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps, Radio, Checkbox, Alert
 } from "antd";
+import dayjs from "dayjs";
 import {
-  SearchOutlined, FilterOutlined, EyeOutlined,
-  ReloadOutlined, FilePdfOutlined, DownloadOutlined, ExpandOutlined, DollarOutlined, PrinterOutlined
+  EyeOutlined,
+  ReloadOutlined,
+  FilePdfOutlined,
+  DownloadOutlined,
+  ExpandOutlined,
+  DollarOutlined,
+  PrinterOutlined,
 } from "@ant-design/icons";
-import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder } from "../../lib/rentalOrdersApi";
+import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder, extendRentalOrder } from "../../lib/rentalOrdersApi";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getMyContracts, getContractById, normalizeContract, sendPinEmail, signContract as signContractApi } from "../../lib/contractApi";
 import { fetchMyCustomerProfile, normalizeCustomer } from "../../lib/customerApi";
@@ -23,733 +28,56 @@ import {
   sendCustomerHandoverReportPin,
   updateCustomerHandoverReportSignature
 } from "../../lib/handoverReportApi";
-import jsPDF from "jspdf";
+import { getConditionDefinitions } from "../../lib/condition.js";
+import {
+  sanitizeContractHtml,
+  augmentContractContent,
+  GLOBAL_PRINT_CSS,
+  NATIONAL_HEADER_HTML,
+} from "../../lib/contractPrintUtils";
+import {
+  buildPrintableHandoverReportHtml,
+  elementToPdfBlobHandover,
+  translateHandoverStatus,
+} from "../../lib/handoverReportPrintUtils";
 import html2canvas from "html2canvas";
-import AnimatedEmpty from "../../components/AnimatedEmpty.jsx";
+import jsPDF from "jspdf";
+import {
+  formatVND,
+  formatDateTime,
+  diffDays,
+  createPrintSandbox,
+  cleanupPrintSandbox,
+} from "../../lib/orderUtils";
+import {
+  ORDER_STATUS_MAP,
+  ORDER_STATUS_ALIASES,
+  PAYMENT_STATUS_MAP,
+  SETTLEMENT_STATUS_MAP,
+  CONTRACT_STATUS_MAP,
+  CONTRACT_TYPE_LABELS,
+  mapInvoiceStatusToPaymentStatus,
+  splitSettlementAmounts,
+} from "../../lib/orderConstants";
+import MyOrdersList from "./MyOrdersList.jsx";
+import MyOrderContractTab from "./MyOrderContractTab.jsx";
+import MyOrderHandoverTab from "./MyOrderHandoverTab.jsx";
+import MyOrderCheckinTab from "./MyOrderCheckinTab.jsx";
+import MyOrderReturnTab from "./MyOrderReturnTab.jsx";
+import MyOrderSettlementTab from "./MyOrderSettlementTab.jsx";
 import { useLocation } from "react-router-dom";
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
+
+
+// All constants, utils, and helpers have been moved to separate files:
+// - Constants: orderConstants.js
+// - Utils: orderUtils.js
+// - Handover PDF: handoverReportPrintUtils.js
+// - Contract PDF: contractPdfUtils.js
 
 /* =========================
- * 0) CONSTS
- * ========================= */
-const ORDER_STATUS_MAP = {
-  pending:   { label: "Chờ xác nhận", color: "default" },
-  pending_kyc: { label: "Chờ xác thực thông tin", color: "orange" },
-  confirmed: { label: "Đã xác nhận",  color: "blue"    },
-  delivering:{ label: "Đang giao",    color: "cyan"    },
-  active:    { label: "Đang thuê",    color: "gold"    },
-  in_use:    { label: "Đang sử dụng", color: "geekblue" },
-  returned:  { label: "Đã trả",       color: "green"   },
-  cancelled: { label: "Đã hủy",       color: "red"     },
-  processing:{ label: "Đang xử lý",   color: "purple"  },
-  delivery_confirmed: { label: "Đã xác nhận giao hàng", color: "green" },
-  completed: { label: "Hoàn tất đơn hàng", color: "green" },
-};
-const PAYMENT_STATUS_MAP = {
-  unpaid:   { label: "Chưa thanh toán",      color: "volcano"  },
-  paid:     { label: "Đã thanh toán",        color: "green"    },
-  refunded: { label: "Đã hoàn tiền",         color: "geekblue" },
-  partial:  { label: "Chưa thanh toán thành công",  color: "purple"   },
-};
-const SETTLEMENT_STATUS_MAP = {
-  draft: { label: "Nháp", color: "default" },
-  pending: { label: "Chờ xử lý", color: "gold" },
-  awaiting_customer: { label: "Chờ khách xác nhận", color: "orange" },
-  submitted: { label: "Đã gửi", color: "blue" },
-  issued: { label: "Đã chấp nhận", color: "green" },
-  closed: { label: "Đã tất toán", color: "geekblue" },
-  rejected: { label: "Đã từ chối", color: "red" },
-};
-
-// Map invoice status to payment status
-const mapInvoiceStatusToPaymentStatus = (invoiceStatus) => {
-  if (!invoiceStatus) return "unpaid";
-  const status = String(invoiceStatus).toUpperCase();
-  if (status === "SUCCEEDED" || status === "PAID" || status === "COMPLETED") {
-    return "paid";
-  }
-  if (status === "FAILED" || status === "CANCELLED" || status === "EXPIRED") {
-    return "unpaid";
-  }
-  if (status === "PENDING" || status === "PROCESSING") {
-    return "partial";
-  }
-  if (status === "REFUNDED") {
-    return "refunded";
-  }
-  return "unpaid";
-};
-const CONTRACT_STATUS_MAP = {
-  draft: { label: "Nháp", color: "default" },
-  pending_signature: { label: "Chờ khách hàng ký", color: "gold" },
-  pending_admin_signature: { label: "Chờ ký (admin)", color: "orange" },
-  signed: { label: "Đã ký", color: "green" },
-  active: { label: "2 bên đã ký", color: "green" },
-  expired: { label: "Hết hạn", color: "red" },
-  cancelled: { label: "Đã hủy", color: "red" },
-};
-const CONTRACT_TYPE_LABELS = { RENTAL: "Hợp đồng thuê thiết bị" };
-
-/* =========================
- * 1) UTILS
- * ========================= */
-function formatVND(n = 0) {
-  try {
-    const num = Number(n);
-    if (Number.isNaN(num)) return "0 VNĐ";
-    const rounded = Math.round(num);
-    const formatted = rounded.toLocaleString("vi-VN", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    });
-    return `${formatted} VNĐ`;
-  } catch {
-    return `${n} VNĐ`;
-  }
-}
-function formatDateTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-/* ---------- helpers định dạng tiền & layout cho contentHtml ---------- */
-
-// Chuẩn hoá khoảng trắng HTML (&nbsp;) và dấu ":" lộn xộn
-function normalizeHtmlSpaces(html = "") {
-  if (!html) return html;
-  let out = html.replace(/&nbsp;/gi, " ");
-  out = out.replace(/\s*:\s*/g, ": ");
-  return out;
-}
-
-// chuyển "1,234.56" / "1.234,56" / "1.000" / "1000.00" -> số
-function parseAnyNumber(str = "") {
-  if (!str) return 0;
-  const s = String(str).trim();
-  if (!s) return 0;
-
-  if (s.includes(".") && s.includes(",")) {
-    const v = Number(s.replace(/\./g, "").replace(",", "."));
-    return Number.isFinite(v) ? v : 0;
-  }
-  if (!s.includes(".") && s.includes(",")) {
-    const v = Number(s.replace(",", "."));
-    return Number.isFinite(v) ? v : 0;
-  }
-  if (s.includes(".") && !s.includes(",")) {
-    const parts = s.split(".");
-    if (parts.length > 2) {
-      const v = Number(s.replace(/\./g, ""));
-      return Number.isFinite(v) ? v : 0;
-    } else {
-      const afterDot = parts[1] || "";
-      if (afterDot.length <= 2) {
-        const v = Number(s);
-        return Number.isFinite(v) ? v : 0;
-      }
-      const v = Number(s.replace(/\./g, ""));
-      return Number.isFinite(v) ? v : 0;
-    }
-  }
-  const v = Number(s.replace(/,/g, ""));
-  return Number.isFinite(v) ? v : 0;
-}
-
-function formatMoneyInHtml(html = "") {
-  if (!html) return html;
-  html = normalizeHtmlSpaces(html);
-
-  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`; // cho phép chèn tag/space giữa từ
-
-  const patterns = [
-    new RegExp(`(Tổng${SEP}tiền${SEP}thuê)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Tổng${SEP}tiền${SEP}cọc)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Tiền${SEP}cọc)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Giá${SEP}\\/?${SEP}ngày)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Tổng${SEP}tiền|Tổng${SEP}cộng)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-    new RegExp(`(Giá)${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)?`, "gi"),
-  ];
-
-  for (const re of patterns) {
-    html = html.replace(re, (_, label, num) => {
-      const n = Math.round(parseAnyNumber(num));
-      return `${label}: ${n.toLocaleString("vi-VN")} VNĐ`;
-    });
-  }
-
-  // Các số lẻ có kèm đơn vị (không theo nhãn) — cũng cho phép chen thẻ
-  const unitPattern = new RegExp(`(\\d[\\d.,]*\\.?\\d*)${SEP}(VNĐ|VND)\\b`, "gi");
-  html = html.replace(unitPattern, (_, num) => {
-    const n = Math.round(parseAnyNumber(num));
-    return `${n.toLocaleString("vi-VN")} VNĐ`;
-  });
-
-  return html;
-}
-
-// Format layout thiết bị + tổng tiền, và CHÈN "Tổng thanh toán"
-function formatEquipmentLayout(html = "") {
-  if (!html || typeof html !== "string") return html;
-
-  // 1) Mỗi thiết bị 1 dòng có bullet
-  html = html.replace(
-    /(?:^|\n|•\s*)?(\d+x\s+[^-]+?)\s*-\s*Giá\/ngày:([^-]+?)\s*-\s*Tiền cọc:([^•\n<]+?)(?=\s*\d+x|$|\n|Tổng)/gim,
-    '<div class="equipment-item">$1 - Giá/ngày:$2 - Tiền cọc:$3</div>'
-  );
-
-  // 2) Gom "Tổng tiền thuê" & "Tiền cọc" về cùng một dòng (nhiều cặp -> giữ NGUYÊN hết)
-  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
-  // a) Đang ở 2 dòng
-  html = html.replace(
-    new RegExp(`(Tổng${SEP}tiền${SEP}thuê:[^<\\n]+?)(?:\\s*<br\\s*\\/?>|\\n|\\s+)(Tiền${SEP}cọc:[^<\\n]+?)(?=\\s*<|$|\\n)`, "gi"),
-    '<div class="total-summary"><div class="total-rental">$1</div><div>$2</div></div>'
-  );
-  // b) Cùng dòng nhưng cách bởi space
-  html = html.replace(
-    new RegExp(`(Tổng${SEP}tiền${SEP}thuê:[^<\\n]+?)\\s+(Tiền${SEP}cọc:[^<\\n]+?)(?=\\s*<|$|\\n)`, "gi"),
-    '<div class="total-summary"><div class="total-rental">$1</div><div>$2</div></div>'
-  );
-
-  // 3) Tính & chèn "Tổng thanh toán" dựa trên CẶP CUỐI CÙNG
-  try {
-    // Lấy hết các số của "Tổng tiền thuê" & "Tiền cọc"
-    const rentReG = new RegExp(`Tổng${SEP}tiền${SEP}thuê${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(?:VNĐ|VND)`, "gi");
-    const depReG  = new RegExp(`Tiền${SEP}cọc${SEP}:${SEP}(\\d[\\d.,]*\\.?\\d*)${SEP}(?:VNĐ|VND)`, "gi");
-
-    const rentMatches = [...html.matchAll(rentReG)];
-    const depMatches  = [...html.matchAll(depReG)];
-
-    if (rentMatches.length && depMatches.length) {
-      const lastRent = rentMatches[rentMatches.length - 1];
-      const lastDep  = depMatches[depMatches.length - 1];
-      const rent = Math.round(parseAnyNumber(lastRent[1]));
-      const dep  = Math.round(parseAnyNumber(lastDep[1]));
-      const grand = rent + dep;
-      const grandHtml = `<div class="grand-total">Tổng thanh toán: ${grand.toLocaleString("vi-VN")} VNĐ</div>`;
-
-      // Nếu đã có nhiều .total-summary ⇒ chèn SAU .total-summary CUỐI CÙNG
-      const lastSummaryRe = /<div class="total-summary">([\s\S]*?)<\/div>(?![\s\S]*<div class="total-summary">)/i;
-      if (lastSummaryRe.test(html)) {
-        html = html.replace(lastSummaryRe, (m) => `${m}\n${grandHtml}`);
-      } else {
-        // fallback: chèn sau vị trí "Tiền cọc:" CUỐI CÙNG
-        const insertPos = lastDep.index + lastDep[0].length;
-        html = html.slice(0, insertPos) + grandHtml + html.slice(insertPos);
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return html;
-}
-
-function formatDatesInHtml(html = "") {
-  if (!html || typeof html !== "string") return html;
-  // Format ngày ISO với thời gian thành DD/MM/YYYY
-  // Pattern: 2025-11-09T00:00 hoặc 2025-11-10T23:59:59.999
-  const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
-  return html.replace(datePattern, (match) => {
-    try {
-      const d = new Date(match);
-      if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
-      }
-    } catch {
-      // ignore
-    }
-    return match;
-  });
-}
-
-function formatDateLabelsInHtml(html = "") {
-  if (!html || typeof html !== "string") return html;
-  // Thay thế label "Ngày bắt đầu" thành "Ngày bắt đầu thuê"
-  // Thay thế label "Ngày kết thúc" thành "Ngày kết thúc thuê"
-  const SEP = String.raw`(?:\s|<\/?[^>]+>)*`;
-  html = html.replace(
-    new RegExp(`(Ngày${SEP}bắt${SEP}đầu)${SEP}:`, "gi"),
-    "Ngày bắt đầu thuê:"
-  );
-  html = html.replace(
-    new RegExp(`(Ngày${SEP}kết${SEP}thúc)${SEP}:`, "gi"),
-    "Ngày kết thúc thuê:"
-  );
-  return html;
-}
-
-// sạch noise + format tiền + format layout
-function sanitizeContractHtml(html = "") {
-  if (!html || typeof html !== "string") return html;
-  let out = html.replace(/Brand\([^)]*brandName=([^,)]+)[^)]*\)/g, "$1");
-  out = formatDatesInHtml(out); // Format ngày trước
-  out = formatDateLabelsInHtml(out); // Format label ngày
-  out = formatMoneyInHtml(out);
-  out = formatEquipmentLayout(out);
-  return out;
-}
-
-function diffDays(startIso, endIso) {
-  if (!startIso || !endIso) return 1;
-  const s = new Date(startIso);
-  const e = new Date(endIso);
-  const days = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
-  return Math.max(1, days || 1);
-}
-
-/* =========================
- * 2) CSS inlined cho PDF + Quốc hiệu
- * ========================= */
-const GLOBAL_PRINT_CSS = `
-  <style>
-    h1,h2,h3 { margin: 8px 0 6px; font-weight: 700; }
-    h3 { font-size: 14px; text-transform: uppercase; }
-    p { margin: 6px 0; }
-    ol, ul { margin: 6px 0 6px 18px; padding: 0; }
-    li { margin: 3px 0; }
-    .kv { margin-bottom: 10px; }
-    .kv div { margin: 2px 0; }
-    /* Format thiết bị thuê - mỗi thiết bị 1 dòng */
-    .equipment-item { display: block; margin: 4px 0; }
-    .equipment-item::before { content: "• "; }
-    /* Format tổng tiền trên cùng 1 dòng */
-    .total-summary { display: flex; gap: 16px; margin: 8px 0; }
-    .total-summary > * { margin: 0; }
-    .total-rental { font-weight: 700; }
-    /* NEW: Tổng thanh toán */
-    .grand-total { margin: 6px 0 12px; font-weight: 700; }
-  </style>
-`;
-
-const NATIONAL_HEADER_HTML = `
-  <div style="text-align:center; margin-bottom:12px">
-    <div style="font-weight:700; font-size:14px; letter-spacing:.3px; text-transform:uppercase">
-      CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
-    </div>
-    <div style="font-size:13px; margin-top:2px">
-      Độc lập – Tự do – Hạnh phúc
-    </div>
-    <div style="width:220px; height:0; border-top:1px solid #111; margin:6px auto 0"></div>
-  </div>
-`;
-
-/* =========================
- * 3) Điều khoản mở rộng với list chuẩn
- * ========================= */
-const EXTRA_CONTRACT_HTML = `
-<section>
-  <h3>Điều 1. Các thuật ngữ sử dụng trong hợp đồng</h3>
-  <ol>
-    <li><b>Bảo dưỡng và sửa chữa nhỏ</b>: Những sửa chữa không nằm trong định kỳ sửa chữa đã dự định theo thoả thuận hai Bên hoặc định kỳ phân bổ kế toán.</li>
-    <li><b>Hao mòn tự nhiên</b>: Sự giảm giá trị thiết bị một cách tự nhiên dù sử dụng đúng công suất và bảo quản đúng quy định.</li>
-    <li><b>Máy móc, thiết bị</b>: Là các máy móc, thiết bị được quy định tại Điều 2 của hợp đồng này.</li>
-    <li><b>QC (Quality Check)</b>: Kiểm tra thiết bị sau khi trả về.</li>
-    <li><b>BOM (Bill of Materials)</b>: Danh sách phụ kiện đi kèm.</li>
-    <li><b>PBS / QAE</b>: Khoảng thời gian chuẩn bị trước & kiểm tra sau thuê — đã được tính vào lịch thuê.</li>
-  </ol>
-
-  <h3>Điều 2. Mục đích, thời hạn thuê</h3>
-  <ol>
-    <li>Thiết bị chỉ dùng vào mục đích hợp pháp theo quy định pháp luật Việt Nam.</li>
-    <li>Gia hạn phải yêu cầu trước 48h; TechRent có quyền từ chối nếu lịch kín.</li>
-  </ol>
-
-  <h3>Điều 3. Thời gian, địa điểm chuyển giao máy móc, thiết bị</h3>
-  <ol>
-    <li>Bên B chuyển giao thiết bị cho Bên A tại địa điểm giao hàng vào thời gian đã xác định theo hợp đồng.</li>
-    <li>Bên A hoàn trả thiết bị cho Bên B đúng địa điểm và thời gian đã xác định trong hợp đồng.</li>
-    <li>Việc chuyển giao phải lập biên bản bàn giao, có xác nhận của đại diện hợp lệ hai bên.</li>
-    <li>Nếu Bên A không có mặt quá 15 phút tại thời điểm nhận hàng theo hợp đồng, Bên B có quyền huỷ đơn.</li>
-  </ol>
-
-  <h3>Điều 4. Thời hạn và phương thức thanh toán</h3>
-  <ol>
-    <li>Bên A thanh toán trong 03 (ba) ngày làm việc kể từ khi nhận hoá đơn của Bên B.</li>
-    <li>Phương thức thanh toán: Chuyển khoản ngân hàng.</li>
-  </ol>
-
-  <h3>Điều 5. Chậm trả và rủi ro</h3>
-  <ol>
-    <li>Khi Bên A chậm trả tài sản thuê, Bên B có quyền yêu cầu trả lại, thu tiền thuê thời gian chậm và yêu cầu phạt vi phạm theo chính sách.</li>
-    <li>Trong thời gian chậm trả, rủi ro đối với tài sản thuộc về Bên A.</li>
-  </ol>
-
-  <h3>Điều 6. Quyền và nghĩa vụ Bên A</h3>
-  <ol>
-    <li><b>Nghĩa vụ</b>:
-      <ul>
-        <li>Thanh toán đúng và đủ theo Điều 2 & Điều 5.</li>
-        <li>Hoàn trả thiết bị đúng thời gian, số lượng, tình trạng (trừ hao mòn tự nhiên).</li>
-        <li>Nếu cố tình làm hư hỏng: cùng khắc phục; nếu không được phải bồi thường chi phí sửa chữa có hoá đơn chứng từ.</li>
-        <li>Trường hợp mất mát do lỗi Bên A: bồi thường toàn bộ giá trị còn lại tại thời điểm mất.</li>
-        <li>Không cho thuê/mượn lại cho bên thứ ba nếu không có chấp thuận bằng văn bản của Bên B.</li>
-      </ul>
-    </li>
-    <li><b>Quyền</b>:
-      <ul>
-        <li>Yêu cầu Bên B sửa chữa/bảo dưỡng định kỳ; yêu cầu giảm giá nếu hư hỏng không do lỗi Bên A.</li>
-        <li>Đơn phương đình chỉ và yêu cầu bồi thường nếu:
-          <ul>
-            <li>Quá 03 ngày làm việc gia hạn mà Bên B vẫn chưa giao, trừ bất khả kháng.</li>
-            <li>Vi phạm nghiêm trọng quy định an ninh của Bên A khi giao nhận.</li>
-            <li>Giao thiết bị nguồn gốc không rõ ràng.</li>
-          </ul>
-        </li>
-        <li>Được ưu tiên tiếp tục thuê nếu sử dụng đúng mục đích, không gây mất mát/hư hại.</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Điều 7. Quyền và nghĩa vụ Bên B</h3>
-  <ol>
-    <li><b>Nghĩa vụ</b>:
-      <ul>
-        <li>Giao đúng loại, số lượng, thời gian, địa điểm; bảo đảm thiết bị đạt tiêu chuẩn chất lượng.</li>
-        <li>Xuất biên bản bàn giao và hoá đơn theo thoả thuận.</li>
-        <li>Thực hiện lắp đặt (nếu có) dưới giám sát của Bên A.</li>
-        <li>Chịu trách nhiệm về quyền sở hữu thiết bị.</li>
-        <li>Bảo dưỡng định kỳ, sửa chữa hư hỏng không nhỏ.</li>
-        <li>Thông báo và phối hợp khắc phục khi phát hiện hư hại khi nhận lại.</li>
-        <li>Nếu không thể giao đúng hạn: thông báo bằng văn bản và gia hạn nhưng không quá 03 ngày làm việc.</li>
-        <li>Tuân thủ quy định an ninh của Bên A; gây thiệt hại phải bồi thường theo thoả thuận.</li>
-        <li>Nhắc nhở bằng văn bản nếu phát hiện Bên A dùng sai mục đích/công dụng.</li>
-      </ul>
-    </li>
-    <li><b>Quyền</b>:
-      <ul>
-        <li>Nhận đủ tiền thuê theo Điều 2 & Điều 5.</li>
-        <li>Nhận lại thiết bị đúng thời gian, số lượng, tình trạng (trừ hao mòn tự nhiên).</li>
-        <li>Gia hạn thời hạn giao thiết bị tối đa 03 ngày làm việc (có văn bản thông báo).</li>
-        <li>Yêu cầu Bên A sử dụng đúng mục đích và công dụng; yêu cầu bồi thường khi hư hỏng do lỗi Bên A.</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Điều 8. Hiệu lực của hợp đồng</h3>
-  <ol>
-    <li>Hợp đồng có hiệu lực khi một trong các bên nhận được bản có ký tên & đóng dấu của cả hai bên.</li>
-    <li>Hợp đồng hết hiệu lực khi:
-      <ul>
-        <li>Hai bên hoàn tất nghĩa vụ;</li>
-        <li>Hai bên thoả thuận chấm dứt trước hạn;</li>
-        <li>Thiết bị thuê không còn.</li>
-      </ul>
-    </li>
-  </ol>
-
-  <h3>Điều 9. Điều khoản chung</h3>
-  <ol>
-    <li>Hai bên cam kết thực hiện đúng hợp đồng; vướng mắc sẽ thương lượng trên tinh thần hợp tác cùng có lợi.</li>
-    <li>Tranh chấp không tự giải quyết được thì yêu cầu Toà án có thẩm quyền giải quyết; phán quyết có hiệu lực buộc thi hành.</li>
-    <li>Nếu muốn chấm dứt trước hạn phải thông báo trước 30 ngày; hoàn tất mọi nghĩa vụ thì hợp đồng tự thanh lý.</li>
-    <li>Hợp đồng lập 04 bản tiếng Việt, mỗi bên giữ 02 bản có giá trị pháp lý như nhau.</li>
-  </ol>
-</section>
-`;
-
-function augmentContractContent(detail) {
-  if (!detail) return detail;
-  const base = String(detail.contentHtml || "");
-  const mergedHtml = base + EXTRA_CONTRACT_HTML;
-  return { ...detail, contentHtml: mergedHtml };
-}
-
-/* =========================
- * Handover Report Helpers
- * ========================= */
-function parseInfoString(infoStr) {
-  if (!infoStr) return { name: "", phone: "", email: "" };
-  const parts = infoStr.split("•").map(s => s.trim()).filter(Boolean);
-  return {
-    name: parts[0] || "",
-    phone: parts[1] || "",
-    email: parts[2] || "",
-  };
-}
-
-function translateRole(role) {
-  const r = String(role || "").toUpperCase();
-  if (r === "TECHNICIAN") return "Kỹ thuật viên";
-  return role;
-}
-
-function translateHandoverStatus(status) {
-  const s = String(status || "").toUpperCase();
-  if (s === "STAFF_SIGNED") return "Nhân viên đã ký";
-  if (s === "CUSTOMER_SIGNED") return "Đã ký khách hàng";
-  if (s === "BOTH_SIGNED") return "2 bên đã ký";
-  if (s === "PENDING_STAFF_SIGNATURE") return "Chờ nhân viên ký";
-  if (s === "COMPLETED") return "Hoàn thành";
-  return status || "—";
-}
-
-function buildPrintableHandoverReportHtml(report) {
-  const customerInfo = parseInfoString(report.customerInfo);
-  const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
-  const customerName = customerInfo.name || "—";
-  const technicianName = technicianInfo.name || "—";
-  
-  const itemsRows = (report.items || []).map((item, idx) => `
-    <tr>
-      <td style="text-align:center">${idx + 1}</td>
-      <td>${item.itemName || "—"}</td>
-      <td>${item.itemCode || "—"}</td>
-      <td style="text-align:center">${item.unit || "—"}</td>
-      <td style="text-align:center">${item.orderedQuantity || 0}</td>
-      <td style="text-align:center">${item.deliveredQuantity || 0}</td>
-    </tr>
-  `).join("");
-  
-  const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
-    <tr>
-      <td style="text-align:center">${idx + 1}</td>
-      <td>${q.deviceModelName || "—"}</td>
-      <td>${q.deviceSerialNumber || "—"}</td>
-      <td>${q.qualityStatus === "GOOD" ? "Tốt" : q.qualityStatus === "FAIR" ? "Khá" : q.qualityStatus === "POOR" ? "Kém" : q.qualityStatus || "—"}</td>
-      <td>${q.qualityDescription || "—"}</td>
-    </tr>
-  `).join("");
-  
-  const techniciansList = (report.technicians || []).map(t => {
-    const name = t.fullName || t.username || `Nhân viên #${t.staffId}`;
-    const phone = t.phoneNumber || "";
-    return `<li><strong>${name}</strong>${phone ? `<br/>Số điện thoại: ${phone}` : ""}</li>`;
-  }).join("");
-  
-  return `
-    <style>
-      .print-pdf-root,
-      .print-pdf-root * {
-        font-family: Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif !important;
-        -webkit-font-smoothing: antialiased !important;
-        -moz-osx-font-smoothing: grayscale !important;
-        text-rendering: optimizeLegibility !important;
-      }
-      .print-pdf-root h1, .print-pdf-root h2, .print-pdf-root h3 { margin: 8px 0 6px; font-weight: 700; }
-      .print-pdf-root h3 { font-size: 14px; text-transform: uppercase; }
-      .print-pdf-root p { margin: 6px 0; }
-      .print-pdf-root ol, .print-pdf-root ul { margin: 6px 0 6px 18px; padding: 0; }
-      .print-pdf-root li { margin: 3px 0; }
-      .print-pdf-root .kv { margin-bottom: 10px; }
-      .print-pdf-root .kv div { margin: 2px 0; }
-      .print-pdf-root table { width: 100%; border-collapse: collapse; margin: 8px 0; }
-      .print-pdf-root table th, .print-pdf-root table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-      .print-pdf-root table th { background-color: #f5f5f5; font-weight: 600; }
-    </style>
-    <div class="print-pdf-root"
-         style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
-      ${NATIONAL_HEADER_HTML}
-      
-      <h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>
-      
-      <section class="kv">
-        <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
-        <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
-        <div><b>Mã task:</b> #${report.taskId || "—"}</div>
-        <div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
-        <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>
-        <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
-      </section>
-      
-      <h3>Thông tin khách hàng</h3>
-      <section class="kv">
-        <div><b>Họ và tên:</b> ${customerName}</div>
-        ${customerInfo.phone ? `<div><b>Số điện thoại:</b> ${customerInfo.phone}</div>` : ""}
-        ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
-      </section>
-      
-      <h3>Thông tin kỹ thuật viên</h3>
-      <section class="kv">
-        <div><b>Họ và tên:</b> ${technicianName}</div>
-        ${technicianInfo.phone ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>` : ""}
-        ${technicianInfo.email ? `<div><b>Email:</b> ${technicianInfo.email}</div>` : ""}
-      </section>
-      
-      <h3>Danh sách thiết bị bàn giao</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px">STT</th>
-            <th>Tên thiết bị</th>
-            <th>Mã thiết bị (Serial Number)</th>
-            <th style="width:80px">Đơn vị</th>
-            <th style="width:80px;text-align:center">SL đặt</th>
-            <th style="width:80px;text-align:center">SL giao</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsRows || "<tr><td colspan='6' style='text-align:center'>Không có thiết bị</td></tr>"}
-        </tbody>
-      </table>
-      
-      ${qualityRows ? `
-      <h3>Thông tin chất lượng thiết bị</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px">STT</th>
-            <th>Tên model</th>
-            <th>Serial Number</th>
-            <th>Trạng thái chất lượng</th>
-            <th>Mô tả</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${qualityRows}
-        </tbody>
-      </table>
-      ` : ""}
-      
-      ${techniciansList ? `
-      <h3>Kỹ thuật viên tham gia</h3>
-      <ul>
-        ${techniciansList}
-      </ul>
-      ` : ""}
-      
-      ${report.createdByStaff ? `
-      <h3>Người tạo biên bản</h3>
-      <section class="kv">
-        <div><b>Họ và tên:</b> ${report.createdByStaff.fullName || report.createdByStaff.username || `Nhân viên #${report.createdByStaff.staffId}`}</div>
-        ${report.createdByStaff.email ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>` : ""}
-        ${report.createdByStaff.phoneNumber ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>` : ""}
-        ${report.createdByStaff.role ? `<div><b>Vai trò:</b> ${translateRole(report.createdByStaff.role)}</div>` : ""}
-      </section>
-      ` : ""}
-      
-      ${(report.evidenceUrls || []).length > 0 ? `
-      <h3>Ảnh bằng chứng</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
-        ${report.evidenceUrls.map((url, idx) => {
-          // Kiểm tra xem là base64 hay URL
-          const isBase64 = url.startsWith("data:image");
-          const imgSrc = isBase64 ? url : url;
-          return `
-          <div style="flex:0 0 auto;margin-bottom:8px">
-            <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">Bằng chứng ${idx + 1}</div>
-            <img 
-              src="${imgSrc}" 
-              alt="Bằng chứng ${idx + 1}"
-              style="
-                max-width:200px;
-                max-height:200px;
-                border:1px solid #ddd;
-                border-radius:4px;
-                display:block;
-                object-fit:contain;
-              "
-              onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
-            />
-            <div style="display:none;padding:8px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;max-width:200px;font-size:10px;color:#666">
-              Không thể tải ảnh<br/>
-              <a href="${url}" target="_blank" style="color:#1890ff">Xem link</a>
-            </div>
-          </div>
-        `;
-        }).join("")}
-      </div>
-      ` : ""}
-      
-      <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
-        <div style="flex:1;text-align:center">
-          <div><b>KHÁCH HÀNG</b></div>
-          <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
-          </div>
-          <div>
-            ${report.customerSigned 
-              ? `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>` 
-              : "(Ký, ghi rõ họ tên)"}
-          </div>
-        </div>
-        <div style="flex:1;text-align:center">
-          <div><b>NHÂN VIÊN</b></div>
-          <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>' : ""}
-          </div>
-          <div>
-            ${report.staffSigned 
-              ? `<div style="color:#52c41a;font-weight:600">${technicianName} đã ký</div>` 
-              : "(Ký, ghi rõ họ tên)"}
-          </div>
-        </div>
-      </section>
-    </div>
-  `;
-}
-
-async function elementToPdfBlobHandover(el) {
-  if (document.fonts && document.fonts.ready) {
-    await document.fonts.ready;
-  }
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  const canvas = await html2canvas(el, {
-    scale: 2,
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: "#ffffff",
-    logging: false,
-    letterRendering: true,
-    onclone: (clonedDoc) => {
-      const clonedBody = clonedDoc.body;
-      if (clonedBody) {
-        clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        clonedBody.style.webkitFontSmoothing = "antialiased";
-        clonedBody.style.mozOsxFontSmoothing = "grayscale";
-      }
-      const allElements = clonedDoc.querySelectorAll('*');
-      allElements.forEach(elem => {
-        if (elem.style) {
-          elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        }
-      });
-    },
-  });
-
-  const pdf = new jsPDF("p", "pt", "a4");
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const ratio = pageWidth / canvas.width;
-
-  const pageCanvas = document.createElement("canvas");
-  const ctx = pageCanvas.getContext("2d");
-
-  let renderedHeight = 0;
-  while (renderedHeight < canvas.height) {
-    const sliceHeight = Math.min(pageHeight / ratio, canvas.height - renderedHeight);
-    pageCanvas.width = canvas.width;
-    pageCanvas.height = sliceHeight;
-    ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
-    ctx.drawImage(
-      canvas,
-      0, renderedHeight, canvas.width, sliceHeight,
-      0, 0, canvas.width, sliceHeight
-    );
-    const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
-    if (renderedHeight > 0) pdf.addPage();
-    pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
-    renderedHeight += sliceHeight;
-  }
-  return pdf.output("blob");
-}
-
-/* =========================
- * 4) MAP ORDER (chuẩn hoá từ BE)
+ * MAP ORDER (chuẩn hoá từ BE)
  * ========================= */
 async function mapOrderFromApi(order) {
   const backendId =
@@ -759,53 +87,42 @@ async function mapOrderFromApi(order) {
     order?.rentalOrderCode || order?.orderCode || order?.code ||
     (backendId != null ? String(backendId) : "—");
 
-  const items = await Promise.all(
-    (order?.orderDetails || []).map(async (detail) => {
-      try {
-        const model = detail?.deviceModelId
-          ? await getDeviceModelById(detail.deviceModelId)
-          : null;
+  // Đơn giản hoá: chỉ dùng dữ liệu có sẵn trong orderDetails, KHÔNG gọi getDeviceModelById
+  const items = (order?.orderDetails || []).map((detail) => {
+    const deviceValue = Number(detail?.deviceValue ?? 0);
+    const depositPercent = Number(detail?.depositPercent ?? 0);
+    const depositAmountPerUnit = Number(
+      detail?.depositAmountPerUnit ?? deviceValue * depositPercent
+    );
 
-        const deviceValue = Number(detail?.deviceValue ?? model?.deviceValue ?? 0);
-        const depositPercent = Number(detail?.depositPercent ?? model?.depositPercent ?? 0);
-        const depositAmountPerUnit = Number(
-          detail?.depositAmountPerUnit ?? deviceValue * depositPercent
-        );
+    // Lấy tên và ảnh từ deviceModel object hoặc từ detail trực tiếp
+    const deviceModel = detail?.deviceModel || {};
+    const deviceName = 
+      deviceModel?.deviceName || 
+      deviceModel?.name || 
+      detail?.deviceName || 
+      `Model ${detail?.deviceModelId ?? ""}`;
+    
+    const imageUrl = 
+      deviceModel?.imageUrl || 
+      deviceModel?.imageURL || 
+      deviceModel?.image ||
+      detail?.imageUrl || 
+      detail?.imageURL ||
+      detail?.image ||
+      "";
 
-        return {
-          name:
-            model?.deviceName ||
-            model?.name ||
-            detail?.deviceName ||
-            `Model ${detail?.deviceModelId ?? ""}`,
-          qty: detail?.quantity ?? 1,
-          image: model?.imageURL || model?.imageUrl || detail?.imageUrl || "",
-          pricePerDay: Number(detail?.pricePerDay ?? model?.pricePerDay ?? 0),
-          depositAmountPerUnit,
-          deviceValue,
-          depositPercent,
-          deviceModelId: detail?.deviceModelId ?? model?.id ?? null,
-        };
-      } catch {
-        const deviceValue = Number(detail?.deviceValue ?? 0);
-        const depositPercent = Number(detail?.depositPercent ?? 0);
-        const depositAmountPerUnit = Number(
-          detail?.depositAmountPerUnit ?? deviceValue * depositPercent
-        );
-
-        return {
-          name: detail?.deviceName || `Model ${detail?.deviceModelId ?? ""}`,
-          qty: detail?.quantity ?? 1,
-          image: "",
-          pricePerDay: Number(detail?.pricePerDay ?? 0),
-          depositAmountPerUnit,
-          deviceValue,
-          depositPercent,
-          deviceModelId: detail?.deviceModelId ?? null,
-        };
-      }
-    })
-  );
+    return {
+      name: deviceName,
+      qty: detail?.quantity ?? 1,
+      image: imageUrl,
+      pricePerDay: Number(detail?.pricePerDay ?? 0),
+      depositAmountPerUnit,
+      deviceValue,
+      depositPercent,
+      deviceModelId: detail?.deviceModelId ?? null,
+    };
+  });
 
   const startDate = order?.startDate ?? order?.rentalStartDate ?? null;
   const endDate   = order?.endDate   ?? order?.rentalEndDate   ?? null;
@@ -820,6 +137,9 @@ async function mapOrderFromApi(order) {
   const daysByRange = diffDays(startDate, endDate);
   const normalizedDays = daysFromMoney || daysByRange || 1;
 
+  const rawStatus = String(order?.orderStatus ?? "pending").toLowerCase();
+  const orderStatus = ORDER_STATUS_ALIASES[rawStatus] || rawStatus;
+
   return {
     id: backendId,
     displayId,
@@ -830,7 +150,7 @@ async function mapOrderFromApi(order) {
     items,
     total: order?.totalPrice ?? order?.total ?? 0,
 
-    orderStatus: String(order?.orderStatus ?? "pending").toLowerCase(),
+    orderStatus,
     paymentStatus: String(order?.paymentStatus ?? "unpaid").toLowerCase(),
 
     depositAmountHeld: order?.depositAmount ?? order?.depositAmountHeld ?? 0,
@@ -843,13 +163,9 @@ async function mapOrderFromApi(order) {
 }
 
 /* =========================
- * 5) COMPONENT
+ * COMPONENT
  * ========================= */
 export default function MyOrders() {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState();
-  const [dateRange, setDateRange] = useState(null);
-
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingOrders, setLoadingOrders] = useState(true);
@@ -874,7 +190,6 @@ export default function MyOrders() {
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
-  const printRef = useRef(null);
   const notifSocketRef = useRef(null);
   const pollingRef = useRef(null);
   const wsConnectedRef = useRef(false);
@@ -908,6 +223,9 @@ export default function MyOrders() {
   const [handoverPdfGenerating, setHandoverPdfGenerating] = useState(false);
   const [selectedHandoverReport, setSelectedHandoverReport] = useState(null);
   const handoverPrintRef = useRef(null);
+  // Checkin reports (separate state for checkin)
+  const [checkinPdfPreviewUrl, setCheckinPdfPreviewUrl] = useState(""); // For inline preview
+  const [selectedCheckinReport, setSelectedCheckinReport] = useState(null);
   // Handover signing
   const [signingHandover, setSigningHandover] = useState(false);
   const [handoverSignModalOpen, setHandoverSignModalOpen] = useState(false);
@@ -917,6 +235,8 @@ export default function MyOrders() {
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
   const [processingReturn, setProcessingReturn] = useState(false);
+  const [processingExtend, setProcessingExtend] = useState(false);
+  const [extendedEndTime, setExtendedEndTime] = useState(null);
   const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
     // Load from localStorage on init
     try {
@@ -936,11 +256,6 @@ export default function MyOrders() {
   const deeplinkTab = queryParams.get("tab");
   const deepLinkHandledRef = useRef(false);
 
-  // Layout: Table tự cuộn theo viewport
-  const TABLE_TOP_BLOCK = 40 + 40 + 16;
-  const TABLE_BOTTOM_BLOCK = 56;
-  const tableScrollY = `calc(100vh - ${TABLE_TOP_BLOCK + TABLE_BOTTOM_BLOCK}px)`;
-
   function revokeBlob(url) { try { if (url) URL.revokeObjectURL(url); } catch (e) { console.error("Error revoking blob:", e); } }
   function clearContractPreviewState() {
     revokeBlob(pdfBlobUrl);
@@ -958,12 +273,12 @@ export default function MyOrders() {
     if (Number.isNaN(end.getTime())) return null;
     const now = new Date();
 
-    // Use UTC to avoid timezone drift when comparing calendar days
-    const endDayUtc = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-    const nowDayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    // Calculate based on local date (not UTC) to match user's calendar
+    const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    const nowDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const diff = endDayUtc - nowDayUtc;
-    const days = Math.floor(diff / DAY_MS);
+    const diff = endDateOnly - nowDateOnly;
+    const days = Math.ceil(diff / DAY_MS);
     return days;
   };
 
@@ -980,6 +295,12 @@ export default function MyOrders() {
     if (!order?.endDate) return false;
     const daysRemaining = getDaysRemaining(order.endDate);
     return daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 1;
+  };
+
+  const isOrderInUse = (order) => {
+    if (!order) return false;
+    const status = String(order?.orderStatus || "").toLowerCase();
+    return status === "in_use";
   };
 
   // Check if order has been confirmed for return
@@ -1075,11 +396,38 @@ export default function MyOrders() {
     loadCustomerProfile();
   }, []);
 
+  // Cleanup khi rời trang / component unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (notifSocketRef.current) {
+          notifSocketRef.current.disconnect?.();
+          notifSocketRef.current = null;
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Error disconnecting notifications socket:", e);
+      }
+
+      try {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Error clearing polling interval:", e);
+      }
+    };
+  }, []);
+
   // Check for orders close to return date and show notification
   useEffect(() => {
     const checkCloseToReturn = () => {
       const closeOrders = orders.filter((order) => 
-        isCloseToReturnDate(order) && !isReturnConfirmedSync(order)
+        isOrderInUse(order) &&
+        isCloseToReturnDate(order) && 
+        !isReturnConfirmedSync(order)
       );
       if (closeOrders.length > 0 && !returnModalOpen && !extendModalOpen) {
         const firstCloseOrder = closeOrders[0];
@@ -1120,15 +468,93 @@ export default function MyOrders() {
     }
   }, [orders, returnModalOpen, extendModalOpen]);
 
+  // Filter handover reports by type
+  const checkoutReports = useMemo(() => {
+    return handoverReports.filter(report => {
+      const handoverType = String(report?.handoverType || "").toUpperCase();
+      return handoverType !== "CHECKIN";
+    });
+  }, [handoverReports]);
+  
+  const checkinReports = useMemo(() => {
+    return handoverReports.filter(report => {
+      const handoverType = String(report?.handoverType || "").toUpperCase();
+      return handoverType === "CHECKIN";
+    });
+  }, [handoverReports]);
+
   // Auto select and preview first handover report when reports are loaded
   useEffect(() => {
-    if (handoverReports.length > 0 && !selectedHandoverReport) {
-      const firstReport = handoverReports[0];
+    if (checkoutReports.length > 0 && !selectedHandoverReport) {
+      const firstReport = checkoutReports[0];
       setSelectedHandoverReport(firstReport);
-      previewHandoverReportAsPdf(firstReport);
+      previewHandoverReportAsPdf(firstReport, { target: "handover" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handoverReports]);
+  }, [checkoutReports]);
+  
+  // Auto select first checkin report when reports are loaded
+  useEffect(() => {
+    if (checkinReports.length > 0 && !selectedCheckinReport) {
+      setSelectedCheckinReport(checkinReports[0]);
+      return;
+    }
+
+    // Clear selection when no checkin reports
+    if (checkinReports.length === 0 && selectedCheckinReport) {
+      setSelectedCheckinReport(null);
+      if (checkinPdfPreviewUrl) {
+        try {
+          URL.revokeObjectURL(checkinPdfPreviewUrl);
+        } catch {}
+        setCheckinPdfPreviewUrl("");
+      }
+    }
+  }, [checkinReports, selectedCheckinReport, checkinPdfPreviewUrl]);
+
+  // Ensure PDFs are available when switching tabs
+  useEffect(() => {
+    if (
+      detailTab === "handover" &&
+      selectedHandoverReport &&
+      !handoverPdfPreviewUrl &&
+      !handoverPdfGenerating
+    ) {
+      previewHandoverReportAsPdf(selectedHandoverReport, {
+        target: "handover",
+        skipSelection: true,
+      });
+    }
+  }, [detailTab, selectedHandoverReport, handoverPdfPreviewUrl, handoverPdfGenerating]);
+
+  useEffect(() => {
+    if (
+      detailTab === "checkin" &&
+      selectedCheckinReport &&
+      !checkinPdfPreviewUrl &&
+      !handoverPdfGenerating
+    ) {
+      previewHandoverReportAsPdf(selectedCheckinReport, {
+        target: "checkin",
+        skipSelection: true,
+      });
+    }
+  }, [detailTab, selectedCheckinReport, checkinPdfPreviewUrl, handoverPdfGenerating]);
+
+  // Reload handover reports when switching to handover/checkin tabs (only if switching to this tab for the first time)
+  const handoverTabRef = useRef(null);
+  useEffect(() => {
+    if (current?.id && (detailTab === "handover" || detailTab === "checkin")) {
+      const orderId = current.id;
+      const previousTab = handoverTabRef.current;
+      // Only reload if switching to this tab for the first time (not on every render)
+      if (previousTab !== detailTab) {
+        loadOrderHandoverReports(orderId);
+      }
+      handoverTabRef.current = detailTab;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailTab, current?.id]);
 
   // Auto select and preview first contract when contracts are loaded
   useEffect(() => {
@@ -1256,7 +682,68 @@ export default function MyOrders() {
       setLoadingOrders(true);
       const res = await listRentalOrders();
       const mapped = await Promise.all((res || []).map(mapOrderFromApi));
-      const validOrders = mapped.filter(o => o && o.id != null);
+      
+      // Enrich orders with device model data if missing
+      const modelIdsToFetch = new Set();
+      mapped.forEach(order => {
+        if (order?.items) {
+          order.items.forEach(item => {
+            if (item.deviceModelId) {
+              // Fetch nếu thiếu image hoặc name bắt đầu bằng "Model" (fallback name)
+              const needsFetch = !item.image || (item.name && item.name.startsWith("Model"));
+              if (needsFetch) {
+                modelIdsToFetch.add(item.deviceModelId);
+              }
+            }
+          });
+        }
+      });
+      
+      // Fetch device models in parallel
+      const modelMap = new Map();
+      if (modelIdsToFetch.size > 0) {
+        const modelPromises = Array.from(modelIdsToFetch).map(async (id) => {
+          try {
+            const model = await getDeviceModelById(id);
+            return [id, model];
+          } catch (err) {
+            console.error(`Failed to fetch device model ${id}:`, err);
+            return [id, null];
+          }
+        });
+        const modelResults = await Promise.all(modelPromises);
+        modelResults.forEach(([id, model]) => {
+          if (model) {
+            modelMap.set(id, {
+              deviceName: model.deviceName || model.name || "",
+              imageUrl: model.imageUrl || model.imageURL || model.image || "",
+            });
+          }
+        });
+      }
+      
+      // Enrich orders with fetched device model data
+      const enrichedOrders = mapped.map(order => {
+        if (!order?.items) return order;
+        return {
+          ...order,
+          items: order.items.map(item => {
+            if (item.deviceModelId && modelMap.has(item.deviceModelId)) {
+              const modelData = modelMap.get(item.deviceModelId);
+              return {
+                ...item,
+                // Ưu tiên deviceName từ API, nếu không có thì giữ name hiện tại
+                name: modelData.deviceName || item.name || `Model ${item.deviceModelId}`,
+                // Ưu tiên imageUrl từ API, nếu không có thì giữ image hiện tại
+                image: modelData.imageUrl || item.image || "",
+              };
+            }
+            return item;
+          }),
+        };
+      });
+      
+      const validOrders = enrichedOrders.filter(o => o && o.id != null);
       setOrders(validOrders);
       
       // Check for orders that might have return tasks created
@@ -1299,29 +786,6 @@ export default function MyOrders() {
       setLoadingOrders(false);
     }
   };
-
-  const data = useMemo(() => {
-    let rows = [...orders];
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          String(r.displayId).toLowerCase().includes(q) ||
-          r.items.some((it) => (it.name || "").toLowerCase().includes(q))
-      );
-    }
-    if (statusFilter) rows = rows.filter((r) => r.orderStatus === statusFilter);
-    if (dateRange?.length === 2) {
-      const [s, e] = dateRange;
-      const start = s.startOf("day").toDate().getTime();
-      const end = e.endOf("day").toDate().getTime();
-      rows = rows.filter((r) => {
-        const t = r.createdAt ? new Date(r.createdAt).getTime() : 0;
-        return t >= start && t <= end;
-      });
-    }
-    return rows.sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
-  }, [search, statusFilter, dateRange, orders]);
 
   const needsContractAction = useMemo(() => {
     const status = String(current?.orderStatus || current?.status || "").toUpperCase();
@@ -1496,11 +960,53 @@ export default function MyOrders() {
   };
 
   // Handle extend request
-  const handleExtendRequest = () => {
-    message.info("Tính năng gia hạn đang được phát triển. Vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.");
-    setExtendModalOpen(false);
+  const handleExtendRequest = async () => {
+    if (!current || !current.id) {
+      message.error("Không có thông tin đơn hàng để gia hạn.");
+      return;
+    }
+    if (!extendedEndTime) {
+      message.warning("Vui lòng chọn ngày kết thúc mới cho đơn hàng.");
+      return;
+    }
+
+    // Validate: extended end time must be after current end date
+    if (current.endDate) {
+      const currentEndDate = new Date(current.endDate);
+      const newEndDate = new Date(extendedEndTime);
+      if (newEndDate <= currentEndDate) {
+        message.error("Ngày kết thúc mới phải sau ngày kết thúc hiện tại.");
+        return;
+      }
+    }
+
+    try {
+      setProcessingExtend(true);
+      const result = await extendRentalOrder(current.id, extendedEndTime);
+      if (result) {
+        message.success("Yêu cầu gia hạn đơn hàng đã được gửi thành công!");
+        setExtendModalOpen(false);
+        setExtendedEndTime(null);
+        // Reload orders to get updated data
+        await loadOrders();
+        if (current?.id) {
+          const updatedOrder = await getRentalOrderById(current.id);
+          if (updatedOrder) {
+            setCurrent(updatedOrder);
+          }
+        }
+      } else {
+        message.error("Không thể gửi yêu cầu gia hạn. Vui lòng thử lại.");
+      }
+    } catch (error) {
+      console.error("Error extending rental order:", error);
+      message.error(error?.response?.data?.message || error?.message || "Không thể gửi yêu cầu gia hạn. Vui lòng thử lại.");
+    } finally {
+      setProcessingExtend(false);
+    }
   };
   const handleDownloadContract = async (record) => {
+    let sandbox = null;
     try {
       // 1) Có URL -> tải thẳng
       if (record?.contractUrl) {
@@ -1532,23 +1038,28 @@ export default function MyOrders() {
   
       // gộp điều khoản mở rộng rồi render HTML -> PDF
       const detail = augmentContractContent(record);
-      if (printRef.current) {
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        const blob = await elementToPdfBlob(printRef.current);
-  
-        const a = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        a.href = url;
-        a.download = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 0);
+      sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        return;
       }
+
+      sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
+      const blob = await elementToPdfBlob(sandbox);
+
+      const a = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (e) {
       console.error("Download contract error:", e);
       message.error("Không thể tạo/tải PDF.");
     } finally {
+      cleanupPrintSandbox(sandbox);
       setPdfGenerating(false);
     }
   };
@@ -1561,7 +1072,7 @@ export default function MyOrders() {
       return;
     }
     clearContractPreviewState();
-    setCurrent(record);
+  setCurrent(record);
     setSettlementInfo(null);
     setDetailOpen(true);
     setDetailTab("overview");
@@ -1571,19 +1082,58 @@ export default function MyOrders() {
       const fullOrder = await getRentalOrderById(idNum);
       if (fullOrder) {
         const mapped = await Promise.all([mapOrderFromApi(fullOrder)]);
-        const merged = mapped[0];
-        setCurrent(prev => ({
+      const merged = mapped[0];
+
+      setCurrent((prev) => {
+        const prevItems = Array.isArray(prev?.items) ? prev.items : [];
+        const mergedItems = Array.isArray(merged?.items) ? merged.items : [];
+
+        // Giữ lại tên & ảnh đã được enrich từ danh sách orders (prev.items)
+        const mergedWithEnrichedItems =
+          mergedItems.length > 0
+            ? mergedItems.map((mi) => {
+                const match = prevItems.find(
+                  (pi) =>
+                    (pi.deviceModelId != null &&
+                      pi.deviceModelId === mi.deviceModelId) ||
+                    (pi.name && mi.name && pi.name === mi.name)
+                );
+                return {
+                  ...mi,
+                  name: match?.name || mi.name,
+                  image: match?.image || mi.image,
+                };
+              })
+            : prevItems;
+
+        return {
           ...prev,
           ...merged,
-          items: (merged?.items?.length ? merged.items : prev.items) ?? [],
-        }));
+          items:
+            (mergedWithEnrichedItems && mergedWithEnrichedItems.length > 0
+              ? mergedWithEnrichedItems
+              : prevItems) ?? [],
+        };
+      });
       }
       // Load invoice info
       try {
-        const invoice = await getInvoiceByRentalOrderId(idNum);
-        setInvoiceInfo(invoice || null);
+        const invoiceRes = await getInvoiceByRentalOrderId(idNum);
+        // API có thể trả về 1 object hoặc 1 mảng invoice
+        let invoice = null;
+        if (Array.isArray(invoiceRes)) {
+          invoice =
+            // Ưu tiên invoice thanh toán tiền thuê
+            invoiceRes.find(
+              (inv) =>
+                String(inv?.invoiceType || "").toUpperCase() === "RENT_PAYMENT"
+            ) || invoiceRes[0] || null;
+        } else {
+          invoice = invoiceRes || null;
+        }
+        setInvoiceInfo(invoice);
       } catch (invoiceErr) {
-        // Invoice might not exist yet, that's okay
+        // Invoice có thể chưa tồn tại – không coi là lỗi
         console.log("No invoice found for order:", idNum);
         setInvoiceInfo(null);
       }
@@ -1691,9 +1241,10 @@ export default function MyOrders() {
     }
     try {
       setSettlementLoading(true);
-      const settlement = await getSettlementByOrderId(orderId);
-      setSettlementInfo(settlement || null);
-      return settlement || null;
+      const settlementResponse = await getSettlementByOrderId(orderId);
+      const settlementData = settlementResponse?.data ?? settlementResponse ?? null;
+      setSettlementInfo(settlementData);
+      return settlementData;
     } catch (e) {
       console.error("Failed to fetch settlement by orderId:", e);
       setSettlementInfo(null);
@@ -1705,31 +1256,100 @@ export default function MyOrders() {
 
   const loadOrderHandoverReports = async (orderId) => {
     if (!orderId) {
+      // Clear old previews/selections when no orderId
+      if (handoverPdfPreviewUrl) {
+        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
+      }
+      if (checkinPdfPreviewUrl) {
+        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch {}
+      }
+      setHandoverPdfPreviewUrl("");
+      setCheckinPdfPreviewUrl("");
+      setSelectedHandoverReport(null);
+      setSelectedCheckinReport(null);
       setHandoverReports([]);
       return [];
     }
     try {
       setHandoverReportsLoading(true);
+      // Save IDs of currently selected reports before clearing
+      const previousCheckinId = selectedCheckinReport?.handoverReportId || selectedCheckinReport?.id;
+      const previousHandoverId = selectedHandoverReport?.handoverReportId || selectedHandoverReport?.id;
+      
+      // Clear previous selections and previews before loading new data
+      if (handoverPdfPreviewUrl) {
+        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
+      }
+      if (checkinPdfPreviewUrl) {
+        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch {}
+      }
+      setHandoverPdfPreviewUrl("");
+      setCheckinPdfPreviewUrl("");
+      setSelectedHandoverReport(null);
+      setSelectedCheckinReport(null);
+
       const reports = await getCustomerHandoverReportsByOrderId(orderId);
       const reportsArray = Array.isArray(reports) ? reports : [];
       setHandoverReports(reportsArray);
+      
+      // Try to restore previously selected reports with updated data
+      if (previousCheckinId) {
+        const updatedCheckin = reportsArray.find(r => 
+          (r.handoverReportId || r.id) === previousCheckinId &&
+          String(r.handoverType || "").toUpperCase() === "CHECKIN"
+        );
+        if (updatedCheckin) {
+          setSelectedCheckinReport(updatedCheckin);
+        }
+      }
+      
+      if (previousHandoverId) {
+        const updatedHandover = reportsArray.find(r => 
+          (r.handoverReportId || r.id) === previousHandoverId &&
+          (String(r.handoverType || "").toUpperCase() === "CHECKOUT" || !r.handoverType)
+        );
+        if (updatedHandover) {
+          setSelectedHandoverReport(updatedHandover);
+        }
+      }
+      
       return reportsArray;
     } catch (e) {
       console.error("Failed to fetch handover reports by orderId:", e);
+      setSelectedHandoverReport(null);
+      setSelectedCheckinReport(null);
+      setHandoverPdfPreviewUrl("");
+      setCheckinPdfPreviewUrl("");
       setHandoverReports([]);
       return [];
     } finally {
       setHandoverReportsLoading(false);
     }
   };
-
-  // Check if there are unsigned handover reports
+  
+  // Check if there are unsigned handover reports (both checkout and checkin)
   const hasUnsignedHandoverReports = useMemo(() => {
     return handoverReports.some(report => {
       const status = String(report?.status || "").toUpperCase();
       return status === "STAFF_SIGNED" && !report?.customerSigned;
     });
   }, [handoverReports]);
+  
+  // Check if there are unsigned checkout reports
+  const hasUnsignedCheckoutReports = useMemo(() => {
+    return checkoutReports.some(report => {
+      const status = String(report?.status || "").toUpperCase();
+      return status === "STAFF_SIGNED" && !report?.customerSigned;
+    });
+  }, [checkoutReports]);
+  
+  // Check if there are unsigned checkin reports
+  const hasUnsignedCheckinReports = useMemo(() => {
+    return checkinReports.some(report => {
+      const status = String(report?.status || "").toUpperCase();
+      return status === "STAFF_SIGNED" && !report?.customerSigned;
+    });
+  }, [checkinReports]);
 
   // Preview handover report PDF (for modal)
   const handlePreviewHandoverPdf = async (report) => {
@@ -1742,6 +1362,46 @@ export default function MyOrders() {
         setHandoverPdfBlobUrl("");
       }
       
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, m];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
+      }
+      
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
         handoverPrintRef.current.style.opacity = "1";
@@ -1750,7 +1410,7 @@ export default function MyOrders() {
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
@@ -1786,16 +1446,78 @@ export default function MyOrders() {
   };
 
   // Preview handover report PDF (for inline preview)
-  const previewHandoverReportAsPdf = async (report) => {
+  const previewHandoverReportAsPdf = async (report, options = {}) => {
     if (!report) return message.warning("Chưa chọn biên bản.");
     
+    // Determine if this is a checkin report
+    const handoverType = String(report.handoverType || "").toUpperCase();
+    const isCheckinReport = handoverType === "CHECKIN";
+    const target = options.target || "auto";
+    const useCheckinPreview =
+      target === "checkin" ? true : target === "handover" ? false : isCheckinReport;
+    
+    const skipSelection = options.skipSelection === true;
+
     try {
       setHandoverPdfGenerating(true);
-      setSelectedHandoverReport(report);
       
-      if (handoverPdfPreviewUrl) {
-        URL.revokeObjectURL(handoverPdfPreviewUrl);
-        setHandoverPdfPreviewUrl("");
+      // Set appropriate selected report and clear preview URL
+      if (useCheckinPreview) {
+        if (!skipSelection) {
+          setSelectedCheckinReport(report);
+        }
+        if (checkinPdfPreviewUrl) {
+          URL.revokeObjectURL(checkinPdfPreviewUrl);
+          setCheckinPdfPreviewUrl("");
+        }
+      } else {
+        if (!skipSelection) {
+          setSelectedHandoverReport(report);
+        }
+        if (handoverPdfPreviewUrl) {
+          URL.revokeObjectURL(handoverPdfPreviewUrl);
+          setHandoverPdfPreviewUrl("");
+        }
+      }
+      
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, m];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
       }
       
       if (handoverPrintRef.current) {
@@ -1806,7 +1528,7 @@ export default function MyOrders() {
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
@@ -1830,7 +1552,8 @@ export default function MyOrders() {
         handoverPrintRef.current.style.opacity = "0";
         
         const url = URL.createObjectURL(blob);
-        setHandoverPdfPreviewUrl(url);
+        if (useCheckinPreview) setCheckinPdfPreviewUrl(url);
+        else setHandoverPdfPreviewUrl(url);
       }
     } catch (e) {
       console.error("Error generating handover PDF:", e);
@@ -1839,11 +1562,53 @@ export default function MyOrders() {
       setHandoverPdfGenerating(false);
     }
   };
-
+  
   // Download handover report PDF
   const handleDownloadHandoverPdf = async (report) => {
+    if (!report) return message.warning("Chưa chọn biên bản.");
+    
     try {
       setHandoverPdfGenerating(true);
+      
+      // Fetch order and condition definitions
+      let order = null;
+      let conditionDefinitions = [];
+      
+      if (report.orderId) {
+        try {
+          order = await getRentalOrderById(report.orderId);
+          // Enrich order with device model info
+          if (order && Array.isArray(order.orderDetails)) {
+            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
+            const modelPairs = await Promise.all(
+              modelIds.map(async (id) => {
+                try {
+                  const m = await getDeviceModelById(id);
+                  return [id, m];
+                } catch {
+                  return [id, null];
+                }
+              })
+            );
+            const modelMap = Object.fromEntries(modelPairs);
+            order = {
+              ...order,
+              orderDetails: order.orderDetails.map(od => ({
+                ...od,
+                deviceModel: modelMap[od.deviceModelId] || null,
+              })),
+            };
+          }
+        } catch (e) {
+          console.warn("Could not fetch order for PDF:", e);
+        }
+      }
+      
+      try {
+        conditionDefinitions = await getConditionDefinitions();
+      } catch (e) {
+        console.warn("Could not fetch condition definitions for PDF:", e);
+      }
       
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
@@ -1853,7 +1618,7 @@ export default function MyOrders() {
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
         
-        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report);
+        handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
         
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
@@ -1878,7 +1643,9 @@ export default function MyOrders() {
         
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = `handover-report-${report.handoverReportId || report.id || "report"}.pdf`;
+        const handoverType = String(report.handoverType || "").toUpperCase();
+        const isCheckin = handoverType === "CHECKIN";
+        a.download = `${isCheckin ? "checkin" : "handover"}-report-${report.handoverReportId || report.id || "report"}.pdf`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -2071,7 +1838,6 @@ export default function MyOrders() {
       const baseUrl = window.location.origin;
       const orderIdParam = Number(order.id);
       const orderCodeParam = order.displayId || order.id;
-      const returnUrl = `${baseUrl}/payment/return?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
       const cancelUrl = `${baseUrl}/payment/cancel?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
       // VNPay sẽ redirect về các URL này với query params từ backend
       const frontendSuccessUrl = `${baseUrl}/success?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
@@ -2083,7 +1849,6 @@ export default function MyOrders() {
         paymentMethod: String(paymentMethod || "VNPAY").toUpperCase(),
         amount: totalAmount,
         description: `Thanh toán đơn hàng #${orderCodeParam}`,
-        returnUrl, 
         cancelUrl,
         frontendSuccessUrl,
         frontendFailureUrl,
@@ -2117,7 +1882,8 @@ export default function MyOrders() {
     const customerEmail = customer?.email || "";
     const customerPhone = customer?.phoneNumber || "";
     const identificationCode = kyc?.identificationCode || "";
-    const contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+    
     const termsBlock = detail.terms
       ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
       : "";
@@ -2169,10 +1935,10 @@ export default function MyOrders() {
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
-              ${(() => {
+            ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -2181,7 +1947,7 @@ export default function MyOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -2190,10 +1956,10 @@ export default function MyOrders() {
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN A</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
-              ${(() => {
+            ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -2202,7 +1968,7 @@ export default function MyOrders() {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
+                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -2254,6 +2020,7 @@ export default function MyOrders() {
     const rawDetail = contractDetail || (contracts[0] ? { ...contracts[0] } : null);
     if (!rawDetail) return message.warning("Đơn này chưa có dữ liệu hợp đồng.");
 
+    let sandbox = null;
     try {
       setPdfGenerating(true);
       revokeBlob(pdfBlobUrl);
@@ -2279,17 +2046,22 @@ export default function MyOrders() {
         console.error("Failed to fetch KYC data:", e);
       }
 
-      if (printRef.current) {
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        const blob = await elementToPdfBlob(printRef.current);
-        const url = URL.createObjectURL(blob);
-        setPdfBlobUrl(url);
-        setPdfModalOpen(true);
+      sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        return;
       }
+
+      sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
+      const blob = await elementToPdfBlob(sandbox);
+      const url = URL.createObjectURL(blob);
+      setPdfBlobUrl(url);
+      setPdfModalOpen(true);
     } catch (e) {
       console.error(e);
       message.error("Không tạo được bản xem trước PDF.");
     } finally {
+      cleanupPrintSandbox(sandbox);
       setPdfGenerating(false);
     }
   }
@@ -2299,6 +2071,7 @@ export default function MyOrders() {
     const rawDetail = contractDetail || (contracts[0] ? { ...contracts[0] } : null);
     if (!rawDetail) return message.warning("Đơn này chưa có dữ liệu hợp đồng.");
 
+    let sandbox = null;
     try {
       setPdfGenerating(true);
       revokeBlob(pdfBlobUrl);
@@ -2324,21 +2097,26 @@ export default function MyOrders() {
         console.error("Failed to fetch KYC data:", e);
       }
 
-      if (printRef.current) {
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        const blob = await elementToPdfBlob(printRef.current);
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        const name = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+      sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        return;
       }
+
+      sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
+      const blob = await elementToPdfBlob(sandbox);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const name = detail.contractFileName || detail.number || `contract-${detail.id}.pdf`;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (e) {
       console.error(e);
       message.error("Không thể tạo/tải PDF.");
     } finally {
+      cleanupPrintSandbox(sandbox);
       setPdfGenerating(false);
     }
   }
@@ -2392,17 +2170,19 @@ export default function MyOrders() {
         console.error("Failed to fetch KYC data:", e);
       }
 
-      if (printRef.current) {
-        printRef.current.style.visibility = "visible";
-        printRef.current.style.opacity = "1";
-        printRef.current.style.left = "-99999px";
-        printRef.current.style.top = "-99999px";
-        printRef.current.style.width = "794px";
-        printRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+      const sandbox = createPrintSandbox();
+      if (!sandbox) {
+        message.error("Không thể chuẩn bị vùng in. Vui lòng thử lại sau.");
+        setPdfGenerating(false);
+        return;
+      }
+
+      try {
+        sandbox.style.visibility = "visible";
+        sandbox.style.opacity = "1";
+        sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
         
-        printRef.current.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        
-        const allElements = printRef.current.querySelectorAll('*');
+        const allElements = sandbox.querySelectorAll('*');
         allElements.forEach(el => {
           if (el.style) {
             el.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
@@ -2411,20 +2191,19 @@ export default function MyOrders() {
           }
         });
         
-        printRef.current.offsetHeight;
+        sandbox.offsetHeight;
         
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        const blob = await elementToPdfBlob(printRef.current);
-        
-        printRef.current.style.visibility = "hidden";
-        printRef.current.style.opacity = "0";
+        const blob = await elementToPdfBlob(sandbox);
         
         const url = URL.createObjectURL(blob);
         setContractPdfPreviewUrl(url);
+      } finally {
+        cleanupPrintSandbox(sandbox);
       }
     } catch (e) {
       console.error("Error generating contract PDF:", e);
@@ -2443,27 +2222,49 @@ export default function MyOrders() {
         const processing = (Array.isArray(res) ? res : []).filter((o) =>
           String(o?.orderStatus || o?.status || "").toLowerCase() === "processing"
         );
+
+        let hasNewProcessingOrder = false;
+        const newlySeenIds = [];
+
         for (const o of processing) {
           const id = o.orderId ?? o.id;
           if (id == null) continue;
           if (!seenProcessingRef.current.has(id)) {
             seenProcessingRef.current.add(id);
-            try { await loadOrders(); } catch {}
-            let contractsSnapshot = [];
-            try { contractsSnapshot = await loadAllContracts(); } catch {}
+            newlySeenIds.push(id);
+            hasNewProcessingOrder = true;
+          }
+        }
+
+        if (hasNewProcessingOrder) {
+          // Cập nhật lại orders & contracts một lần cho tất cả đơn mới phát hiện
+          try {
+            await loadOrders();
+          } catch {}
+
+          let contractsSnapshot = [];
+          try {
+            contractsSnapshot = await loadAllContracts();
+          } catch {}
+
+          newlySeenIds.forEach((id) => {
             const hasContractReady = hasAnyContract(id, contractsSnapshot);
             message.success(
               hasContractReady
                 ? `Đơn ${id} đã có hợp đồng. Vui lòng ký và thanh toán ngay.`
                 : `Đơn ${id} đã được duyệt thành công. Chúng tôi sẽ gửi hợp đồng trong ít phút.`
             );
-          }
+          });
         }
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn("[Polling] Load orders failed:", e?.message || e);
       }
     };
+
+    // Không tạo thêm interval nếu đã tồn tại
+    if (pollingRef.current) return;
+
     run();
     pollingRef.current = setInterval(run, 20000);
   };
@@ -2482,258 +2283,20 @@ export default function MyOrders() {
   /* =========================
    * 7) COLUMNS
    * ========================= */
-  const columns = [
-    {
-      title: "Mã đơn",
-      dataIndex: "displayId",
-      key: "displayId",
-      width: 90,
-      fixed: "left",
-      render: (v) => <Text strong style={{ fontSize: 13 }}>{v}</Text>,
-      sorter: (a, b) => String(a.displayId).localeCompare(String(b.displayId)),
-    },
-    {
-      title: "Sản phẩm",
-      key: "items",
-      width: 220,
-      render: (_, r) => {
-        const first = r.items?.[0] || {};
-        const extra = (r.items?.length ?? 0) > 1 ? ` +${r.items.length - 1} mục` : "";
-        return (
-          <Space size="middle">
-            <Avatar shape="square" size={40} src={first.image} style={{ borderRadius: 6 }} />
-            <div style={{ maxWidth: 150 }}>
-              <Text strong style={{ display: "block", fontSize: 13 }} ellipsis={{ tooltip: first.name }}>
-                {first.name || "—"}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>SL: {first.qty ?? 1}{extra}</Text>
-            </div>
-          </Space>
-        );
-      },
-    },
-    {
-      title: "Ngày tạo đơn",
-      dataIndex: "createdAt",
-      key: "createdAt",
-      width: 130,
-      render: (v) => formatDateTime(v),
-      sorter: (a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0),
-      defaultSortOrder: "descend",
-    },
-    { title: "Số ngày", dataIndex: "days", key: "days", align: "center", width: 80, sorter: (a, b) => (a.days ?? 0) - (b.days ?? 0) },
-    {
-      title: "Tổng tiền thuê",
-      key: "rentalTotal",
-      align: "right",
-      width: 120,
-      render: (_, r) => <Text strong>{formatVND(Number(r.total || 0))}</Text>,
-      sorter: (a, b) => Number(a.total || 0) - Number(b.total || 0),
-    },
-    {
-      title: "Tổng tiền cọc",
-      key: "depositTotal",
-      align: "right",
-      width: 120,
-      render: (_, r) => {
-        const depositTotal = (r.items || []).reduce(
-          (sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0
-        );
-        return <Text>{formatVND(depositTotal)}</Text>;
-      },
-      sorter: (a, b) => {
-        const aDep = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        const bDep = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        return aDep - bDep;
-      },
-    },
-    {
-      title: "Tổng thanh toán",
-      key: "grandTotal",
-      align: "right",
-      width: 140,
-      render: (_, r) => {
-        const dep = (r.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        return <Text strong>{formatVND(Number(r.total || 0) + dep)}</Text>;
-      },
-      sorter: (a, b) => {
-        const depA = (a.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        const depB = (b.items || []).reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-        return (Number(a.total || 0) + depA) - (Number(b.total || 0) + depB);
-      },
-    },
-    {
-      title: "Trạng thái",
-      dataIndex: "orderStatus",
-      key: "orderStatus",
-      width: 140,
-      render: (s) => {
-        const key = String(s || "").toLowerCase();
-        const m = ORDER_STATUS_MAP[key] || { label: s || "—", color: "default" };
-        return <Tag color={m.color} style={{ borderRadius: 20, padding: "0 12px" }}>{m.label}</Tag>;
-      },
-      filters: Object.entries(ORDER_STATUS_MAP).map(([value, { label }]) => ({ text: label, value })),
-      onFilter: (v, r) => String(r.orderStatus).toLowerCase() === String(v).toLowerCase(),
-    },
-    {
-      title: "",
-      key: "actions",
-      width: 100,
-      fixed: "right",
-      render: (_, r) => (
-        <Tooltip title="Chi tiết đơn">
-          <Button type="text" size="small" icon={<EyeOutlined />} onClick={() => showDetail(r)} />
-        </Tooltip>
-      ),
-    },
-  ];
-
   /* =========================
    * 8) RENDER
    * ========================= */
   return (
     <>
-      <div
-        style={{
-          minHeight: "calc(100vh - var(--stacked-header,128px))",
-          marginTop: "-24px",
-          marginBottom: "-24px",
-          background: "#f0f2f5",
-          padding: "24px",
-        }}
-      >
-        <div className="h-full flex flex-col max-w-7xl mx-auto">
-          {/* Header Section */}
-          <Card
-            style={{
-              marginBottom: 16,
-              borderRadius: 12,
-              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-              border: "1px solid #eee",
-              background: "#ffffff",
-            }}
-            bodyStyle={{ padding: "16px 20px" }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-              <div>
-                <Title level={3} style={{ margin: 0, color: "#1a1a1a", fontWeight: 700, fontSize: 22 }}>
-                   Đơn thuê của tôi
-                 </Title>
-                <Text type="secondary" style={{ fontSize: 13, marginTop: 6, display: "block", color: "#666" }}>
-                   Theo dõi trạng thái đơn, thanh toán và tải hợp đồng
-                 </Text>
-              </div>
-              <Button
-                type="primary"
-                icon={<ReloadOutlined />}
-                onClick={refresh}
-                loading={loading}
-                size="middle"
-                style={{
-                  borderRadius: 8,
-                  height: 36,
-                  padding: "0 16px",
-                  fontWeight: 600,
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
-                }}
-              >
-                Tải lại
-              </Button>
-            </div>
-
-            {/* Filters Section */}
-            <Space wrap size="small" style={{ width: "100%" }}>
-              <Input
-                allowClear
-                prefix={<SearchOutlined />}
-                placeholder="Tìm theo mã đơn, tên thiết bị…"
-                size="middle"
-                style={{
-                  width: 300,
-                  borderRadius: 8,
-                  height: 36,
-                }}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <RangePicker
-                onChange={setDateRange}
-                size="middle"
-                style={{
-                  borderRadius: 8,
-                  height: 36,
-                }}
-              />
-              <Dropdown
-                trigger={["click"]}
-                overlay={
-                  <Menu
-                    onClick={({ key }) => setStatusFilter(key === "all" ? undefined : key)}
-                    items={[
-                      { key: "all", label: "Tất cả trạng thái" },
-                      ...Object.entries(ORDER_STATUS_MAP).map(([k, v]) => ({ key: k, label: v.label })),
-                    ]}
-                  />
-                }
-              >
-                <Button
-                  size="middle"
-                  icon={<FilterOutlined />}
-                  style={{
-                    borderRadius: 8,
-                    height: 36,
-                    padding: "0 14px",
-                    borderColor: "#d9d9d9",
-                  }}
-                >
-                  {statusFilter ? `Lọc: ${ORDER_STATUS_MAP[statusFilter].label}` : "Lọc trạng thái"}
-                </Button>
-              </Dropdown>
-            </Space>
-          </Card>
-
-          {/* Table Section */}
-          <Card
-            style={{
-              borderRadius: 12,
-              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-              border: "none",
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-            }}
-            bodyStyle={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
-          >
-            {data.length === 0 ? (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
-                <AnimatedEmpty description="Chưa có đơn nào" />
-              </div>
-            ) : (
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <Table
-                  rowKey="id"
-                  columns={columns}
-                  dataSource={data}
-                  loading={loading || loadingOrders}
-                  size="small"
-                  bordered={false}
-                  className="modern-table"
-                  sticky
-                  scroll={{ x: 900, y: tableScrollY }}
-                  pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    position: ["bottomRight"],
-                    showTotal: (total) => `Tổng ${total} đơn`,
-                    style: { marginTop: 16 },
-                  }}
-                />
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
+      <MyOrdersList
+        orders={orders}
+        loading={loading || loadingOrders}
+        onRefresh={refresh}
+        onSelectOrder={showDetail}
+        formatDateTime={formatDateTime}
+        formatVND={formatVND}
+        orderStatusMap={ORDER_STATUS_MAP}
+      />
 
       {/* Drawer chi tiết đơn */}
       <Drawer
@@ -2857,7 +2420,7 @@ export default function MyOrders() {
             </div>
           );
         })()}
-        {current && hasUnsignedHandoverReports && (
+        {current && (hasUnsignedCheckoutReports || hasUnsignedCheckinReports) && (
           <div
             style={{
               padding: "16px 24px",
@@ -2868,17 +2431,34 @@ export default function MyOrders() {
             <Alert
               type="info"
               showIcon
-              message={`Đơn #${current.displayId ?? current.id} có biên bản bàn giao cần ký`}
-              description="Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
+              message={`Đơn #${current.displayId ?? current.id} có biên bản cần ký`}
+              description={
+                <>
+                  {hasUnsignedCheckoutReports && hasUnsignedCheckinReports 
+                    ? "Vui lòng xem và ký biên bản bàn giao và biên bản thu hồi để hoàn tất thủ tục."
+                    : hasUnsignedCheckoutReports
+                    ? "Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
+                    : "Vui lòng xem và ký biên bản thu hồi để hoàn tất thủ tục."}
+                </>
+              }
               action={
-                <Button type="link" onClick={() => setDetailTab("handover")} style={{ padding: 0 }}>
-                  Xem biên bản
-                </Button>
+                <Space>
+                  {hasUnsignedCheckoutReports && (
+                    <Button type="link" onClick={() => setDetailTab("handover")} style={{ padding: 0 }}>
+                      Xem biên bản bàn giao
+                    </Button>
+                  )}
+                  {hasUnsignedCheckinReports && (
+                    <Button type="link" onClick={() => setDetailTab("checkin")} style={{ padding: 0 }}>
+                      Xem biên bản thu hồi
+                    </Button>
+                  )}
+                </Space>
               }
             />
           </div>
         )}
-        {current && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
+        {current && isOrderInUse(current) && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
           <div
             style={{
               padding: "16px 24px",
@@ -2900,12 +2480,9 @@ export default function MyOrders() {
             />
           </div>
         )}
-        {current && (
-          <Tabs
-            key={current.id}
-            activeKey={detailTab}
-            onChange={setDetailTab}
-            items={[
+        {current && (() => {
+          // Filter tabs based on data availability - only show tabs that have data
+          const allTabs = [
               {
                 key: "overview",
                 label: "Tổng quan",
@@ -2942,7 +2519,7 @@ export default function MyOrders() {
                           >
                             <Descriptions bordered column={2} size="middle">
                             <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
-                            <Descriptions.Item label="Ngày tạo">{formatDateTime(current.createdAt)}</Descriptions.Item>
+                            <Descriptions.Item label="Ngày tạo đơn">{formatDateTime(current.createdAt)}</Descriptions.Item>
                             <Descriptions.Item label="Ngày bắt đầu thuê">
                               {current.startDate ? formatDateTime(current.startDate) : "—"}
                             </Descriptions.Item>
@@ -3069,821 +2646,151 @@ export default function MyOrders() {
                 key: "contract",
                 label: "Hợp đồng",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    <Card
-                      style={{
-                        marginBottom: 24,
-                        borderRadius: 12,
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                        border: "1px solid #e8e8e8",
-                      }}
-                      title={
-                        <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                          Hợp đồng đã tạo
-                        </Title>
-                      }
-                    >
-                      {contractsLoading ? (
-                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                          <Text type="secondary">Đang tải danh sách hợp đồng...</Text>
-                        </div>
-                      ) : contracts.length > 0 ? (
-                        <Table
-                          rowKey="id"
-                          onRow={(record) => ({
-                            onClick: () => {
-                              const isSameContract = selectedContract?.id === record.id;
-                              setSelectedContract(record);
-                              // Auto preview when selecting a different contract or if no preview exists
-                              if (!isSameContract || !contractPdfPreviewUrl) {
-                                previewContractAsPdfInline(record);
-                              }
-                            },
-                            style: { cursor: 'pointer' }
-                          })}
-                          rowClassName={(record) => 
-                            selectedContract?.id === record.id ? 'ant-table-row-selected' : ''
-                          }
-                          columns={[
-                            { title: "Mã hợp đồng", dataIndex: "id", width: 100, render: (v) => <Text strong>#{v}</Text> },
-                            { title: "Số hợp đồng", dataIndex: "number", width: 120, render: (v) => v || "—" },
-                            {
-                              title: "Trạng thái", dataIndex: "status", width: 140,
-                              render: (status) => {
-                                const key = String(status || "").toLowerCase();
-                                const info = CONTRACT_STATUS_MAP[key];
-                                return info ? <Tag color={info.color}>{info.label}</Tag> : <Tag>{status}</Tag>;
-                              },
-                            },
-                            { title: "Ngày tạo", dataIndex: "createdAt", width: 150, render: (v) => formatDateTime(v) },
-                            { 
-                              title: "Tổng thanh toán", 
-                              key: "totalPayment", 
-                              width: 140, 
-                              align: "right", 
-                              render: (_, record) => {
-                                const totalAmount = Number(record.totalAmount || 0);
-                                const depositAmount = Number(record.depositAmount || 0);
-                                return formatVND(totalAmount + depositAmount);
-                              }
-                            },
-                            {
-                              title: "Thao tác",
-                              key: "actions",
-                              width: 220,
-                              render: (_, record) => (
-                                <Space size="small">
-                                  <Button
-                                    size="small"
-                                    icon={<EyeOutlined />}
-                                    onClick={() => {
-                                      setSelectedContract(record);
-                                      previewContractAsPdfInline(record);
-                                    }}
-                                    loading={pdfGenerating && selectedContract?.id === record.id}
-                                  >
-                                    Xem PDF
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    icon={<DownloadOutlined />}
-                                    onClick={() => handleDownloadContract(record)}
-                                    loading={pdfGenerating && selectedContract?.id === record.id}
-                                  >
-                                    Tải PDF
-                                  </Button>
-                            
-                                  {String(record.status || "").toUpperCase() === "PENDING_SIGNATURE" && (
-                                    <Button size="small" type="primary" onClick={() => handleSignContract(record.id)}>
-                                      Ký
-                                    </Button>
-                                  )}
-                                </Space>
-                              ),
-                            }
-                          ]}
-                          dataSource={contracts}
-                          pagination={false}
-                          size="small"
-                        />
-                      ) : (
-                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                          <Text type="secondary">Chưa có hợp đồng nào được tạo cho đơn này</Text>
-                          {needsContractAction && (
-                            <div style={{ marginTop: 12, color: "#6B7280" }}>
-                              Hệ thống sẽ tự động tạo hợp đồng sau khi đơn được chuẩn bị.
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {(() => {
-                        const items = Array.isArray(current?.items) ? current.items : [];
-                        const days = Number(current?.days || 1);
-                        const rentalTotal = items.reduce((s, it) => s + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0) * days;
-                        const depositTotal = items.reduce((s, it) => s + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
-                        
-                        // Check payment status from invoice if available, otherwise use order paymentStatus
-                        const invoiceStatus = invoiceInfo?.invoiceStatus;
-                        const paymentStatus = invoiceStatus 
-                          ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
-                          : String(current.paymentStatus || "unpaid").toLowerCase();
-                        
-                        const canPayCurrent =
-                          ["unpaid", "partial"].includes(paymentStatus) &&
-                          String(current.orderStatus).toLowerCase() === "processing" &&
-                          hasSignedContract(current.id) &&
-                          Number((current?.total ?? rentalTotal) + depositTotal) > 0;
-
-                        if (!canPayCurrent) return null;
-
-                        return (
-                          <div style={{ padding: '16px', textAlign: 'right', borderTop: '1px solid #f0f0f0', marginTop: 16 }}>
-                            <Button
-                              type="primary"
-                              size="middle"
-                              icon={<DollarOutlined />}
-                              onClick={() => handlePayment(current)}
-                              loading={processingPayment}
-                              style={{
-                                borderRadius: 8,
-                                fontWeight: 500,
-                              }}
-                            >
-                              Thanh toán
-                            </Button>
-                          </div>
-                        );
-                      })()}
-                    </Card>
-
-                    <Card
-                      style={{
-                        borderRadius: 12,
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                        border: "1px solid #e8e8e8",
-                      }}
-                      title={
-                        <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                          Hợp đồng PDF
-                        </Title>
-                      }
-                    >
-                      <Space style={{ marginBottom: 16 }} wrap>
-                        {selectedContract && (
-                          <>
-                            <Button 
-                              icon={<ExpandOutlined />} 
-                              onClick={() => {
-                                const url = contractPdfPreviewUrl || selectedContract.contractUrl || pdfPreviewUrl;
-                                return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
-                              }}
-                            >
-                              Xem toàn màn hình
-                            </Button>
-                            {contractPdfPreviewUrl && (
-                              <>
-                                <Button 
-                                  type="primary" 
-                                  icon={<DownloadOutlined />} 
-                                  onClick={() => {
-                                    if (selectedContract) {
-                                      handleDownloadContract(selectedContract);
-                                    }
-                                  }}
-                                  loading={pdfGenerating}
-                                >
-                                  Tải hợp đồng
-                                </Button>
-                                <Button 
-                                  icon={<PrinterOutlined />} 
-                                  onClick={() => {
-                                    const url = contractPdfPreviewUrl;
-                                    if (url) {
-                                      printPdfUrl(url);
-                                    } else {
-                                      message.warning("Không có PDF để in");
-                                    }
-                                  }}
-                                >
-                                  In hợp đồng (PDF)
-                                </Button>
-                              </>
-                            )}
-                          </>
-                        )}
-                        {!contractPdfPreviewUrl && selectedContract && (
-                          <>
-                            <Button 
-                              onClick={() => previewContractAsPdfInline(selectedContract)} 
-                              loading={pdfGenerating}
-                            >
-                              Xem trước hợp đồng PDF
-                            </Button>
-                            <Button 
-                              type="primary" 
-                              onClick={() => {
-                                if (selectedContract) {
-                                  handleDownloadContract(selectedContract);
-                                }
-                              }} 
-                              loading={pdfGenerating}
-                            >
-                              Tạo & tải hợp đồng PDF
-                            </Button>
-                          </>
-                        )}
-                        {!selectedContract && (
-                          <Text type="secondary">Vui lòng chọn một hợp đồng từ danh sách để xem PDF</Text>
-                        )}
-                      </Space>
-
-                      <div
-                        style={{
-                          height: 460,
-                          border: "1px solid #e8e8e8",
-                          borderRadius: 10,
-                          overflow: "hidden",
-                          background: "#fafafa",
-                          marginTop: 12,
-                          boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        {contractPdfPreviewUrl ? (
-                          <iframe
-                            key={contractPdfPreviewUrl}
-                            title="ContractPreview"
-                            src={contractPdfPreviewUrl}
-                            style={{ width: "100%", height: "100%", border: "none" }}
-                          />
-                        ) : (
-                          <div className="h-full flex items-center justify-center">
-                            <Text type="secondary">
-                              <FilePdfOutlined /> {selectedContract ? "Nhấn 'Xem trước hợp đồng PDF' để hiển thị" : "Chưa chọn hợp đồng để hiển thị."}
-                            </Text>
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  </div>
+                  <MyOrderContractTab
+                    current={current}
+                    contracts={contracts}
+                    contractsLoading={contractsLoading}
+                    selectedContract={selectedContract}
+                    setSelectedContract={setSelectedContract}
+                    contractPdfPreviewUrl={contractPdfPreviewUrl}
+                    pdfGenerating={pdfGenerating}
+                    processingPayment={processingPayment}
+                    invoiceInfo={invoiceInfo}
+                    PAYMENT_STATUS_MAP={PAYMENT_STATUS_MAP}
+                    CONTRACT_STATUS_MAP={CONTRACT_STATUS_MAP}
+                    formatVND={formatVND}
+                    formatDateTime={formatDateTime}
+                    hasSignedContract={hasSignedContract}
+                    handlePayment={handlePayment}
+                    handleDownloadContract={handleDownloadContract}
+                    handleSignContract={handleSignContract}
+                    previewContractAsPdfInline={previewContractAsPdfInline}
+                    mapInvoiceStatusToPaymentStatus={mapInvoiceStatusToPaymentStatus}
+                    message={message}
+                    pdfPreviewUrl={pdfPreviewUrl}
+                  />
                 ),
               },
               {
                 key: "handover",
                 label: "Biên bản bàn giao",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {handoverReportsLoading ? (
-                      <Card>
-                        <Text>Đang tải biên bản bàn giao...</Text>
-                      </Card>
-                    ) : handoverReports.length > 0 ? (
-                      <>
-                      <Card
-                        style={{
-                          marginBottom: 24,
-                          borderRadius: 12,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                          border: "1px solid #e8e8e8",
-                        }}
-                        title={
-                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                            Danh sách biên bản bàn giao
-                          </Title>
-                        }
-                      >
-                        <Table
-                          rowKey="handoverReportId"
-                          onRow={(record) => ({
-                            onClick: () => {
-                              const isSameReport = selectedHandoverReport?.handoverReportId === record.handoverReportId;
-                              setSelectedHandoverReport(record);
-                              // Auto preview when selecting a different report or if no preview exists
-                              if (!isSameReport || !handoverPdfPreviewUrl) {
-                                previewHandoverReportAsPdf(record);
-                              }
-                            },
-                            style: { cursor: 'pointer' }
-                          })}
-                          rowClassName={(record) => 
-                            selectedHandoverReport?.handoverReportId === record.handoverReportId ? 'ant-table-row-selected' : ''
-                          }
-                          columns={[
-                            { title: "Mã biên bản", dataIndex: "handoverReportId", width: 120, render: (v) => <Text strong>#{v}</Text> },
-                            {
-                              title: "Trạng thái", dataIndex: "status", width: 160,
-                              render: (status) => {
-                                const s = String(status || "").toUpperCase();
-                                const color = s === "STAFF_SIGNED" ? "green" : s === "CUSTOMER_SIGNED" ? "blue" : s === "COMPLETED" || s === "BOTH_SIGNED" ? "green" : "orange";
-                                const label = translateHandoverStatus(status);
-                                return <Tag color={color}>{label}</Tag>;
-                              },
-                            },
-                            { title: "Thời gian bàn giao", dataIndex: "handoverDateTime", width: 180, render: (v) => formatDateTime(v) },
-                            { title: "Địa điểm", dataIndex: "handoverLocation", width: 250, ellipsis: true },
-                            {
-                              title: "Thao tác",
-                              key: "actions",
-                              width: 180,
-                              render: (_, record) => {
-                                const status = String(record.status || "").toUpperCase();
-                                const isStaffSigned = status === "STAFF_SIGNED" || status === "BOTH_SIGNED";
-                                const isCustomerSigned = record.customerSigned === true || status === "CUSTOMER_SIGNED" || status === "BOTH_SIGNED" || status === "COMPLETED";
-                                const canSign = isStaffSigned && !isCustomerSigned;
-                                
-                                return (
-                                  <Space size="small" wrap>
-                                    <Button
-                                      size="small"
-                                      icon={<EyeOutlined />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedHandoverReport(record);
-                                        previewHandoverReportAsPdf(record);
-                                      }}
-                                      loading={handoverPdfGenerating && selectedHandoverReport?.handoverReportId === record.handoverReportId}
-                                    >
-                                      Xem PDF
-                                    </Button>
-                                    {canSign && (
-                                      <Button
-                                        size="small"
-                                        type="primary"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleSignHandoverReport(record.handoverReportId);
-                                        }}
-                                      >
-                                        Ký
-                                      </Button>
-                                    )}
-                                  </Space>
-                                );
-                              },
-                            }
-                          ]}
-                          dataSource={handoverReports}
-                          pagination={false}
-                          size="small"
-                          scroll={{ x: 890 }}
-                        />
-                      </Card>
-
-                      <Card
-                        style={{
-                          borderRadius: 12,
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                          border: "1px solid #e8e8e8",
-                        }}
-                        title={
-                          <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                            Biên bản bàn giao PDF
-                          </Title>
-                        }
-                      >
-                        <Space style={{ marginBottom: 16 }} wrap>
-                          {selectedHandoverReport && (
-                            <>
-                              <Button 
-                                icon={<ExpandOutlined />} 
-                                onClick={() => {
-                                  const url = handoverPdfPreviewUrl || handoverPdfBlobUrl;
-                                  return url ? window.open(url, "_blank", "noopener") : message.warning("Không có PDF để xem");
-                                }}
-                              >
-                                Xem toàn màn hình
-                              </Button>
-                              {handoverPdfPreviewUrl && (
-                                <>
-                                  <Button 
-                                    type="primary" 
-                                    icon={<DownloadOutlined />} 
-                                    onClick={() => {
-                                      if (selectedHandoverReport) {
-                                        handleDownloadHandoverPdf(selectedHandoverReport);
-                                      }
-                                    }}
-                                    loading={handoverPdfGenerating}
-                                  >
-                                    Tải biên bản
-                                  </Button>
-                                  <Button 
-                                    icon={<PrinterOutlined />} 
-                                    onClick={() => {
-                                      const url = handoverPdfPreviewUrl;
-                                      if (url) {
-                                        printPdfUrl(url);
-                                      } else {
-                                        message.warning("Không có PDF để in");
-                                      }
-                                    }}
-                                  >
-                                    In biên bản (PDF)
-                                  </Button>
-                                </>
-                              )}
-                            </>
-                          )}
-                          {!handoverPdfPreviewUrl && selectedHandoverReport && (
-                            <>
-                              <Button 
-                                onClick={() => previewHandoverReportAsPdf(selectedHandoverReport)} 
-                                loading={handoverPdfGenerating}
-                              >
-                                Xem trước biên bản PDF
-                              </Button>
-                              <Button 
-                                type="primary" 
-                                onClick={() => handleDownloadHandoverPdf(selectedHandoverReport)} 
-                                loading={handoverPdfGenerating}
-                              >
-                                Tạo & tải biên bản PDF
-                              </Button>
-                            </>
-                          )}
-                          {!selectedHandoverReport && (
-                            <Text type="secondary">Vui lòng chọn một biên bản từ danh sách để xem PDF</Text>
-                          )}
-                        </Space>
-
-                        <div
-                          style={{
-                            height: 460,
-                            border: "1px solid #e8e8e8",
-                            borderRadius: 10,
-                            overflow: "hidden",
-                            background: "#fafafa",
-                            marginTop: 12,
-                            boxShadow: "inset 0 2px 8px rgba(0,0,0,0.06)",
-                          }}
-                        >
-                          {handoverPdfPreviewUrl ? (
-                            <iframe
-                              key={handoverPdfPreviewUrl}
-                              title="HandoverReportPreview"
-                              src={handoverPdfPreviewUrl}
-                              style={{ width: "100%", height: "100%", border: "none" }}
-                            />
-                          ) : (
-                            <div className="h-full flex items-center justify-center">
-                              <Text type="secondary">
-                                <FilePdfOutlined /> {selectedHandoverReport ? "Nhấn 'Xem trước biên bản PDF' để hiển thị" : "Chưa chọn biên bản để hiển thị."}
-                              </Text>
-                            </div>
-                          )}
-                        </div>
-                      </Card>
-                      </>
-                    ) : (
-                      <Card>
-                        <Text type="secondary">Chưa có biên bản bàn giao nào được tạo cho đơn hàng này.</Text>
-                      </Card>
-                    )}
-                  </div>
+                  <MyOrderHandoverTab
+                    current={current}
+                    checkoutReports={checkoutReports}
+                    checkinReports={checkinReports}
+                    handoverReportsLoading={handoverReportsLoading}
+                    selectedHandoverReport={selectedHandoverReport}
+                    setSelectedHandoverReport={setSelectedHandoverReport}
+                    selectedCheckinReport={selectedCheckinReport}
+                    setSelectedCheckinReport={setSelectedCheckinReport}
+                    handoverPdfPreviewUrl={handoverPdfPreviewUrl}
+                    checkinPdfPreviewUrl={checkinPdfPreviewUrl}
+                    handoverPdfBlobUrl={handoverPdfBlobUrl}
+                    handoverPdfGenerating={handoverPdfGenerating}
+                    formatDateTime={formatDateTime}
+                    translateHandoverStatus={translateHandoverStatus}
+                    loadOrderHandoverReports={loadOrderHandoverReports}
+                    previewHandoverReportAsPdf={previewHandoverReportAsPdf}
+                    handleDownloadHandoverPdf={handleDownloadHandoverPdf}
+                    handleSignHandoverReport={handleSignHandoverReport}
+                    message={message}
+                  />
+                ),
+              },
+              {
+                key: "checkin",
+                label: "Biên bản thu hồi",
+                children: (
+                  <MyOrderCheckinTab
+                    current={current}
+                    checkinReports={checkinReports}
+                    handoverReportsLoading={handoverReportsLoading}
+                    selectedCheckinReport={selectedCheckinReport}
+                    setSelectedCheckinReport={setSelectedCheckinReport}
+                    checkinPdfPreviewUrl={checkinPdfPreviewUrl}
+                    handoverPdfBlobUrl={handoverPdfBlobUrl}
+                    handoverPdfGenerating={handoverPdfGenerating}
+                    formatDateTime={formatDateTime}
+                    translateHandoverStatus={translateHandoverStatus}
+                    loadOrderHandoverReports={loadOrderHandoverReports}
+                    previewHandoverReportAsPdf={previewHandoverReportAsPdf}
+                    handleDownloadHandoverPdf={handleDownloadHandoverPdf}
+                    handleSignHandoverReport={handleSignHandoverReport}
+                    message={message}
+                  />
                 ),
               },
               {
                 key: "return",
                 label: "Trả hàng và gia hạn",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {(() => {
-                      const daysRemaining = getDaysRemaining(current?.endDate);
-                      const isClose = isCloseToReturnDate(current);
-                      const returnConfirmed = isReturnConfirmedSync(current);
-                      const status = String(current?.orderStatus || "").toLowerCase();
-                      const canReturn = ["active", "in_use"].includes(status) && daysRemaining !== null && !returnConfirmed;
-
-                      // If return is confirmed, show thank you message
-                      if (returnConfirmed) {
-                        return (
-                          <>
-                            <Card
-                              style={{
-                                marginBottom: 24,
-                                borderRadius: 12,
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                                border: "1px solid #52c41a",
-                                background: "#f6ffed",
-                              }}
-                            >
-                              <Alert
-                                type="success"
-                                showIcon
-                                message="Cảm ơn bạn đã xác nhận trả hàng"
-                                description={
-                                  <div>
-                                    <Text>
-                                      Chúng tôi đã nhận được xác nhận trả hàng của bạn cho đơn hàng <Text strong>#{current?.displayId ?? current?.id}</Text>.
-                                    </Text>
-                                    <div style={{ marginTop: 12 }}>
-                                      <Text strong>Những việc tiếp theo:</Text>
-                                      <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
-                                        <li>Vui lòng chuẩn bị thiết bị và tất cả phụ kiện đi kèm để bàn giao</li>
-                                        <li>Đảm bảo thiết bị được đóng gói cẩn thận và an toàn</li>
-                                        <li>Kiểm tra lại danh sách thiết bị và phụ kiện theo hợp đồng trước khi bàn giao</li>
-                                      </ul>
-                                    </div>
-                                  </div>
-                                }
-                              />
-                            </Card>
-
-                            <Card
-                              style={{
-                                marginBottom: 24,
-                                borderRadius: 12,
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                                border: "1px solid #e8e8e8",
-                              }}
-                              title={
-                                <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                  Thông tin trả hàng
-                                </Title>
-                              }
-                            >
-                              <Descriptions bordered column={1} size="middle">
-                                <Descriptions.Item label="Mã đơn hàng">
-                                  <Text strong>#{current?.displayId ?? current?.id}</Text>
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Ngày bắt đầu thuê">
-                                  {current?.startDate ? formatDateTime(current.startDate) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Ngày kết thúc thuê">
-                                  {current?.endDate ? formatDateTime(current.endDate) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Số ngày thuê">
-                                  {current?.days ? `${current.days} ngày` : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Trạng thái">
-                                  <Tag color="green" style={{ fontSize: 14, padding: "4px 12px" }}>
-                                    Đã xác nhận trả hàng
-                                  </Tag>
-                                </Descriptions.Item>
-                              </Descriptions>
-                            </Card>
-                          </>
-                        );
-                      }
-
-                      // Normal return/extend interface
-                      return (
-                        <>
-                          <Card
-                            style={{
-                              marginBottom: 24,
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                            }}
-                            title={
-                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                Thông tin trả hàng
-                              </Title>
-                            }
-                          >
-                            <Descriptions bordered column={1} size="middle">
-                              <Descriptions.Item label="Ngày bắt đầu thuê">
-                                {current?.startDate ? formatDateTime(current.startDate) : "—"}
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Ngày kết thúc thuê">
-                                {current?.endDate ? formatDateTime(current.endDate) : "—"}
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Số ngày thuê">
-                                {current?.days ? `${current.days} ngày` : "—"}
-                              </Descriptions.Item>
-                              <Descriptions.Item label="Thời gian còn lại">
-                                {daysRemaining !== null ? (
-                                  <Tag color={isClose ? "orange" : "green"} style={{ fontSize: 14, padding: "4px 12px" }}>
-                                    {formatRemainingDaysText(daysRemaining)}
-                                  </Tag>
-                                ) : (
-                                  "—"
-                                )}
-                              </Descriptions.Item>
-                            </Descriptions>
-                          </Card>
-
-                          {isClose && (
-                            <Card
-                              style={{
-                                marginBottom: 24,
-                                borderRadius: 12,
-                                boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                                border: "1px solid #ffa940",
-                                background: "#fff7e6",
-                              }}
-                            >
-                              <Alert
-                                type="warning"
-                                showIcon
-                                message="Đơn hàng sắp đến hạn trả"
-                                description={
-                                  <div>
-                                    <Text>
-                                      Đơn hàng của bạn sẽ hết hạn sau 1 ngày. Vui lòng chọn một trong các tùy chọn sau:
-                                    </Text>
-                                    <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
-                                      <li><Text strong>Gia hạn:</Text> Nếu bạn muốn tiếp tục sử dụng thiết bị, vui lòng liên hệ bộ phận hỗ trợ để gia hạn.</li>
-                                      <li><Text strong>Trả hàng:</Text> Xác nhận trả hàng để chúng tôi thu hồi thiết bị đúng hạn.</li>
-                                    </ul>
-                                  </div>
-                                }
-                              />
-                            </Card>
-                          )}
-
-                          <Card
-                            style={{
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                            }}
-                            title={
-                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                Thao tác
-                              </Title>
-                            }
-                          >
-                            <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                              {canReturn && (
-                                <>
-                                  <div>
-                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
-                                      Gia hạn đơn hàng
-                                    </Text>
-                                    <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
-                                      Nếu bạn muốn tiếp tục sử dụng thiết bị, vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.
-                                    </Text>
-                                    <Button
-                                      type="default"
-                                      size="large"
-                                      onClick={() => setExtendModalOpen(true)}
-                                      style={{ width: "100%" }}
-                                    >
-                                      Yêu cầu gia hạn
-                                    </Button>
-                                  </div>
-                                  <Divider />
-                                  <div>
-                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
-                                      Xác nhận trả hàng
-                                    </Text>
-                                    <Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
-                                      Xác nhận trả hàng để chúng tôi tạo task thu hồi thiết bị.
-                                    </Text>
-                                    <Button
-                                      type="primary"
-                                      size="large"
-                                      onClick={() => setReturnModalOpen(true)}
-                                      style={{ width: "100%" }}
-                                      danger={isClose}
-                                    >
-                                      Xác nhận trả hàng
-                                    </Button>
-                                  </div>
-                                </>
-                              )}
-                              {!canReturn && (
-                                <Alert
-                                  type="info"
-                                  message="Đơn hàng này không thể trả hàng hoặc gia hạn"
-                                  description="Chỉ các đơn hàng đang trong trạng thái 'Đang thuê' hoặc 'Đang sử dụng' mới có thể thực hiện thao tác trả hàng hoặc gia hạn."
-                                />
-                              )}
-                            </Space>
-                          </Card>
-                        </>
-                      );
-                    })()}
-                  </div>
+                  <MyOrderReturnTab
+                    current={current}
+                    getDaysRemaining={getDaysRemaining}
+                    formatRemainingDaysText={formatRemainingDaysText}
+                    isCloseToReturnDate={isCloseToReturnDate}
+                    isReturnConfirmedSync={isReturnConfirmedSync}
+                    setReturnModalOpen={setReturnModalOpen}
+                    setExtendModalOpen={setExtendModalOpen}
+                    diffDays={diffDays}
+                    formatDateTime={formatDateTime}
+                  />
                 ),
               },
               {
                 key: "settlement",
                 label: "Quyết toán & hoàn cọc",
                 children: (
-                  <div style={{ padding: 24 }}>
-                    {settlementLoading ? (
-                      <Card>
-                        <Text>Đang tải thông tin quyết toán...</Text>
-                      </Card>
-                    ) : settlementInfo ? (
-                      <>
-                        <Card
-                          style={{
-                            marginBottom: 24,
-                            borderRadius: 12,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                            border: "1px solid #e8e8e8",
-                          }}
-                          title={
-                            <Title level={5} style={{ margin: 0 }}>
-                              Thông tin quyết toán
-                            </Title>
-                          }
-                        >
-                          <Descriptions bordered column={1} size="middle">
-                            <Descriptions.Item label="Tổng tiền cọc">
-                              {formatVND(settlementInfo.totalRent || 0)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Phí hư hỏng">
-                              {formatVND(settlementInfo.damageFee || 0)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Phí trễ hạn">
-                              {formatVND(settlementInfo.lateFee || 0)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Phí phụ kiện">
-                              {formatVND(settlementInfo.accessoryFee || 0)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Cọc đã dùng">
-                              {formatVND(settlementInfo.depositUsed || 0)}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Số tiền hoàn lại / cần thanh toán">
-                              <Text strong>{formatVND(settlementInfo.finalAmount || 0)}</Text>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Trạng thái">
-                              {(() => {
-                                const key = String(settlementInfo.state || "").toLowerCase();
-                                const info = SETTLEMENT_STATUS_MAP[key] || { label: settlementInfo.state || "—", color: "default" };
-                                return <Tag color={info.color}>{info.label}</Tag>;
-                              })()}
-                            </Descriptions.Item>
-                          </Descriptions>
-                        </Card>
-
-                        <Card
-                          style={{
-                            borderRadius: 12,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                            border: "1px solid #e8e8e8",
-                          }}
-                        >
-                          {(() => {
-                            const state = String(settlementInfo.state || "").toUpperCase();
-                            const canRespond = !["ISSUED", "REJECTED", "CANCELLED", "CLOSED"].includes(state);
-                            if (!canRespond) {
-                              return (
-                                <Alert
-                                  type={
-                                    state === "ISSUED"
-                                      ? "success"
-                                      : state === "REJECTED"
-                                      ? "error"
-                                      : "info"
-                                  }
-                                  showIcon
-                                  message={
-                                    state === "ISSUED"
-                                      ? "Bạn đã chấp nhận quyết toán này."
-                                      : state === "REJECTED"
-                                      ? "Bạn đã từ chối quyết toán này."
-                                      : state === "CLOSED"
-                                      ? "Quyết toán đã tất toán xong. Cảm ơn bạn đã hợp tác."
-                                      : "Quyết toán đã được xử lý."
-                                  }
-                                />
-                              );
-                            }
-                            return (
-                              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                                <Alert
-                                  type="warning"
-                                  showIcon
-                                  message="Vui lòng xem và xác nhận quyết toán để hoàn tất việc hoàn cọc."
-                                />
-                                <Space>
-                                  <Button
-                                    type="primary"
-                                    loading={settlementActionLoading}
-                                    onClick={() => handleRespondSettlement(true)}
-                                  >
-                                    Chấp nhận quyết toán
-                                  </Button>
-                                  <Button
-                                    danger
-                                    loading={settlementActionLoading}
-                                    onClick={() => handleRespondSettlement(false)}
-                                  >
-                                    Từ chối
-                                  </Button>
-                                </Space>
-                              </Space>
-                            );
-                          })()}
-                        </Card>
-                      </>
-                    ) : (
-                      <Card>
-                        <Text type="secondary">Chưa có quyết toán nào được tạo cho đơn hàng này.</Text>
-                      </Card>
-                    )}
-                  </div>
+                  <MyOrderSettlementTab
+                    current={current}
+                    settlementInfo={settlementInfo}
+                    settlementLoading={settlementLoading}
+                    settlementActionLoading={settlementActionLoading}
+                    splitSettlementAmounts={splitSettlementAmounts}
+                    formatVND={formatVND}
+                    SETTLEMENT_STATUS_MAP={SETTLEMENT_STATUS_MAP}
+                    handleRespondSettlement={handleRespondSettlement}
+                  />
                 ),
               },
-            ]}
-          />
-        )}
+            ];
+
+            // Filter tabs: only show tabs that have data (hide empty tabs completely)
+            // Show tab while loading, but hide if loaded and no data
+            const filteredTabs = allTabs.filter(tab => {
+              if (tab.key === "overview" || tab.key === "return") {
+                // Always show overview and return tabs
+                return true;
+              }
+              if (tab.key === "contract") {
+                // Show while loading, or if there are contracts
+                return contractsLoading || contracts.length > 0;
+              }
+              if (tab.key === "handover") {
+                // Show while loading, or if there are checkout reports
+                return handoverReportsLoading || checkoutReports.length > 0;
+              }
+              if (tab.key === "checkin") {
+                // Show while loading, or if there are checkin reports
+                return handoverReportsLoading || checkinReports.length > 0;
+              }
+              if (tab.key === "settlement") {
+                // Show while loading, or if there is settlement info
+                return settlementLoading || settlementInfo !== null;
+              }
+              return true;
+            });
+
+            return (
+              <Tabs
+                key={current.id}
+                activeKey={detailTab}
+                onChange={setDetailTab}
+                items={filteredTabs}
+              />
+            );
+          })()}
       </Drawer>
 
       {/* Modal chi tiết hợp đồng */}
@@ -4264,28 +3171,29 @@ export default function MyOrders() {
       <Modal
         title="Yêu cầu gia hạn đơn hàng"
         open={extendModalOpen}
-        onCancel={() => setExtendModalOpen(false)}
+        onCancel={() => {
+          setExtendModalOpen(false);
+          setExtendedEndTime(null);
+        }}
         onOk={handleExtendRequest}
         okText="Gửi yêu cầu"
         cancelText="Hủy"
+        okButtonProps={{ loading: processingExtend }}
         destroyOnClose
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <Alert
-            type="info"
-            showIcon
-            message="Tính năng gia hạn đang được phát triển"
-            description={
-              <div>
-                <Text>
-                  Hiện tại tính năng gia hạn đơn hàng đang được phát triển. Vui lòng liên hệ bộ phận hỗ trợ để được hỗ trợ gia hạn đơn hàng.
-                </Text>
-                {current && (
-                  <div style={{ marginTop: 12 }}>
-                    <Text strong>Thông tin đơn hàng:</Text>
+          {current && (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                message="Thông tin đơn hàng"
+                description={
+                  <div>
                     <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
                       <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
-                      <li>Ngày kết thúc thuê: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                      <li>Ngày bắt đầu thuê: <Text strong>{current.startDate ? formatDateTime(current.startDate) : "—"}</Text></li>
+                      <li>Ngày kết thúc thuê hiện tại: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
                       {(() => {
                         const days = getDaysRemaining(current.endDate);
                         if (days === null) return null;
@@ -4297,10 +3205,77 @@ export default function MyOrders() {
                       })()}
                     </ul>
                   </div>
-                )}
-              </div>
-            }
-          />
+                }
+              />
+              <Form.Item
+                label="Ngày kết thúc mới"
+                required
+                help="Vui lòng chọn ngày kết thúc mới cho đơn hàng. Ngày này phải sau ngày kết thúc hiện tại."
+              >
+                <DatePicker
+                  style={{ width: "100%" }}
+                  showTime
+                  format="DD/MM/YYYY HH:mm"
+                  placeholder="Chọn ngày kết thúc mới"
+                  value={extendedEndTime ? dayjs(extendedEndTime) : null}
+                  onChange={(date) => {
+                    if (date) {
+                      // Convert to ISO string
+                      setExtendedEndTime(date.toISOString());
+                    } else {
+                      setExtendedEndTime(null);
+                    }
+                  }}
+                  disabledDate={(currentDate) => {
+                    if (!current?.endDate || !currentDate) return false;
+                    const endDate = dayjs(current.endDate);
+                    // Disable dates before or equal to current end date
+                    return currentDate.isBefore(endDate, "day") || currentDate.isSame(endDate, "day");
+                  }}
+                  disabledTime={(currentDate) => {
+                    if (!currentDate) return {};
+                    if (!current?.endDate) return {};
+                    const endDate = dayjs(current.endDate);
+                    // If selected date is same as end date, disable times before end time
+                    if (currentDate.isSame(endDate, "day")) {
+                      return {
+                        disabledHours: () => {
+                          const hours = [];
+                          for (let i = 0; i < endDate.hour(); i++) {
+                            hours.push(i);
+                          }
+                          return hours;
+                        },
+                        disabledMinutes: (selectedHour) => {
+                          if (selectedHour === endDate.hour()) {
+                            const minutes = [];
+                            for (let i = 0; i <= endDate.minute(); i++) {
+                              minutes.push(i);
+                            }
+                            return minutes;
+                          }
+                          return [];
+                        },
+                      };
+                    }
+                    return {};
+                  }}
+                />
+              </Form.Item>
+              {extendedEndTime && current?.endDate && (() => {
+                const currentEnd = new Date(current.endDate);
+                const newEnd = new Date(extendedEndTime);
+                const diffDays = Math.ceil((newEnd - currentEnd) / (1000 * 60 * 60 * 24));
+                return (
+                  <Alert
+                    type="success"
+                    message={`Đơn hàng sẽ được gia hạn thêm ${diffDays} ngày`}
+                    description={`Ngày kết thúc mới: ${formatDateTime(extendedEndTime)}`}
+                  />
+                );
+              })()}
+            </>
+          )}
         </Space>
       </Modal>
 
@@ -4369,11 +3344,6 @@ export default function MyOrders() {
           );
         })()}
       </Modal>
-
-      {/* Container ẩn để render A4 rồi chụp */}
-      <div style={{ position:"fixed", left:-9999, top:-9999, background:"#fff" }}>
-        <div ref={printRef} />
-      </div>
 
       {/* Container ẩn để render handover report PDF */}
       <div

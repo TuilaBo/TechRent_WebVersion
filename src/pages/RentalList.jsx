@@ -25,10 +25,11 @@ import {
   ClearOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useParams } from "react-router-dom";
+import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
 import { fetchCategoryById } from "../lib/categoryApi";
-import { getDeviceModels, normalizeModel } from "../lib/deviceModelsApi";
+import { getDeviceModels, normalizeModel, getDeviceAvailability } from "../lib/deviceModelsApi";
 import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils";
 
@@ -41,6 +42,23 @@ const PRICE_BUCKETS = [
   { key: "2m-5m", label: "2,000,000đ - 5,000,000đ", test: (v) => v >= 2000000 && v <= 5000000 },
   { key: "gt5m", label: "Trên 5,000,000đ", test: (v) => v > 5000000 },
 ];
+
+// Dùng chung với CartPage để lấy khoảng ngày thuê hiện tại (nếu đã chọn từ trước)
+const CART_DATES_STORAGE_KEY = "techrent-cart-dates";
+
+function readCartDates() {
+  try {
+    const fromLocal = localStorage.getItem(CART_DATES_STORAGE_KEY);
+    const fromSession = sessionStorage.getItem(CART_DATES_STORAGE_KEY);
+    const raw = fromLocal || fromSession;
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d?.startDate || !d?.endDate) return null;
+    return { start: dayjs(d.startDate), end: dayjs(d.endDate) };
+  } catch {
+    return null;
+  }
+}
 
 export default function RentalList() {
   const { id: categoryId } = useParams();
@@ -73,15 +91,54 @@ export default function RentalList() {
         setCategory(cat ?? null);
         const all = await getDeviceModels();
         const normalized = (Array.isArray(all) ? all : []).map(normalizeModel);
+
+        // Tính khoảng thời gian thuê hiện tại (nếu có) để lấy số lượng khả dụng chính xác
+        let startIso = null;
+        let endIso = null;
+        const storedDates = readCartDates();
+        if (storedDates?.start && storedDates?.end) {
+          // Dùng 09:00 giống CartPage mặc định
+          const start = storedDates.start.hour(9).minute(0).second(0).millisecond(0);
+          const end = storedDates.end.hour(9).minute(0).second(0).millisecond(0);
+          startIso = start.format("YYYY-MM-DD[T]HH:mm:ss");
+          endIso = end.format("YYYY-MM-DD[T]HH:mm:ss");
+        }
+
         const enriched = await Promise.all(
           normalized.map(async (m) => {
-            if (!m.brand && m.brandId) {
+            let brandName = m.brand;
+            if (!brandName && m.brandId) {
               try {
                 const b = await getBrandById(m.brandId);
-                return { ...m, brand: b?.brandName ?? b?.name ?? "" };
-              } catch { return m; }
+                brandName = b?.brandName ?? b?.name ?? "";
+              } catch {
+                // ignore brand error, keep original
+              }
             }
-            return m;
+
+            // Mặc định lấy amountAvailable từ BE nếu không có khoảng ngày
+            let amountAvailable = Number(m.amountAvailable || 0);
+
+            if (startIso && endIso) {
+              try {
+                const availability = await getDeviceAvailability(m.id, startIso, endIso);
+                if (typeof availability === "number") {
+                  amountAvailable = Math.max(0, Number(availability) || 0);
+                } else if (availability && typeof availability === "object") {
+                  const count =
+                    availability.availableCount ??
+                    availability.available ??
+                    availability.count ??
+                    availability.quantity ??
+                    0;
+                  amountAvailable = Math.max(0, Number(count) || 0);
+                }
+              } catch {
+                // nếu API lỗi, giữ nguyên amountAvailable ban đầu
+              }
+            }
+
+            return { ...m, brand: brandName, amountAvailable };
           })
         );
         const list = enriched.filter(

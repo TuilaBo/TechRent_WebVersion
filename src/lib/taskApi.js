@@ -60,6 +60,32 @@ export async function getTaskById(taskId) {
   return payload ? normalizeTask(payload) : null;
 }
 
+/** GET /api/staff/tasks/staff-assignments – Lịch làm việc trong ngày của staff
+ * params: { staffId?: number, date?: string(YYYY-MM-DD) }
+ */
+export async function getStaffAssignments(params = {}) {
+  const query = {};
+  if (params.staffId !== undefined && params.staffId !== null) {
+    query.staffId = Number(params.staffId);
+  }
+  if (params.date) {
+    query.date = params.date;
+  }
+
+  const { data } = await api.get("/api/staff/tasks/staff-assignments", {
+    params: query,
+  });
+  const payload = data?.data ?? data ?? [];
+  return Array.isArray(payload) ? payload.map(normalizeTask) : [];
+}
+
+/** GET /api/staff/tasks/active-rule – Lấy rule tác vụ hiện hành trong hệ thống */
+export async function getActiveTaskRule() {
+  const { data } = await api.get("/api/staff/tasks/active-rule");
+  // BE có thể bọc trong { status, message, data } nên ưu tiên lấy data.data
+  return data?.data ?? data ?? null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Write APIs                                                         */
 /* ------------------------------------------------------------------ */

@@ -1006,10 +1006,7 @@ export default function CartPage() {
                         value={startTime}
                         onChange={(t) => {
                           setStartTime(t);
-                          // nếu chưa chọn giờ kết thúc thì cho trùng với giờ bắt đầu
-                          if (!endTime && t) {
-                            setEndTime(t);
-                          }
+                          setEndTime(t);
                         }}
                         format="HH:mm"
                         style={{ width: "100%" }}
@@ -1021,7 +1018,9 @@ export default function CartPage() {
                       </Text>
                       <TimePicker
                         value={endTime}
-                        onChange={(t) => setEndTime(t)}
+                        onChange={(t) => {
+                          setEndTime(t);
+                        }}
                         format="HH:mm"
                         style={{ width: "100%" }}
                       />

@@ -73,6 +73,21 @@ export async function confirmReturnRentalOrder(id) {
   return data?.data ?? data ?? null;
 }
 
+/** Gia hạn đơn thuê
+ * Tạo đơn gia hạn từ đơn thuê hiện có
+ * @param {number} rentalOrderId - Rental order ID
+ * @param {string} extendedEndTime - Thời gian kết thúc mới (ISO 8601 format)
+ * @returns {Promise<any>} Response data
+ */
+export async function extendRentalOrder(rentalOrderId, extendedEndTime) {
+  const payload = {
+    rentalOrderId: Number(rentalOrderId),
+    extendedEndTime: extendedEndTime,
+  };
+  const { data } = await api.post("/api/rental-orders/extend", payload);
+  return data?.data ?? data ?? null;
+}
+
 /** Helper định dạng VND */
 export const fmtVND = (n) =>
   Number(n || 0).toLocaleString("vi-VN", { style: "currency", currency: "VND" });

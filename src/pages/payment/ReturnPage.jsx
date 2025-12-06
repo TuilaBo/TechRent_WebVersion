@@ -1,5 +1,5 @@
 // src/pages/payment/ReturnPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, Result, Button, Space, Typography, Spin } from "antd";
 import { CheckCircleOutlined, HomeOutlined, ShoppingOutlined } from "@ant-design/icons";
@@ -15,6 +15,24 @@ function formatVNDHelper(n = 0) {
   }
 }
 
+// Mapping trạng thái hóa đơn sang tiếng Việt
+const INVOICE_STATUS_MAP = {
+  PENDING: "Chờ thanh toán",
+  SUCCEEDED: "Đã thanh toán",
+  COMPLETED: "Hoàn thành",
+  CANCELLED: "Đã hủy",
+  REFUNDED: "Đã hoàn tiền",
+  OVERDUE: "Quá hạn",
+  PROCESSING: "Đang xử lý",
+  FAILED: "Thất bại",
+};
+
+function translateStatus(status) {
+  if (!status) return "";
+  const upperStatus = String(status).toUpperCase();
+  return INVOICE_STATUS_MAP[upperStatus] || status;
+}
+
 export default function ReturnPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -26,6 +44,65 @@ export default function ReturnPage() {
 
   // VNPay params
   const vnpResponseCode = searchParams.get("vnp_ResponseCode");
+
+  const loadInvoice = useCallback(async (rentalOrderId, retryCount = 0) => {
+    try {
+      setLoading(true);
+      const invoiceResult = await getInvoiceByRentalOrderId(rentalOrderId);
+      
+      console.log("📄 ReturnPage - Loaded invoice result:", {
+        rentalOrderId,
+        result: invoiceResult,
+        retryCount,
+      });
+      
+      // API may return a single invoice object or an array of invoices
+      let invoice = null;
+      if (Array.isArray(invoiceResult)) {
+        // If result is an array, prioritize RENT_PAYMENT type, otherwise use first invoice
+        invoice =
+          invoiceResult.find(
+            (inv) =>
+              String(inv?.invoiceType || "").toUpperCase() === "RENT_PAYMENT"
+          ) || invoiceResult[0] || null;
+      } else {
+        invoice = invoiceResult || null;
+      }
+      
+      if (invoice) {
+        console.log("📄 ReturnPage - Selected invoice:", {
+          invoiceId: invoice.invoiceId || invoice.id,
+          totalAmount: invoice.totalAmount,
+          invoiceStatus: invoice.invoiceStatus,
+        });
+        setInvoiceData(invoice);
+        setLoading(false);
+      } else {
+        // Retry after a short delay if invoice not found (backend might still be processing)
+        if (retryCount < 3) {
+          console.log(`⏳ Retrying invoice load (attempt ${retryCount + 1}/3)...`);
+          setTimeout(() => {
+            loadInvoice(rentalOrderId, retryCount + 1);
+          }, 2000); // Wait 2 seconds before retry
+          return;
+        }
+        console.warn("No invoice found for order after retries:", rentalOrderId);
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error("Error loading invoice:", err);
+      // Retry on error if we haven't exceeded retry limit
+      if (retryCount < 3) {
+        console.log(`⏳ Retrying invoice load after error (attempt ${retryCount + 1}/3)...`);
+        setTimeout(() => {
+          loadInvoice(rentalOrderId, retryCount + 1);
+        }, 2000);
+        return;
+      }
+      // Silently handle error - user can still see success message
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     // Kiểm tra nếu là VNPay và có response code
@@ -66,20 +143,7 @@ export default function ReturnPage() {
     } else {
       setLoading(false);
     }
-  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode]);
-
-  const loadInvoice = async (rentalOrderId) => {
-    try {
-      setLoading(true);
-      const invoice = await getInvoiceByRentalOrderId(rentalOrderId);
-      setInvoiceData(invoice);
-    } catch (err) {
-      console.error("Error loading invoice:", err);
-      // Silently handle error - user can still see success message
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode, loadInvoice]);
 
   if (loading) {
     return (
@@ -135,23 +199,23 @@ export default function ReturnPage() {
                         )}
                         {invoiceData.subTotal && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <Text type="secondary">Tạm tính:</Text>
-                            <Text type="secondary">
+                            {/* <Text type="secondary">Tạm tính:</Text> */}
+                            {/* <Text type="secondary">
                               {formatVNDHelper(invoiceData.subTotal)}
-                            </Text>
+                            </Text> */}
                           </div>
                         )}
                       </Space>
                     </div>
                     {invoiceData.invoiceStatus && (
                       <Text type="secondary">
-                        Trạng thái: <Text strong>{invoiceData.invoiceStatus}</Text>
+                        Trạng thái: <Text strong>{translateStatus(invoiceData.invoiceStatus)}</Text>
                       </Text>
                     )}
                   </>
                 )}
                 <Text type="secondary" style={{ fontSize: 14 }}>
-                  Cảm ơn bạn đã thanh toán! Đơn hàng của bạn đang được xử lý.
+                  Cảm ơn bạn đã thanh toán! bạn đã thanh toán thành công cho đơn thuê.
                 </Text>
               </Space>
             }
@@ -169,7 +233,7 @@ export default function ReturnPage() {
                 key="orders"
                 size="large"
                 icon={<ShoppingOutlined />}
-                onClick={() => navigate("/orders")}
+                onClick={() => navigate(orderId ? `/orders?orderId=${orderId}` : "/orders")}
               >
                 Xem đơn hàng
               </Button>,
@@ -180,4 +244,3 @@ export default function ReturnPage() {
     </div>
   );
 }
-

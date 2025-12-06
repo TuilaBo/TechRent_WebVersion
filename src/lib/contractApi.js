@@ -44,6 +44,7 @@ export function normalizeContract(c = {}) {
       c.signedContractUrl ??
       null,
     contractFileName: c.contractFileName ?? c.fileName ?? null,
+    allocatedDevices: c.allocatedDevices ?? null, // Keep allocatedDevices for serial number display
   };
 }
 
@@ -135,12 +136,11 @@ export async function signContract(contractId, payload) {
     (method === "EMAIL_OTP" ? String(pin) : "SIGNED_BY_USER");
 
   const body = {
-    // nếu BE bỏ qua contractId trong body thì không cần field này;
-    // vẫn giữ cho tương thích:
+   
     contractId: Number(contractId),
-    digitalSignature: digital, // đảm bảo NotBlank với BE
+    digitalSignature: digital, 
     pinCode: pin,
-    signatureMethod: method, // Fixed: API requires EMAIL_OTP
+    signatureMethod: method, 
     deviceInfo: payload?.deviceInfo ?? "",
     ipAddress: payload?.ipAddress ?? "",
   };

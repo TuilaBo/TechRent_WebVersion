@@ -64,12 +64,61 @@ export async function respondSettlement(id, accepted) {
   return unwrap(data);
 }
 
+// 6) Confirm refund settlement with proof image
+// POST /api/v1/payments/settlements/{settlementId}/confirm-refund
+// Nhân viên xác nhận hoàn cọc cho một settlement
+// @param {number} settlementId - ID của settlement
+// @param {File|Blob|string} proofFile - File ảnh bằng chứng (File object, Blob, hoặc base64 string)
+// @returns {Promise<Object>} Response từ API
+export async function confirmRefundSettlement(settlementId, proofFile) {
+  const formData = new FormData();
+  
+  // Nếu proofFile là File hoặc Blob, append trực tiếp
+  if (proofFile instanceof File || proofFile instanceof Blob) {
+    formData.append("proof", proofFile);
+  } 
+  // Nếu là base64 string, convert thành Blob
+  else if (typeof proofFile === "string" && proofFile.startsWith("data:")) {
+    // Convert base64 data URL to Blob
+    const response = await fetch(proofFile);
+    const blob = await response.blob();
+    formData.append("proof", blob);
+  }
+  // Nếu là URL string, fetch và convert
+  else if (typeof proofFile === "string") {
+    try {
+      const response = await fetch(proofFile);
+      const blob = await response.blob();
+      formData.append("proof", blob);
+    } catch (e) {
+      // Fallback: append as string nếu fetch thất bại
+      formData.append("proof", proofFile);
+    }
+  }
+  // Fallback: append as string
+  else {
+    formData.append("proof", String(proofFile || ""));
+  }
+  
+  const { data } = await api.post(
+    `/api/v1/payments/settlements/${Number(settlementId)}/confirm-refund`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }
+  );
+  return unwrap(data);
+}
+
 export default {
   createSettlement,
   updateSettlement,
   getSettlementByOrderId,
   listSettlements,
   respondSettlement,
+  confirmRefundSettlement,
 };
 
 

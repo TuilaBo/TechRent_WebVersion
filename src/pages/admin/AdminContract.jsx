@@ -186,18 +186,18 @@ function formatEquipmentLayout(html = "") {
 
 function formatDatesInHtml(html = "") {
   if (!html || typeof html !== "string") return html;
-  // Format ngày ISO với thời gian thành DD/MM/YYYY
-  // Pattern: 2025-11-09T00:00 hoặc 2025-11-10T23:59:59.999
   const datePattern = /(\d{4}-\d{2}-\d{2})T[\d:.]+/g;
   return html.replace(datePattern, (match) => {
     try {
       const d = new Date(match);
       if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        });
+        const pad = (num) => String(num).padStart(2, "0");
+        const day = pad(d.getDate());
+        const month = pad(d.getMonth() + 1);
+        const year = d.getFullYear();
+        const hours = pad(d.getHours());
+        const minutes = pad(d.getMinutes());
+        return `${day}/${month}/${year} ${hours}:${minutes}`;
       }
     } catch (error) {
       console.error("Failed to format date in HTML:", error);
@@ -381,7 +381,8 @@ const EXTRA_CONTRACT_HTML = `
 
 function augmentContractContent(detail) {
   if (!detail) return detail;
-  const base = String(detail.contentHtml || "");
+  const originalBase = String(detail.contentHtml || detail.contractContent || "");
+  const base = originalBase;
   const mergedHtml = base + EXTRA_CONTRACT_HTML;
   return { ...detail, contentHtml: mergedHtml };
 }
@@ -427,7 +428,8 @@ function buildPrintableHtml(detail, customer, kyc) {
   const customerEmail = customer?.email || "";
   const customerPhone = customer?.phoneNumber || "";
   const identificationCode = kyc?.identificationCode || "";
-  const contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+  let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
+  
   const termsBlock = detail.terms
     ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
     : "";
@@ -482,7 +484,7 @@ function buildPrintableHtml(detail, customer, kyc) {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -491,7 +493,7 @@ function buildPrintableHtml(detail, customer, kyc) {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "ACTIVE") {
-                  return `<div style="color:#52c41a;font-weight:600">${customerName} đã ký</div>`;
+                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -503,7 +505,7 @@ function buildPrintableHtml(detail, customer, kyc) {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#52c41a;line-height:1">✓</div>';
+                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
                 }
                 return "";
               })()}
@@ -512,7 +514,7 @@ function buildPrintableHtml(detail, customer, kyc) {
               ${(() => {
                 const status = String(detail.status || "").toUpperCase();
                 if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#52c41a;font-weight:600">CÔNG TY TECHRENT đã ký</div>';
+                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
                 }
                 return "(Ký, ghi rõ họ tên)";
               })()}
@@ -742,6 +744,13 @@ function revokeBlob(url) {
 
   const filteredRows = useMemo(() => {
     let data = [...rows];
+    
+    // Loại bỏ các hợp đồng có trạng thái "nháp" (draft)
+    data = data.filter((row) => {
+      const status = String(row.status || "").toLowerCase();
+      return status !== "draft" && status !== "nháp";
+    });
+    
     if (searchText.trim()) {
       const keyword = searchText.trim().toLowerCase();
       data = data.filter((row) => {
@@ -769,6 +778,30 @@ function revokeBlob(url) {
         return t.isValid() && t.isBetween(start, end, "day", "[]");
       });
     }
+    
+    // Sắp xếp theo thứ tự ưu tiên: chờ ký (admin) -> chờ khách hàng ký -> đã ký
+    data.sort((a, b) => {
+      const getPriority = (status) => {
+        const s = String(status || "").toUpperCase();
+        if (s === "PENDING_ADMIN_SIGNATURE") return 1; // Ưu tiên cao nhất
+        if (s === "PENDING_SIGNATURE") return 2;
+        if (s === "ACTIVE" || s.includes("SIGNED")) return 3;
+        return 4; // Các trạng thái khác
+      };
+      
+      const priorityA = getPriority(a.status);
+      const priorityB = getPriority(b.status);
+      
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      
+      // Nếu cùng priority, sắp xếp theo ngày tạo (mới nhất trước)
+      const dateA = new Date(a?.createdAt || a?.signedAt || 0).getTime();
+      const dateB = new Date(b?.createdAt || b?.signedAt || 0).getTime();
+      return dateB - dateA;
+    });
+    
     return data;
   }, [rows, searchText, statusFilter, dateRange]);
 
@@ -835,17 +868,23 @@ function revokeBlob(url) {
       setContractDetail(normalized);
       if (normalized?.contractUrl) setPdfPreviewUrl(normalized.contractUrl);
 
+      // Local copies để dùng cho auto-generate PDF
+      let customerData = null;
+      let kycData = null;
+
       if (normalized?.customerId) {
         try {
           const customer = await fetchCustomerById(normalized.customerId);
-          setContractCustomer(normalizeCustomer(customer || {}));
+          customerData = normalizeCustomer(customer || {});
+          setContractCustomer(customerData);
         } catch (error) {
           console.error("Failed to fetch customer for contract detail:", error);
           setContractCustomer(null);
         }
         try {
           const kyc = await getKycByCustomerId(normalized.customerId);
-          setContractKyc(kyc || null);
+          kycData = kyc || null;
+          setContractKyc(kycData);
         } catch (error) {
           console.error("Failed to fetch KYC for contract detail:", error);
           setContractKyc(null);
@@ -857,6 +896,25 @@ function revokeBlob(url) {
 
       if (normalized?.orderId) {
         await loadOrderContracts(normalized.orderId);
+      }
+
+      // Nếu BE không trả về contractUrl, tự động generate PDF để iframe hiển thị luôn
+      if (!normalized?.contractUrl && printRef.current) {
+        try {
+          const detail = augmentContractContent(normalized);
+          printRef.current.innerHTML = buildPrintableHtml(
+            detail,
+            customerData,
+            kycData
+          );
+          const blob = await elementToPdfBlob(printRef.current);
+          const url = URL.createObjectURL(blob);
+          // Dùng cho iframe trong Drawer + modal xem trước (nếu admin mở thủ công)
+          setPdfPreviewUrl(url);
+          setPdfBlobUrl(url);
+        } catch (error) {
+          console.error("Failed to auto-generate contract PDF preview (admin):", error);
+        }
       }
 
       setDetailOpen(true);
@@ -922,7 +980,7 @@ function revokeBlob(url) {
         columns={[
           { title: "ID", dataIndex: "id", width: 90 },
           { title: "Số hợp đồng", dataIndex: "number", width: 160, ellipsis: true },
-          { title: "Khách hàng", dataIndex: "customerId", width: 120 },
+          // { title: "Khách hàng", dataIndex: "customerName", width: 180, render: (name, record) => name || `Khách #${record.customerId}` },
           { title: "Đơn hàng", dataIndex: "orderId", width: 120 },
           { title: "Trạng thái", dataIndex: "status", width: 140, render: statusTag },
           { title: "Tổng tiền", dataIndex: "totalAmount", width: 140, render: (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "—") },
@@ -1087,11 +1145,34 @@ function revokeBlob(url) {
                 if (href) {
                   return (
                     <>
-                      <Button type="primary" icon={<DownloadOutlined />} href={href} target="_blank" rel="noopener">
+                      <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={() => {
+                          if (contractDetail?.contractUrl) {
+                            // Nếu có contractUrl từ BE, tải trực tiếp
+                            const a = document.createElement("a");
+                            a.href = contractDetail.contractUrl;
+                            a.target = "_blank";
+                            a.rel = "noopener";
+                            a.download = contractDetail.contractFileName || `contract-${contractDetail.id}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          } else if (pdfPreviewUrl || pdfBlobUrl) {
+                            // Nếu là blob URL từ FE generate, tải blob
+                            const a = document.createElement("a");
+                            a.href = pdfPreviewUrl || pdfBlobUrl;
+                            a.download = contractDetail?.contractFileName || contractDetail?.number || `contract-${contractDetail.id}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          } else {
+                            message.warning("Không có URL hợp đồng để tải");
+                          }
+                        }}
+                      >
                         Tải hợp đồng
-                      </Button>
-                      <Button icon={<PrinterOutlined />} onClick={() => printPdfUrl(href)}>
-                        In hợp đồng (PDF)
                       </Button>
                     </>
                   );
