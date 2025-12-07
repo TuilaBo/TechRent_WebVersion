@@ -2166,6 +2166,88 @@ export default function TechnicianCalendar() {
         onChange: () => message.success("Đã thêm bằng chứng (UI)."),
     };
 
+    /** ---- Helper function to render order, customer, and device details ---- */
+    const renderOrderCustomerDeviceDetails = (t) => {
+        if (!orderDetail) return null;
+
+        const customerName = customerDetail?.fullName || customerDetail?.username || orderDetail.customerName || "—";
+        const customerPhone = customerDetail?.phoneNumber || "";
+        const customerEmail = customerDetail?.email || "";
+        const address = orderDetail.shippingAddress || t.address || "—";
+
+        return (
+            <>
+                <Divider />
+                <Title level={5} style={{ marginTop: 0 }}>
+                    Chi tiết đơn #{orderDetail.orderId || orderDetail.id}
+                </Title>
+                <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="Trạng thái đơn">
+                        {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Khách hàng">
+                        <Space direction="vertical" size={0}>
+                            <span>{customerName}</span>
+                            {customerPhone && (
+                                <span>
+                                    <PhoneOutlined /> {customerPhone}
+                                </span>
+                            )}
+                            {customerEmail && <span>{customerEmail}</span>}
+                        </Space>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Địa chỉ giao">
+                        <Space>
+                            <EnvironmentOutlined />
+                            {address}
+                        </Space>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Thời gian thuê">
+                        {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} →{" "}
+                        {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
+                    </Descriptions.Item>
+                </Descriptions>
+                {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                    <>
+                        <Divider />
+                        <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                        <List
+                            size="small"
+                            dataSource={orderDetail.orderDetails}
+                            renderItem={(d) => (
+                                <List.Item>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                        {d.deviceModel?.image ? (
+                                            <img
+                                                src={d.deviceModel.image}
+                                                alt={d.deviceModel.name}
+                                                style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
+                                            />
+                                        ) : null}
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 600 }}>
+                                                {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
+                                            </div>
+                                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                                                <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                                    {orderDetail.allocatedDevices
+                                                        .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                                        .map((ad, idx) => (
+                                                            <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                                        ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    </>
+                )}
+            </>
+        );
+    };
+
     /** ---- UI phần chi tiết theo loại ---- */
     const renderDetailBody = (t) => {
         if (!t) return null;
@@ -2240,6 +2322,9 @@ export default function TechnicianCalendar() {
                             );
                         })()}
                     </Space>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
                 </>
             );
         }
@@ -2295,6 +2380,9 @@ export default function TechnicianCalendar() {
                         </p>
                         <p>Kéo thả hoặc bấm để chọn</p>
                     </Dragger>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
                 </>
             );
         }
@@ -3178,7 +3266,7 @@ export default function TechnicianCalendar() {
                                     { title: 'Task', dataIndex: 'title' },
                                     { title: 'Loại', dataIndex: 'type', render: (t, r) => <Tag color={TYPES[t]?.color || 'blue'}>{r.taskCategoryName || TYPES[t]?.label || t}</Tag> },
                                     { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
-                                    { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
+                                    { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                 ]}
                                 pagination={false}
                             />
@@ -3196,7 +3284,7 @@ export default function TechnicianCalendar() {
                                     { title: 'Thiết bị', dataIndex: 'device' },
                                     { title: 'Địa điểm', dataIndex: 'location' },
                                     { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
-                                    { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
+                                    { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                 ]}
                                 pagination={false}
                             />
@@ -3423,6 +3511,16 @@ export default function TechnicianCalendar() {
                     </Form.Item>
                 </Form>
             </Modal>
+
+            {/* Task Detail Drawer */}
+            <Drawer
+                title={detailTask ? detailTask.title || detailTask.taskCategoryName || "Chi tiết công việc" : "Chi tiết công việc"}
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                width={720}
+            >
+                {renderDetailBody(detailTask)}
+            </Drawer>
         </div >
     );
 }
