@@ -5,7 +5,7 @@ import { api } from "./api";
  * Helpers
  * --------------------------------------------------- */
 
-// Một số BE trả 200/204 không có body -> tránh lỗi JSON/undefined
+// Một số BE trả 200/204 không có body -&gt; tránh lỗi JSON/undefined
 async function safeDelete(url) {
   try {
     const res = await api.delete(url);
@@ -104,14 +104,14 @@ export async function updateStaffStatus(staffId, isActive) {
  */
 // Đúng theo swagger: staffRole là query param
 export async function updateStaffRole(staffId, staffRole) {
-    const { data } = await api.put(
-      `/api/admin/staff/${Number(staffId)}/role`,
-      null,
-      { params: { staffRole } }      // ✅ truyền qua query
-    );
-    return data?.data ?? data ?? null; // 1 số BE trả object, 1 số trả true
-  }
-  
+  const { data } = await api.put(
+    `/api/admin/staff/${Number(staffId)}/role`,
+    null,
+    { params: { staffRole } }      // ✅ truyền qua query
+  );
+  return data?.data ?? data ?? null; // 1 số BE trả object, 1 số trả true
+}
+
 
 /* ---------------------------------------------------
  * Queries phụ
@@ -148,14 +148,39 @@ export async function searchStaff({ startTime, endTime, available, staffRole }) 
   return Array.isArray(payload) ? payload.map(normalizeStaff) : [];
 }
 
-/** GET /api/staff/performance/completions – Thống kê số lượng task hoàn thành theo tháng cho từng nhân viên
+/** GET /api/staff/tasks/completion-stats – Thống kê số lượng task hoàn thành theo tháng cho từng nhân viên
+ * @param {Object} params - Query parameters
+ * @param {number} params.year - Year (required, e.g., 2025)
+ * @param {number} params.month - Month (required, e.g., 12 for December)
+ * @param {number} [params.taskCategoryId] - Filter by task category ID (optional)
+ * @returns {Promise<Array>} Array of staff performance/completion data
+ */
+export async function getStaffCompletionLeaderboard({ year, month, taskCategoryId }) {
+  if (!year || !month) {
+    throw new Error("year and month are required parameters");
+  }
+
+  const params = {
+    year: Number(year),
+    month: Number(month),
+  };
+  if (taskCategoryId) params.taskCategoryId = Number(taskCategoryId);
+
+  const { data } = await api.get("/api/staff/tasks/completion-stats", { params });
+  return data?.data ?? data ?? [];
+}
+
+/** GET /api/staff/performance/completions – Thống kê số lượng task hoàn thành theo tháng cho từng nhân viên (có phân trang và sắp xếp)
  * @param {Object} params - Query parameters
  * @param {number} params.year - Year (required, e.g., 2025)
  * @param {number} params.month - Month (required, e.g., 11 for November)
  * @param {string} [params.staffRole] - Filter by staff role (e.g., "TECHNICIAN")
- * @returns {Promise<Array>} Array of staff performance/completion data
+ * @param {number} [params.page] - Page number (optional, default: 0)
+ * @param {number} [params.size] - Page size (optional, default: 20)
+ * @param {string} [params.sort] - Sort field and direction (optional, e.g., "completedTaskCount,desc")
+ * @returns {Promise<Object>} Paginated staff performance/completion data with { content, totalElements, totalPages, etc. }
  */
-export async function getStaffCompletionLeaderboard({ year, month, staffRole }) {
+export async function getStaffPerformanceCompletions({ year, month, staffRole, page, size, sort }) {
   if (!year || !month) {
     throw new Error("year and month are required parameters");
   }
@@ -165,7 +190,35 @@ export async function getStaffCompletionLeaderboard({ year, month, staffRole }) 
     month: Number(month),
   };
   if (staffRole) params.staffRole = staffRole;
+  if (page !== undefined && page !== null) params.page = Number(page);
+  if (size !== undefined && size !== null) params.size = Number(size);
+  if (sort) params.sort = sort;
 
   const { data } = await api.get("/api/staff/performance/completions", { params });
+  return data?.data ?? data ?? {};
+}
+
+/** GET /api/staff/tasks/category-stats – Lấy thống kê công việc theo category của nhân viên
+ * @param {Object} params - Query parameters
+ * @param {number} params.staffId - Staff ID (required)
+ * @param {string} params.date - Date (required, format: YYYY-MM-DD)
+ * @param {number} [params.categoryId] - Task Category ID (optional, filter by specific category)
+ * @returns {Promise<Array>} Array of category stats with { staffId, staffName, taskCategoryId, taskCategoryName, taskCount, maxTasksPerDay }
+ */
+export async function getStaffCategoryStats({ staffId, date, categoryId }) {
+  if (!staffId || !date) {
+    throw new Error("staffId and date are required parameters");
+  }
+
+  const params = {
+    staffId: Number(staffId),
+    date: date,
+  };
+
+  if (categoryId) {
+    params.categoryId = Number(categoryId);
+  }
+
+  const { data } = await api.get("/api/staff/tasks/category-stats", { params });
   return data?.data ?? data ?? [];
 }

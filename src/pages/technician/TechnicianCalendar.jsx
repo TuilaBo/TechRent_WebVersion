@@ -21,6 +21,7 @@ import {
     Tabs,
     Form,
     Radio,
+    Tooltip,
 } from "antd";
 import {
     EnvironmentOutlined,
@@ -46,7 +47,7 @@ import {
     confirmDelivery,
     confirmRetrieval,
 } from "../../lib/taskApi";
-import { getActiveTaskRule } from "../../lib/taskRulesApi";
+import { listTaskRules } from "../../lib/taskRulesApi";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
     TECH_TASK_STATUS,
@@ -60,6 +61,7 @@ import {
     getHandoverReportByOrderIdAndTaskId,
     getHandoverReportsByOrderId
 } from "../../lib/handoverReportApi";
+import { getStaffCategoryStats } from "../../lib/staffManage";
 import { getConditionDefinitions } from "../../lib/condition.js";
 import {
     getActiveMaintenanceSchedules,
@@ -882,7 +884,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
-            <th>Điều kiện</th>
+            <th>${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị"}</th>
             <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
@@ -923,10 +925,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:40px">STT</th>
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
-            <th>Điều kiện</th>
+            <th>${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị"}</th>
             <th>Phí phạt</th>
             <th>Ghi chú nhân viên</th>
-            <th>Ghi chú khách hàng</th>
+            ${String(report.handoverType || "").toUpperCase() !== "CHECKIN" ? '<th>Ghi chú khách hàng</th>' : ''}
           </tr>
         </thead>
         <tbody>
@@ -949,7 +951,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                     }
 
                     const conditionDef = conditionMap[disc.conditionDefinitionId];
-                    const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+                    const conditionName = conditionDef?.name || disc.conditionName || `Tình trạng thiết bị #${disc.conditionDefinitionId}`;
                     const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" :
                         disc.discrepancyType === "LOSS" ? "Mất mát" :
                             disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
@@ -963,10 +965,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                 <td>${conditionName}</td>
                 <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
                 <td>${disc.staffNote || "—"}</td>
-                <td>${disc.customerNote || "—"}</td>
+                ${String(report.handoverType || "").toUpperCase() !== "CHECKIN" ? `<td>${disc.customerNote || "—"}</td>` : ''}
               </tr>
             `;
-                }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+                }).join("") || `<tr><td colspan='${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "6" : "7"}' style='text-align:center'>Không có sự cố nào</td></tr>`}
         </tbody>
       </table>
       `;
@@ -1023,7 +1025,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>KHÁCH HÀNG</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.customerSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.customerSigned
@@ -1034,7 +1036,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>NHÂN VIÊN</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.staffSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.staffSigned
@@ -1156,7 +1158,7 @@ export default function TechnicianCalendar() {
     const [updatingStatus, setUpdatingStatus] = useState(false);
     const [statusForm] = Form.useForm();
     const [uploadFileList, setUploadFileList] = useState([]);
-    const [activeTaskRule, setActiveTaskRule] = useState(null);
+    const [taskRulesMap, setTaskRulesMap] = useState({}); // { categoryId -> { maxTasksPerDay, name } }
 
     const openUpdateStatusModal = (record) => {
         setSelectedMaintenance(record);
@@ -1271,7 +1273,6 @@ export default function TechnicianCalendar() {
                 getActiveMaintenanceSchedules(),
                 getPriorityMaintenanceSchedules(),
                 getInactiveMaintenanceSchedules(),
-                getActiveTaskRule()
             ]);
 
             if (results[0].status === 'fulfilled') activeRes = results[0].value || { data: [] };
@@ -1283,11 +1284,46 @@ export default function TechnicianCalendar() {
             if (results[2].status === 'fulfilled') inactiveRes = results[2].value || { data: [] };
             else console.warn("Failed inactive maintenance:", results[2].reason);
 
-            if (results[3].status === 'fulfilled') {
-                const rule = results[3].value?.data ?? results[3].value ?? null;
-                setActiveTaskRule(rule);
-            } else {
-                console.warn("Failed to load active task rule:", results[3].reason);
+            // Load all task rules and create category map
+            try {
+                console.log("DEBUG: Calling listTaskRules API...");
+                const allRules = await listTaskRules({ active: true });
+                console.log("DEBUG: listTaskRules response:", allRules);
+
+                const rulesMap = {};
+                (allRules || []).forEach(rule => {
+                    if (rule.taskCategoryId && rule.active) {
+                        // If multiple rules for same category, use the one with latest effectiveFrom
+                        if (!rulesMap[rule.taskCategoryId] ||
+                            new Date(rule.effectiveFrom) > new Date(rulesMap[rule.taskCategoryId].effectiveFrom)) {
+                            rulesMap[rule.taskCategoryId] = {
+                                maxTasksPerDay: rule.maxTasksPerDay,
+                                name: rule.name,
+                                description: rule.description,
+                                effectiveFrom: rule.effectiveFrom
+                            };
+                        }
+                    }
+                });
+                console.log("DEBUG: taskRulesMap built:", rulesMap);
+                setTaskRulesMap(rulesMap);
+            } catch (e) {
+                console.warn("Failed to load task rules:", e);
+                console.warn("Error status:", e?.response?.status);
+                console.warn("Error message:", e?.response?.data?.message || e?.message);
+
+                // TEMPORARY: Mock data for testing UI when API returns 403 (unauthorized)
+                // Remove this block after backend grants permission to technician
+                if (e?.response?.status === 403) {
+                    console.log("DEBUG: Using mock data for taskRulesMap (API 403)");
+                    const mockRulesMap = {
+                        1: { maxTasksPerDay: 2, name: "Pre rental QC" },
+                        2: { maxTasksPerDay: 5, name: "Post rental QC" },
+                        4: { maxTasksPerDay: 4, name: "Delivery" },
+                        6: { maxTasksPerDay: 4, name: "Pick up" }
+                    };
+                    setTaskRulesMap(mockRulesMap);
+                }
             }
         } catch (err) {
             console.error("Error loading maintenance data:", err);
@@ -1317,19 +1353,35 @@ export default function TechnicianCalendar() {
                 maintenanceScheduleId: item.maintenanceScheduleId,
                 deviceSerialNumber: item.device?.serialNumber,
                 deviceModelName: item.device?.deviceModel?.deviceName,
+                deviceImageUrl: item.device?.deviceModel?.imageURL,
                 deviceCategoryName: item.device?.deviceModel?.deviceCategory?.deviceCategoryName,
                 nextMaintenanceDate: item.startDate,
                 nextMaintenanceEndDate: item.endDate,
-                priorityReason: 'UNDER_MAINTENANCE'
+                // Don't set priorityReason here, will be inherited from priority if exists
             }));
 
-            // Combine and sort
-            const combinedMaintenance = [...rawPriority, ...rawActive];
+            // Create a map of priorityReason by maintenanceScheduleId from priority API
+            const priorityReasonMap = new Map();
+            rawPriority.forEach(item => {
+                if (item.maintenanceScheduleId && item.priorityReason) {
+                    priorityReasonMap.set(item.maintenanceScheduleId, item.priorityReason);
+                }
+            });
 
-            // Deduplicate by maintenanceScheduleId
+            // Combine: priority items first, then active items (with priorityReason inherited)
+            const combinedMaintenance = [
+                ...rawPriority,
+                ...rawActive.map(item => ({
+                    ...item,
+                    // Inherit priorityReason from priority API if available
+                    priorityReason: priorityReasonMap.get(item.maintenanceScheduleId) || item.priorityReason || null
+                }))
+            ];
+
+            // Deduplicate by maintenanceScheduleId - PREFER PRIORITY items (they come first)
             const uniqueMaintenanceMap = new Map();
             combinedMaintenance.forEach(item => {
-                if (item.maintenanceScheduleId) {
+                if (item.maintenanceScheduleId && !uniqueMaintenanceMap.has(item.maintenanceScheduleId)) {
                     uniqueMaintenanceMap.set(item.maintenanceScheduleId, item);
                 }
             });
@@ -2166,6 +2218,88 @@ export default function TechnicianCalendar() {
         onChange: () => message.success("Đã thêm bằng chứng (UI)."),
     };
 
+    /** ---- Helper function to render order, customer, and device details ---- */
+    const renderOrderCustomerDeviceDetails = (t) => {
+        if (!orderDetail) return null;
+
+        const customerName = customerDetail?.fullName || customerDetail?.username || orderDetail.customerName || "—";
+        const customerPhone = customerDetail?.phoneNumber || "";
+        const customerEmail = customerDetail?.email || "";
+        const address = orderDetail.shippingAddress || t.address || "—";
+
+        return (
+            <>
+                <Divider />
+                <Title level={5} style={{ marginTop: 0 }}>
+                    Chi tiết đơn #{orderDetail.orderId || orderDetail.id}
+                </Title>
+                <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="Trạng thái đơn">
+                        {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Khách hàng">
+                        <Space direction="vertical" size={0}>
+                            <span>{customerName}</span>
+                            {customerPhone && (
+                                <span>
+                                    <PhoneOutlined /> {customerPhone}
+                                </span>
+                            )}
+                            {customerEmail && <span>{customerEmail}</span>}
+                        </Space>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Địa chỉ giao">
+                        <Space>
+                            <EnvironmentOutlined />
+                            {address}
+                        </Space>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Thời gian thuê">
+                        {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} →{" "}
+                        {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
+                    </Descriptions.Item>
+                </Descriptions>
+                {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                    <>
+                        <Divider />
+                        <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                        <List
+                            size="small"
+                            dataSource={orderDetail.orderDetails}
+                            renderItem={(d) => (
+                                <List.Item>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                        {d.deviceModel?.image ? (
+                                            <img
+                                                src={d.deviceModel.image}
+                                                alt={d.deviceModel.name}
+                                                style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
+                                            />
+                                        ) : null}
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 600 }}>
+                                                {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
+                                            </div>
+                                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                                                <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                                    {orderDetail.allocatedDevices
+                                                        .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                                        .map((ad, idx) => (
+                                                            <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                                        ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    </>
+                )}
+            </>
+        );
+    };
+
     /** ---- UI phần chi tiết theo loại ---- */
     const renderDetailBody = (t) => {
         if (!t) return null;
@@ -2240,6 +2374,9 @@ export default function TechnicianCalendar() {
                             );
                         })()}
                     </Space>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
                 </>
             );
         }
@@ -2295,6 +2432,9 @@ export default function TechnicianCalendar() {
                         </p>
                         <p>Kéo thả hoặc bấm để chọn</p>
                     </Dragger>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
                 </>
             );
         }
@@ -2497,21 +2637,6 @@ export default function TechnicianCalendar() {
                                                 >
                                                     Tải PDF
                                                 </Button>,
-                                                String(report.handoverType || "").toUpperCase() === "CHECKOUT" &&
-                                                    Number(report.taskId) === Number(t.taskId || t.id) ? (
-                                                    <Button
-                                                        key="update-checkout"
-                                                        size="small"
-                                                        icon={<EditOutlined />}
-                                                        onClick={() =>
-                                                            navigate(`/technician/tasks/handover/${t.taskId || t.id}`, {
-                                                                state: { task: t, handoverReport: report },
-                                                            })
-                                                        }
-                                                    >
-                                                        Cập nhật biên bản
-                                                    </Button>
-                                                ) : null,
                                             ]}
                                         >
                                             <List.Item.Meta
@@ -2565,6 +2690,30 @@ export default function TechnicianCalendar() {
                             >
                                 Xác nhận giao hàng
                             </Button>
+                        )}
+                        {reportForTask && (
+                            <>
+                                <Tooltip title={reportForTask.status === "BOTH_SIGNED" ? "Không thể cập nhật biên bản khi cả 2 bên đã ký" : ""}>
+                                    <Button
+                                        type="primary"
+                                        icon={<EditOutlined />}
+                                        disabled={reportForTask.status === "BOTH_SIGNED"}
+                                        onClick={() => {
+                                            navigate(`/technician/tasks/handover/${taskId}`, {
+                                                state: { task: t, handoverReport: reportForTask },
+                                            });
+                                        }}
+                                    >
+                                        Cập nhật biên bản bàn giao
+                                    </Button>
+                                </Tooltip>
+                                <Button
+                                    icon={<EyeOutlined />}
+                                    onClick={() => handlePreviewPdf(reportForTask)}
+                                >
+                                    Xem biên bản
+                                </Button>
+                            </>
                         )}
                     </Space>
                 </>
@@ -2759,17 +2908,20 @@ export default function TechnicianCalendar() {
                         )}
                         {hasCheckinReport && primaryCheckinReport && (
                             <>
-                                <Button
-                                    type="primary"
-                                    icon={<EditOutlined />}
-                                    onClick={() => {
-                                        navigate(`/technician/tasks/handover-checkin/${taskId}`, {
-                                            state: { task: t, handoverReport: primaryCheckinReport },
-                                        });
-                                    }}
-                                >
-                                    Cập nhật biên bản thu hồi
-                                </Button>
+                                <Tooltip title={primaryCheckinReport.status === "BOTH_SIGNED" ? "Không thể cập nhật biên bản khi cả 2 bên đã ký" : ""}>
+                                    <Button
+                                        type="primary"
+                                        icon={<EditOutlined />}
+                                        disabled={primaryCheckinReport.status === "BOTH_SIGNED"}
+                                        onClick={() => {
+                                            navigate(`/technician/tasks/handover-checkin/${taskId}`, {
+                                                state: { task: t, handoverReport: primaryCheckinReport },
+                                            });
+                                        }}
+                                    >
+                                        Cập nhật biên bản thu hồi
+                                    </Button>
+                                </Tooltip>
                                 <Button
                                     icon={<EyeOutlined />}
                                     onClick={() => handlePreviewPdf(primaryCheckinReport)}
@@ -3143,80 +3295,237 @@ export default function TechnicianCalendar() {
                 footer={null}
                 width={900}
             >
-                {/* TaskRule Summary Bar */}
-                {activeTaskRule && (
-                    <div style={{
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        borderRadius: 8,
-                        padding: '12px 16px',
-                        marginBottom: 16,
-                        color: '#fff',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <div>
-                            <span style={{ fontSize: 14, opacity: 0.9 }}>📋 Giới hạn công việc hôm nay:</span>
-                            <strong style={{ marginLeft: 8, fontSize: 16 }}>
-                                {getCalendarData(selectedDate).tasks.length} / {activeTaskRule.maxTasksPerDay || '∞'}
-                            </strong>
-                        </div>
-                        <Tag color={getCalendarData(selectedDate).tasks.length >= (activeTaskRule.maxTasksPerDay || 999) ? 'red' : 'green'}>
-                            {getCalendarData(selectedDate).tasks.length >= (activeTaskRule.maxTasksPerDay || 999) ? 'Đã đạt giới hạn' : 'Còn slot'}
-                        </Tag>
-                    </div>
-                )}
                 <Tabs defaultActiveKey="1" items={[
                     {
                         key: '1',
                         label: 'QC / Kiểm tra',
-                        children: (
-                            <Table
-                                dataSource={getCalendarData(selectedDate).tasks.filter(t => ['QC', 'PRE_RENTAL_QC', 'HANDOVER_CHECK'].includes(t.type) || (t.type || '').includes('QC') || (t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC'))}
-                                rowKey={(r) => r.id || r.taskId}
-                                columns={[
-                                    { title: 'Task', dataIndex: 'title' },
-                                    { title: 'Loại', dataIndex: 'type', render: (t, r) => <Tag color={TYPES[t]?.color || 'blue'}>{r.taskCategoryName || TYPES[t]?.label || t}</Tag> },
-                                    { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
-                                    { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
-                                ]}
-                                pagination={false}
-                            />
-                        )
+                        children: (() => {
+                            const tasksData = getCalendarData(selectedDate).tasks;
+                            const qcTasks = tasksData.filter(t => {
+                                // Check by taskCategoryId (Pre rental QC = 1, Post rental QC = 2)
+                                if (t.taskCategoryId === 1 || t.taskCategoryId === 2) {
+                                    return true;
+                                }
+                                
+                                // Check by taskCategoryName
+                                const categoryName = String(t.taskCategoryName || '');
+                                if (categoryName === 'Pre rental QC' || categoryName === 'Post rental QC') {
+                                    return true;
+                                }
+                                
+                                return false;
+                            });
+
+                            // Count tasks by category
+                            const cat1Tasks = tasksData.filter(t => t.taskCategoryId === 1 || t.taskCategoryName === 'Pre rental QC');
+                            const cat2Tasks = tasksData.filter(t => t.taskCategoryId === 2 || t.taskCategoryName === 'Post rental QC');
+
+                            const rule1 = taskRulesMap[1];
+                            const rule2 = taskRulesMap[2];
+
+                            return (
+                                <>
+                                    {/* Category Summary Bars */}
+                                    <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                                        {rule1 && (
+                                            <div style={{
+                                                flex: 1,
+                                                minWidth: 200,
+                                                background: cat1Tasks.length >= rule1.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                                                borderRadius: 8,
+                                                padding: '10px 14px',
+                                                color: '#fff',
+                                            }}>
+                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Pre rental QC</div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                    <strong style={{ fontSize: 18 }}>{cat1Tasks.length} / {rule1.maxTasksPerDay}</strong>
+                                                    <Tag color={cat1Tasks.length >= rule1.maxTasksPerDay ? 'red' : 'green'}>
+                                                        {cat1Tasks.length >= rule1.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                                    </Tag>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {rule2 && (
+                                            <div style={{
+                                                flex: 1,
+                                                minWidth: 200,
+                                                background: cat2Tasks.length >= rule2.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
+                                                borderRadius: 8,
+                                                padding: '10px 14px',
+                                                color: '#fff',
+                                            }}>
+                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Post rental QC</div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                    <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {rule2.maxTasksPerDay}</strong>
+                                                    <Tag color={cat2Tasks.length >= rule2.maxTasksPerDay ? 'red' : 'green'}>
+                                                        {cat2Tasks.length >= rule2.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                                    </Tag>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Table
+                                        dataSource={qcTasks}
+                                        rowKey={(r) => r.id || r.taskId}
+                                        columns={[
+                                            { title: 'Công việc', dataIndex: 'title' },
+                                            { title: 'Loại', dataIndex: 'type', render: (t, r) => <Tag color={TYPES[t]?.color || 'blue'}>{r.taskCategoryName || TYPES[t]?.label || t}</Tag> },
+                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
+                                        ]}
+                                        pagination={false}
+                                    />
+                                </>
+                            );
+                        })()
                     },
                     {
                         key: '2',
                         label: 'Giao hàng / Thu hồi',
-                        children: (
-                            <Table
-                                dataSource={getCalendarData(selectedDate).tasks.filter(t => ['DELIVERY', 'PICKUP'].includes(t.type) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order'))}
-                                rowKey={(r) => r.id || r.taskId}
-                                columns={[
-                                    { title: 'Task', dataIndex: 'title' },
-                                    { title: 'Thiết bị', dataIndex: 'device' },
-                                    { title: 'Địa điểm', dataIndex: 'location' },
-                                    { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
-                                    { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
-                                ]}
-                                pagination={false}
-                            />
-                        )
+                        children: (() => {
+                            const tasksData = getCalendarData(selectedDate).tasks;
+                            const deliveryTasks = tasksData.filter(t => ['DELIVERY', 'PICKUP'].includes(t.type) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order'));
+
+                            // Count tasks by category
+                            const cat4Tasks = tasksData.filter(t => t.taskCategoryId === 4 || t.taskCategoryName === 'Delivery');
+                            const cat6Tasks = tasksData.filter(t => t.taskCategoryId === 6 || t.taskCategoryName === 'Pick up rental order');
+
+                            const rule4 = taskRulesMap[4];
+                            const rule6 = taskRulesMap[6];
+
+                            return (
+                                <>
+                                    {/* Category Summary Bars */}
+                                    <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                                        {rule4 && (
+                                            <div style={{
+                                                flex: 1,
+                                                minWidth: 200,
+                                                background: cat4Tasks.length >= rule4.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
+                                                borderRadius: 8,
+                                                padding: '10px 14px',
+                                                color: '#fff',
+                                            }}>
+                                                <div style={{ fontSize: 12, opacity: 0.9 }}>🚚 Delivery</div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                    <strong style={{ fontSize: 18 }}>{cat4Tasks.length} / {rule4.maxTasksPerDay}</strong>
+                                                    <Tag color={cat4Tasks.length >= rule4.maxTasksPerDay ? 'red' : 'green'}>
+                                                        {cat4Tasks.length >= rule4.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                                    </Tag>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {rule6 && (
+                                            <div style={{
+                                                flex: 1,
+                                                minWidth: 200,
+                                                background: cat6Tasks.length >= rule6.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
+                                                borderRadius: 8,
+                                                padding: '10px 14px',
+                                                color: '#fff',
+                                            }}>
+                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📦 Pick up</div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                    <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {rule6.maxTasksPerDay}</strong>
+                                                    <Tag color={cat6Tasks.length >= rule6.maxTasksPerDay ? 'red' : 'green'}>
+                                                        {cat6Tasks.length >= rule6.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                                    </Tag>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Table
+                                        dataSource={deliveryTasks}
+                                        rowKey={(r) => r.id || r.taskId}
+                                        columns={[
+                                            { title: 'Công việc', dataIndex: 'title' },
+                                            { title: 'Loại', dataIndex: 'device' },
+    
+                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
+                                        ]}
+                                        pagination={false}
+                                    />
+                                </>
+                            );
+                        })()
                     },
                     {
                         key: '3',
                         label: 'Bảo trì',
                         children: (() => {
                             const { maintenance, inactive } = getCalendarData(selectedDate);
-                            const allMaintenance = [...maintenance, ...inactive];
+
+                            // Get priority IDs from prioritySchedules for matching
+                            const priorityIds = new Set(prioritySchedules.map(p => p.maintenanceScheduleId));
+
+                            // Combine and sort: priority items first, then by priorityReason
+                            const priorityOrder = { 'RENTAL_CONFLICT': 1, 'SCHEDULED_MAINTENANCE': 2, 'USAGE_THRESHOLD': 3 };
+                            const allMaintenance = [...maintenance, ...inactive].sort((a, b) => {
+                                // Priority schedules first
+                                const aPriority = priorityIds.has(a.maintenanceScheduleId) ? 0 : 1;
+                                const bPriority = priorityIds.has(b.maintenanceScheduleId) ? 0 : 1;
+                                if (aPriority !== bPriority) return aPriority - bPriority;
+
+                                // Then by priorityReason
+                                const pa = priorityOrder[a.priorityReason] || 99;
+                                const pb = priorityOrder[b.priorityReason] || 99;
+                                return pa - pb;
+                            });
+
+                            // DEBUG: Console log for priority schedules
+                            console.log("DEBUG [Bảo trì Tab] prioritySchedules:", prioritySchedules);
+                            console.log("DEBUG [Bảo trì Tab] priorityIds (maintenanceScheduleId):", [...priorityIds]);
+                            console.log("DEBUG [Bảo trì Tab] allMaintenance after sorting:", allMaintenance.map(m => ({
+                                id: m.maintenanceScheduleId,
+                                name: m.deviceModelName,
+                                priorityReason: m.priorityReason,
+                                isPriority: priorityIds.has(m.maintenanceScheduleId)
+                            })));
+
+                            const getPriorityTag = (item) => {
+                                const reason = item.priorityReason;
+                                const config = {
+                                    'RENTAL_CONFLICT': { color: 'red', label: 'Ưu tiên' },
+                                    'SCHEDULED_MAINTENANCE': { color: 'orange', label: 'Bình thường' },
+                                    'USAGE_THRESHOLD': { color: 'blue', label: 'Thấp' },
+                                };
+                                const c = config[reason];
+                                if (c) {
+                                    return <Tag color={c.color}>{c.label}</Tag>;
+                                }
+                                return <Tag color="default">—</Tag>;
+                            };
+
                             return (
                                 <Table
                                     dataSource={allMaintenance}
                                     rowKey="maintenanceScheduleId"
-                                    scroll={{ x: 800 }}
+                                    scroll={{ x: 950 }}
                                     size="small"
                                     columns={[
-                                        { title: 'Thiết bị', width: 120, render: (r) => <b>{r.deviceModelName}</b> },
-                                        { title: 'S/N', width: 140, dataIndex: 'deviceSerialNumber' },
+                                        {
+                                            title: 'Thiết bị',
+                                            width: 200,
+                                            render: (r) => (
+                                                <Space>
+                                                    {r.deviceImageUrl && (
+                                                        <img
+                                                            src={r.deviceImageUrl}
+                                                            alt={r.deviceModelName}
+                                                            style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }}
+                                                        />
+                                                    )}
+                                                    <div>
+                                                        <div style={{ fontWeight: 'bold' }}>{r.deviceModelName || '—'}</div>
+                                                        <div style={{ fontSize: 11, color: '#888' }}>SN: {r.deviceSerialNumber || '—'}</div>
+                                                    </div>
+                                                </Space>
+                                            )
+                                        },
+                                        {
+                                            title: 'Ưu tiên', width: 130, render: (r) => getPriorityTag(r)
+                                        },
                                         {
                                             title: 'Trạng thái', width: 100, render: (r) => {
                                                 const status = getMaintenanceBadgeStatus(r);
@@ -3232,7 +3541,7 @@ export default function TechnicianCalendar() {
                                         { title: 'Thời gian', width: 100, render: (r) => `${dayjs(r.nextMaintenanceDate).format('DD/MM')} - ${r.nextMaintenanceEndDate ? dayjs(r.nextMaintenanceEndDate).format('DD/MM') : '...'}` },
                                         {
                                             title: 'Hành động',
-                                            width: 180,
+                                            width: 160,
                                             fixed: 'right',
                                             render: (r) => (
                                                 <Space size="small">
@@ -3423,6 +3732,16 @@ export default function TechnicianCalendar() {
                     </Form.Item>
                 </Form>
             </Modal>
+
+            {/* Task Detail Drawer */}
+            <Drawer
+                title={detailTask ? detailTask.title || detailTask.taskCategoryName || "Chi tiết công việc" : "Chi tiết công việc"}
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                width={720}
+            >
+                {renderDetailBody(detailTask)}
+            </Drawer>
         </div >
     );
 }

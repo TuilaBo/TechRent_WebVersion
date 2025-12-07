@@ -13,13 +13,13 @@ import {
   createTask,
   updateTask,
   deleteTask,
-  getActiveTaskRule,
 } from "../../lib/taskApi";
+import { listTaskRules } from "../../lib/taskRulesApi";
 import {
   listTaskCategories,
   normalizeTaskCategory,
 } from "../../lib/taskCategoryApi";
-import { listActiveStaff, getStaffCompletionLeaderboard } from "../../lib/staffManage";
+import { listActiveStaff, getStaffPerformanceCompletions, getStaffCategoryStats } from "../../lib/staffManage";
 import { getRentalOrderById, listRentalOrders, fmtVND } from "../../lib/rentalOrdersApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getDeviceModelById, normalizeModel } from "../../lib/deviceModelsApi";
@@ -91,8 +91,14 @@ export default function OperatorTasks() {
   const [selectedYear, setSelectedYear] = useState(dayjs().year()); // Năm được chọn
   const [selectedMonth, setSelectedMonth] = useState(dayjs().month() + 1); // Tháng được chọn (1-12)
   const [leaderboardRoleFilter, setLeaderboardRoleFilter] = useState(null); // Lọc theo role
-  const [activeTaskRule, setActiveTaskRule] = useState(null); // Rule tác vụ từ admin
+  const [leaderboardPage, setLeaderboardPage] = useState(0); // Trang hiện tại
+  const [leaderboardPageSize, setLeaderboardPageSize] = useState(20); // Kích thước trang
+  const [leaderboardTotal, setLeaderboardTotal] = useState(0); // Tổng số records
+  const [taskRules, setTaskRules] = useState([]); // Danh sách rules theo category
+  const [staffCategoryStats, setStaffCategoryStats] = useState({}); // { staffId -> { taskCount, maxTasksPerDay } }
+  const [loadingCategoryStats, setLoadingCategoryStats] = useState(false);
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
+  const taskCategoryIdValue = Form.useWatch("taskCategoryId", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
   const assignedStaffIdsKey = JSON.stringify(assignedStaffIdsValue);
   const plannedStartValue = Form.useWatch("plannedStart", form);
@@ -125,8 +131,8 @@ export default function OperatorTasks() {
       const staffList = Array.isArray(task.assignedStaff)
         ? task.assignedStaff.map((s) => s.staffId ?? s.id)
         : task.assignedStaffId
-        ? [task.assignedStaffId]
-        : [];
+          ? [task.assignedStaffId]
+          : [];
 
       staffList.forEach((id) => {
         if (!id) return;
@@ -137,17 +143,20 @@ export default function OperatorTasks() {
     return map;
   }, [data, plannedStartValue]);
 
-  // Load rule tác vụ hiện hành từ admin
+  // Load task rules cho tất cả roles (operator assign cho mọi người)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const rule = await getActiveTaskRule();
+        // Load all active rules
+        const allRules = await listTaskRules({ active: true });
+
         if (!cancelled) {
-          setActiveTaskRule(rule);
+          // Hiển thị tất cả active rules
+          setTaskRules(allRules);
         }
       } catch (e) {
-        console.warn("Không thể tải rule tác vụ hiện hành cho Operator:", e);
+        console.warn("Không thể tải danh sách task rules:", e);
       }
     })();
 
@@ -155,6 +164,61 @@ export default function OperatorTasks() {
       cancelled = true;
     };
   }, []);
+
+  // Load category stats for all active staff when taskCategoryId and plannedStart are selected
+  useEffect(() => {
+    if (!taskCategoryIdValue || !plannedStartValue) {
+      setStaffCategoryStats({});
+      return;
+    }
+
+    let cancelled = false;
+    const dateStr = dayjs(plannedStartValue).format('YYYY-MM-DD');
+
+    (async () => {
+      setLoadingCategoryStats(true);
+      const statsMap = {};
+
+      // Fetch stats for each staff in parallel
+      const promises = staffs
+        .filter(s => ['TECHNICIAN', 'CUSTOMER_SUPPORT_STAFF'].includes(String(s.staffRole || s.role || '').toUpperCase()))
+        .map(async (s) => {
+          try {
+            const id = s.staffId ?? s.id;
+            // Pass categoryId to filter on server side
+            const stats = await getStaffCategoryStats({
+              staffId: id,
+              date: dateStr,
+              categoryId: taskCategoryIdValue
+            });
+            // API returns filtered result for the category
+            const catStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
+            // Store stats - if empty array, mark as free (rảnh)
+            statsMap[id] = catStat ? {
+              taskCount: catStat.taskCount || 0,
+              maxTasksPerDay: catStat.maxTasksPerDay || 0,
+              taskCategoryName: catStat.taskCategoryName || '',
+              isEmpty: false
+            } : {
+              taskCount: 0,
+              maxTasksPerDay: 0,
+              isEmpty: true // No tasks assigned for this category
+            };
+          } catch (e) {
+            console.warn(`Failed to load category stats for staff ${s.staffId}:`, e);
+          }
+        });
+
+      await Promise.all(promises);
+
+      if (!cancelled) {
+        setStaffCategoryStats(statsMap);
+        setLoadingCategoryStats(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [taskCategoryIdValue, plannedStartValue, staffs]);
 
   // Load data từ API
   const loadData = async () => {
@@ -171,11 +235,11 @@ export default function OperatorTasks() {
         const statusB = String(b?.status || "").toUpperCase();
         const isPendingA = statusA === "PENDING";
         const isPendingB = statusB === "PENDING";
-        
+
         // Ưu tiên PENDING lên đầu
         if (isPendingA && !isPendingB) return -1;
         if (!isPendingA && isPendingB) return 1;
-        
+
         // Nếu cùng status (hoặc cả hai đều không phải PENDING), sort mới nhất lên đầu
         const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
         const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
@@ -210,30 +274,34 @@ export default function OperatorTasks() {
   // Load leaderboard data
   const loadLeaderboard = useCallback(async () => {
     if (!selectedYear || !selectedMonth) return;
-    
+
     setLeaderboardLoading(true);
     try {
       const params = {
         year: selectedYear,
         month: selectedMonth,
+        page: leaderboardPage,
+        size: leaderboardPageSize,
+        sort: "completedTaskCount,desc",
       };
       if (leaderboardRoleFilter) {
         params.staffRole = leaderboardRoleFilter;
       }
-      const result = await getStaffCompletionLeaderboard(params);
-      // Sort by completion count descending
-      const sorted = Array.isArray(result) 
-        ? result.sort((a, b) => (b.completedTaskCount || b.completionCount || 0) - (a.completedTaskCount || a.completionCount || 0))
-        : [];
-      setLeaderboardData(sorted);
+      const result = await getStaffPerformanceCompletions(params);
+      // Handle paginated response
+      const content = result?.content || [];
+      const total = result?.totalElements || 0;
+      setLeaderboardData(content);
+      setLeaderboardTotal(total);
     } catch (e) {
       console.error("Error loading leaderboard:", e);
       toast.error(getErrorMessage(e, "Không thể tải dữ liệu leaderboard"));
       setLeaderboardData([]);
+      setLeaderboardTotal(0);
     } finally {
       setLeaderboardLoading(false);
     }
-  }, [selectedYear, selectedMonth, leaderboardRoleFilter]);
+  }, [selectedYear, selectedMonth, leaderboardRoleFilter, leaderboardPage, leaderboardPageSize]);
 
   // Load leaderboard when tab changes or filters change
   useEffect(() => {
@@ -355,15 +423,50 @@ export default function OperatorTasks() {
 
     const formatStaff = (s) => {
       const id = s.staffId ?? s.id;
-      const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""} #${id}`;
-      const taskCount = tasksPerStaffForSelectedDate[id] || 0;
-      const label =
-        taskCount > 0
-          ? `${baseLabel} • ${taskCount} công việc trong ngày`
-          : baseLabel;
+      const catStat = staffCategoryStats[id];
+      const taskCount = catStat?.taskCount ?? tasksPerStaffForSelectedDate[id] ?? 0;
+      const maxTasks = catStat?.maxTasksPerDay ?? 0;
+
+      let limitLabel = '';
+      let limitColor = 'inherit';
+
+      // Check if we have category stats for this staff
+      if (catStat) {
+        if (catStat.isEmpty) {
+          // Empty array = staff is free for this category
+          limitLabel = ' • Rảnh';
+          limitColor = '#52c41a'; // green - free
+        } else if (maxTasks > 0) {
+          if (taskCount >= maxTasks) {
+            limitColor = '#ff4d4f'; // red - at limit
+          } else {
+            limitColor = '#1890ff'; // blue - has tasks but not at limit
+          }
+          limitLabel = ` • [${taskCount}/${maxTasks}]`;
+        } else {
+          // Has tasks but no limit set
+          limitLabel = ` • ${taskCount} việc`;
+          limitColor = '#1890ff'; // blue
+        }
+      } else if (taskCount > 0) {
+        // Fallback to local count
+        limitLabel = ` • ${taskCount} việc`;
+        limitColor = '#1890ff'; // blue
+      }
+
+      const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""}${limitLabel}`;
+
       return {
-        label,
+        label: (
+          <span style={{ color: limitColor !== 'inherit' ? limitColor : undefined }}>
+            {baseLabel}
+            {catStat && maxTasks > 0 && taskCount >= maxTasks && (
+              <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}> ⚠️</span>
+            )}
+          </span>
+        ),
         value: id,
+        disabled: false, // Operator can still select, just shows warning
       };
     };
 
@@ -395,7 +498,7 @@ export default function OperatorTasks() {
     });
 
     return Array.from(uniqueMap.values());
-  }, [staffs, staffRoleFilterValue, assignedStaffIdsKey, tasksPerStaffForSelectedDate]);
+  }, [staffs, staffRoleFilterValue, assignedStaffIdsKey, tasksPerStaffForSelectedDate, staffCategoryStats]);
 
   const statusTag = (status) => {
     switch (status) {
@@ -508,10 +611,10 @@ export default function OperatorTasks() {
   }, [data, searchQuery]);
 
   const columns = [
-    { 
-      title: "ID", 
-      dataIndex: "taskId", 
-      width: 70, 
+    {
+      title: "ID",
+      dataIndex: "taskId",
+      width: 70,
       sorter: (a, b) => a.taskId - b.taskId,
       render: (v) => <strong>#{v}</strong>,
     },
@@ -528,8 +631,8 @@ export default function OperatorTasks() {
           <Space direction="vertical" size="small">
             <Space>
               <span>#{id}</span>
-              <Button 
-                size="small" 
+              <Button
+                size="small"
                 type="link"
                 style={{ padding: 0, height: 'auto' }}
                 onClick={() => openOrderDetail(id)}
@@ -808,7 +911,7 @@ export default function OperatorTasks() {
       ),
     },
     {
-      title: "Role",
+      title: "Vai trò",
       dataIndex: "staffRole",
       key: "staffRole",
       width: 150,
@@ -822,15 +925,32 @@ export default function OperatorTasks() {
       title: "Số công việc hoàn thành",
       dataIndex: "completedTaskCount",
       key: "completedTaskCount",
-      width: 180,
-      align: "center",
+      width: 300,
       render: (count, record) => {
         const completedCount = count || record.completionCount || 0;
+        const breakdown = record.taskCompletionsByCategory || [];
+
         return (
-          <Statistic
-            value={completedCount}
-            valueStyle={{ color: "#3f8600", fontSize: 20, fontWeight: "bold" }}
-          />
+          <div>
+            <Statistic
+              value={completedCount}
+              valueStyle={{ color: "#3f8600", fontSize: 20, fontWeight: "bold" }}
+              suffix="công việc"
+            />
+            {breakdown.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, lineHeight: "1.6" }}>
+                <Text type="secondary" strong>Chi tiết theo loại:</Text>
+                <div style={{ marginTop: 4 }}>
+                  {breakdown.map((item, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                      <Text style={{ fontSize: 12 }}>• {item.taskCategoryName || `Category #${item.taskCategoryId}`}</Text>
+                      <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{item.completedCount}</Tag>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         );
       },
     },
@@ -854,44 +974,48 @@ export default function OperatorTasks() {
             </div>
           </Card>
 
-          {/* Rule tác vụ từ admin (giống TechnicianCalendar) */}
-          {activeTaskRule && (
+          {/* Task Rules Display - Simple Text List */}
+          {taskRules && taskRules.length > 0 && (
             <Card
               size="small"
               style={{
                 marginBottom: 16,
-                borderRadius: 10,
-                background: "#f9fafb",
-                border: "1px solid #edf0f4",
+                borderRadius: 8,
+                background: "#fafafa",
+                border: "1px solid #e0e0e0",
               }}
-              bodyStyle={{ padding: 10 }}
+              bodyStyle={{ padding: "12px 16px" }}
             >
-              <Space
-                direction="vertical"
-                size={4}
-                style={{ width: "100%", textAlign: "center" }}
-              >
+              <div style={{ textAlign: "center", marginBottom: 12 }}>
                 <Text strong style={{ fontSize: 13 }}>
-                  Quy tắc công việc hiện hành: {activeTaskRule.name || "—"}
+                  Quy tắc công việc hiện hành: {taskRules[0]?.name || "—"}
                 </Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Giới hạn tối đa{" "}
-                  <strong>
-                    {activeTaskRule.maxTasksPerDay != null
-                      ? `${activeTaskRule.maxTasksPerDay} công việc/ngày`
-                      : "—"}
-                  </strong>
-                  {activeTaskRule.effectiveFrom && activeTaskRule.effectiveTo && (
-                    <>
-                      {" "}
-                      • Áp dụng từ{" "}
-                      {dayjs(activeTaskRule.effectiveFrom).format("DD/MM/YYYY")} đến{" "}
-                      {dayjs(activeTaskRule.effectiveTo).format("DD/MM/YYYY")}
-                    </>
-                  )}
-                </Text>
+              </div>
 
-                {/* Người dùng đã xoá phần hiển thị Tag, giữ logic màu nhưng không render gì thêm */}
+              <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                {taskRules.map((rule) => {
+                  const category = categories.find(
+                    (c) => c.taskCategoryId === rule.taskCategoryId
+                  );
+                  const categoryName = category?.name || `Loại ${rule.taskCategoryId}`;
+                  const role = rule.staffRole || "—";
+                  const limit = rule.maxTasksPerDay;
+                  const fromDate = rule.effectiveFrom
+                    ? dayjs(rule.effectiveFrom).format("DD/MM/YYYY")
+                    : "—";
+                  const toDate = rule.effectiveTo
+                    ? dayjs(rule.effectiveTo).format("DD/MM/YYYY")
+                    : "—";
+
+                  return (
+                    <div key={rule.taskRuleId} style={{ fontSize: 12, color: "#555" }}>
+                      <Text strong>{categoryName}</Text>
+                      <Text type="secondary"> ({role}): </Text>
+                      <Text>tối đa <strong>{limit}</strong> công việc/ngày</Text>
+                      <Text type="secondary"> • Hiệu lực từ {fromDate} đến {toDate}</Text>
+                    </div>
+                  );
+                })}
               </Space>
             </Card>
           )}
@@ -958,11 +1082,14 @@ export default function OperatorTasks() {
                   <Space>
                     <span>Lọc theo role:</span>
                     <Select
-                      style={{ width: 200 }}
+                      style={{ width: 250 }}
                       allowClear
                       placeholder="Tất cả role"
                       value={leaderboardRoleFilter}
-                      onChange={setLeaderboardRoleFilter}
+                      onChange={(value) => {
+                        setLeaderboardRoleFilter(value);
+                        setLeaderboardPage(0); // Reset về trang đầu khi đổi filter
+                      }}
                       options={[
                         { label: "TECHNICIAN", value: "TECHNICIAN" },
                         { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
@@ -979,7 +1106,21 @@ export default function OperatorTasks() {
                   rowKey={(record) => `${record.staffId || record.id || Math.random()}`}
                   columns={leaderboardColumns}
                   dataSource={leaderboardData}
-                  pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `Tổng ${total} nhân viên` }}
+                  pagination={{
+                    current: leaderboardPage + 1, // Ant Design uses 1-based index
+                    pageSize: leaderboardPageSize,
+                    total: leaderboardTotal,
+                    showSizeChanger: true,
+                    showTotal: (total) => `Tổng ${total} nhân viên`,
+                    onChange: (page, pageSize) => {
+                      setLeaderboardPage(page - 1); // Convert to 0-based index
+                      setLeaderboardPageSize(pageSize);
+                    },
+                    onShowSizeChange: (current, size) => {
+                      setLeaderboardPage(0); // Reset về trang đầu khi đổi page size
+                      setLeaderboardPageSize(size);
+                    },
+                  }}
                   scroll={{ x: 800 }}
                 />
               ) : (
@@ -1028,8 +1169,8 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item 
-            label="Mã đơn hàng" 
+          <Form.Item
+            label="Mã đơn hàng"
             name="orderId"
             tooltip={editing ? "Không thể thay đổi mã đơn hàng sau khi tạo công việc" : undefined}
           >
@@ -1061,8 +1202,8 @@ export default function OperatorTasks() {
             />
           </Form.Item>
 
-          <Form.Item 
-            label="Nhân viên phụ trách" 
+          <Form.Item
+            label="Nhân viên phụ trách"
             name="assignedStaffIds"
           >
             <Select

@@ -14,6 +14,7 @@ import {
   Tag,
   DatePicker,
   Card,
+  Select,
 } from "antd";
 import {
   PlusOutlined,
@@ -31,9 +32,12 @@ import {
   getActiveTaskRule,
   normalizeTaskRule,
 } from "../../lib/taskRulesApi";
+import { listTaskCategories } from "../../lib/taskCategoryApi";
 
 const { Title } = Typography;
 const { TextArea } = Input;
+
+
 
 export default function AdminTaskRule() {
   const [loading, setLoading] = useState(false);
@@ -42,13 +46,14 @@ export default function AdminTaskRule() {
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
   const [activeRule, setActiveRule] = useState(null);
+  const [taskCategories, setTaskCategories] = useState([]);
 
   const loadRules = async () => {
     try {
       setLoading(true);
       const list = await listTaskRules();
       setRules(list.map(normalizeTaskRule));
-      
+
       // Load active rule
       try {
         const active = await getActiveTaskRule();
@@ -64,8 +69,18 @@ export default function AdminTaskRule() {
     }
   };
 
+  const loadTaskCategories = async () => {
+    try {
+      const categories = await listTaskCategories();
+      setTaskCategories(categories);
+    } catch (e) {
+      console.error("Failed to load task categories:", e);
+    }
+  };
+
   useEffect(() => {
     loadRules();
+    loadTaskCategories();
   }, []);
 
   const openCreate = () => {
@@ -88,6 +103,7 @@ export default function AdminTaskRule() {
       active: record.active ?? false,
       effectiveFrom: record.effectiveFrom ? dayjs(record.effectiveFrom) : null,
       effectiveTo: record.effectiveTo ? dayjs(record.effectiveTo) : null,
+      taskCategoryId: record.taskCategoryId ?? null,
     });
     setOpen(true);
   };
@@ -101,6 +117,7 @@ export default function AdminTaskRule() {
         active: Boolean(values.active ?? false),
         effectiveFrom: values.effectiveFrom ? values.effectiveFrom.toISOString() : null,
         effectiveTo: values.effectiveTo ? values.effectiveTo.toISOString() : null,
+        taskCategoryId: values.taskCategoryId ? Number(values.taskCategoryId) : null,
       };
 
       if (editing) {
@@ -125,7 +142,7 @@ export default function AdminTaskRule() {
       const id = record.taskRuleId ?? record.id;
       const prev = rules;
       setRules(prev.filter((x) => (x.taskRuleId ?? x.id) !== id));
-      
+
       await deleteTaskRule(id);
       toast.success("Đã xoá rule");
       await loadRules();
@@ -247,7 +264,7 @@ export default function AdminTaskRule() {
       <Card>
         <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Title level={3} style={{ margin: 0 }}>
-            Quản lý Quy tắc Công việc 
+            Quản lý Quy tắc Công việc
           </Title>
           <Space>
             <Button
@@ -350,6 +367,20 @@ export default function AdminTaskRule() {
               showTime
               format="DD/MM/YYYY HH:mm"
               placeholder="Chọn ngày bắt đầu"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Task Category"
+            name="taskCategoryId"
+            rules={[{ required: true, message: "Vui lòng chọn task category" }]}
+          >
+            <Select
+              placeholder="Chọn task category"
+              options={taskCategories.map(cat => ({
+                label: cat.name,
+                value: cat.taskCategoryId,
+              }))}
             />
           </Form.Item>
 
