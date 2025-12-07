@@ -831,7 +831,7 @@ export default function CartPage() {
                     </div>
                   )}
                 </Form.Item>
-                <Form.Item label={<Text strong>Ghi chú thêm (tuỳ chọn)</Text>}>
+                {/* <Form.Item label={<Text strong>Ghi chú thêm (tuỳ chọn)</Text>}>
                   <Input.TextArea
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
@@ -839,7 +839,7 @@ export default function CartPage() {
                     placeholder="VD: Giao trước 9h, gọi mình trước khi tới giao nhé…"
                     size="large"
                   />
-                </Form.Item>
+                </Form.Item> */}
 
                 <Divider />
                 <Form.Item
