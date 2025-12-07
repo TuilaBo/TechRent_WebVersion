@@ -10,6 +10,7 @@ export function normalizeConditionDefinition(raw = {}) {
     name: raw.name ?? "",
     deviceModelId: raw.deviceModelId ?? null,
     description: raw.description ?? "",
+    impactRate: raw.impactRate ?? 0,
     damage: raw.damage ?? false,
     conditionType: raw.conditionType ?? raw.type ?? "GOOD",
     conditionSeverity: raw.conditionSeverity ?? raw.severity ?? "INFO",
@@ -57,6 +58,7 @@ export async function getConditionDefinitionById(id) {
  * @param {string} conditionData.name - Tên condition definition
  * @param {number} conditionData.deviceModelId - ID của device model
  * @param {string} conditionData.description - Mô tả
+ * @param {number} conditionData.impactRate - Tỷ lệ ảnh hưởng (default: 100)
  * @param {string} conditionData.conditionType - Loại tình trạng (GOOD, DAMAGED, LOST)
  * @param {string} conditionData.conditionSeverity - Mức độ nghiêm trọng (INFO, LOW, MEDIUM, HIGH, CRITICAL)
  * @param {number} conditionData.defaultCompensation - Bồi thường mặc định (default: 0)
@@ -67,6 +69,7 @@ export async function createConditionDefinition(conditionData) {
     name: conditionData.name ?? "",
     deviceModelId: conditionData.deviceModelId ?? 0,
     description: conditionData.description ?? "",
+    impactRate: conditionData.impactRate ?? 100,
     conditionType: conditionData.conditionType ?? "GOOD",
     conditionSeverity: conditionData.conditionSeverity ?? "INFO",
     defaultCompensation: conditionData.defaultCompensation ?? 0,
@@ -83,6 +86,7 @@ export async function createConditionDefinition(conditionData) {
  * @param {string} [conditionData.name] - Tên condition definition
  * @param {number} [conditionData.deviceModelId] - ID của device model
  * @param {string} [conditionData.description] - Mô tả
+ * @param {number} [conditionData.impactRate] - Tỷ lệ ảnh hưởng
  * @param {string} [conditionData.conditionType] - Loại tình trạng
  * @param {string} [conditionData.conditionSeverity] - Mức độ nghiêm trọng
  * @param {number} [conditionData.defaultCompensation] - Bồi thường mặc định
@@ -93,6 +97,7 @@ export async function updateConditionDefinition(id, conditionData) {
   if (conditionData.name !== undefined) payload.name = conditionData.name;
   if (conditionData.deviceModelId !== undefined) payload.deviceModelId = conditionData.deviceModelId;
   if (conditionData.description !== undefined) payload.description = conditionData.description;
+  if (conditionData.impactRate !== undefined) payload.impactRate = conditionData.impactRate;
   if (conditionData.conditionType !== undefined) payload.conditionType = conditionData.conditionType;
   if (conditionData.conditionSeverity !== undefined) payload.conditionSeverity = conditionData.conditionSeverity;
   if (conditionData.defaultCompensation !== undefined) payload.defaultCompensation = conditionData.defaultCompensation;
