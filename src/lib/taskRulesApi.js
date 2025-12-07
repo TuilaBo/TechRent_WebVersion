@@ -32,12 +32,22 @@ export async function listTaskRules(params = {}) {
 }
 
 /**
- * Lấy rule đang áp dụng (active rule)
+ * Lấy rule đang áp dụng (active rule) - deprecated, use getActiveTaskRules instead
  * @returns {Promise<any>} Active task rule
  */
 export async function getActiveTaskRule() {
   const { data } = await api.get("/api/admin/task-rules/active");
   return data?.data ?? data ?? null;
+}
+
+/**
+ * Lấy tất cả các rules đang active từ /api/admin/task-rules/active
+ * @returns {Promise<Array>} Array of active task rules
+ */
+export async function getActiveTaskRules() {
+  const { data } = await api.get("/api/admin/task-rules/active");
+  const payload = data?.data ?? data ?? [];
+  return Array.isArray(payload) ? payload : (payload ? [payload] : []);
 }
 
 /**

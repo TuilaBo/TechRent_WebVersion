@@ -14,7 +14,7 @@ import {
   updateTask,
   deleteTask,
 } from "../../lib/taskApi";
-import { listTaskRules } from "../../lib/taskRulesApi";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import {
   listTaskCategories,
   normalizeTaskCategory,
@@ -148,12 +148,12 @@ export default function OperatorTasks() {
     let cancelled = false;
     (async () => {
       try {
-        // Load all active rules
-        const allRules = await listTaskRules({ active: true });
+        // Load all active rules using /api/admin/task-rules/active
+        const allRules = await getActiveTaskRules();
 
         if (!cancelled) {
           // Hiển thị tất cả active rules
-          setTaskRules(allRules);
+          setTaskRules(allRules || []);
         }
       } catch (e) {
         console.warn("Không thể tải danh sách task rules:", e);

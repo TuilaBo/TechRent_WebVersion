@@ -46,7 +46,7 @@ import {
     confirmDelivery,
     confirmRetrieval,
 } from "../../lib/taskApi";
-import { listTaskRules } from "../../lib/taskRulesApi";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
     TECH_TASK_STATUS,
@@ -1285,9 +1285,9 @@ export default function TechnicianCalendar() {
 
             // Load all task rules and create category map
             try {
-                console.log("DEBUG: Calling listTaskRules API...");
-                const allRules = await listTaskRules({ active: true });
-                console.log("DEBUG: listTaskRules response:", allRules);
+                console.log("DEBUG: Calling getActiveTaskRules API...");
+                const allRules = await getActiveTaskRules();
+                console.log("DEBUG: getActiveTaskRules response:", allRules);
 
                 const rulesMap = {};
                 (allRules || []).forEach(rule => {
