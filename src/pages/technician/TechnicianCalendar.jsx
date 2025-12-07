@@ -3301,7 +3301,20 @@ export default function TechnicianCalendar() {
                         label: 'QC / Kiểm tra',
                         children: (() => {
                             const tasksData = getCalendarData(selectedDate).tasks;
-                            const qcTasks = tasksData.filter(t => ['QC', 'PRE_RENTAL_QC', 'HANDOVER_CHECK'].includes(t.type) || (t.type || '').includes('QC') || (t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC'));
+                            const qcTasks = tasksData.filter(t => {
+                                // Check by taskCategoryId (Pre rental QC = 1, Post rental QC = 2)
+                                if (t.taskCategoryId === 1 || t.taskCategoryId === 2) {
+                                    return true;
+                                }
+                                
+                                // Check by taskCategoryName
+                                const categoryName = String(t.taskCategoryName || '');
+                                if (categoryName === 'Pre rental QC' || categoryName === 'Post rental QC') {
+                                    return true;
+                                }
+                                
+                                return false;
+                            });
 
                             // Count tasks by category
                             const cat1Tasks = tasksData.filter(t => t.taskCategoryId === 1 || t.taskCategoryName === 'Pre rental QC');
@@ -3355,9 +3368,9 @@ export default function TechnicianCalendar() {
                                         dataSource={qcTasks}
                                         rowKey={(r) => r.id || r.taskId}
                                         columns={[
-                                            { title: 'Task', dataIndex: 'title' },
+                                            { title: 'Công việc', dataIndex: 'title' },
                                             { title: 'Loại', dataIndex: 'type', render: (t, r) => <Tag color={TYPES[t]?.color || 'blue'}>{r.taskCategoryName || TYPES[t]?.label || t}</Tag> },
-                                            { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
                                         pagination={false}
@@ -3425,10 +3438,10 @@ export default function TechnicianCalendar() {
                                         dataSource={deliveryTasks}
                                         rowKey={(r) => r.id || r.taskId}
                                         columns={[
-                                            { title: 'Task', dataIndex: 'title' },
-                                            { title: 'Thiết bị', dataIndex: 'device' },
-                                            { title: 'Địa điểm', dataIndex: 'location' },
-                                            { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            { title: 'Công việc', dataIndex: 'title' },
+                                            { title: 'Loại', dataIndex: 'device' },
+    
+                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
                                         pagination={false}
