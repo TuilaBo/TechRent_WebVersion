@@ -1159,6 +1159,7 @@ export default function TechnicianCalendar() {
     const [statusForm] = Form.useForm();
     const [uploadFileList, setUploadFileList] = useState([]);
     const [taskRulesMap, setTaskRulesMap] = useState({}); // { categoryId -> { maxTasksPerDay, name } }
+    const [ordersMap, setOrdersMap] = useState({}); // { orderId -> order } for shippingAddress
 
     const openUpdateStatusModal = (record) => {
         setSelectedMaintenance(record);
@@ -1429,6 +1430,30 @@ export default function TechnicianCalendar() {
             const allTasks = (Array.isArray(allTasksRaw) ? allTasksRaw : []).map(normalizeTask);
             const display = allTasks.map(taskToDisplay);
             setTasksAll(display);
+
+            // Fetch orders for delivery/pickup tasks to get shippingAddress
+            const deliveryPickupTasks = allTasks.filter(t =>
+                ['DELIVERY', 'PICKUP'].includes(t.type) ||
+                (t.taskCategoryName || '').includes('Delivery') ||
+                (t.taskCategoryName || '').includes('Pick up') ||
+                t.taskCategoryId === 4 || t.taskCategoryId === 6
+            );
+            const orderIds = [...new Set(deliveryPickupTasks.map(t => t.orderId).filter(Boolean))];
+            if (orderIds.length > 0) {
+                const ordersMapLocal = { ...ordersMap };
+                await Promise.allSettled(orderIds.map(async (oid) => {
+                    if (!ordersMapLocal[oid]) {
+                        try {
+                            const order = await getRentalOrderById(oid);
+                            if (order) ordersMapLocal[oid] = order;
+                        } catch (e) {
+                            console.warn(`Failed to load order ${oid}:`, e);
+                        }
+                    }
+                }));
+                setOrdersMap(ordersMapLocal);
+            }
+
             const preRentalQcTasks = allTasks.filter((task) => isPreRentalQC(task));
             const postRentalQcTasks = allTasks.filter((task) => isPostRentalQC(task));
             const pickupTasks = allTasks.filter((task) => isPickupTask(task));
@@ -3301,7 +3326,17 @@ export default function TechnicianCalendar() {
                         label: 'QC / Kiểm tra',
                         children: (() => {
                             const tasksData = getCalendarData(selectedDate).tasks;
-                            const qcTasks = tasksData.filter(t => ['QC', 'PRE_RENTAL_QC', 'HANDOVER_CHECK'].includes(t.type) || (t.type || '').includes('QC') || (t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC'));
+                            const qcTasks = tasksData.filter(t => {
+                                // Exclude Delivery and Pick up tasks
+                                if (t.taskCategoryId === 4 || t.taskCategoryId === 6) return false;
+                                if (['DELIVERY', 'PICKUP'].includes(t.type)) return false;
+                                if ((t.taskCategoryName || '').includes('Delivery') || (t.taskCategoryName || '').includes('Pick up')) return false;
+                                // Include QC tasks
+                                return ['QC', 'PRE_RENTAL_QC', 'HANDOVER_CHECK'].includes(t.type) ||
+                                    (t.type || '').includes('QC') ||
+                                    t.taskCategoryId === 1 || t.taskCategoryId === 2 ||
+                                    t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC';
+                            });
 
                             // Count tasks by category
                             const cat1Tasks = tasksData.filter(t => t.taskCategoryId === 1 || t.taskCategoryName === 'Pre rental QC');
@@ -3427,7 +3462,12 @@ export default function TechnicianCalendar() {
                                         columns={[
                                             { title: 'Task', dataIndex: 'title' },
                                             { title: 'Thiết bị', dataIndex: 'device' },
-                                            { title: 'Địa điểm', dataIndex: 'location' },
+                                            {
+                                                title: 'Địa điểm', key: 'address', render: (_, r) => {
+                                                    const addr = ordersMap[r.orderId]?.shippingAddress || r.description || '—';
+                                                    return <span title={addr}>{addr.length > 40 ? (addr.substring(0, 40) + '...') : addr}</span>;
+                                                }
+                                            },
                                             { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
@@ -3545,7 +3585,7 @@ export default function TechnicianCalendar() {
                                             )
                                         }
                                     ]}
-                                    pagination={false}
+                                    pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: ['5', '10', '20'] }}
                                 />
                             );
                         })()

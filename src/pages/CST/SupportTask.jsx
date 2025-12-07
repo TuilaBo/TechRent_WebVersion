@@ -13,6 +13,10 @@ import {
   Select,
   Table,
   Input,
+  Calendar,
+  Badge,
+  Modal,
+  Tabs,
 } from "antd";
 import {
   EnvironmentOutlined,
@@ -106,22 +110,22 @@ const isPickupTask = (task) => {
   const categoryName = String(task.taskCategoryName || "").toUpperCase();
   const type = String(task.type || "").toUpperCase();
   const description = String(task.description || "").toUpperCase();
-  
+
   // Kiểm tra type: "PICKUP", "PICK UP", "RETURN", "RETRIEVAL", etc.
   if (type.includes("PICKUP") || type.includes("PICK UP") || type.includes("RETURN") || type.includes("RETRIEVAL")) {
     return true;
   }
-  
+
   // Kiểm tra categoryName: "PICK UP RENTAL ORDER", "PICKUP", etc.
   if (categoryName.includes("PICKUP") || categoryName.includes("PICK UP") || categoryName.includes("RETURN") || categoryName.includes("RETRIEVAL")) {
     return true;
   }
-  
+
   // Kiểm tra description
   if (description.includes("THU HỒI") || description.includes("TRẢ HÀNG") || description.includes("PICKUP") || description.includes("PICK UP")) {
     return true;
   }
-  
+
   return false;
 };
 
@@ -138,6 +142,11 @@ export default function SupportTask() {
   const [confirmingRetrieval, setConfirmingRetrieval] = useState({}); // taskId -> loading
   const [confirmedTasks, setConfirmedTasks] = useState(new Set()); // Set of taskIds that have been confirmed (delivery)
   const [confirmedRetrievalTasks, setConfirmedRetrievalTasks] = useState(new Set()); // Set of taskIds that have been confirmed (retrieval)
+
+  // Calendar states
+  const [selectedDate, setSelectedDate] = useState(dayjs());
+  const [isDailyModalOpen, setIsDailyModalOpen] = useState(false);
+  const [ordersMap, setOrdersMap] = useState({}); // { orderId -> order } for shippingAddress
 
   const viewOrderDetail = async (oid) => {
     if (!oid) return;
@@ -186,6 +195,27 @@ export default function SupportTask() {
       const allTasks = allTasksRaw.map(normalizeTask);
       const display = allTasks.map(taskToDisplay);
       setTasksAll(display);
+
+      // Fetch orders for delivery/pickup tasks to get shippingAddress
+      const deliveryPickupTasks = allTasks.filter(t =>
+        ['DELIVERY', 'PICKUP'].includes(t.type) ||
+        (t.taskCategoryName || '').includes('Delivery') ||
+        (t.taskCategoryName || '').includes('Pick up') ||
+        t.taskCategoryId === 4 || t.taskCategoryId === 6
+      );
+      const orderIds = [...new Set(deliveryPickupTasks.map(t => t.orderId).filter(Boolean))];
+      if (orderIds.length > 0) {
+        const ordersMapLocal = {};
+        await Promise.allSettled(orderIds.map(async (oid) => {
+          try {
+            const order = await getRentalOrderById(oid);
+            if (order) ordersMapLocal[oid] = order;
+          } catch (e) {
+            console.warn(`Failed to load order ${oid}:`, e);
+          }
+        }));
+        setOrdersMap(ordersMapLocal);
+      }
     } catch (e) {
       toast.error(e?.response?.data?.message || e?.message || "Không tải được nhiệm vụ");
     } finally {
@@ -486,7 +516,7 @@ export default function SupportTask() {
       const isInProgress = status === "IN_PROGRESS";
       const isConfirmed = confirmedRetrievalTasks.has(taskId);
       const isLoading = confirmingRetrieval[taskId];
-      
+
       return (
         <>
           {header}
@@ -495,9 +525,11 @@ export default function SupportTask() {
             <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
             <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
-              {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
-                <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
-              ); })() : "—"}
+              {t.status ? (() => {
+                const { bg, text } = getTechnicianStatusColor(t.status); return (
+                  <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+                );
+              })() : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
             <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
@@ -579,7 +611,7 @@ export default function SupportTask() {
                 loading={isLoading}
                 onClick={() => handleConfirmRetrieval(taskId)}
               >
-                Xác nhận đi trả hàng
+                Xác nhận đi lấy hàng
               </Button>
             )}
             {(isCompleted || isConfirmed || isInProgress) && (
@@ -592,7 +624,7 @@ export default function SupportTask() {
 
     // Fallback generic detail for loại không xác định
     const isCompleted = String(t.status || "").toUpperCase() === "COMPLETED";
-    
+
     return (
       <>
         {header}
@@ -601,9 +633,11 @@ export default function SupportTask() {
           <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
           <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
           <Descriptions.Item label="Trạng thái">
-            {t.status ? (() => { const { bg, text } = getTechnicianStatusColor(t.status); return (
-              <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
-            ); })() : "—"}
+            {t.status ? (() => {
+              const { bg, text } = getTechnicianStatusColor(t.status); return (
+                <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+              );
+            })() : "—"}
           </Descriptions.Item>
           <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
           <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
@@ -686,7 +720,7 @@ export default function SupportTask() {
             const isInProgress = status === "IN_PROGRESS";
             const isConfirmed = confirmedTasks.has(taskId);
             const isLoading = confirmingDelivery[taskId];
-            
+
             return (
               <>
                 {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
@@ -700,7 +734,7 @@ export default function SupportTask() {
                   </Button>
                 )}
                 {/* Hiển thị thông báo khi đã xác nhận */}
-               
+
               </>
             );
           })()}
@@ -711,7 +745,7 @@ export default function SupportTask() {
             const isInProgress = status === "IN_PROGRESS";
             const isConfirmed = confirmedRetrievalTasks.has(taskId);
             const isLoading = confirmingRetrieval[taskId];
-            
+
             return (
               <>
                 {!isCompleted && !isInProgress && !isConfirmed && (
@@ -720,11 +754,11 @@ export default function SupportTask() {
                     loading={isLoading}
                     onClick={() => handleConfirmRetrieval(taskId)}
                   >
-                    Xác nhận đi trả hàng
+                    Xác nhận đi lấy hàng
                   </Button>
                 )}
                 {(isCompleted || isConfirmed || isInProgress) && (
-                  <Text type="success">Đã xác nhận đi trả hàng</Text>
+                  <Text type="success">Đã xác nhận đi lấy hàng</Text>
                 )}
               </>
             );
@@ -734,67 +768,202 @@ export default function SupportTask() {
     );
   };
 
+  // ========== CALENDAR HELPERS ==========
+  const getTaskBadgeStatus = (status) => {
+    const s = String(status || '').toUpperCase();
+    if (s.includes('PENDING')) return 'warning';
+    if (s.includes('IN_PROGRESS') || s.includes('PROCESSING')) return 'processing';
+    if (s.includes('COMPLETED') || s.includes('DONE')) return 'success';
+    if (s.includes('CANCELLED') || s.includes('FAILED')) return 'error';
+    return 'default';
+  };
+
+  const getCalendarData = useCallback((value) => {
+    if (!value) return [];
+    return tasksAll.filter(t => {
+      const date = t.date ? dayjs(t.date) : null;
+      return date && date.isSame(value, 'day');
+    });
+  }, [tasksAll]);
+
+  const dateCellRender = useCallback((value) => {
+    const dayTasks = getCalendarData(value);
+    if (dayTasks.length === 0) return null;
+
+    const statusCounts = { warning: 0, processing: 0, success: 0, error: 0 };
+    dayTasks.forEach(t => {
+      const status = getTaskBadgeStatus(t.status);
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+    });
+
+    return (
+      <ul className="events" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {Object.entries(statusCounts)
+          .filter(([_, count]) => count > 0)
+          .map(([status, count]) => (
+            <li key={status}>
+              <Badge status={status} text={<span style={{ fontSize: '10px' }}>{count}</span>} />
+            </li>
+          ))
+        }
+      </ul>
+    );
+  }, [getCalendarData]);
+
+  const onSelectDate = useCallback((date) => {
+    setSelectedDate(date);
+    setIsDailyModalOpen(true);
+  }, []);
+
   return (
-    <>
+    <div style={{ padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <Title level={3} style={{ margin: 0 }}>Danh sách công việc</Title>
+        <Title level={3} style={{ margin: 0 }}>Lịch làm việc hỗ trợ</Title>
         <Button icon={<ReloadOutlined />} onClick={loadTasks} loading={loading}>
           Tải lại
         </Button>
       </div>
 
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Input.Search
-          placeholder="Tìm theo mã task"
-          allowClear
-          value={searchTaskId}
-          onChange={(e) => setSearchTaskId(e.target.value)}
-          onSearch={setSearchTaskId}
-          style={{ width: 200 }}
-        />
-        <span>Lọc trạng thái:</span>
-        <Select
-          style={{ width: 200 }}
-          value={filterStatus}
-          onChange={setFilterStatus}
-          options={[
-            { label: "Tất cả", value: "ALL" },
-            { label: "Đang chờ thực hiện", value: TECH_TASK_STATUS.PENDING },
-            { label: "Đã hoàn thành", value: TECH_TASK_STATUS.COMPLETED },
-          ]}
-        />
-      </Space>
+      {/* Legend */}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', background: '#fff', padding: '8px 16px', borderRadius: 8, border: '1px solid #f0f0f0' }}>
+        <span style={{ fontWeight: 600 }}>Chú thích:</span>
+        <Badge status="warning" text="Cần xử lý" />
+        <Badge status="processing" text="Đang thực hiện" />
+        <Badge status="success" text="Đã hoàn thành" />
+        <Badge status="error" text="Đã hủy" />
+      </div>
 
-      <Card>
-        <Table
-          rowKey={(r) => r.id || r.taskId}
-          loading={loading}
-          columns={columns}
-          dataSource={tasksAll
-            .filter((t) => {
-              // Filter by status
-              const statusMatch = filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase();
-              // Filter by task ID
-              const taskIdMatch = !searchTaskId.trim() || 
-                String(t.id || t.taskId || "").includes(String(searchTaskId.trim()));
-              return statusMatch && taskIdMatch;
-            })
-            .sort((a, b) => {
-              // Ưu tiên PENDING lên đầu
-              const aIsPending = String(a.status || "").toUpperCase().includes("PENDING");
-              const bIsPending = String(b.status || "").toUpperCase().includes("PENDING");
-              
-              if (aIsPending && !bIsPending) return -1;
-              if (!aIsPending && bIsPending) return 1;
-              
-              // Nếu cùng trạng thái (cả 2 PENDING hoặc cả 2 không PENDING), sort từ mới nhất đến cũ nhất
-              const aDate = a.date ? dayjs(a.date) : dayjs(0);
-              const bDate = b.date ? dayjs(b.date) : dayjs(0);
-              return bDate.valueOf() - aDate.valueOf(); // Descending: newest first
-            })}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-        />
-      </Card>
+      <Tabs defaultActiveKey="calendar" items={[
+        {
+          key: 'calendar',
+          label: 'Lịch công việc',
+          children: (
+            <Card>
+              <Calendar
+                cellRender={(date, info) => {
+                  if (info.type === 'date') return dateCellRender(date);
+                  return info.originNode;
+                }}
+                onSelect={onSelectDate}
+              />
+            </Card>
+          )
+        },
+        {
+          key: 'list',
+          label: 'Danh sách',
+          children: (
+            <>
+              <Space style={{ marginBottom: 12 }} wrap>
+                <Input.Search
+                  placeholder="Tìm theo mã task"
+                  allowClear
+                  value={searchTaskId}
+                  onChange={(e) => setSearchTaskId(e.target.value)}
+                  onSearch={setSearchTaskId}
+                  style={{ width: 200 }}
+                />
+                <span>Lọc trạng thái:</span>
+                <Select
+                  style={{ width: 200 }}
+                  value={filterStatus}
+                  onChange={setFilterStatus}
+                  options={[
+                    { label: "Tất cả", value: "ALL" },
+                    { label: "Đang chờ thực hiện", value: TECH_TASK_STATUS.PENDING },
+                    { label: "Đã hoàn thành", value: TECH_TASK_STATUS.COMPLETED },
+                  ]}
+                />
+              </Space>
+
+              <Card>
+                <Table
+                  rowKey={(r) => r.id || r.taskId}
+                  loading={loading}
+                  columns={columns}
+                  dataSource={tasksAll
+                    .filter((t) => {
+                      const statusMatch = filterStatus === "ALL" ? true : String(t.status).toUpperCase() === String(filterStatus).toUpperCase();
+                      const taskIdMatch = !searchTaskId.trim() ||
+                        String(t.id || t.taskId || "").includes(String(searchTaskId.trim()));
+                      return statusMatch && taskIdMatch;
+                    })
+                    .sort((a, b) => {
+                      const aIsPending = String(a.status || "").toUpperCase().includes("PENDING");
+                      const bIsPending = String(b.status || "").toUpperCase().includes("PENDING");
+                      if (aIsPending && !bIsPending) return -1;
+                      if (!aIsPending && bIsPending) return 1;
+                      const aDate = a.date ? dayjs(a.date) : dayjs(0);
+                      const bDate = b.date ? dayjs(b.date) : dayjs(0);
+                      return bDate.valueOf() - aDate.valueOf();
+                    })}
+                  pagination={{ pageSize: 10, showSizeChanger: true }}
+                />
+              </Card>
+            </>
+          )
+        }
+      ]} />
+
+      {/* Daily Tasks Modal */}
+      <Modal
+        title={`Công việc ngày ${selectedDate.format('DD/MM/YYYY')}`}
+        open={isDailyModalOpen}
+        onCancel={() => setIsDailyModalOpen(false)}
+        footer={null}
+        width={900}
+      >
+        <Tabs defaultActiveKey="delivery" items={[
+          {
+            key: 'delivery',
+            label: 'Giao hàng / Thu hồi',
+            children: (() => {
+              const dayTasks = getCalendarData(selectedDate);
+              const deliveryTasks = dayTasks.filter(t =>
+                ['DELIVERY', 'PICKUP'].includes(t.type) ||
+                (t.taskCategoryName || '').includes('Delivery') ||
+                (t.taskCategoryName || '').includes('Pick up') ||
+                t.taskCategoryId === 4 || t.taskCategoryId === 6
+              );
+
+              return (
+                <Table
+                  rowKey={(r) => r.id || r.taskId}
+                  dataSource={deliveryTasks}
+                  columns={[
+                    { title: 'Task', dataIndex: 'title' },
+                    { title: 'Thiết bị', dataIndex: 'device' },
+                    {
+                      title: 'Địa điểm', key: 'address', render: (_, r) => {
+                        const addr = ordersMap[r.orderId]?.shippingAddress || r.description || '—';
+                        return <span title={addr}>{addr.length > 40 ? (addr.substring(0, 40) + '...') : addr}</span>;
+                      }
+                    },
+                    { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                    { title: '', render: (_, r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
+                  ]}
+                  pagination={{ pageSize: 5 }}
+                />
+              );
+            })()
+          },
+          {
+            key: 'all',
+            label: 'Tất cả',
+            children: (() => {
+              const dayTasks = getCalendarData(selectedDate);
+              return (
+                <Table
+                  rowKey={(r) => r.id || r.taskId}
+                  dataSource={dayTasks}
+                  columns={columns}
+                  pagination={{ pageSize: 5 }}
+                />
+              );
+            })()
+          }
+        ]} />
+      </Modal>
 
       <Drawer
         title={detailTask ? detailTask.title : "Chi tiết công việc"}
@@ -804,7 +973,7 @@ export default function SupportTask() {
       >
         {renderDetailBody(detailTask)}
       </Drawer>
-    </>
+    </div>
   );
 }
 
