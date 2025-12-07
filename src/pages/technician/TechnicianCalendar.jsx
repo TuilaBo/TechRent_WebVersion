@@ -2317,7 +2317,7 @@ export default function TechnicianCalendar() {
         // === QC: chỉ hiển thị thông tin cơ bản + nút Thực hiện QC ===
         const isCompletedQC = String(t.status || "").toUpperCase() === "COMPLETED";
 
-        if (t.type === "QC") {
+        if (t.type === "QC" || isPreRentalQC(t) || isPostRentalQC(t)) {
             return (
                 <>
                     {header}
@@ -2325,29 +2325,27 @@ export default function TechnicianCalendar() {
                     <Descriptions bordered size="small" column={1}>
                         <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mã đơn hàng">{t.orderId || "—"}</Descriptions.Item>
-                        <Descriptions.Item label="Số lượng">{t.quantity ?? "—"}</Descriptions.Item>
-                        <Descriptions.Item label="Thiết bị theo đơn">
-                            {Array.isArray(t.devices) ? t.devices.join(", ") : t.device}
-                        </Descriptions.Item>
                         <Descriptions.Item label="Hạn chót">
                             {fmtDateTime(t.deadline || t.plannedEnd)}
                         </Descriptions.Item>
-                        <Descriptions.Item label="Category">{t.category || "—"}</Descriptions.Item>
-                        <Descriptions.Item label="Địa điểm">{t.location || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.category || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Mô tả">{t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
                         {isCompletedQC && (
-                            <>
-                                <Descriptions.Item label="Thời gian bắt đầu">
-                                    {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian kết thúc">
-                                    {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian hoàn thành">
-                                    {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
-                                </Descriptions.Item>
-                            </>
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
                         )}
                     </Descriptions>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
+
                     <Divider />
                     <Space wrap>
                         {isPreRentalQC(t) && (() => {
@@ -2374,9 +2372,6 @@ export default function TechnicianCalendar() {
                             );
                         })()}
                     </Space>
-
-                    {/* Order, Customer, and Device Details Section */}
-                    {renderOrderCustomerDeviceDetails(t)}
                 </>
             );
         }
@@ -2520,18 +2515,16 @@ export default function TechnicianCalendar() {
                         </Descriptions.Item>
                         <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
                         {isCompleted && (
-                            <>
-                                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
-                                    {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
-                                    {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
-                                    {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
-                                </Descriptions.Item>
-                            </>
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
                         )}
                     </Descriptions>
                     {orderDetail && (
@@ -2759,18 +2752,16 @@ export default function TechnicianCalendar() {
                         </Descriptions.Item>
                         <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
                         {isCompleted && (
-                            <>
-                                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
-                                    {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
-                                    {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
-                                    {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
-                                </Descriptions.Item>
-                            </>
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
                         )}
                     </Descriptions>
                     {orderDetail && (
@@ -2956,13 +2947,13 @@ export default function TechnicianCalendar() {
                     <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
                     {isCompleted && (
                         <>
-                            <Descriptions.Item label="Thời gian bắt đầu Task">
+                            <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
                                 {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Thời gian kết thúc Task">
+                            <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
                                 {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Thời gian hoàn thành Task">
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
                                 {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
                             </Descriptions.Item>
                         </>
