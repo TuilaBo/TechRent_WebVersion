@@ -66,3 +66,13 @@ export const getPriorityMaintenanceSchedules = async () => {
     const { data } = await api.get("/api/maintenance/schedules/priority");
     return data;
 };
+
+/**
+ * Xóa lịch bảo trì
+ * @param {number} scheduleId - ID của lịch bảo trì cần xóa
+ * @returns {Promise} Kết quả xóa
+ */
+export const deleteMaintenanceSchedule = async (scheduleId) => {
+    const { data } = await api.delete(`/api/maintenance/schedules/${scheduleId}`);
+    return data;
+};

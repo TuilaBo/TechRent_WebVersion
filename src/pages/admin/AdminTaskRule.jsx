@@ -37,13 +37,7 @@ import { listTaskCategories } from "../../lib/taskCategoryApi";
 const { Title } = Typography;
 const { TextArea } = Input;
 
-// Staff role options
-const STAFF_ROLE_OPTIONS = [
-  { label: "Admin", value: "ADMIN" },
-  { label: "Operator", value: "OPERATOR" },
-  { label: "Technician", value: "TECHNICIAN" },
-  { label: "Customer Support Staff", value: "CUSTOMER_SUPPORT_STAFF" },
-];
+
 
 export default function AdminTaskRule() {
   const [loading, setLoading] = useState(false);
@@ -59,7 +53,7 @@ export default function AdminTaskRule() {
       setLoading(true);
       const list = await listTaskRules();
       setRules(list.map(normalizeTaskRule));
-      
+
       // Load active rule
       try {
         const active = await getActiveTaskRule();
@@ -109,7 +103,6 @@ export default function AdminTaskRule() {
       active: record.active ?? false,
       effectiveFrom: record.effectiveFrom ? dayjs(record.effectiveFrom) : null,
       effectiveTo: record.effectiveTo ? dayjs(record.effectiveTo) : null,
-      staffRole: record.staffRole ?? null,
       taskCategoryId: record.taskCategoryId ?? null,
     });
     setOpen(true);
@@ -124,7 +117,6 @@ export default function AdminTaskRule() {
         active: Boolean(values.active ?? false),
         effectiveFrom: values.effectiveFrom ? values.effectiveFrom.toISOString() : null,
         effectiveTo: values.effectiveTo ? values.effectiveTo.toISOString() : null,
-        staffRole: values.staffRole ?? null,
         taskCategoryId: values.taskCategoryId ? Number(values.taskCategoryId) : null,
       };
 
@@ -150,7 +142,7 @@ export default function AdminTaskRule() {
       const id = record.taskRuleId ?? record.id;
       const prev = rules;
       setRules(prev.filter((x) => (x.taskRuleId ?? x.id) !== id));
-      
+
       await deleteTaskRule(id);
       toast.success("Đã xoá rule");
       await loadRules();
@@ -272,7 +264,7 @@ export default function AdminTaskRule() {
       <Card>
         <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Title level={3} style={{ margin: 0 }}>
-            Quản lý Quy tắc Công việc 
+            Quản lý Quy tắc Công việc
           </Title>
           <Space>
             <Button
@@ -375,17 +367,6 @@ export default function AdminTaskRule() {
               showTime
               format="DD/MM/YYYY HH:mm"
               placeholder="Chọn ngày bắt đầu"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Staff Role"
-            name="staffRole"
-            rules={[{ required: true, message: "Vui lòng chọn staff role" }]}
-          >
-            <Select
-              placeholder="Chọn staff role"
-              options={STAFF_ROLE_OPTIONS}
             />
           </Form.Item>
 
