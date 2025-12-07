@@ -1281,10 +1281,16 @@ export default function OperatorTasks() {
             <Select
               allowClear
               placeholder="Tất cả role"
-              options={[
-                { label: "TECHNICIAN", value: "TECHNICIAN" },
-                { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
-              ]}
+              options={
+                // Category 1-2 (Pre rental QC, Post rental QC) - only TECHNICIAN
+                // Use editing?.taskCategoryId as fallback since Form.useWatch may not update immediately
+                [1, 2].includes(taskCategoryIdValue || editing?.taskCategoryId)
+                  ? [{ label: "TECHNICIAN", value: "TECHNICIAN" }]
+                  : [
+                    { label: "TECHNICIAN", value: "TECHNICIAN" },
+                    { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
+                  ]
+              }
             />
           </Form.Item>
 
