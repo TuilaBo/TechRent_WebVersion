@@ -23,7 +23,7 @@ import { getMyKyc } from "../../lib/kycApi";
 import { createPayment, getInvoiceByRentalOrderId } from "../../lib/Payment";
 import { listTasks } from "../../lib/taskApi";
 import { getSettlementByOrderId, respondSettlement } from "../../lib/settlementApi";
-import { 
+import {
   getCustomerHandoverReportsByOrderId,
   sendCustomerHandoverReportPin,
   updateCustomerHandoverReportSignature
@@ -97,17 +97,17 @@ async function mapOrderFromApi(order) {
 
     // Lấy tên và ảnh từ deviceModel object hoặc từ detail trực tiếp
     const deviceModel = detail?.deviceModel || {};
-    const deviceName = 
-      deviceModel?.deviceName || 
-      deviceModel?.name || 
-      detail?.deviceName || 
+    const deviceName =
+      deviceModel?.deviceName ||
+      deviceModel?.name ||
+      detail?.deviceName ||
       `Model ${detail?.deviceModelId ?? ""}`;
-    
-    const imageUrl = 
-      deviceModel?.imageUrl || 
-      deviceModel?.imageURL || 
+
+    const imageUrl =
+      deviceModel?.imageUrl ||
+      deviceModel?.imageURL ||
       deviceModel?.image ||
-      detail?.imageUrl || 
+      detail?.imageUrl ||
       detail?.imageURL ||
       detail?.image ||
       "";
@@ -125,7 +125,7 @@ async function mapOrderFromApi(order) {
   });
 
   const startDate = order?.startDate ?? order?.rentalStartDate ?? null;
-  const endDate   = order?.endDate   ?? order?.rentalEndDate   ?? null;
+  const endDate = order?.endDate ?? order?.rentalEndDate ?? null;
 
   const rawTotal = Number(order?.totalPrice ?? order?.total ?? 0);
   const rawDailyFromBE = Number(order?.pricePerDay ?? 0);
@@ -307,38 +307,42 @@ export default function MyOrders() {
   const isReturnConfirmed = async (order) => {
     if (!order) return false;
     const orderId = order?.id || order?.orderId || order?.rentalOrderId;
-    
+
     // Check if we've tracked this order as confirmed (from localStorage)
     if (orderId && confirmedReturnOrders.has(orderId)) {
       return true;
     }
-    
+
     // Check status
     const status = String(order?.orderStatus || order?.status || "").toLowerCase();
     if (status === "returned" || status === "return_confirmed") {
       return true;
     }
-    
+
     // Check for return confirmation flag
     if (order?.returnConfirmed === true || order?.returnConfirmed === "true") {
       return true;
     }
-    
+
     // Check if status contains "return" keyword
     if (status.includes("return")) {
       return true;
     }
-    
+
     // Check if there's a return task for this order
     try {
-      const tasks = await listTasks({ orderId });
+      const tasksRes = await listTasks({ orderId, size: 100 });
+      // Handle paginated response
+      const tasks = (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content))
+        ? tasksRes.content
+        : (Array.isArray(tasksRes) ? tasksRes : []);
       const hasReturnTask = tasks.some(task => {
         const taskType = String(task?.type || "").toUpperCase();
         const taskDesc = String(task?.description || "").toLowerCase();
-        return taskType.includes("RETURN") || 
-               taskType.includes("PICKUP") || 
-               taskDesc.includes("thu hồi") || 
-               taskDesc.includes("trả hàng");
+        return taskType.includes("RETURN") ||
+          taskType.includes("PICKUP") ||
+          taskDesc.includes("thu hồi") ||
+          taskDesc.includes("trả hàng");
       });
       if (hasReturnTask && orderId) {
         // Mark as confirmed
@@ -357,7 +361,7 @@ export default function MyOrders() {
     } catch (e) {
       console.error("Error checking return tasks:", e);
     }
-    
+
     return false;
   };
 
@@ -365,28 +369,28 @@ export default function MyOrders() {
   const isReturnConfirmedSync = (order) => {
     if (!order) return false;
     const orderId = order?.id || order?.orderId || order?.rentalOrderId;
-    
+
     // Check if we've tracked this order as confirmed
     if (orderId && confirmedReturnOrders.has(orderId)) {
       return true;
     }
-    
+
     // Check status
     const status = String(order?.orderStatus || order?.status || "").toLowerCase();
     if (status === "returned" || status === "return_confirmed") {
       return true;
     }
-    
+
     // Check for return confirmation flag
     if (order?.returnConfirmed === true || order?.returnConfirmed === "true") {
       return true;
     }
-    
+
     // Check if status contains "return" keyword
     if (status.includes("return")) {
       return true;
     }
-    
+
     return false;
   };
 
@@ -424,9 +428,9 @@ export default function MyOrders() {
   // Check for orders close to return date and show notification
   useEffect(() => {
     const checkCloseToReturn = () => {
-      const closeOrders = orders.filter((order) => 
+      const closeOrders = orders.filter((order) =>
         isOrderInUse(order) &&
-        isCloseToReturnDate(order) && 
+        isCloseToReturnDate(order) &&
         !isReturnConfirmedSync(order)
       );
       if (closeOrders.length > 0 && !returnModalOpen && !extendModalOpen) {
@@ -475,7 +479,7 @@ export default function MyOrders() {
       return handoverType !== "CHECKIN";
     });
   }, [handoverReports]);
-  
+
   const checkinReports = useMemo(() => {
     return handoverReports.filter(report => {
       const handoverType = String(report?.handoverType || "").toUpperCase();
@@ -492,7 +496,7 @@ export default function MyOrders() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkoutReports]);
-  
+
   // Auto select first checkin report when reports are loaded
   useEffect(() => {
     if (checkinReports.length > 0 && !selectedCheckinReport) {
@@ -506,7 +510,7 @@ export default function MyOrders() {
       if (checkinPdfPreviewUrl) {
         try {
           URL.revokeObjectURL(checkinPdfPreviewUrl);
-        } catch {}
+        } catch { }
         setCheckinPdfPreviewUrl("");
       }
     }
@@ -572,8 +576,8 @@ export default function MyOrders() {
       const normalized = normalizeCustomer(profile || {});
       setCustomerProfile(normalized);
       // Connect WS after profile ready
-      try { notifSocketRef.current?.disconnect(); } catch {}
-      try { clearInterval(pollingRef.current); } catch {}
+      try { notifSocketRef.current?.disconnect(); } catch { }
+      try { clearInterval(pollingRef.current); } catch { }
       pollingRef.current = null;
       if (normalized?.id) {
         notifSocketRef.current = connectCustomerNotifications({
@@ -584,16 +588,16 @@ export default function MyOrders() {
             const statusRaw = String(payload?.orderStatus || payload?.status || "").toUpperCase();
             const lowerMsg = String(payload?.message || payload?.title || "").toLowerCase();
             const lowerType = String(payload?.type || payload?.notificationType || "").toLowerCase();
-            
+
             // Check if this is a PROCESSING notification
-            const isProcessing = 
+            const isProcessing =
               statusRaw === "PROCESSING" ||
               lowerType === "order_processing" ||
               lowerType === "processing" ||
               lowerMsg.includes("xử lý") ||
               lowerMsg.includes("processing") ||
               lowerType === "approved";
-            
+
             if (!isProcessing) {
               console.log("⚠️ MyOrders: Message not PROCESSING, ignoring", { statusRaw, lowerMsg, lowerType });
               return;
@@ -657,7 +661,7 @@ export default function MyOrders() {
             console.log("✅ MyOrders: WebSocket connected successfully");
             wsConnectedRef.current = true;
             // stop polling if any
-            try { clearInterval(pollingRef.current); } catch {}
+            try { clearInterval(pollingRef.current); } catch { }
             pollingRef.current = null;
           },
           onError: (err) => {
@@ -682,7 +686,7 @@ export default function MyOrders() {
       setLoadingOrders(true);
       const res = await listRentalOrders();
       const mapped = await Promise.all((res || []).map(mapOrderFromApi));
-      
+
       // Enrich orders with device model data if missing
       const modelIdsToFetch = new Set();
       mapped.forEach(order => {
@@ -698,7 +702,7 @@ export default function MyOrders() {
           });
         }
       });
-      
+
       // Fetch device models in parallel
       const modelMap = new Map();
       if (modelIdsToFetch.size > 0) {
@@ -721,7 +725,7 @@ export default function MyOrders() {
           }
         });
       }
-      
+
       // Enrich orders with fetched device model data
       const enrichedOrders = mapped.map(order => {
         if (!order?.items) return order;
@@ -742,27 +746,31 @@ export default function MyOrders() {
           }),
         };
       });
-      
+
       const validOrders = enrichedOrders.filter(o => o && o.id != null);
       setOrders(validOrders);
-      
+
       // Check for orders that might have return tasks created
       // This helps detect orders that were confirmed for return even if status hasn't changed
       try {
-        const allTasks = await listTasks();
+        const tasksRes = await listTasks({ size: 1000 });
+        // Handle paginated response
+        const allTasks = (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content))
+          ? tasksRes.content
+          : (Array.isArray(tasksRes) ? tasksRes : []);
         const returnTaskOrderIds = new Set();
         allTasks.forEach(task => {
           const taskType = String(task?.type || "").toUpperCase();
           const taskDesc = String(task?.description || "").toLowerCase();
-          const isReturnTask = taskType.includes("RETURN") || 
-                              taskType.includes("PICKUP") || 
-                              taskDesc.includes("thu hồi") || 
-                              taskDesc.includes("trả hàng");
+          const isReturnTask = taskType.includes("RETURN") ||
+            taskType.includes("PICKUP") ||
+            taskDesc.includes("thu hồi") ||
+            taskDesc.includes("trả hàng");
           if (isReturnTask && task?.orderId) {
             returnTaskOrderIds.add(task.orderId);
           }
         });
-        
+
         // Update confirmedReturnOrders if we found return tasks
         if (returnTaskOrderIds.size > 0) {
           setConfirmedReturnOrders(prev => {
@@ -807,7 +815,7 @@ export default function MyOrders() {
     const status = String(order?.orderStatus || order?.status || "").toLowerCase();
     // Use invoice status if available, otherwise use order paymentStatus
     const invoiceStatus = invoiceInfo?.invoiceStatus;
-    const paymentStatus = invoiceStatus 
+    const paymentStatus = invoiceStatus
       ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
       : String(order?.paymentStatus || "unpaid").toLowerCase();
     const contract = (contracts || [])[0];
@@ -1020,10 +1028,10 @@ export default function MyOrders() {
         document.body.removeChild(a);
         return;
       }
-  
+
       // 2) Không có URL -> fallback HTML→PDF
       setPdfGenerating(true);
-  
+
       // chuẩn bị dữ liệu KH & KYC
       let customer = contractCustomer || customerProfile;
       if (!customer) {
@@ -1031,11 +1039,11 @@ export default function MyOrders() {
           const prof = await fetchMyCustomerProfile();
           customer = normalizeCustomer(prof || {});
           setCustomerProfile(customer);
-        } catch {}
+        } catch { }
       }
       let kyc = null;
-      try { kyc = await getMyKyc(); } catch {}
-  
+      try { kyc = await getMyKyc(); } catch { }
+
       // gộp điều khoản mở rộng rồi render HTML -> PDF
       const detail = augmentContractContent(record);
       sandbox = createPrintSandbox();
@@ -1063,7 +1071,7 @@ export default function MyOrders() {
       setPdfGenerating(false);
     }
   };
-  
+
 
   const showDetail = async (record) => {
     const idNum = Number(record?.id);
@@ -1072,7 +1080,7 @@ export default function MyOrders() {
       return;
     }
     clearContractPreviewState();
-  setCurrent(record);
+    setCurrent(record);
     setSettlementInfo(null);
     setDetailOpen(true);
     setDetailTab("overview");
@@ -1082,16 +1090,16 @@ export default function MyOrders() {
       const fullOrder = await getRentalOrderById(idNum);
       if (fullOrder) {
         const mapped = await Promise.all([mapOrderFromApi(fullOrder)]);
-      const merged = mapped[0];
+        const merged = mapped[0];
 
-      setCurrent((prev) => {
-        const prevItems = Array.isArray(prev?.items) ? prev.items : [];
-        const mergedItems = Array.isArray(merged?.items) ? merged.items : [];
+        setCurrent((prev) => {
+          const prevItems = Array.isArray(prev?.items) ? prev.items : [];
+          const mergedItems = Array.isArray(merged?.items) ? merged.items : [];
 
-        // Giữ lại tên & ảnh đã được enrich từ danh sách orders (prev.items)
-        const mergedWithEnrichedItems =
-          mergedItems.length > 0
-            ? mergedItems.map((mi) => {
+          // Giữ lại tên & ảnh đã được enrich từ danh sách orders (prev.items)
+          const mergedWithEnrichedItems =
+            mergedItems.length > 0
+              ? mergedItems.map((mi) => {
                 const match = prevItems.find(
                   (pi) =>
                     (pi.deviceModelId != null &&
@@ -1104,17 +1112,17 @@ export default function MyOrders() {
                   image: match?.image || mi.image,
                 };
               })
-            : prevItems;
+              : prevItems;
 
-        return {
-          ...prev,
-          ...merged,
-          items:
-            (mergedWithEnrichedItems && mergedWithEnrichedItems.length > 0
-              ? mergedWithEnrichedItems
-              : prevItems) ?? [],
-        };
-      });
+          return {
+            ...prev,
+            ...merged,
+            items:
+              (mergedWithEnrichedItems && mergedWithEnrichedItems.length > 0
+                ? mergedWithEnrichedItems
+                : prevItems) ?? [],
+          };
+        });
       }
       // Load invoice info
       try {
@@ -1258,10 +1266,10 @@ export default function MyOrders() {
     if (!orderId) {
       // Clear old previews/selections when no orderId
       if (handoverPdfPreviewUrl) {
-        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
+        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch { }
       }
       if (checkinPdfPreviewUrl) {
-        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch {}
+        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch { }
       }
       setHandoverPdfPreviewUrl("");
       setCheckinPdfPreviewUrl("");
@@ -1275,13 +1283,13 @@ export default function MyOrders() {
       // Save IDs of currently selected reports before clearing
       const previousCheckinId = selectedCheckinReport?.handoverReportId || selectedCheckinReport?.id;
       const previousHandoverId = selectedHandoverReport?.handoverReportId || selectedHandoverReport?.id;
-      
+
       // Clear previous selections and previews before loading new data
       if (handoverPdfPreviewUrl) {
-        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch {}
+        try { URL.revokeObjectURL(handoverPdfPreviewUrl); } catch { }
       }
       if (checkinPdfPreviewUrl) {
-        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch {}
+        try { URL.revokeObjectURL(checkinPdfPreviewUrl); } catch { }
       }
       setHandoverPdfPreviewUrl("");
       setCheckinPdfPreviewUrl("");
@@ -1291,10 +1299,10 @@ export default function MyOrders() {
       const reports = await getCustomerHandoverReportsByOrderId(orderId);
       const reportsArray = Array.isArray(reports) ? reports : [];
       setHandoverReports(reportsArray);
-      
+
       // Try to restore previously selected reports with updated data
       if (previousCheckinId) {
-        const updatedCheckin = reportsArray.find(r => 
+        const updatedCheckin = reportsArray.find(r =>
           (r.handoverReportId || r.id) === previousCheckinId &&
           String(r.handoverType || "").toUpperCase() === "CHECKIN"
         );
@@ -1302,9 +1310,9 @@ export default function MyOrders() {
           setSelectedCheckinReport(updatedCheckin);
         }
       }
-      
+
       if (previousHandoverId) {
-        const updatedHandover = reportsArray.find(r => 
+        const updatedHandover = reportsArray.find(r =>
           (r.handoverReportId || r.id) === previousHandoverId &&
           (String(r.handoverType || "").toUpperCase() === "CHECKOUT" || !r.handoverType)
         );
@@ -1312,7 +1320,7 @@ export default function MyOrders() {
           setSelectedHandoverReport(updatedHandover);
         }
       }
-      
+
       return reportsArray;
     } catch (e) {
       console.error("Failed to fetch handover reports by orderId:", e);
@@ -1326,7 +1334,7 @@ export default function MyOrders() {
       setHandoverReportsLoading(false);
     }
   };
-  
+
   // Check if there are unsigned handover reports (both checkout and checkin)
   const hasUnsignedHandoverReports = useMemo(() => {
     return handoverReports.some(report => {
@@ -1334,7 +1342,7 @@ export default function MyOrders() {
       return status === "STAFF_SIGNED" && !report?.customerSigned;
     });
   }, [handoverReports]);
-  
+
   // Check if there are unsigned checkout reports
   const hasUnsignedCheckoutReports = useMemo(() => {
     return checkoutReports.some(report => {
@@ -1342,7 +1350,7 @@ export default function MyOrders() {
       return status === "STAFF_SIGNED" && !report?.customerSigned;
     });
   }, [checkoutReports]);
-  
+
   // Check if there are unsigned checkin reports
   const hasUnsignedCheckinReports = useMemo(() => {
     return checkinReports.some(report => {
@@ -1356,16 +1364,16 @@ export default function MyOrders() {
     try {
       setHandoverPdfGenerating(true);
       setSelectedHandoverReport(report);
-      
+
       if (handoverPdfBlobUrl) {
         URL.revokeObjectURL(handoverPdfBlobUrl);
         setHandoverPdfBlobUrl("");
       }
-      
+
       // Fetch order and condition definitions
       let order = null;
       let conditionDefinitions = [];
-      
+
       if (report.orderId) {
         try {
           order = await getRentalOrderById(report.orderId);
@@ -1395,13 +1403,13 @@ export default function MyOrders() {
           console.warn("Could not fetch order for PDF:", e);
         }
       }
-      
+
       try {
         conditionDefinitions = await getConditionDefinitions();
       } catch (e) {
         console.warn("Could not fetch condition definitions for PDF:", e);
       }
-      
+
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
         handoverPrintRef.current.style.opacity = "1";
@@ -1409,9 +1417,9 @@ export default function MyOrders() {
         handoverPrintRef.current.style.top = "-99999px";
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        
+
         handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
-        
+
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
           if (el.style) {
@@ -1420,19 +1428,19 @@ export default function MyOrders() {
             el.style.mozOsxFontSmoothing = "grayscale";
           }
         });
-        
+
         handoverPrintRef.current.offsetHeight;
-        
+
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
-        
+
         handoverPrintRef.current.style.visibility = "hidden";
         handoverPrintRef.current.style.opacity = "0";
-        
+
         const url = URL.createObjectURL(blob);
         setHandoverPdfBlobUrl(url);
         setHandoverPdfModalOpen(true);
@@ -1448,19 +1456,19 @@ export default function MyOrders() {
   // Preview handover report PDF (for inline preview)
   const previewHandoverReportAsPdf = async (report, options = {}) => {
     if (!report) return message.warning("Chưa chọn biên bản.");
-    
+
     // Determine if this is a checkin report
     const handoverType = String(report.handoverType || "").toUpperCase();
     const isCheckinReport = handoverType === "CHECKIN";
     const target = options.target || "auto";
     const useCheckinPreview =
       target === "checkin" ? true : target === "handover" ? false : isCheckinReport;
-    
+
     const skipSelection = options.skipSelection === true;
 
     try {
       setHandoverPdfGenerating(true);
-      
+
       // Set appropriate selected report and clear preview URL
       if (useCheckinPreview) {
         if (!skipSelection) {
@@ -1479,11 +1487,11 @@ export default function MyOrders() {
           setHandoverPdfPreviewUrl("");
         }
       }
-      
+
       // Fetch order and condition definitions
       let order = null;
       let conditionDefinitions = [];
-      
+
       if (report.orderId) {
         try {
           order = await getRentalOrderById(report.orderId);
@@ -1513,13 +1521,13 @@ export default function MyOrders() {
           console.warn("Could not fetch order for PDF:", e);
         }
       }
-      
+
       try {
         conditionDefinitions = await getConditionDefinitions();
       } catch (e) {
         console.warn("Could not fetch condition definitions for PDF:", e);
       }
-      
+
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
         handoverPrintRef.current.style.opacity = "1";
@@ -1527,9 +1535,9 @@ export default function MyOrders() {
         handoverPrintRef.current.style.top = "-99999px";
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        
+
         handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
-        
+
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
           if (el.style) {
@@ -1538,19 +1546,19 @@ export default function MyOrders() {
             el.style.mozOsxFontSmoothing = "grayscale";
           }
         });
-        
+
         handoverPrintRef.current.offsetHeight;
-        
+
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
-        
+
         handoverPrintRef.current.style.visibility = "hidden";
         handoverPrintRef.current.style.opacity = "0";
-        
+
         const url = URL.createObjectURL(blob);
         if (useCheckinPreview) setCheckinPdfPreviewUrl(url);
         else setHandoverPdfPreviewUrl(url);
@@ -1562,18 +1570,18 @@ export default function MyOrders() {
       setHandoverPdfGenerating(false);
     }
   };
-  
+
   // Download handover report PDF
   const handleDownloadHandoverPdf = async (report) => {
     if (!report) return message.warning("Chưa chọn biên bản.");
-    
+
     try {
       setHandoverPdfGenerating(true);
-      
+
       // Fetch order and condition definitions
       let order = null;
       let conditionDefinitions = [];
-      
+
       if (report.orderId) {
         try {
           order = await getRentalOrderById(report.orderId);
@@ -1603,13 +1611,13 @@ export default function MyOrders() {
           console.warn("Could not fetch order for PDF:", e);
         }
       }
-      
+
       try {
         conditionDefinitions = await getConditionDefinitions();
       } catch (e) {
         console.warn("Could not fetch condition definitions for PDF:", e);
       }
-      
+
       if (handoverPrintRef.current) {
         handoverPrintRef.current.style.visibility = "visible";
         handoverPrintRef.current.style.opacity = "1";
@@ -1617,9 +1625,9 @@ export default function MyOrders() {
         handoverPrintRef.current.style.top = "-99999px";
         handoverPrintRef.current.style.width = "794px";
         handoverPrintRef.current.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-        
+
         handoverPrintRef.current.innerHTML = buildPrintableHandoverReportHtml(report, order, conditionDefinitions);
-        
+
         const allElements = handoverPrintRef.current.querySelectorAll('*');
         allElements.forEach(el => {
           if (el.style) {
@@ -1628,19 +1636,19 @@ export default function MyOrders() {
             el.style.mozOsxFontSmoothing = "grayscale";
           }
         });
-        
+
         handoverPrintRef.current.offsetHeight;
-        
+
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
-        
+
         handoverPrintRef.current.style.visibility = "hidden";
         handoverPrintRef.current.style.opacity = "0";
-        
+
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         const handoverType = String(report.handoverType || "").toUpperCase();
@@ -1883,7 +1891,7 @@ export default function MyOrders() {
     const customerPhone = customer?.phoneNumber || "";
     const identificationCode = kyc?.identificationCode || "";
     let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
-    
+
     const termsBlock = detail.terms
       ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
       : "";
@@ -1909,18 +1917,18 @@ export default function MyOrders() {
           ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
           ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
           ${(() => {
-            const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
-            if (bankInfo.length > 0) {
-              return bankInfo.map((bank, idx) => {
-                const bankName = bank?.bankName || "";
-                const bankHolder = bank?.bankHolder || "";
-                const cardNumber = bank?.cardNumber || "";
-                if (!bankName && !bankHolder && !cardNumber) return "";
-                return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
-              }).filter(Boolean).join("");
-            }
-            return "";
-          })()}
+        const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
+        if (bankInfo.length > 0) {
+          return bankInfo.map((bank, idx) => {
+            const bankName = bank?.bankName || "";
+            const bankHolder = bank?.bankHolder || "";
+            const cardNumber = bank?.cardNumber || "";
+            if (!bankName && !bankHolder && !cardNumber) return "";
+            return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
+          }).filter(Boolean).join("");
+        }
+        return "";
+      })()}
         </section>
 
         <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>
@@ -1936,42 +1944,42 @@ export default function MyOrders() {
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
             ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "ACTIVE") {
+          return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
+        }
+        return "";
+      })()}
             </div>
             <div>
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "ACTIVE") {
-                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "ACTIVE") {
+          return `<div style="color:#000;font-weight:600">${customerName}</div>`;
+        }
+        return "(Ký, ghi rõ họ tên)";
+      })()}
             </div>
           </div>
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN A</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
             ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+          return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
+        }
+        return "";
+      })()}
             </div>
             <div>
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+          return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
+        }
+        return "(Ký, ghi rõ họ tên)";
+      })()}
             </div>
           </div>
         </section>
@@ -2124,33 +2132,33 @@ export default function MyOrders() {
   // Preview contract PDF inline (for Card preview)
   const previewContractAsPdfInline = async (contract) => {
     if (!contract) return message.warning("Chưa chọn hợp đồng.");
-    
+
     try {
       setPdfGenerating(true);
       setSelectedContract(contract);
-      
+
       if (contractPdfPreviewUrl) {
         URL.revokeObjectURL(contractPdfPreviewUrl);
         setContractPdfPreviewUrl("");
       }
-      
+
       // If contract has URL, use it directly (but still set selected contract)
       if (contract.contractUrl) {
         setContractPdfPreviewUrl(contract.contractUrl);
         setPdfGenerating(false);
         return;
       }
-      
+
       // Also check current.contractUrl as fallback
       if (current?.contractUrl) {
         setContractPdfPreviewUrl(current.contractUrl);
         setPdfGenerating(false);
         return;
       }
-      
+
       // Otherwise, generate from HTML
       const detail = augmentContractContent(contract);
-      
+
       let customer = contractCustomer || customerProfile;
       let kyc = null;
 
@@ -2181,7 +2189,7 @@ export default function MyOrders() {
         sandbox.style.visibility = "visible";
         sandbox.style.opacity = "1";
         sandbox.innerHTML = buildPrintableHtml(detail, customer, kyc);
-        
+
         const allElements = sandbox.querySelectorAll('*');
         allElements.forEach(el => {
           if (el.style) {
@@ -2190,16 +2198,16 @@ export default function MyOrders() {
             el.style.mozOsxFontSmoothing = "grayscale";
           }
         });
-        
+
         sandbox.offsetHeight;
-        
+
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         const blob = await elementToPdfBlob(sandbox);
-        
+
         const url = URL.createObjectURL(blob);
         setContractPdfPreviewUrl(url);
       } finally {
@@ -2240,12 +2248,12 @@ export default function MyOrders() {
           // Cập nhật lại orders & contracts một lần cho tất cả đơn mới phát hiện
           try {
             await loadOrders();
-          } catch {}
+          } catch { }
 
           let contractsSnapshot = [];
           try {
             contractsSnapshot = await loadAllContracts();
-          } catch {}
+          } catch { }
 
           newlySeenIds.forEach((id) => {
             const hasContractReady = hasAnyContract(id, contractsSnapshot);
@@ -2348,17 +2356,17 @@ export default function MyOrders() {
                     current={tracking.current}
                     size="default"
                     responsive
-                    style={{ 
+                    style={{
                       background: "transparent",
                       minWidth: "max-content",
                     }}
                     className="order-tracking-steps"
                   >
                     {tracking.steps.map((s, idx) => (
-                      <Steps.Step 
-                        key={idx} 
-                        title={<span style={{ fontSize: 13, whiteSpace: "nowrap" }}>{s.title}</span>} 
-                        description={s.description ? <span style={{ fontSize: 11 }}>{s.description}</span> : null} 
+                      <Steps.Step
+                        key={idx}
+                        title={<span style={{ fontSize: 13, whiteSpace: "nowrap" }}>{s.title}</span>}
+                        description={s.description ? <span style={{ fontSize: 11 }}>{s.description}</span> : null}
                       />
                     ))}
                   </Steps>
@@ -2378,7 +2386,7 @@ export default function MyOrders() {
             <Alert
               type="info"
               showIcon
-                message={`Đơn #${current.displayId ?? current.id} đã được xác nhận`}
+              message={`Đơn #${current.displayId ?? current.id} đã được xác nhận`}
               description={
                 hasContracts
                   ? "Vui lòng ký hợp đồng và thanh toán để chúng tôi chuẩn bị giao hàng."
@@ -2434,11 +2442,11 @@ export default function MyOrders() {
               message={`Đơn #${current.displayId ?? current.id} có biên bản cần ký`}
               description={
                 <>
-                  {hasUnsignedCheckoutReports && hasUnsignedCheckinReports 
+                  {hasUnsignedCheckoutReports && hasUnsignedCheckinReports
                     ? "Vui lòng xem và ký biên bản bàn giao và biên bản thu hồi để hoàn tất thủ tục."
                     : hasUnsignedCheckoutReports
-                    ? "Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
-                    : "Vui lòng xem và ký biên bản thu hồi để hoàn tất thủ tục."}
+                      ? "Vui lòng xem và ký biên bản bàn giao để hoàn tất thủ tục."
+                      : "Vui lòng xem và ký biên bản thu hồi để hoàn tất thủ tục."}
                 </>
               }
               action={
@@ -2483,41 +2491,41 @@ export default function MyOrders() {
         {current && (() => {
           // Filter tabs based on data availability - only show tabs that have data
           const allTabs = [
-              {
-                key: "overview",
-                label: "Tổng quan",
-                children: (
-                  <div style={{ padding: 24 }}>
-                    {(() => {
-                      const days = Number(current?.days || 1);
-                      const items = Array.isArray(current?.items) ? current.items : [];
-                      const rentalPerDay = items.reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
-                      const rentalTotal = rentalPerDay * days;
-                      const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
+            {
+              key: "overview",
+              label: "Tổng quan",
+              children: (
+                <div style={{ padding: 24 }}>
+                  {(() => {
+                    const days = Number(current?.days || 1);
+                    const items = Array.isArray(current?.items) ? current.items : [];
+                    const rentalPerDay = items.reduce((sum, it) => sum + Number(it.pricePerDay || 0) * Number(it.qty || 1), 0);
+                    const rentalTotal = rentalPerDay * days;
+                    const depositTotal = items.reduce((sum, it) => sum + Number(it.depositAmountPerUnit || 0) * Number(it.qty || 1), 0);
 
-                      // Check payment status from invoice if available, otherwise use order paymentStatus
-                      const invoiceStatus = invoiceInfo?.invoiceStatus;
-                      const paymentStatus = invoiceStatus 
-                        ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
-                        : String(current.paymentStatus || "unpaid").toLowerCase();
-                      
-                      const canPay =
-                        ["unpaid", "partial"].includes(paymentStatus) &&
-                        String(current.orderStatus).toLowerCase() === "processing" &&
-                        hasSignedContract(current.id);
-                      const totalAmount = Number(current?.total ?? rentalTotal) + depositTotal;
+                    // Check payment status from invoice if available, otherwise use order paymentStatus
+                    const invoiceStatus = invoiceInfo?.invoiceStatus;
+                    const paymentStatus = invoiceStatus
+                      ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
+                      : String(current.paymentStatus || "unpaid").toLowerCase();
 
-                      return (
-                        <>
-                          <Card
-                            style={{
-                              marginBottom: 24,
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                            }}
-                          >
-                            <Descriptions bordered column={2} size="middle">
+                    const canPay =
+                      ["unpaid", "partial"].includes(paymentStatus) &&
+                      String(current.orderStatus).toLowerCase() === "processing" &&
+                      hasSignedContract(current.id);
+                    const totalAmount = Number(current?.total ?? rentalTotal) + depositTotal;
+
+                    return (
+                      <>
+                        <Card
+                          style={{
+                            marginBottom: 24,
+                            borderRadius: 12,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                            border: "1px solid #e8e8e8",
+                          }}
+                        >
+                          <Descriptions bordered column={2} size="middle">
                             <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
                             <Descriptions.Item label="Ngày tạo đơn">{formatDateTime(current.createdAt)}</Descriptions.Item>
                             <Descriptions.Item label="Ngày bắt đầu thuê">
@@ -2535,7 +2543,7 @@ export default function MyOrders() {
                               {(() => {
                                 // Use invoice status if available, otherwise fallback to order paymentStatus
                                 const invoiceStatus = invoiceInfo?.invoiceStatus;
-                                const displayPaymentStatus = invoiceStatus 
+                                const displayPaymentStatus = invoiceStatus
                                   ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
                                   : (String(current.orderStatus).toLowerCase() === "delivery_confirmed" ? "paid" : current.paymentStatus);
                                 const paymentInfo = PAYMENT_STATUS_MAP[displayPaymentStatus] || {};
@@ -2557,23 +2565,23 @@ export default function MyOrders() {
                               </Space>
                             </Descriptions.Item>
                           </Descriptions>
-                          </Card>
+                        </Card>
 
-                          {/* Products Section */}
-                          <Card
-                            style={{
-                              marginBottom: 24,
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                            }}
-                            title={
-                              <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
-                                Sản phẩm trong đơn
-                              </Title>
-                            }
-                          >
-                            <Table
+                        {/* Products Section */}
+                        <Card
+                          style={{
+                            marginBottom: 24,
+                            borderRadius: 12,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                            border: "1px solid #e8e8e8",
+                          }}
+                          title={
+                            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+                              Sản phẩm trong đơn
+                            </Title>
+                          }
+                        >
+                          <Table
                             rowKey={(r, idx) => `${r.deviceModelId || r.name}-${idx}`}
                             dataSource={items}
                             pagination={false}
@@ -2600,197 +2608,197 @@ export default function MyOrders() {
                               { title: "Cọc/1 SP", dataIndex: "depositAmountPerUnit", width: 120, align: "right", render: (v) => formatVND(v) },
                               { title: "Tổng cọc", key: "depositSubtotal", width: 120, align: "right", render: (_, r) => formatVND(Number(r.depositAmountPerUnit || 0) * Number(r.qty || 1)) },
                             ]}
-                            />
-                          </Card>
+                          />
+                        </Card>
 
-                          {/* Payment Summary */}
-                          <Card
-                            style={{
-                              borderRadius: 12,
-                              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                              border: "1px solid #e8e8e8",
-                              background: canPay ? "#fafafa" : "#fff",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                              <Space direction="vertical" align="end" size="middle" style={{ width: "100%" }}>
-                                <div style={{ width: "100%", maxWidth: 360 }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                                    <Text>Tổng tiền thuê ({days} ngày):</Text>
-                                    <Text strong style={{ fontSize: 15 }}>{formatVND(Number(current?.total ?? rentalTotal))}</Text>
-                                  </div>
-                                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                                    <Text>Tổng tiền cọc:</Text>
-                                    <Text strong style={{ fontSize: 15 }}>{formatVND(depositTotal)}</Text>
-                                  </div>
-                                  <Divider style={{ margin: "12px 0" }} />
-                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <Text style={{ fontSize: 16, fontWeight: 600 }}>Tổng thanh toán:</Text>
-                                    <Text strong style={{ color: "#1a1a1a", fontSize: 18, fontWeight: 700 }}>
-                                      {formatVND(totalAmount)}
-                                    </Text>
-                                  </div>
+                        {/* Payment Summary */}
+                        <Card
+                          style={{
+                            borderRadius: 12,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                            border: "1px solid #e8e8e8",
+                            background: canPay ? "#fafafa" : "#fff",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                            <Space direction="vertical" align="end" size="middle" style={{ width: "100%" }}>
+                              <div style={{ width: "100%", maxWidth: 360 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                                  <Text>Tổng tiền thuê ({days} ngày):</Text>
+                                  <Text strong style={{ fontSize: 15 }}>{formatVND(Number(current?.total ?? rentalTotal))}</Text>
                                 </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                                  <Text>Tổng tiền cọc:</Text>
+                                  <Text strong style={{ fontSize: 15 }}>{formatVND(depositTotal)}</Text>
+                                </div>
+                                <Divider style={{ margin: "12px 0" }} />
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <Text style={{ fontSize: 16, fontWeight: 600 }}>Tổng thanh toán:</Text>
+                                  <Text strong style={{ color: "#1a1a1a", fontSize: 18, fontWeight: 700 }}>
+                                    {formatVND(totalAmount)}
+                                  </Text>
+                                </div>
+                              </div>
 
 
-                              </Space>
-                            </div>
-                          </Card>
-                        </>
-                      );
-                    })()}
-                  </div>
-                ),
-              },
-              {
-                key: "contract",
-                label: "Hợp đồng",
-                children: (
-                  <MyOrderContractTab
-                    current={current}
-                    contracts={contracts}
-                    contractsLoading={contractsLoading}
-                    selectedContract={selectedContract}
-                    setSelectedContract={setSelectedContract}
-                    contractPdfPreviewUrl={contractPdfPreviewUrl}
-                    pdfGenerating={pdfGenerating}
-                    processingPayment={processingPayment}
-                    invoiceInfo={invoiceInfo}
-                    PAYMENT_STATUS_MAP={PAYMENT_STATUS_MAP}
-                    CONTRACT_STATUS_MAP={CONTRACT_STATUS_MAP}
-                    formatVND={formatVND}
-                    formatDateTime={formatDateTime}
-                    hasSignedContract={hasSignedContract}
-                    handlePayment={handlePayment}
-                    handleDownloadContract={handleDownloadContract}
-                    handleSignContract={handleSignContract}
-                    previewContractAsPdfInline={previewContractAsPdfInline}
-                    mapInvoiceStatusToPaymentStatus={mapInvoiceStatusToPaymentStatus}
-                    message={message}
-                    pdfPreviewUrl={pdfPreviewUrl}
-                  />
-                ),
-              },
-              {
-                key: "handover",
-                label: "Biên bản bàn giao",
-                children: (
-                  <MyOrderHandoverTab
-                    current={current}
-                    checkoutReports={checkoutReports}
-                    checkinReports={checkinReports}
-                    handoverReportsLoading={handoverReportsLoading}
-                    selectedHandoverReport={selectedHandoverReport}
-                    setSelectedHandoverReport={setSelectedHandoverReport}
-                    selectedCheckinReport={selectedCheckinReport}
-                    setSelectedCheckinReport={setSelectedCheckinReport}
-                    handoverPdfPreviewUrl={handoverPdfPreviewUrl}
-                    checkinPdfPreviewUrl={checkinPdfPreviewUrl}
-                    handoverPdfBlobUrl={handoverPdfBlobUrl}
-                    handoverPdfGenerating={handoverPdfGenerating}
-                    formatDateTime={formatDateTime}
-                    translateHandoverStatus={translateHandoverStatus}
-                    loadOrderHandoverReports={loadOrderHandoverReports}
-                    previewHandoverReportAsPdf={previewHandoverReportAsPdf}
-                    handleDownloadHandoverPdf={handleDownloadHandoverPdf}
-                    handleSignHandoverReport={handleSignHandoverReport}
-                    message={message}
-                  />
-                ),
-              },
-              {
-                key: "checkin",
-                label: "Biên bản thu hồi",
-                children: (
-                  <MyOrderCheckinTab
-                    current={current}
-                    checkinReports={checkinReports}
-                    handoverReportsLoading={handoverReportsLoading}
-                    selectedCheckinReport={selectedCheckinReport}
-                    setSelectedCheckinReport={setSelectedCheckinReport}
-                    checkinPdfPreviewUrl={checkinPdfPreviewUrl}
-                    handoverPdfBlobUrl={handoverPdfBlobUrl}
-                    handoverPdfGenerating={handoverPdfGenerating}
-                    formatDateTime={formatDateTime}
-                    translateHandoverStatus={translateHandoverStatus}
-                    loadOrderHandoverReports={loadOrderHandoverReports}
-                    previewHandoverReportAsPdf={previewHandoverReportAsPdf}
-                    handleDownloadHandoverPdf={handleDownloadHandoverPdf}
-                    handleSignHandoverReport={handleSignHandoverReport}
-                    message={message}
-                  />
-                ),
-              },
-              {
-                key: "return",
-                label: "Trả hàng và gia hạn",
-                children: (
-                  <MyOrderReturnTab
-                    current={current}
-                    getDaysRemaining={getDaysRemaining}
-                    formatRemainingDaysText={formatRemainingDaysText}
-                    isCloseToReturnDate={isCloseToReturnDate}
-                    isReturnConfirmedSync={isReturnConfirmedSync}
-                    setReturnModalOpen={setReturnModalOpen}
-                    setExtendModalOpen={setExtendModalOpen}
-                    diffDays={diffDays}
-                    formatDateTime={formatDateTime}
-                  />
-                ),
-              },
-              {
-                key: "settlement",
-                label: "Quyết toán & hoàn cọc",
-                children: (
-                  <MyOrderSettlementTab
-                    current={current}
-                    settlementInfo={settlementInfo}
-                    settlementLoading={settlementLoading}
-                    settlementActionLoading={settlementActionLoading}
-                    splitSettlementAmounts={splitSettlementAmounts}
-                    formatVND={formatVND}
-                    SETTLEMENT_STATUS_MAP={SETTLEMENT_STATUS_MAP}
-                    handleRespondSettlement={handleRespondSettlement}
-                  />
-                ),
-              },
-            ];
+                            </Space>
+                          </div>
+                        </Card>
+                      </>
+                    );
+                  })()}
+                </div>
+              ),
+            },
+            {
+              key: "contract",
+              label: "Hợp đồng",
+              children: (
+                <MyOrderContractTab
+                  current={current}
+                  contracts={contracts}
+                  contractsLoading={contractsLoading}
+                  selectedContract={selectedContract}
+                  setSelectedContract={setSelectedContract}
+                  contractPdfPreviewUrl={contractPdfPreviewUrl}
+                  pdfGenerating={pdfGenerating}
+                  processingPayment={processingPayment}
+                  invoiceInfo={invoiceInfo}
+                  PAYMENT_STATUS_MAP={PAYMENT_STATUS_MAP}
+                  CONTRACT_STATUS_MAP={CONTRACT_STATUS_MAP}
+                  formatVND={formatVND}
+                  formatDateTime={formatDateTime}
+                  hasSignedContract={hasSignedContract}
+                  handlePayment={handlePayment}
+                  handleDownloadContract={handleDownloadContract}
+                  handleSignContract={handleSignContract}
+                  previewContractAsPdfInline={previewContractAsPdfInline}
+                  mapInvoiceStatusToPaymentStatus={mapInvoiceStatusToPaymentStatus}
+                  message={message}
+                  pdfPreviewUrl={pdfPreviewUrl}
+                />
+              ),
+            },
+            {
+              key: "handover",
+              label: "Biên bản bàn giao",
+              children: (
+                <MyOrderHandoverTab
+                  current={current}
+                  checkoutReports={checkoutReports}
+                  checkinReports={checkinReports}
+                  handoverReportsLoading={handoverReportsLoading}
+                  selectedHandoverReport={selectedHandoverReport}
+                  setSelectedHandoverReport={setSelectedHandoverReport}
+                  selectedCheckinReport={selectedCheckinReport}
+                  setSelectedCheckinReport={setSelectedCheckinReport}
+                  handoverPdfPreviewUrl={handoverPdfPreviewUrl}
+                  checkinPdfPreviewUrl={checkinPdfPreviewUrl}
+                  handoverPdfBlobUrl={handoverPdfBlobUrl}
+                  handoverPdfGenerating={handoverPdfGenerating}
+                  formatDateTime={formatDateTime}
+                  translateHandoverStatus={translateHandoverStatus}
+                  loadOrderHandoverReports={loadOrderHandoverReports}
+                  previewHandoverReportAsPdf={previewHandoverReportAsPdf}
+                  handleDownloadHandoverPdf={handleDownloadHandoverPdf}
+                  handleSignHandoverReport={handleSignHandoverReport}
+                  message={message}
+                />
+              ),
+            },
+            {
+              key: "checkin",
+              label: "Biên bản thu hồi",
+              children: (
+                <MyOrderCheckinTab
+                  current={current}
+                  checkinReports={checkinReports}
+                  handoverReportsLoading={handoverReportsLoading}
+                  selectedCheckinReport={selectedCheckinReport}
+                  setSelectedCheckinReport={setSelectedCheckinReport}
+                  checkinPdfPreviewUrl={checkinPdfPreviewUrl}
+                  handoverPdfBlobUrl={handoverPdfBlobUrl}
+                  handoverPdfGenerating={handoverPdfGenerating}
+                  formatDateTime={formatDateTime}
+                  translateHandoverStatus={translateHandoverStatus}
+                  loadOrderHandoverReports={loadOrderHandoverReports}
+                  previewHandoverReportAsPdf={previewHandoverReportAsPdf}
+                  handleDownloadHandoverPdf={handleDownloadHandoverPdf}
+                  handleSignHandoverReport={handleSignHandoverReport}
+                  message={message}
+                />
+              ),
+            },
+            {
+              key: "return",
+              label: "Trả hàng và gia hạn",
+              children: (
+                <MyOrderReturnTab
+                  current={current}
+                  getDaysRemaining={getDaysRemaining}
+                  formatRemainingDaysText={formatRemainingDaysText}
+                  isCloseToReturnDate={isCloseToReturnDate}
+                  isReturnConfirmedSync={isReturnConfirmedSync}
+                  setReturnModalOpen={setReturnModalOpen}
+                  setExtendModalOpen={setExtendModalOpen}
+                  diffDays={diffDays}
+                  formatDateTime={formatDateTime}
+                />
+              ),
+            },
+            {
+              key: "settlement",
+              label: "Quyết toán & hoàn cọc",
+              children: (
+                <MyOrderSettlementTab
+                  current={current}
+                  settlementInfo={settlementInfo}
+                  settlementLoading={settlementLoading}
+                  settlementActionLoading={settlementActionLoading}
+                  splitSettlementAmounts={splitSettlementAmounts}
+                  formatVND={formatVND}
+                  SETTLEMENT_STATUS_MAP={SETTLEMENT_STATUS_MAP}
+                  handleRespondSettlement={handleRespondSettlement}
+                />
+              ),
+            },
+          ];
 
-            // Filter tabs: only show tabs that have data (hide empty tabs completely)
-            // Show tab while loading, but hide if loaded and no data
-            const filteredTabs = allTabs.filter(tab => {
-              if (tab.key === "overview" || tab.key === "return") {
-                // Always show overview and return tabs
-                return true;
-              }
-              if (tab.key === "contract") {
-                // Show while loading, or if there are contracts
-                return contractsLoading || contracts.length > 0;
-              }
-              if (tab.key === "handover") {
-                // Show while loading, or if there are checkout reports
-                return handoverReportsLoading || checkoutReports.length > 0;
-              }
-              if (tab.key === "checkin") {
-                // Show while loading, or if there are checkin reports
-                return handoverReportsLoading || checkinReports.length > 0;
-              }
-              if (tab.key === "settlement") {
-                // Show while loading, or if there is settlement info
-                return settlementLoading || settlementInfo !== null;
-              }
+          // Filter tabs: only show tabs that have data (hide empty tabs completely)
+          // Show tab while loading, but hide if loaded and no data
+          const filteredTabs = allTabs.filter(tab => {
+            if (tab.key === "overview" || tab.key === "return") {
+              // Always show overview and return tabs
               return true;
-            });
+            }
+            if (tab.key === "contract") {
+              // Show while loading, or if there are contracts
+              return contractsLoading || contracts.length > 0;
+            }
+            if (tab.key === "handover") {
+              // Show while loading, or if there are checkout reports
+              return handoverReportsLoading || checkoutReports.length > 0;
+            }
+            if (tab.key === "checkin") {
+              // Show while loading, or if there are checkin reports
+              return handoverReportsLoading || checkinReports.length > 0;
+            }
+            if (tab.key === "settlement") {
+              // Show while loading, or if there is settlement info
+              return settlementLoading || settlementInfo !== null;
+            }
+            return true;
+          });
 
-            return (
-              <Tabs
-                key={current.id}
-                activeKey={detailTab}
-                onChange={setDetailTab}
-                items={filteredTabs}
-              />
-            );
-          })()}
+          return (
+            <Tabs
+              key={current.id}
+              activeKey={detailTab}
+              onChange={setDetailTab}
+              items={filteredTabs}
+            />
+          );
+        })()}
       </Drawer>
 
       {/* Modal chi tiết hợp đồng */}
@@ -2957,9 +2965,9 @@ export default function MyOrders() {
         style={{ top: 24 }}
       >
         {pdfBlobUrl ? (
-          <iframe title="PDFPreview" src={pdfBlobUrl} style={{ width:"100%", height: "70vh", border:"none" }} />
+          <iframe title="PDFPreview" src={pdfBlobUrl} style={{ width: "100%", height: "70vh", border: "none" }} />
         ) : (
-          <div style={{ textAlign:"center", padding:"40px 0" }}>
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
             <Text type="secondary">Đang tạo bản xem trước…</Text>
           </div>
         )}
@@ -3142,7 +3150,7 @@ export default function MyOrders() {
             message="Bạn có chắc chắn muốn trả hàng?"
             description={
               <div>
-      
+
                 {current && (
                   <div style={{ marginTop: 12 }}>
                     <Text strong>Thông tin đơn hàng:</Text>

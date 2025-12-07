@@ -192,7 +192,15 @@ export default function SupportTask() {
   const loadTasks = useCallback(async () => {
     try {
       setLoading(true);
-      const allTasksRaw = await listTasks();
+      // listTasks now returns paginated response or array
+      const tasksRes = await listTasks({ size: 1000 }); // Get all tasks for calendar
+      // Handle paginated response
+      let allTasksRaw = [];
+      if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
+        allTasksRaw = tasksRes.content;
+      } else {
+        allTasksRaw = Array.isArray(tasksRes) ? tasksRes : [];
+      }
       const allTasks = allTasksRaw.map(normalizeTask);
       const display = allTasks.map(taskToDisplay);
       setTasksAll(display);
