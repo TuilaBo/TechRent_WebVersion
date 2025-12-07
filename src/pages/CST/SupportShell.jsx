@@ -71,11 +71,11 @@ export default function SupportShell() {
           mode="inline"
           selectedKeys={[selectedKey]}
           items={[
-            {
-              key: "desk",
-              icon: <FileTextOutlined />,
-              label: <Link to="/support/desk">Tickets & Chat</Link>,
-            },
+            // {
+            //   key: "desk",
+            //   icon: <FileTextOutlined />,
+            //   label: <Link to="/support/desk">Tickets & Chat</Link>,
+            // },
             {
               key: "tasks",
               icon: <CheckCircleOutlined />,

@@ -737,14 +737,35 @@ export default function OperatorTasks() {
       key: "actions",
       fixed: "right",
       width: 100,
-      render: (_, r) => (
-        <Space size="small">
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          <Popconfirm title="Xóa công việc này?" onConfirm={() => remove(r)}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_, r) => {
+        const isCompleted = String(r.status || "").toUpperCase() === "COMPLETED";
+        return (
+          <Space size="small">
+            <Tooltip title={isCompleted ? "Không thể chỉnh sửa công việc đã hoàn thành" : ""}>
+              <Button 
+                size="small" 
+                icon={<EditOutlined />} 
+                onClick={() => openEdit(r)} 
+                disabled={isCompleted}
+              />
+            </Tooltip>
+            <Popconfirm 
+              title="Xóa công việc này?" 
+              onConfirm={() => remove(r)}
+              disabled={isCompleted}
+            >
+              <Tooltip title={isCompleted ? "Không thể xóa công việc đã hoàn thành" : ""}>
+                <Button 
+                  size="small" 
+                  danger 
+                  icon={<DeleteOutlined />} 
+                  disabled={isCompleted}
+                />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
