@@ -105,6 +105,18 @@ export default function OperatorTasks() {
   const [filterCategoryId, setFilterCategoryId] = useState(null);
   const [filterStatus, setFilterStatus] = useState(null);
   const [filterOrderId, setFilterOrderId] = useState(null);
+  const [filterOrderIdInput, setFilterOrderIdInput] = useState(null); // Input value for debounce
+
+  // Debounce filter Order ID - 3 seconds after user stops typing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (filterOrderIdInput !== filterOrderId) {
+        setFilterOrderId(filterOrderIdInput);
+        setTaskPage(0);
+      }
+    }, 3000);
+    return () => clearTimeout(timeoutId);
+  }, [filterOrderIdInput]);
 
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const taskCategoryIdValue = Form.useWatch("taskCategoryId", form);
@@ -1187,10 +1199,9 @@ export default function OperatorTasks() {
                   <InputNumber
                     style={{ width: 120 }}
                     placeholder="Order ID"
-                    value={filterOrderId}
+                    value={filterOrderIdInput}
                     onChange={(value) => {
-                      setFilterOrderId(value);
-                      setTaskPage(0);
+                      setFilterOrderIdInput(value);
                     }}
                     min={1}
                   />
@@ -1202,6 +1213,7 @@ export default function OperatorTasks() {
                     setFilterCategoryId(null);
                     setFilterStatus(null);
                     setFilterOrderId(null);
+                    setFilterOrderIdInput(null);
                     setTaskPage(0);
                   }}
                 >
