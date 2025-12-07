@@ -2388,6 +2388,29 @@ export default function TechnicianCalendar() {
                                 </Button>
                             );
                         })()}
+                        {isPostRentalQC(t) && (() => {
+                            const taskId = t.taskId || t.id;
+                            const hasQcReport = hasQcReportMap[taskId];
+                            const status = String(t.status || "").toUpperCase();
+                            const buttonLabel =
+                                status === "COMPLETED"
+                                    ? "Cập nhật QC Report"
+                                    : hasQcReport
+                                        ? "Cập nhật QC Report"
+                                        : "Tạo QC Report";
+
+                            return (
+                                <Button
+                                    type="primary"
+                                    icon={<FileTextOutlined />}
+                                    onClick={() => {
+                                        navigate(`/technician/tasks/post-rental-qc/${taskId}`, { state: { task: t } });
+                                    }}
+                                >
+                                    {buttonLabel}
+                                </Button>
+                            );
+                        })()}
                     </Space>
                 </>
             );
