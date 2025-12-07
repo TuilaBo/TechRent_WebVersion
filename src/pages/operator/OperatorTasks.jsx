@@ -97,6 +97,15 @@ export default function OperatorTasks() {
   const [taskRules, setTaskRules] = useState([]); // Danh sách rules theo category
   const [staffCategoryStats, setStaffCategoryStats] = useState({}); // { staffId -> { taskCount, maxTasksPerDay } }
   const [loadingCategoryStats, setLoadingCategoryStats] = useState(false);
+
+  // Server-side pagination and filters for tasks table
+  const [taskPage, setTaskPage] = useState(0);
+  const [taskPageSize, setTaskPageSize] = useState(10);
+  const [taskTotal, setTaskTotal] = useState(0);
+  const [filterCategoryId, setFilterCategoryId] = useState(null);
+  const [filterStatus, setFilterStatus] = useState(null);
+  const [filterOrderId, setFilterOrderId] = useState(null);
+
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const taskCategoryIdValue = Form.useWatch("taskCategoryId", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
@@ -224,38 +233,43 @@ export default function OperatorTasks() {
     return () => { cancelled = true; };
   }, [taskCategoryIdValue, plannedStartValue, staffs]);
 
-  // Load data từ API
-  const loadData = async () => {
+  // Load data từ API với server-side pagination và filters
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      // Build filter params
+      const taskParams = {
+        page: taskPage,
+        size: taskPageSize,
+      };
+      if (filterCategoryId) taskParams.categoryId = filterCategoryId;
+      if (filterStatus) taskParams.status = filterStatus;
+      if (filterOrderId) taskParams.orderId = filterOrderId;
+
       const [tasksRes, catsRes, staffRes, ordersRes] = await Promise.all([
-        listTasks(),
+        listTasks(taskParams),
         listTaskCategories(),
         listActiveStaff().catch(() => []),
         listRentalOrders().catch(() => []),
       ]);
-      const sortedTasks = (Array.isArray(tasksRes) ? tasksRes : []).slice().sort((a, b) => {
-        const statusA = String(a?.status || "").toUpperCase();
-        const statusB = String(b?.status || "").toUpperCase();
-        const isPendingA = statusA === "PENDING";
-        const isPendingB = statusB === "PENDING";
 
-        // Ưu tiên PENDING lên đầu
-        if (isPendingA && !isPendingB) return -1;
-        if (!isPendingA && isPendingB) return 1;
+      // Handle paginated response
+      if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
+        setData(tasksRes.content);
+        setTaskTotal(tasksRes.totalElements || 0);
+      } else {
+        // Fallback for non-paginated response
+        setData(Array.isArray(tasksRes) ? tasksRes : []);
+        setTaskTotal(Array.isArray(tasksRes) ? tasksRes.length : 0);
+      }
 
-        // Nếu cùng status (hoặc cả hai đều không phải PENDING), sort mới nhất lên đầu
-        const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
-        const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
-        if (tb !== ta) return tb - ta; // newest first
-        return (b?.taskId || b?.id || 0) - (a?.taskId || a?.id || 0);
-      });
-      setData(sortedTasks);
       setCategories(catsRes.map(normalizeTaskCategory));
       setStaffs(Array.isArray(staffRes) ? staffRes : []);
       setOrders(Array.isArray(ordersRes) ? ordersRes : []);
 
-      const ids = Array.from(new Set((tasksRes || []).map((t) => t.orderId).filter(Boolean)));
+      // Fetch order details for tasks
+      const taskList = tasksRes?.content || tasksRes || [];
+      const ids = Array.from(new Set((taskList).map((t) => t.orderId).filter(Boolean)));
       if (ids.length) {
         const pairs = await Promise.all(ids.map(async (oid) => {
           try { const o = await getRentalOrderById(oid); return [oid, o]; } catch { return [oid, null]; }
@@ -269,11 +283,11 @@ export default function OperatorTasks() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [taskPage, taskPageSize, filterCategoryId, filterStatus, filterOrderId]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Load leaderboard data
   const loadLeaderboard = useCallback(async () => {
@@ -793,23 +807,23 @@ export default function OperatorTasks() {
         return (
           <Space size="small">
             <Tooltip title={isCompleted ? "Không thể chỉnh sửa công việc đã hoàn thành" : ""}>
-              <Button 
-                size="small" 
-                icon={<EditOutlined />} 
-                onClick={() => openEdit(r)} 
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEdit(r)}
                 disabled={isCompleted}
               />
             </Tooltip>
-            <Popconfirm 
-              title="Xóa công việc này?" 
+            <Popconfirm
+              title="Xóa công việc này?"
               onConfirm={() => remove(r)}
               disabled={isCompleted}
             >
               <Tooltip title={isCompleted ? "Không thể xóa công việc đã hoàn thành" : ""}>
-                <Button 
-                  size="small" 
-                  danger 
-                  icon={<DeleteOutlined />} 
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
                   disabled={isCompleted}
                 />
               </Tooltip>
@@ -1125,24 +1139,98 @@ export default function OperatorTasks() {
           )}
 
           <Card>
-            <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
-              <Search
-                placeholder="Tìm kiếm theo mã công việc hoặc mã đơn hàng..."
-                allowClear
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onSearch={setSearchQuery}
-                style={{ width: "100%", maxWidth: 400 }}
-                enterButton
-              />
-            </Space>
+            {/* Filter Controls */}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col>
+                <Space>
+                  <span>Loại công việc:</span>
+                  <Select
+                    style={{ width: 180 }}
+                    allowClear
+                    placeholder="Tất cả"
+                    value={filterCategoryId}
+                    onChange={(value) => {
+                      setFilterCategoryId(value);
+                      setTaskPage(0);
+                    }}
+                    options={categories.map((c) => ({
+                      label: c.name,
+                      value: c.taskCategoryId,
+                    }))}
+                  />
+                </Space>
+              </Col>
+              <Col>
+                <Space>
+                  <span>Trạng thái:</span>
+                  <Select
+                    style={{ width: 160 }}
+                    allowClear
+                    placeholder="Tất cả"
+                    value={filterStatus}
+                    onChange={(value) => {
+                      setFilterStatus(value);
+                      setTaskPage(0);
+                    }}
+                    options={[
+                      { label: "Chờ thực hiện", value: "PENDING" },
+                      { label: "Đang thực hiện", value: "IN_PROGRESS" },
+                      { label: "Hoàn thành", value: "COMPLETED" },
+                      { label: "Đã hủy", value: "CANCELLED" },
+                    ]}
+                  />
+                </Space>
+              </Col>
+              <Col>
+                <Space>
+                  <span>Mã đơn:</span>
+                  <InputNumber
+                    style={{ width: 120 }}
+                    placeholder="Order ID"
+                    value={filterOrderId}
+                    onChange={(value) => {
+                      setFilterOrderId(value);
+                      setTaskPage(0);
+                    }}
+                    min={1}
+                  />
+                </Space>
+              </Col>
+              <Col>
+                <Button
+                  onClick={() => {
+                    setFilterCategoryId(null);
+                    setFilterStatus(null);
+                    setFilterOrderId(null);
+                    setTaskPage(0);
+                  }}
+                >
+                  Xóa bộ lọc
+                </Button>
+              </Col>
+            </Row>
 
             <Spin spinning={loading}>
               <Table
                 rowKey="taskId"
                 columns={columns}
-                dataSource={filteredData}
-                pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} công việc` }}
+                dataSource={data}
+                pagination={{
+                  current: taskPage + 1,
+                  pageSize: taskPageSize,
+                  total: taskTotal,
+                  showSizeChanger: true,
+                  pageSizeOptions: ['5', '10', '20', '50'],
+                  showTotal: (total) => `Tổng ${total} công việc`,
+                  onChange: (page, pageSize) => {
+                    setTaskPage(page - 1);
+                    setTaskPageSize(pageSize);
+                  },
+                  onShowSizeChange: (current, size) => {
+                    setTaskPage(0);
+                    setTaskPageSize(size);
+                  },
+                }}
                 scroll={{ x: 1200 }}
               />
             </Spin>
