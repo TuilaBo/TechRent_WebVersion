@@ -3444,7 +3444,7 @@ export default function TechnicianCalendar() {
                                             )
                                         }
                                     ]}
-                                    pagination={false}
+                                    pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: ['5', '10', '20'], hideOnSinglePage: false }}
                                 />
                             );
                         })()
