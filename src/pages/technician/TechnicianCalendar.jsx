@@ -1158,6 +1158,7 @@ export default function TechnicianCalendar() {
     const [statusForm] = Form.useForm();
     const [uploadFileList, setUploadFileList] = useState([]);
     const [taskRulesMap, setTaskRulesMap] = useState({}); // { categoryId -> { maxTasksPerDay, name } }
+    const [ordersMap, setOrdersMap] = useState({}); // { orderId -> order } for shippingAddress
 
     const openUpdateStatusModal = (record) => {
         setSelectedMaintenance(record);
@@ -1428,6 +1429,28 @@ export default function TechnicianCalendar() {
             const allTasks = (Array.isArray(allTasksRaw) ? allTasksRaw : []).map(normalizeTask);
             const display = allTasks.map(taskToDisplay);
             setTasksAll(display);
+
+            // Fetch orders for delivery/pickup tasks to get shippingAddress
+            const deliveryPickupTasks = allTasks.filter(t =>
+                ['DELIVERY', 'PICKUP'].includes(t.type) ||
+                (t.taskCategoryName || '').includes('Delivery') ||
+                (t.taskCategoryName || '').includes('Pick up') ||
+                t.taskCategoryId === 4 || t.taskCategoryId === 6
+            );
+            const orderIds = [...new Set(deliveryPickupTasks.map(t => t.orderId).filter(Boolean))];
+            if (orderIds.length > 0) {
+                const ordersMapLocal = {};
+                await Promise.allSettled(orderIds.map(async (oid) => {
+                    try {
+                        const order = await getRentalOrderById(oid);
+                        if (order) ordersMapLocal[oid] = order;
+                    } catch (e) {
+                        console.warn(`Failed to load order ${oid}:`, e);
+                    }
+                }));
+                setOrdersMap(ordersMapLocal);
+            }
+
             const preRentalQcTasks = allTasks.filter((task) => isPreRentalQC(task));
             const postRentalQcTasks = allTasks.filter((task) => isPostRentalQC(task));
             const pickupTasks = allTasks.filter((task) => isPickupTask(task));
@@ -3200,7 +3223,20 @@ export default function TechnicianCalendar() {
                         label: 'QC / Kiểm tra',
                         children: (() => {
                             const tasksData = getCalendarData(selectedDate).tasks;
-                            const qcTasks = tasksData.filter(t => ['QC', 'PRE_RENTAL_QC', 'HANDOVER_CHECK'].includes(t.type) || (t.type || '').includes('QC') || (t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC'));
+                            const qcTasks = tasksData.filter(t => {
+                                // Check by taskCategoryId (Pre rental QC = 1, Post rental QC = 2)
+                                if (t.taskCategoryId === 1 || t.taskCategoryId === 2) {
+                                    return true;
+                                }
+
+                                // Check by taskCategoryName
+                                const categoryName = String(t.taskCategoryName || '');
+                                if (categoryName === 'Pre rental QC' || categoryName === 'Post rental QC') {
+                                    return true;
+                                }
+
+                                return false;
+                            });
 
                             // Count tasks by category
                             const cat1Tasks = tasksData.filter(t => t.taskCategoryId === 1 || t.taskCategoryName === 'Pre rental QC');
@@ -3326,7 +3362,12 @@ export default function TechnicianCalendar() {
                                         columns={[
                                             { title: 'Task', dataIndex: 'title' },
                                             { title: 'Thiết bị', dataIndex: 'device' },
-                                            { title: 'Địa điểm', dataIndex: 'location' },
+                                            {
+                                                title: 'Địa điểm', key: 'address', render: (_, r) => {
+                                                    const addr = ordersMap[r.orderId]?.shippingAddress || r.description || '—';
+                                                    return <span title={addr}>{addr.length > 40 ? (addr.substring(0, 40) + '...') : addr}</span>;
+                                                }
+                                            },
                                             { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
                                             { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
                                         ]}
