@@ -632,7 +632,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         const conditionsArray = Array.from(uniqueConditions).map(key => {
             const [conditionDefId] = key.split("_");
             const conditionDef = conditionMap[conditionDefId];
-            const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
+            const conditionName = conditionDef?.name || `Tình trạng thiết bị #${conditionDefId}`;
             return `${conditionName}`;
         });
 
@@ -882,7 +882,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
-            <th>Điều kiện</th>
+            <th>Tình trạng thiết bị</th>
             <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
@@ -923,10 +923,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:40px">STT</th>
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
-            <th>Điều kiện</th>
+            <th>Tình trạng thiết bị</th>
             <th>Phí phạt</th>
             <th>Ghi chú nhân viên</th>
-            <th>Ghi chú khách hàng</th>
+           
           </tr>
         </thead>
         <tbody>
@@ -949,7 +949,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                     }
 
                     const conditionDef = conditionMap[disc.conditionDefinitionId];
-                    const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+                    const conditionName = conditionDef?.name || disc.conditionName || `Tình trạng thiết bị #${disc.conditionDefinitionId}`;
                     const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" :
                         disc.discrepancyType === "LOSS" ? "Mất mát" :
                             disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
@@ -963,10 +963,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                 <td>${conditionName}</td>
                 <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
                 <td>${disc.staffNote || "—"}</td>
-                <td>${disc.customerNote || "—"}</td>
+
               </tr>
             `;
-                }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+                }).join("") || "<tr><td colspan='6' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
       `;
@@ -1023,7 +1023,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>KHÁCH HÀNG</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.customerSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.customerSigned
@@ -1034,7 +1034,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>NHÂN VIÊN</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.staffSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.staffSigned
@@ -2027,22 +2027,33 @@ export default function TechnicianCalendar() {
                                             Xác nhận giao hàng
                                         </Button>
                                     )}
-                                    {reportForTask && (
-                                        <>
-                                            <Button
-                                                size="small"
-                                                type="primary"
-                                                icon={<EditOutlined />}
-                                                onClick={() => {
-                                                    navigate(`/technician/tasks/handover/${taskId}`, {
-                                                        state: { task: r, handoverReport: reportForTask },
-                                                    });
-                                                }}
-                                            >
-                                                Cập nhật biên bản
-                                            </Button>
-                                        </>
-                                    )}
+                                    {reportForTask && (() => {
+                                        // Kiểm tra status của biên bản
+                                        const reportStatus = String(reportForTask.status || reportForTask.signatureStatus || "").toUpperCase();
+                                        const bothSigned = reportStatus === "BOTH_SIGNED" || 
+                                                         reportStatus === "2 BÊN ĐÃ KÝ" ||
+                                                         reportStatus.includes("BOTH") ||
+                                                         reportStatus.includes("ĐÃ KÝ");
+
+                                        return (
+                                            <>
+                                                <Button
+                                                    size="small"
+                                                    type="primary"
+                                                    icon={<EditOutlined />}
+                                                    disabled={bothSigned}
+                                                    onClick={() => {
+                                                        navigate(`/technician/tasks/handover/${taskId}`, {
+                                                            state: { task: r, handoverReport: reportForTask },
+                                                        });
+                                                    }}
+                                                    title={bothSigned ? "Không thể cập nhật - Cả 2 bên đã ký biên bản" : ""}
+                                                >
+                                                    Cập nhật biên bản
+                                                </Button>
+                                            </>
+                                        );
+                                    })()}
 
                                 </>
                             );
@@ -2117,22 +2128,33 @@ export default function TechnicianCalendar() {
                                         </Button>
                                     )}
                                     {/* Hiển thị nút xem nếu đã có biên bản */}
-                                    {hasCheckinReport && (
-                                        <>
-                                            <Button
-                                                size="small"
-                                                type="primary"
-                                                icon={<EditOutlined />}
-                                                onClick={() => {
-                                                    navigate(`/technician/tasks/handover-checkin/${taskId}`, {
-                                                        state: { task: r, handoverReport: fallbackCheckinReport },
-                                                    });
-                                                }}
-                                            >
-                                                Cập nhật biên bản
-                                            </Button>
-                                        </>
-                                    )}
+                                    {hasCheckinReport && (() => {
+                                        // Kiểm tra status của biên bản
+                                        const reportStatus = String(fallbackCheckinReport.status || fallbackCheckinReport.signatureStatus || "").toUpperCase();
+                                        const bothSigned = reportStatus === "BOTH_SIGNED" || 
+                                                         reportStatus === "2 BÊN ĐÃ KÝ" ||
+                                                         reportStatus.includes("BOTH") ||
+                                                         reportStatus.includes("ĐÃ KÝ");
+
+                                        return (
+                                            <>
+                                                <Button
+                                                    size="small"
+                                                    type="primary"
+                                                    icon={<EditOutlined />}
+                                                    disabled={bothSigned}
+                                                    onClick={() => {
+                                                        navigate(`/technician/tasks/handover-checkin/${taskId}`, {
+                                                            state: { task: r, handoverReport: fallbackCheckinReport },
+                                                        });
+                                                    }}
+                                                    title={bothSigned ? "Không thể cập nhật - Cả 2 bên đã ký biên bản" : ""}
+                                                >
+                                                    Cập nhật biên bản
+                                                </Button>
+                                            </>
+                                        );
+                                    })()}
                                 </>
                             );
                         })()}
@@ -2560,71 +2582,58 @@ export default function TechnicianCalendar() {
 
                         if (reportsToShow.length > 0) {
                             return (
-                                <List
-                                    dataSource={reportsToShow}
-                                    renderItem={(report) => (
-                                        <List.Item
-                                            actions={[
-                                                <Button
-                                                    key="preview"
-                                                    size="small"
-                                                    icon={<EyeOutlined />}
-                                                    onClick={() => handlePreviewPdf(report)}
-                                                >
-                                                    Xem PDF
-                                                </Button>,
-                                                <Button
-                                                    key="download"
-                                                    size="small"
-                                                    icon={<DownloadOutlined />}
-                                                    onClick={() => handleDownloadPdf(report)}
-                                                    loading={
-                                                        pdfGenerating &&
-                                                        selectedReport?.handoverReportId === report.handoverReportId
-                                                    }
-                                                >
-                                                    Tải PDF
-                                                </Button>,
-                                                String(report.handoverType || "").toUpperCase() === "CHECKOUT" &&
-                                                    Number(report.taskId) === Number(t.taskId || t.id) ? (
+                                <>
+                                    <List
+                                        dataSource={reportsToShow}
+                                        renderItem={(report) => (
+                                            <List.Item
+                                                actions={[
                                                     <Button
-                                                        key="update-checkout"
+                                                        key="preview"
                                                         size="small"
-                                                        icon={<EditOutlined />}
-                                                        onClick={() =>
-                                                            navigate(`/technician/tasks/handover/${t.taskId || t.id}`, {
-                                                                state: { task: t, handoverReport: report },
-                                                            })
+                                                        icon={<EyeOutlined />}
+                                                        onClick={() => handlePreviewPdf(report)}
+                                                    >
+                                                        Xem PDF
+                                                    </Button>,
+                                                    <Button
+                                                        key="download"
+                                                        size="small"
+                                                        icon={<DownloadOutlined />}
+                                                        onClick={() => handleDownloadPdf(report)}
+                                                        loading={
+                                                            pdfGenerating &&
+                                                            selectedReport?.handoverReportId === report.handoverReportId
                                                         }
                                                     >
-                                                        Cập nhật biên bản
-                                                    </Button>
-                                                ) : null,
-                                            ]}
-                                        >
-                                            <List.Item.Meta
-                                                title={
-                                                    <Space>
-                                                        <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
-                                                        <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
-                                                            {translateHandoverStatus(report.status)}
-                                                        </Tag>
-                                                    </Space>
-                                                }
-                                                description={
-                                                    <Space direction="vertical" size={4}>
-                                                        <Text type="secondary">
-                                                            Thời gian: {formatDateTime(report.handoverDateTime)}
-                                                        </Text>
-                                                        <Text type="secondary">
-                                                            Địa điểm: {report.handoverLocation || "—"}
-                                                        </Text>
-                                                    </Space>
-                                                }
-                                            />
-                                        </List.Item>
-                                    )}
-                                />
+                                                        Tải PDF
+                                                    </Button>,
+                                                ]}
+                                            >
+                                                <List.Item.Meta
+                                                    title={
+                                                        <Space>
+                                                            <Text strong>Biên bản #{report.handoverReportId || report.id}</Text>
+                                                            <Tag color={report.status === "STAFF_SIGNED" || report.status === "BOTH_SIGNED" ? "green" : report.status === "CUSTOMER_SIGNED" ? "blue" : report.status === "PENDING_STAFF_SIGNATURE" ? "orange" : "orange"}>
+                                                                {translateHandoverStatus(report.status)}
+                                                            </Tag>
+                                                        </Space>
+                                                    }
+                                                    description={
+                                                        <Space direction="vertical" size={4}>
+                                                            <Text type="secondary">
+                                                                Thời gian: {formatDateTime(report.handoverDateTime)}
+                                                            </Text>
+                                                            <Text type="secondary">
+                                                                Địa điểm: {report.handoverLocation || "—"}
+                                                            </Text>
+                                                        </Space>
+                                                    }
+                                                />
+                                            </List.Item>
+                                        )}
+                                    />
+                                </>
                             );
                         }
                         return (
@@ -2645,6 +2654,28 @@ export default function TechnicianCalendar() {
                                 Tạo biên bản bàn giao
                             </Button>
                         )}
+                        {/* Button cập nhật biên bản - giống như pickup */}
+                        {reportForTask && (() => {
+                            // Kiểm tra status của biên bản
+                            const reportStatus = String(reportForTask.status || "").toUpperCase();
+                            const bothSigned = reportStatus === "BOTH_SIGNED";
+                            
+                            return (
+                                <Button
+                                    type="primary"
+                                    icon={<EditOutlined />}
+                                    disabled={bothSigned}
+                                    onClick={() => {
+                                        navigate(`/technician/tasks/handover/${taskId}`, {
+                                            state: { task: t, handoverReport: reportForTask },
+                                        });
+                                    }}
+                                    title={bothSigned ? "Không thể cập nhật - Cả 2 bên đã ký biên bản" : ""}
+                                >
+                                    Cập nhật biên bản
+                                </Button>
+                            );
+                        })()}
                         {!isCompleted && !isInProgress && !isConfirmed && (
                             <Button
                                 type="default"
@@ -2845,27 +2876,35 @@ export default function TechnicianCalendar() {
                                 Tạo biên bản thu hồi
                             </Button>
                         )}
-                        {hasCheckinReport && primaryCheckinReport && (
-                            <>
-                                <Button
-                                    type="primary"
-                                    icon={<EditOutlined />}
-                                    onClick={() => {
-                                        navigate(`/technician/tasks/handover-checkin/${taskId}`, {
-                                            state: { task: t, handoverReport: primaryCheckinReport },
-                                        });
-                                    }}
-                                >
-                                    Cập nhật biên bản thu hồi
-                                </Button>
-                                <Button
-                                    icon={<EyeOutlined />}
-                                    onClick={() => handlePreviewPdf(primaryCheckinReport)}
-                                >
-                                    Xem biên bản
-                                </Button>
-                            </>
-                        )}
+                        {hasCheckinReport && primaryCheckinReport && (() => {
+                            // Kiểm tra status của biên bản
+                            const reportStatus = String(primaryCheckinReport.status || "").toUpperCase();
+                            const bothSigned = reportStatus === "BOTH_SIGNED";
+                            
+                            return (
+                                <>
+                                    <Button
+                                        type="primary"
+                                        icon={<EditOutlined />}
+                                        disabled={bothSigned}
+                                        onClick={() => {
+                                            navigate(`/technician/tasks/handover-checkin/${taskId}`, {
+                                                state: { task: t, handoverReport: primaryCheckinReport },
+                                            });
+                                        }}
+                                        title={bothSigned ? "Không thể cập nhật - Cả 2 bên đã ký biên bản" : ""}
+                                    >
+                                        Cập nhật biên bản thu hồi
+                                    </Button>
+                                    <Button
+                                        icon={<EyeOutlined />}
+                                        onClick={() => handlePreviewPdf(primaryCheckinReport)}
+                                    >
+                                        Xem biên bản
+                                    </Button>
+                                </>
+                            );
+                        })()}
                     </Space>
                 </>
             );
