@@ -1258,7 +1258,14 @@ export default function TechnicianCalendar() {
         setLoading(true);
         let allTasksRaw = [];
         try {
-            allTasksRaw = await listTasks();
+            // listTasks now returns paginated response or array
+            const tasksRes = await listTasks({ size: 1000 }); // Get all tasks for calendar
+            // Handle paginated response
+            if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
+                allTasksRaw = tasksRes.content;
+            } else {
+                allTasksRaw = Array.isArray(tasksRes) ? tasksRes : [];
+            }
         } catch (e) {
             console.error("Failed to load tasks:", e);
             toast.error("Không thể tải danh sách công việc");
@@ -3297,13 +3304,13 @@ export default function TechnicianCalendar() {
                                 if (t.taskCategoryId === 1 || t.taskCategoryId === 2) {
                                     return true;
                                 }
-                                
+
                                 // Check by taskCategoryName
                                 const categoryName = String(t.taskCategoryName || '');
                                 if (categoryName === 'Pre rental QC' || categoryName === 'Post rental QC') {
                                     return true;
                                 }
-                                
+
                                 return false;
                             });
 
@@ -3431,7 +3438,7 @@ export default function TechnicianCalendar() {
                                         columns={[
                                             { title: 'Công việc', dataIndex: 'title' },
                                             { title: 'Loại', dataIndex: 'device' },
-    
+
                                             { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
@@ -3549,7 +3556,7 @@ export default function TechnicianCalendar() {
                                             )
                                         }
                                     ]}
-                                    pagination={false}
+                                    pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: ['5', '10', '20'], hideOnSinglePage: false }}
                                 />
                             );
                         })()

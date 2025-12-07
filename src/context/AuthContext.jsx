@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
     (async () => {
       try {
         if (token && !user) {
-          await fetchMe().catch(() => {});
+          await fetchMe().catch(() => { });
         }
       } finally {
         if (mounted) setBootstrapped(true);

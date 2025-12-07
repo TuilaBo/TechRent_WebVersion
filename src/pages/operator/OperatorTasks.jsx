@@ -14,7 +14,7 @@ import {
   updateTask,
   deleteTask,
 } from "../../lib/taskApi";
-import { listTaskRules } from "../../lib/taskRulesApi";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import {
   listTaskCategories,
   normalizeTaskCategory,
@@ -97,6 +97,27 @@ export default function OperatorTasks() {
   const [taskRules, setTaskRules] = useState([]); // Danh sách rules theo category
   const [staffCategoryStats, setStaffCategoryStats] = useState({}); // { staffId -> { taskCount, maxTasksPerDay } }
   const [loadingCategoryStats, setLoadingCategoryStats] = useState(false);
+
+  // Server-side pagination and filters for tasks table
+  const [taskPage, setTaskPage] = useState(0);
+  const [taskPageSize, setTaskPageSize] = useState(10);
+  const [taskTotal, setTaskTotal] = useState(0);
+  const [filterCategoryId, setFilterCategoryId] = useState(null);
+  const [filterStatus, setFilterStatus] = useState(null);
+  const [filterOrderId, setFilterOrderId] = useState(null);
+  const [filterOrderIdInput, setFilterOrderIdInput] = useState(null); // Input value for debounce
+
+  // Debounce filter Order ID - 3 seconds after user stops typing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (filterOrderIdInput !== filterOrderId) {
+        setFilterOrderId(filterOrderIdInput);
+        setTaskPage(0);
+      }
+    }, 3000);
+    return () => clearTimeout(timeoutId);
+  }, [filterOrderIdInput]);
+
   const staffRoleFilterValue = Form.useWatch("staffRoleFilter", form);
   const taskCategoryIdValue = Form.useWatch("taskCategoryId", form);
   const assignedStaffIdsValue = Form.useWatch("assignedStaffIds", form) || [];
@@ -148,12 +169,12 @@ export default function OperatorTasks() {
     let cancelled = false;
     (async () => {
       try {
-        // Load all active rules
-        const allRules = await listTaskRules({ active: true });
+        // Load all active rules using /api/admin/task-rules/active
+        const allRules = await getActiveTaskRules();
 
         if (!cancelled) {
           // Hiển thị tất cả active rules
-          setTaskRules(allRules);
+          setTaskRules(allRules || []);
         }
       } catch (e) {
         console.warn("Không thể tải danh sách task rules:", e);
@@ -167,6 +188,8 @@ export default function OperatorTasks() {
 
   // Load category stats for all active staff when taskCategoryId and plannedStart are selected
   useEffect(() => {
+    console.log('[DEBUG useEffect] taskCategoryIdValue:', taskCategoryIdValue, 'plannedStartValue:', plannedStartValue);
+
     if (!taskCategoryIdValue || !plannedStartValue) {
       setStaffCategoryStats({});
       return;
@@ -211,6 +234,8 @@ export default function OperatorTasks() {
 
       await Promise.all(promises);
 
+      console.log('[DEBUG] Staff Category Stats loaded:', statsMap);
+
       if (!cancelled) {
         setStaffCategoryStats(statsMap);
         setLoadingCategoryStats(false);
@@ -220,38 +245,43 @@ export default function OperatorTasks() {
     return () => { cancelled = true; };
   }, [taskCategoryIdValue, plannedStartValue, staffs]);
 
-  // Load data từ API
-  const loadData = async () => {
+  // Load data từ API với server-side pagination và filters
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      // Build filter params
+      const taskParams = {
+        page: taskPage,
+        size: taskPageSize,
+      };
+      if (filterCategoryId) taskParams.categoryId = filterCategoryId;
+      if (filterStatus) taskParams.status = filterStatus;
+      if (filterOrderId) taskParams.orderId = filterOrderId;
+
       const [tasksRes, catsRes, staffRes, ordersRes] = await Promise.all([
-        listTasks(),
+        listTasks(taskParams),
         listTaskCategories(),
         listActiveStaff().catch(() => []),
         listRentalOrders().catch(() => []),
       ]);
-      const sortedTasks = (Array.isArray(tasksRes) ? tasksRes : []).slice().sort((a, b) => {
-        const statusA = String(a?.status || "").toUpperCase();
-        const statusB = String(b?.status || "").toUpperCase();
-        const isPendingA = statusA === "PENDING";
-        const isPendingB = statusB === "PENDING";
 
-        // Ưu tiên PENDING lên đầu
-        if (isPendingA && !isPendingB) return -1;
-        if (!isPendingA && isPendingB) return 1;
+      // Handle paginated response
+      if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
+        setData(tasksRes.content);
+        setTaskTotal(tasksRes.totalElements || 0);
+      } else {
+        // Fallback for non-paginated response
+        setData(Array.isArray(tasksRes) ? tasksRes : []);
+        setTaskTotal(Array.isArray(tasksRes) ? tasksRes.length : 0);
+      }
 
-        // Nếu cùng status (hoặc cả hai đều không phải PENDING), sort mới nhất lên đầu
-        const ta = new Date(a?.createdAt || a?.updatedAt || a?.plannedStart || 0).getTime();
-        const tb = new Date(b?.createdAt || b?.updatedAt || b?.plannedStart || 0).getTime();
-        if (tb !== ta) return tb - ta; // newest first
-        return (b?.taskId || b?.id || 0) - (a?.taskId || a?.id || 0);
-      });
-      setData(sortedTasks);
       setCategories(catsRes.map(normalizeTaskCategory));
       setStaffs(Array.isArray(staffRes) ? staffRes : []);
       setOrders(Array.isArray(ordersRes) ? ordersRes : []);
 
-      const ids = Array.from(new Set((tasksRes || []).map((t) => t.orderId).filter(Boolean)));
+      // Fetch order details for tasks
+      const taskList = tasksRes?.content || tasksRes || [];
+      const ids = Array.from(new Set((taskList).map((t) => t.orderId).filter(Boolean)));
       if (ids.length) {
         const pairs = await Promise.all(ids.map(async (oid) => {
           try { const o = await getRentalOrderById(oid); return [oid, o]; } catch { return [oid, null]; }
@@ -265,11 +295,11 @@ export default function OperatorTasks() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [taskPage, taskPageSize, filterCategoryId, filterStatus, filterOrderId]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Load leaderboard data
   const loadLeaderboard = useCallback(async () => {
@@ -355,6 +385,46 @@ export default function OperatorTasks() {
     });
     setEditing(r);
     setOpen(true);
+
+    // Manually trigger stats fetch since Form.useWatch may not update immediately
+    if (r.taskCategoryId && plannedStart) {
+      const dateStr = plannedStart.format('YYYY-MM-DD');
+      setLoadingCategoryStats(true);
+
+      (async () => {
+        const statsMap = {};
+        const promises = staffs
+          .filter(s => ['TECHNICIAN', 'CUSTOMER_SUPPORT_STAFF'].includes(String(s.staffRole || s.role || '').toUpperCase()))
+          .map(async (s) => {
+            try {
+              const id = s.staffId ?? s.id;
+              const stats = await getStaffCategoryStats({
+                staffId: id,
+                date: dateStr,
+                categoryId: r.taskCategoryId
+              });
+              const catStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
+              statsMap[id] = catStat ? {
+                taskCount: catStat.taskCount || 0,
+                maxTasksPerDay: catStat.maxTasksPerDay || 0,
+                taskCategoryName: catStat.taskCategoryName || '',
+                isEmpty: false
+              } : {
+                taskCount: 0,
+                maxTasksPerDay: 0,
+                isEmpty: true
+              };
+            } catch (e) {
+              console.warn(`Failed to load category stats for staff ${s.staffId}:`, e);
+            }
+          });
+
+        await Promise.all(promises);
+        console.log('[DEBUG openEdit] Staff Category Stats loaded:', statsMap);
+        setStaffCategoryStats(statsMap);
+        setLoadingCategoryStats(false);
+      })();
+    }
   };
 
   const remove = async (r) => {
@@ -425,7 +495,10 @@ export default function OperatorTasks() {
       const id = s.staffId ?? s.id;
       const catStat = staffCategoryStats[id];
       const taskCount = catStat?.taskCount ?? tasksPerStaffForSelectedDate[id] ?? 0;
-      const maxTasks = catStat?.maxTasksPerDay ?? 0;
+
+      // Get maxTasksPerDay from taskRules if not from API stats
+      const ruleForCategory = taskRules.find(r => r.taskCategoryId === taskCategoryIdValue);
+      const maxTasks = catStat?.maxTasksPerDay || ruleForCategory?.maxTasksPerDay || 0;
 
       let limitLabel = '';
       let limitColor = 'inherit';
@@ -434,7 +507,7 @@ export default function OperatorTasks() {
       if (catStat) {
         if (catStat.isEmpty) {
           // Empty array = staff is free for this category
-          limitLabel = ' • Rảnh';
+          limitLabel = ' • Chưa được gán việc';
           limitColor = '#52c41a'; // green - free
         } else if (maxTasks > 0) {
           if (taskCount >= maxTasks) {
@@ -452,6 +525,10 @@ export default function OperatorTasks() {
         // Fallback to local count
         limitLabel = ` • ${taskCount} việc`;
         limitColor = '#1890ff'; // blue
+      } else if (taskCategoryIdValue && !loadingCategoryStats) {
+        // Category selected but no stats yet = free for this category
+        limitLabel = ' • Chưa được gán việc';
+        limitColor = '#52c41a'; // green
       }
 
       const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""}${limitLabel}`;
@@ -742,23 +819,23 @@ export default function OperatorTasks() {
         return (
           <Space size="small">
             <Tooltip title={isCompleted ? "Không thể chỉnh sửa công việc đã hoàn thành" : ""}>
-              <Button 
-                size="small" 
-                icon={<EditOutlined />} 
-                onClick={() => openEdit(r)} 
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEdit(r)}
                 disabled={isCompleted}
               />
             </Tooltip>
-            <Popconfirm 
-              title="Xóa công việc này?" 
+            <Popconfirm
+              title="Xóa công việc này?"
               onConfirm={() => remove(r)}
               disabled={isCompleted}
             >
               <Tooltip title={isCompleted ? "Không thể xóa công việc đã hoàn thành" : ""}>
-                <Button 
-                  size="small" 
-                  danger 
-                  icon={<DeleteOutlined />} 
+                <Button
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
                   disabled={isCompleted}
                 />
               </Tooltip>
@@ -1013,53 +1090,159 @@ export default function OperatorTasks() {
                 </Text>
               </div>
 
-              <Space direction="vertical" size={6} style={{ width: "100%" }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, 1fr)',
+                gap: 12,
+              }}>
                 {taskRules.map((rule) => {
                   const category = categories.find(
                     (c) => c.taskCategoryId === rule.taskCategoryId
                   );
                   const categoryName = category?.name || `Loại ${rule.taskCategoryId}`;
-                  const role = rule.staffRole || "—";
                   const limit = rule.maxTasksPerDay;
                   const fromDate = rule.effectiveFrom
-                    ? dayjs(rule.effectiveFrom).format("DD/MM/YYYY")
+                    ? dayjs(rule.effectiveFrom).format("DD/MM")
                     : "—";
                   const toDate = rule.effectiveTo
-                    ? dayjs(rule.effectiveTo).format("DD/MM/YYYY")
-                    : "—";
+                    ? dayjs(rule.effectiveTo).format("DD/MM")
+                    : "∞";
+
+                  // Color based on category
+                  const colorMap = {
+                    1: { bg: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)', label: '📋' },
+                    2: { bg: 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)', label: '📋' },
+                    4: { bg: 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)', label: '🚚' },
+                    6: { bg: 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)', label: '📦' },
+                  };
+                  const config = colorMap[rule.taskCategoryId] || { bg: 'linear-gradient(135deg, #667085 0%, #475467 100%)', label: '📌' };
 
                   return (
-                    <div key={rule.taskRuleId} style={{ fontSize: 12, color: "#555" }}>
-                      <Text strong>{categoryName}</Text>
-                      <Text type="secondary"> ({role}): </Text>
-                      <Text>tối đa <strong>{limit}</strong> công việc/ngày</Text>
-                      <Text type="secondary"> • Hiệu lực từ {fromDate} đến {toDate}</Text>
+                    <div
+                      key={rule.taskRuleId}
+                      style={{
+                        background: config.bg,
+                        borderRadius: 10,
+                        padding: '14px',
+                        color: '#fff',
+                        textAlign: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>{config.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{categoryName}</div>
+                      <div style={{
+                        background: 'rgba(255,255,255,0.25)',
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        marginBottom: 8,
+                      }}>
+                        <div style={{ fontSize: 22, fontWeight: 700 }}>{limit}</div>
+                        <div style={{ fontSize: 10, opacity: 0.9 }}>việc/ngày</div>
+                      </div>
+                      <div style={{ fontSize: 10, opacity: 0.8 }}>
+                        {fromDate} → {toDate}
+                      </div>
                     </div>
                   );
                 })}
-              </Space>
+              </div>
             </Card>
           )}
 
           <Card>
-            <Space style={{ marginBottom: 16, width: "100%" }} direction="vertical" size="middle">
-              <Search
-                placeholder="Tìm kiếm theo mã công việc hoặc mã đơn hàng..."
-                allowClear
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onSearch={setSearchQuery}
-                style={{ width: "100%", maxWidth: 400 }}
-                enterButton
-              />
-            </Space>
+            {/* Filter Controls */}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col>
+                <Space>
+                  <span>Loại công việc:</span>
+                  <Select
+                    style={{ width: 180 }}
+                    allowClear
+                    placeholder="Tất cả"
+                    value={filterCategoryId}
+                    onChange={(value) => {
+                      setFilterCategoryId(value);
+                      setTaskPage(0);
+                    }}
+                    options={categories.map((c) => ({
+                      label: c.name,
+                      value: c.taskCategoryId,
+                    }))}
+                  />
+                </Space>
+              </Col>
+              <Col>
+                <Space>
+                  <span>Trạng thái:</span>
+                  <Select
+                    style={{ width: 160 }}
+                    allowClear
+                    placeholder="Tất cả"
+                    value={filterStatus}
+                    onChange={(value) => {
+                      setFilterStatus(value);
+                      setTaskPage(0);
+                    }}
+                    options={[
+                      { label: "Chờ thực hiện", value: "PENDING" },
+                      { label: "Đang thực hiện", value: "IN_PROGRESS" },
+                      { label: "Hoàn thành", value: "COMPLETED" },
+                      { label: "Đã hủy", value: "CANCELLED" },
+                    ]}
+                  />
+                </Space>
+              </Col>
+              <Col>
+                <Space>
+                  <span>Mã đơn:</span>
+                  <InputNumber
+                    style={{ width: 120 }}
+                    placeholder="Order ID"
+                    value={filterOrderIdInput}
+                    onChange={(value) => {
+                      setFilterOrderIdInput(value);
+                    }}
+                    min={1}
+                  />
+                </Space>
+              </Col>
+              <Col>
+                <Button
+                  onClick={() => {
+                    setFilterCategoryId(null);
+                    setFilterStatus(null);
+                    setFilterOrderId(null);
+                    setFilterOrderIdInput(null);
+                    setTaskPage(0);
+                  }}
+                >
+                  Xóa bộ lọc
+                </Button>
+              </Col>
+            </Row>
 
             <Spin spinning={loading}>
               <Table
                 rowKey="taskId"
                 columns={columns}
-                dataSource={filteredData}
-                pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `Tổng ${total} công việc` }}
+                dataSource={data}
+                pagination={{
+                  current: taskPage + 1,
+                  pageSize: taskPageSize,
+                  total: taskTotal,
+                  showSizeChanger: true,
+                  pageSizeOptions: ['5', '10', '20', '50'],
+                  showTotal: (total) => `Tổng ${total} công việc`,
+                  onChange: (page, pageSize) => {
+                    setTaskPage(page - 1);
+                    setTaskPageSize(pageSize);
+                  },
+                  onShowSizeChange: (current, size) => {
+                    setTaskPage(0);
+                    setTaskPageSize(size);
+                  },
+                }}
                 scroll={{ x: 1200 }}
               />
             </Spin>
@@ -1166,7 +1349,10 @@ export default function OperatorTasks() {
       />
 
       <Modal
-        title={editing ? "Cập nhật công việc" : "Tạo công việc"}
+        title={editing
+          ? `Gán công việc ${categories.find(c => c.taskCategoryId === editing.taskCategoryId)?.name || ''}`
+          : "Tạo công việc"
+        }
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
@@ -1174,21 +1360,21 @@ export default function OperatorTasks() {
         width={600}
       >
         <Form form={form} layout="vertical" onFinish={submit}>
-          <Form.Item
-            label="Loại công việc"
-            name="taskCategoryId"
-            rules={[{ required: true, message: "Chọn loại công việc" }]}
-            tooltip={editing ? "Không thể thay đổi loại công việc khi chỉnh sửa công việc" : undefined}
-          >
-            <Select
-              placeholder="Chọn loại công việc"
-              disabled={!!editing}
-              options={categories.map((c) => ({
-                label: c.name,
-                value: c.taskCategoryId,
-              }))}
-            />
-          </Form.Item>
+          {!editing && (
+            <Form.Item
+              label="Loại công việc"
+              name="taskCategoryId"
+              rules={[{ required: true, message: "Chọn loại công việc" }]}
+            >
+              <Select
+                placeholder="Chọn loại công việc"
+                options={categories.map((c) => ({
+                  label: c.name,
+                  value: c.taskCategoryId,
+                }))}
+              />
+            </Form.Item>
+          )}
 
           <Form.Item
             label="Mã đơn hàng"
@@ -1216,10 +1402,16 @@ export default function OperatorTasks() {
             <Select
               allowClear
               placeholder="Tất cả role"
-              options={[
-                { label: "TECHNICIAN", value: "TECHNICIAN" },
-                { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
-              ]}
+              options={
+                // Category 1-2 (Pre rental QC, Post rental QC) - only TECHNICIAN
+                // Use editing?.taskCategoryId as fallback since Form.useWatch may not update immediately
+                [1, 2].includes(taskCategoryIdValue || editing?.taskCategoryId)
+                  ? [{ label: "TECHNICIAN", value: "TECHNICIAN" }]
+                  : [
+                    { label: "TECHNICIAN", value: "TECHNICIAN" },
+                    { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
+                  ]
+              }
             />
           </Form.Item>
 

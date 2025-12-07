@@ -44,12 +44,52 @@ export function normalizeTask(raw = {}) {
 /* Read APIs                                                          */
 /* ------------------------------------------------------------------ */
 
-/** GET /api/staff/tasks – Lấy danh sách task
- *  Có thể truyền params filter nếu BE hỗ trợ (vd: { orderId, assignedStaffId })
+/** GET /api/staff/tasks – Lấy danh sách task với filters và pagination
+ *  params: { categoryId, orderId, assignedStaffId, status, page, size }
+ *  @returns { content: Task[], page, size, totalElements, totalPages } hoặc Task[] nếu không có pagination
  */
-export async function listTasks(params = undefined) {
-  const { data } = await api.get("/api/staff/tasks", { params });
+export async function listTasks(params = {}) {
+  const query = {};
+
+  // Filter params
+  if (params.categoryId !== undefined && params.categoryId !== null) {
+    query.categoryId = Number(params.categoryId);
+  }
+  if (params.orderId !== undefined && params.orderId !== null) {
+    query.orderId = Number(params.orderId);
+  }
+  if (params.assignedStaffId !== undefined && params.assignedStaffId !== null) {
+    query.assignedStaffId = Number(params.assignedStaffId);
+  }
+  if (params.status) {
+    query.status = params.status;
+  }
+
+  // Pagination params
+  if (params.page !== undefined) {
+    query.page = Number(params.page);
+  }
+  if (params.size !== undefined) {
+    query.size = Number(params.size);
+  }
+
+  const { data } = await api.get("/api/staff/tasks", { params: query });
   const payload = data?.data ?? data ?? [];
+
+  // Handle paginated response
+  if (payload && typeof payload === 'object' && Array.isArray(payload.content)) {
+    return {
+      content: payload.content.map(normalizeTask),
+      page: payload.page ?? 0,
+      size: payload.size ?? params.size ?? 10,
+      totalElements: payload.totalElements ?? 0,
+      totalPages: payload.totalPages ?? 0,
+      numberOfElements: payload.numberOfElements ?? payload.content.length,
+      last: payload.last ?? true,
+    };
+  }
+
+  // Fallback for non-paginated response (backward compatibility)
   return Array.isArray(payload) ? payload.map(normalizeTask) : [];
 }
 

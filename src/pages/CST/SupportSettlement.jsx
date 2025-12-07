@@ -208,9 +208,16 @@ export default function SupportSettlement() {
     try {
       setLoading(true);
 
-      // Get all tasks
-      const allTasks = await listTasks();
-      const normalizedTasks = allTasks.map(normalizeTask);
+      // Get all tasks - listTasks now returns paginated response
+      const tasksRes = await listTasks({ size: 1000 });
+      // Handle paginated response
+      let allTasksRaw = [];
+      if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
+        allTasksRaw = tasksRes.content;
+      } else {
+        allTasksRaw = Array.isArray(tasksRes) ? tasksRes : [];
+      }
+      const normalizedTasks = allTasksRaw.map(normalizeTask);
 
       // Filter tasks: type = PICK_UP_RENTAL_ORDER and status = COMPLETED
       const completedPickupTasks = normalizedTasks.filter((task) => {
@@ -273,8 +280,8 @@ export default function SupportSettlement() {
     } catch (e) {
       toast.error(
         e?.response?.data?.message ||
-          e?.message ||
-          "Không tải được danh sách đơn hàng"
+        e?.message ||
+        "Không tải được danh sách đơn hàng"
       );
     } finally {
       setLoading(false);
@@ -406,8 +413,8 @@ export default function SupportSettlement() {
       } catch (e) {
         toast.error(
           e?.response?.data?.message ||
-            e?.message ||
-            "Không tải được chi tiết đơn hàng"
+          e?.message ||
+          "Không tải được chi tiết đơn hàng"
         );
       }
     },
@@ -513,7 +520,7 @@ export default function SupportSettlement() {
       await confirmRefundSettlement(settlementId, proofFile);
       toast.success(
         "Đã xác nhận giao dịch hoàn cọc cho đơn hàng #" +
-          (selectedOrder?.orderId || selectedOrder?.id || "—")
+        (selectedOrder?.orderId || selectedOrder?.id || "—")
       );
       setConfirmRefundModalOpen(false);
       setProofFile(null);
@@ -526,8 +533,8 @@ export default function SupportSettlement() {
     } catch (error) {
       toast.error(
         error?.response?.data?.message ||
-          error?.message ||
-          "Không thể xác nhận giao dịch."
+        error?.message ||
+        "Không thể xác nhận giao dịch."
       );
     } finally {
       setConfirmingRefund(false);
@@ -621,7 +628,7 @@ export default function SupportSettlement() {
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
-          Giải quyết Quyết toán 
+          Giải quyết Quyết toán
         </Title>
         <Button
           icon={<ReloadOutlined />}
@@ -644,9 +651,8 @@ export default function SupportSettlement() {
 
       {/* Order Detail Drawer */}
       <Drawer
-        title={`Chi tiết đơn hàng #${
-          selectedOrder?.orderId || selectedOrder?.id || ""
-        }`}
+        title={`Chi tiết đơn hàng #${selectedOrder?.orderId || selectedOrder?.id || ""
+          }`}
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
@@ -711,7 +717,7 @@ export default function SupportSettlement() {
 
             {invoiceInfo && (
               <>
-                
+
               </>
             )}
 
@@ -729,9 +735,8 @@ export default function SupportSettlement() {
                     {bankInfos.map((bank, idx) => (
                       <React.Fragment key={bank.bankInformationId || idx}>
                         <Descriptions.Item
-                          label={`Ngân hàng ${
-                            bankInfos.length > 1 ? idx + 1 : ""
-                          }`}
+                          label={`Ngân hàng ${bankInfos.length > 1 ? idx + 1 : ""
+                            }`}
                         >
                           {bank.bankName || "—"}
                         </Descriptions.Item>
@@ -968,8 +973,8 @@ export default function SupportSettlement() {
           <Form.Item name="finalReturnAmount" hidden>
             <InputNumber />
           </Form.Item>
-          </Form>
-        </Modal>
+        </Form>
+      </Modal>
 
       {/* Confirm Refund Modal with Proof Upload */}
       <Modal
@@ -993,7 +998,7 @@ export default function SupportSettlement() {
             message="Vui lòng upload ảnh bằng chứng giao dịch hoàn cọc"
             description="Ảnh bằng chứng sẽ được lưu để xác minh giao dịch."
           />
-          
+
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
               Ảnh bằng chứng <Text type="danger">*</Text>
@@ -1059,6 +1064,6 @@ export default function SupportSettlement() {
           </div>
         </Space>
       </Modal>
-      </>
-    );
-  }
+    </>
+  );
+}

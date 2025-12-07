@@ -12,7 +12,7 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  
+
   // Log payment requests để debug
   if (config.url?.includes('/api/v1/payments') && config.method === 'post') {
     console.log("🔍 API Interceptor - Payment Request:");
@@ -29,7 +29,7 @@ api.interceptors.request.use((config) => {
       }
     }
   }
-  
+
   // Log handover report requests để debug evidenceUrls
   if (config.url?.includes('/api/staff/handover-reports') && config.method === 'post') {
     console.log("🔍 API Interceptor - Handover Report Request:");
@@ -43,7 +43,7 @@ api.interceptors.request.use((config) => {
       console.log("  evidenceUrls length:", config.data.evidenceUrls?.length);
     }
   }
-  
+
   return config;
 });
 
