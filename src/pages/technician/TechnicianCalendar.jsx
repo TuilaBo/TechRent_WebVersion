@@ -47,7 +47,6 @@ import {
     confirmDelivery,
     confirmRetrieval,
 } from "../../lib/taskApi";
-import { listTaskRules } from "../../lib/taskRulesApi";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
     TECH_TASK_STATUS,
@@ -1291,46 +1290,57 @@ export default function TechnicianCalendar() {
             if (results[2].status === 'fulfilled') inactiveRes = results[2].value || { data: [] };
             else console.warn("Failed inactive maintenance:", results[2].reason);
 
-            // Load all task rules and create category map
+            // Load task category stats for current technician
             try {
-                console.log("DEBUG: Calling listTaskRules API...");
-                const allRules = await listTaskRules({ active: true });
-                console.log("DEBUG: listTaskRules response:", allRules);
-
+                console.log("DEBUG: Calling getStaffCategoryStats API for TECHNICIAN role...");
+                
+                // Get current user's staff ID from localStorage or auth context
+                const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+                const staffId = currentUser.staffId || currentUser.id;
+                
+                if (!staffId) {
+                    console.warn("No staffId found, cannot load category stats");
+                    throw new Error("Staff ID not found");
+                }
+                
                 const rulesMap = {};
-                (allRules || []).forEach(rule => {
-                    if (rule.taskCategoryId && rule.active) {
-                        // If multiple rules for same category, use the one with latest effectiveFrom
-                        if (!rulesMap[rule.taskCategoryId] ||
-                            new Date(rule.effectiveFrom) > new Date(rulesMap[rule.taskCategoryId].effectiveFrom)) {
-                            rulesMap[rule.taskCategoryId] = {
-                                maxTasksPerDay: rule.maxTasksPerDay,
-                                name: rule.name,
-                                description: rule.description,
-                                effectiveFrom: rule.effectiveFrom
+                
+                // Load stats for each task category
+                const categoryIds = [1, 2, 4, 6]; // Pre rental QC, Post rental QC, Delivery, Pickup
+                
+                await Promise.all(categoryIds.map(async (categoryId) => {
+                    try {
+                        const stats = await getStaffCategoryStats(staffId, categoryId);
+                        console.log(`DEBUG: Category ${categoryId} stats:`, stats);
+                        
+                        if (stats && stats.maxTasksPerDay !== undefined) {
+                            rulesMap[categoryId] = {
+                                maxTasksPerDay: stats.maxTasksPerDay,
+                                name: stats.taskCategoryName || `Category ${categoryId}`,
+                                taskCount: stats.taskCount || 0
                             };
                         }
+                    } catch (err) {
+                        console.warn(`Failed to load stats for category ${categoryId}:`, err);
                     }
-                });
-                console.log("DEBUG: taskRulesMap built:", rulesMap);
+                }));
+                
+                console.log("DEBUG: taskRulesMap built from getStaffCategoryStats:", rulesMap);
                 setTaskRulesMap(rulesMap);
             } catch (e) {
-                console.warn("Failed to load task rules:", e);
+                console.warn("Failed to load task category stats:", e);
                 console.warn("Error status:", e?.response?.status);
                 console.warn("Error message:", e?.response?.data?.message || e?.message);
 
-                // TEMPORARY: Mock data for testing UI when API returns 403 (unauthorized)
-                // Remove this block after backend grants permission to technician
-                if (e?.response?.status === 403) {
-                    console.log("DEBUG: Using mock data for taskRulesMap (API 403)");
-                    const mockRulesMap = {
-                        1: { maxTasksPerDay: 2, name: "Pre rental QC" },
-                        2: { maxTasksPerDay: 5, name: "Post rental QC" },
-                        4: { maxTasksPerDay: 4, name: "Delivery" },
-                        6: { maxTasksPerDay: 4, name: "Pick up" }
-                    };
-                    setTaskRulesMap(mockRulesMap);
-                }
+                // Fallback: Use mock data for testing
+                console.log("DEBUG: Using fallback mock data for taskRulesMap");
+                const mockRulesMap = {
+                    1: { maxTasksPerDay: 6, name: "Pre rental QC" },
+                    2: { maxTasksPerDay: 5, name: "Post rental QC" },
+                    4: { maxTasksPerDay: 4, name: "Delivery" },
+                    6: { maxTasksPerDay: 4, name: "Pick up" }
+                };
+                setTaskRulesMap(mockRulesMap);
             }
         } catch (err) {
             console.error("Error loading maintenance data:", err);
