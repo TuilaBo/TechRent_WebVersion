@@ -25,6 +25,7 @@ import {
   Form,
   Alert,
   Upload,
+  Tabs,
 } from "antd";
 import {
   EyeOutlined,
@@ -48,6 +49,7 @@ import {
   updateSettlement,
   getSettlementByOrderId,
   confirmRefundSettlement,
+  listSettlements,
 } from "../../lib/settlementApi";
 import {
   getInvoiceByRentalOrderId,
@@ -152,6 +154,7 @@ export default function SupportSettlement() {
   const [proofPreview, setProofPreview] = useState("");
   const [customerMap, setCustomerMap] = useState({});
   const customerCacheRef = useRef({});
+  const [settlements, setSettlements] = useState([]); // Direct settlements from API
 
   const upsertCustomerCache = useCallback((id, customer) => {
     if (!id || !customer) return;
@@ -273,17 +276,37 @@ export default function SupportSettlement() {
     } catch (e) {
       toast.error(
         e?.response?.data?.message ||
-          e?.message ||
-          "Không tải được danh sách đơn hàng"
+        e?.message ||
+        "Không tải được danh sách đơn hàng"
       );
     } finally {
       setLoading(false);
     }
   }, [hydrateCustomers]);
 
+  // Load settlements directly from API
+  const loadSettlements = useCallback(async () => {
+    try {
+      const response = await listSettlements({ page: 0, size: 1000 });
+      const content = response?.content || response || [];
+      // Sort: prioritize "Issued" (Đã chấp nhận) first, then by settlementId descending
+      const sorted = [...content].sort((a, b) => {
+        const aIsIssued = String(a.state || '').toLowerCase() === 'issued';
+        const bIsIssued = String(b.state || '').toLowerCase() === 'issued';
+        if (aIsIssued && !bIsIssued) return -1;
+        if (!aIsIssued && bIsIssued) return 1;
+        return (b.settlementId || 0) - (a.settlementId || 0);
+      });
+      setSettlements(sorted);
+    } catch (e) {
+      console.warn("Failed to load settlements:", e);
+    }
+  }, []);
+
   useEffect(() => {
     loadOrders();
-  }, [loadOrders]);
+    loadSettlements();
+  }, [loadOrders, loadSettlements]);
 
   // Cleanup blob URL when component unmounts
   useEffect(() => {
@@ -406,8 +429,8 @@ export default function SupportSettlement() {
       } catch (e) {
         toast.error(
           e?.response?.data?.message ||
-            e?.message ||
-            "Không tải được chi tiết đơn hàng"
+          e?.message ||
+          "Không tải được chi tiết đơn hàng"
         );
       }
     },
@@ -513,7 +536,7 @@ export default function SupportSettlement() {
       await confirmRefundSettlement(settlementId, proofFile);
       toast.success(
         "Đã xác nhận giao dịch hoàn cọc cho đơn hàng #" +
-          (selectedOrder?.orderId || selectedOrder?.id || "—")
+        (selectedOrder?.orderId || selectedOrder?.id || "—")
       );
       setConfirmRefundModalOpen(false);
       setProofFile(null);
@@ -526,8 +549,8 @@ export default function SupportSettlement() {
     } catch (error) {
       toast.error(
         error?.response?.data?.message ||
-          error?.message ||
-          "Không thể xác nhận giao dịch."
+        error?.message ||
+        "Không thể xác nhận giao dịch."
       );
     } finally {
       setConfirmingRefund(false);
@@ -621,11 +644,11 @@ export default function SupportSettlement() {
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
-          Giải quyết Quyết toán 
+          Giải quyết Quyết toán
         </Title>
         <Button
           icon={<ReloadOutlined />}
-          onClick={loadOrders}
+          onClick={() => { loadOrders(); loadSettlements(); }}
           loading={loading}
         >
           Tải lại
@@ -633,20 +656,73 @@ export default function SupportSettlement() {
       </div>
 
       <Card>
-        <Table
-          rowKey={(r) => r.orderId || r.id}
-          loading={loading}
-          columns={columns}
-          dataSource={orders}
-          pagination={{ pageSize: 10, showSizeChanger: true }}
-        />
+        <Tabs defaultActiveKey="settlements" items={[
+          {
+            key: 'settlements',
+            label: 'Danh sách Settlement',
+            children: (
+              <Table
+                rowKey={(r) => r.settlementId}
+                loading={loading}
+                columns={[
+                  { title: 'ID', dataIndex: 'settlementId', width: 80 },
+                  { title: 'Mã đơn', dataIndex: 'orderId', width: 100 },
+                  { title: 'Tiền cọc', dataIndex: 'totalDeposit', render: (v) => v?.toLocaleString('vi-VN') + ' đ' },
+                  { title: 'Phí hư hỏng', dataIndex: 'damageFee', render: (v) => <span style={{ color: v > 0 ? 'red' : 'inherit' }}>{(v || 0).toLocaleString('vi-VN')} đ</span> },
+                  { title: 'Phí trễ hạn', dataIndex: 'lateFee', render: (v) => <span style={{ color: v > 0 ? 'red' : 'inherit' }}>{(v || 0).toLocaleString('vi-VN')} đ</span> },
+                  { title: 'Hoàn trả', dataIndex: 'finalReturnAmount', render: (v) => <span style={{ color: v > 0 ? 'blue' : (v < 0 ? 'red' : 'inherit') }}>{(v || 0).toLocaleString('vi-VN')} đ</span> },
+                  {
+                    title: 'Trạng thái',
+                    dataIndex: 'state',
+                    render: (s) => {
+                      const state = String(s || '').toLowerCase();
+                      const colors = { draft: 'default', issued: 'gold', resolved: 'green', rejected: 'red' };
+                      const labels = { draft: 'Nháp', issued: 'Đã chấp nhận', resolved: 'Đã tất toán', rejected: 'Từ chối' };
+                      return <Tag color={colors[state] || 'default'}>{labels[state] || s}</Tag>;
+                    },
+                    filters: [
+                      { text: 'Nháp', value: 'draft' },
+                      { text: 'Đã chấp nhận', value: 'issued' },
+                      { text: 'Đã tất toán', value: 'resolved' }
+                    ],
+                    onFilter: (value, record) => String(record.state || '').toLowerCase() === value
+                  },
+                  { title: 'Ngày tạo', dataIndex: 'issuedAt', render: (d) => d ? new Date(d).toLocaleDateString('vi-VN') : '—' },
+                  {
+                    title: 'Thao tác',
+                    render: (_, r) => (
+                      <Button size="small" onClick={() => {
+                        const order = orders.find(o => o.orderId === r.orderId);
+                        if (order) openDetail(order);
+                      }}>Xem đơn</Button>
+                    )
+                  }
+                ]}
+                dataSource={settlements}
+                pagination={{ pageSize: 10, showSizeChanger: true }}
+              />
+            )
+          },
+          {
+            key: 'orders',
+            label: 'Theo đơn hàng',
+            children: (
+              <Table
+                rowKey={(r) => r.orderId || r.id}
+                loading={loading}
+                columns={columns}
+                dataSource={orders}
+                pagination={{ pageSize: 10, showSizeChanger: true }}
+              />
+            )
+          }
+        ]} />
       </Card>
 
       {/* Order Detail Drawer */}
       <Drawer
-        title={`Chi tiết đơn hàng #${
-          selectedOrder?.orderId || selectedOrder?.id || ""
-        }`}
+        title={`Chi tiết đơn hàng #${selectedOrder?.orderId || selectedOrder?.id || ""
+          }`}
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
@@ -711,7 +787,7 @@ export default function SupportSettlement() {
 
             {invoiceInfo && (
               <>
-                
+
               </>
             )}
 
@@ -729,9 +805,8 @@ export default function SupportSettlement() {
                     {bankInfos.map((bank, idx) => (
                       <React.Fragment key={bank.bankInformationId || idx}>
                         <Descriptions.Item
-                          label={`Ngân hàng ${
-                            bankInfos.length > 1 ? idx + 1 : ""
-                          }`}
+                          label={`Ngân hàng ${bankInfos.length > 1 ? idx + 1 : ""
+                            }`}
                         >
                           {bank.bankName || "—"}
                         </Descriptions.Item>
@@ -968,8 +1043,8 @@ export default function SupportSettlement() {
           <Form.Item name="finalReturnAmount" hidden>
             <InputNumber />
           </Form.Item>
-          </Form>
-        </Modal>
+        </Form>
+      </Modal>
 
       {/* Confirm Refund Modal with Proof Upload */}
       <Modal
@@ -993,7 +1068,7 @@ export default function SupportSettlement() {
             message="Vui lòng upload ảnh bằng chứng giao dịch hoàn cọc"
             description="Ảnh bằng chứng sẽ được lưu để xác minh giao dịch."
           />
-          
+
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
               Ảnh bằng chứng <Text type="danger">*</Text>
@@ -1059,6 +1134,6 @@ export default function SupportSettlement() {
           </div>
         </Space>
       </Modal>
-      </>
-    );
-  }
+    </>
+  );
+}

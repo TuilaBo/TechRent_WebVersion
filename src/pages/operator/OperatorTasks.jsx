@@ -14,7 +14,7 @@ import {
   updateTask,
   deleteTask,
 } from "../../lib/taskApi";
-import { listTaskRules } from "../../lib/taskRulesApi";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import {
   listTaskCategories,
   normalizeTaskCategory,
@@ -148,12 +148,12 @@ export default function OperatorTasks() {
     let cancelled = false;
     (async () => {
       try {
-        // Load all active rules
-        const allRules = await listTaskRules({ active: true });
+        // Load all active rules using /api/admin/task-rules/active
+        const allRules = await getActiveTaskRules();
 
         if (!cancelled) {
           // Hiển thị tất cả active rules
-          setTaskRules(allRules);
+          setTaskRules(allRules || []);
         }
       } catch (e) {
         console.warn("Không thể tải danh sách task rules:", e);
@@ -167,6 +167,8 @@ export default function OperatorTasks() {
 
   // Load category stats for all active staff when taskCategoryId and plannedStart are selected
   useEffect(() => {
+    console.log('[DEBUG useEffect] taskCategoryIdValue:', taskCategoryIdValue, 'plannedStartValue:', plannedStartValue);
+
     if (!taskCategoryIdValue || !plannedStartValue) {
       setStaffCategoryStats({});
       return;
@@ -210,6 +212,8 @@ export default function OperatorTasks() {
         });
 
       await Promise.all(promises);
+
+      console.log('[DEBUG] Staff Category Stats loaded:', statsMap);
 
       if (!cancelled) {
         setStaffCategoryStats(statsMap);
@@ -355,6 +359,46 @@ export default function OperatorTasks() {
     });
     setEditing(r);
     setOpen(true);
+
+    // Manually trigger stats fetch since Form.useWatch may not update immediately
+    if (r.taskCategoryId && plannedStart) {
+      const dateStr = plannedStart.format('YYYY-MM-DD');
+      setLoadingCategoryStats(true);
+
+      (async () => {
+        const statsMap = {};
+        const promises = staffs
+          .filter(s => ['TECHNICIAN', 'CUSTOMER_SUPPORT_STAFF'].includes(String(s.staffRole || s.role || '').toUpperCase()))
+          .map(async (s) => {
+            try {
+              const id = s.staffId ?? s.id;
+              const stats = await getStaffCategoryStats({
+                staffId: id,
+                date: dateStr,
+                categoryId: r.taskCategoryId
+              });
+              const catStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
+              statsMap[id] = catStat ? {
+                taskCount: catStat.taskCount || 0,
+                maxTasksPerDay: catStat.maxTasksPerDay || 0,
+                taskCategoryName: catStat.taskCategoryName || '',
+                isEmpty: false
+              } : {
+                taskCount: 0,
+                maxTasksPerDay: 0,
+                isEmpty: true
+              };
+            } catch (e) {
+              console.warn(`Failed to load category stats for staff ${s.staffId}:`, e);
+            }
+          });
+
+        await Promise.all(promises);
+        console.log('[DEBUG openEdit] Staff Category Stats loaded:', statsMap);
+        setStaffCategoryStats(statsMap);
+        setLoadingCategoryStats(false);
+      })();
+    }
   };
 
   const remove = async (r) => {
@@ -425,7 +469,10 @@ export default function OperatorTasks() {
       const id = s.staffId ?? s.id;
       const catStat = staffCategoryStats[id];
       const taskCount = catStat?.taskCount ?? tasksPerStaffForSelectedDate[id] ?? 0;
-      const maxTasks = catStat?.maxTasksPerDay ?? 0;
+
+      // Get maxTasksPerDay from taskRules if not from API stats
+      const ruleForCategory = taskRules.find(r => r.taskCategoryId === taskCategoryIdValue);
+      const maxTasks = catStat?.maxTasksPerDay || ruleForCategory?.maxTasksPerDay || 0;
 
       let limitLabel = '';
       let limitColor = 'inherit';
@@ -434,7 +481,7 @@ export default function OperatorTasks() {
       if (catStat) {
         if (catStat.isEmpty) {
           // Empty array = staff is free for this category
-          limitLabel = ' • Rảnh';
+          limitLabel = ' • Chưa được gán việc';
           limitColor = '#52c41a'; // green - free
         } else if (maxTasks > 0) {
           if (taskCount >= maxTasks) {
@@ -452,6 +499,10 @@ export default function OperatorTasks() {
         // Fallback to local count
         limitLabel = ` • ${taskCount} việc`;
         limitColor = '#1890ff'; // blue
+      } else if (taskCategoryIdValue && !loadingCategoryStats) {
+        // Category selected but no stats yet = free for this category
+        limitLabel = ' • Chưa được gán việc';
+        limitColor = '#52c41a'; // green
       }
 
       const baseLabel = `${s.username || s.email || "User"} • ${s.staffRole || s.role || ""}${limitLabel}`;
@@ -1013,31 +1064,63 @@ export default function OperatorTasks() {
                 </Text>
               </div>
 
-              <Space direction="vertical" size={6} style={{ width: "100%" }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, 1fr)',
+                gap: 12,
+              }}>
                 {taskRules.map((rule) => {
                   const category = categories.find(
                     (c) => c.taskCategoryId === rule.taskCategoryId
                   );
                   const categoryName = category?.name || `Loại ${rule.taskCategoryId}`;
-                  const role = rule.staffRole || "—";
                   const limit = rule.maxTasksPerDay;
                   const fromDate = rule.effectiveFrom
-                    ? dayjs(rule.effectiveFrom).format("DD/MM/YYYY")
+                    ? dayjs(rule.effectiveFrom).format("DD/MM")
                     : "—";
                   const toDate = rule.effectiveTo
-                    ? dayjs(rule.effectiveTo).format("DD/MM/YYYY")
-                    : "—";
+                    ? dayjs(rule.effectiveTo).format("DD/MM")
+                    : "∞";
+
+                  // Color based on category
+                  const colorMap = {
+                    1: { bg: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)', label: '📋' },
+                    2: { bg: 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)', label: '📋' },
+                    4: { bg: 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)', label: '🚚' },
+                    6: { bg: 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)', label: '📦' },
+                  };
+                  const config = colorMap[rule.taskCategoryId] || { bg: 'linear-gradient(135deg, #667085 0%, #475467 100%)', label: '📌' };
 
                   return (
-                    <div key={rule.taskRuleId} style={{ fontSize: 12, color: "#555" }}>
-                      <Text strong>{categoryName}</Text>
-                      <Text type="secondary"> ({role}): </Text>
-                      <Text>tối đa <strong>{limit}</strong> công việc/ngày</Text>
-                      <Text type="secondary"> • Hiệu lực từ {fromDate} đến {toDate}</Text>
+                    <div
+                      key={rule.taskRuleId}
+                      style={{
+                        background: config.bg,
+                        borderRadius: 10,
+                        padding: '14px',
+                        color: '#fff',
+                        textAlign: 'center',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      }}
+                    >
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>{config.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{categoryName}</div>
+                      <div style={{
+                        background: 'rgba(255,255,255,0.25)',
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        marginBottom: 8,
+                      }}>
+                        <div style={{ fontSize: 22, fontWeight: 700 }}>{limit}</div>
+                        <div style={{ fontSize: 10, opacity: 0.9 }}>việc/ngày</div>
+                      </div>
+                      <div style={{ fontSize: 10, opacity: 0.8 }}>
+                        {fromDate} → {toDate}
+                      </div>
                     </div>
                   );
                 })}
-              </Space>
+              </div>
             </Card>
           )}
 
@@ -1166,7 +1249,10 @@ export default function OperatorTasks() {
       />
 
       <Modal
-        title={editing ? "Cập nhật công việc" : "Tạo công việc"}
+        title={editing
+          ? `Gán công việc ${categories.find(c => c.taskCategoryId === editing.taskCategoryId)?.name || ''}`
+          : "Tạo công việc"
+        }
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
@@ -1174,21 +1260,21 @@ export default function OperatorTasks() {
         width={600}
       >
         <Form form={form} layout="vertical" onFinish={submit}>
-          <Form.Item
-            label="Loại công việc"
-            name="taskCategoryId"
-            rules={[{ required: true, message: "Chọn loại công việc" }]}
-            tooltip={editing ? "Không thể thay đổi loại công việc khi chỉnh sửa công việc" : undefined}
-          >
-            <Select
-              placeholder="Chọn loại công việc"
-              disabled={!!editing}
-              options={categories.map((c) => ({
-                label: c.name,
-                value: c.taskCategoryId,
-              }))}
-            />
-          </Form.Item>
+          {!editing && (
+            <Form.Item
+              label="Loại công việc"
+              name="taskCategoryId"
+              rules={[{ required: true, message: "Chọn loại công việc" }]}
+            >
+              <Select
+                placeholder="Chọn loại công việc"
+                options={categories.map((c) => ({
+                  label: c.name,
+                  value: c.taskCategoryId,
+                }))}
+              />
+            </Form.Item>
+          )}
 
           <Form.Item
             label="Mã đơn hàng"
@@ -1216,10 +1302,16 @@ export default function OperatorTasks() {
             <Select
               allowClear
               placeholder="Tất cả role"
-              options={[
-                { label: "TECHNICIAN", value: "TECHNICIAN" },
-                { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
-              ]}
+              options={
+                // Category 1-2 (Pre rental QC, Post rental QC) - only TECHNICIAN
+                // Use editing?.taskCategoryId as fallback since Form.useWatch may not update immediately
+                [1, 2].includes(taskCategoryIdValue || editing?.taskCategoryId)
+                  ? [{ label: "TECHNICIAN", value: "TECHNICIAN" }]
+                  : [
+                    { label: "TECHNICIAN", value: "TECHNICIAN" },
+                    { label: "CUSTOMER_SUPPORT_STAFF", value: "CUSTOMER_SUPPORT_STAFF" },
+                  ]
+              }
             />
           </Form.Item>
 
