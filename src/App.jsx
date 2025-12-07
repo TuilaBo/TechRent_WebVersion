@@ -158,7 +158,7 @@ export default function App() {
               </RequireRole>
             }
           >
-            <Route index element={<OperatorDashboard />} />
+            <Route index element={<OperatorOrders />} />
             <Route path="orders" element={<OperatorOrders />} />
             <Route path="tasks" element={<OperatorTasks />} />
             <Route path="shifts" element={<OperatorShifts />} />
@@ -191,8 +191,8 @@ export default function App() {
               </RequireRole>
             }
           >
-            <Route index element={<SupportDesk />} />
-            <Route path="desk" element={<SupportDesk />} />
+            <Route index element={<SupportTask />} />
+            {/* <Route path="desk" element={<SupportDesk />} /> */}
             <Route path="tasks" element={<SupportTask />} />
             <Route path="settlements" element={<SupportSettlement />} />
             <Route path="chats" element={<SupportChat />} />

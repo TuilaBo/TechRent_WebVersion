@@ -1230,8 +1230,9 @@ export default function TechnicianQcDetail() {
 
               const serialNumbersFromOrder =
                 orderDetail.serialNumbers || orderDetail.serialNumberList || [];
-              const mockSerialNumbers =
-                INVENTORY[orderDetailId] || INVENTORY.default || [];
+              
+              // Generate mock serial numbers if no real data available
+              const mockSerialNumbers = Array.from({ length: Math.max(quantity, 5) }, (_, i) => `SN-${String(i + 1).padStart(3, '0')}`);
 
               const availableSerialNumbers =
                 serialNumbersFromDevices.length > 0

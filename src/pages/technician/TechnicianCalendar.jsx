@@ -21,6 +21,7 @@ import {
     Tabs,
     Form,
     Radio,
+    Tooltip,
 } from "antd";
 import {
     EnvironmentOutlined,
@@ -883,7 +884,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:80px">Đơn vị</th>
             <th style="width:80px;text-align:center">SL đặt</th>
             <th style="width:80px;text-align:center">SL giao</th>
-            <th>Điều kiện</th>
+            <th>${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị"}</th>
             <th>Ảnh bằng chứng</th>
           </tr>
         </thead>
@@ -924,10 +925,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             <th style="width:40px">STT</th>
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
-            <th>Điều kiện</th>
+            <th>${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị"}</th>
             <th>Phí phạt</th>
             <th>Ghi chú nhân viên</th>
-            <th>Ghi chú khách hàng</th>
+            ${String(report.handoverType || "").toUpperCase() !== "CHECKIN" ? '<th>Ghi chú khách hàng</th>' : ''}
           </tr>
         </thead>
         <tbody>
@@ -950,7 +951,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                     }
 
                     const conditionDef = conditionMap[disc.conditionDefinitionId];
-                    const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+                    const conditionName = conditionDef?.name || disc.conditionName || `Tình trạng thiết bị #${disc.conditionDefinitionId}`;
                     const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" :
                         disc.discrepancyType === "LOSS" ? "Mất mát" :
                             disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
@@ -964,10 +965,10 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                 <td>${conditionName}</td>
                 <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
                 <td>${disc.staffNote || "—"}</td>
-                <td>${disc.customerNote || "—"}</td>
+                ${String(report.handoverType || "").toUpperCase() !== "CHECKIN" ? `<td>${disc.customerNote || "—"}</td>` : ''}
               </tr>
             `;
-                }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+                }).join("") || `<tr><td colspan='${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "6" : "7"}' style='text-align:center'>Không có sự cố nào</td></tr>`}
         </tbody>
       </table>
       `;
@@ -1024,7 +1025,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>KHÁCH HÀNG</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.customerSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.customerSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.customerSigned
@@ -1035,7 +1036,7 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         <div style="flex:1;text-align:center">
           <div><b>NHÂN VIÊN</b></div>
           <div style="height:72px;display:flex;align-items:center;justify-content:center">
-            ${report.staffSigned ? '<div style="font-size:48px;color:#000;line-height:1">✓</div>' : ""}
+            ${report.staffSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
           </div>
           <div>
             ${report.staffSigned
@@ -2240,6 +2241,88 @@ export default function TechnicianCalendar() {
         onChange: () => message.success("Đã thêm bằng chứng (UI)."),
     };
 
+    /** ---- Helper function to render order, customer, and device details ---- */
+    const renderOrderCustomerDeviceDetails = (t) => {
+        if (!orderDetail) return null;
+
+        const customerName = customerDetail?.fullName || customerDetail?.username || orderDetail.customerName || "—";
+        const customerPhone = customerDetail?.phoneNumber || "";
+        const customerEmail = customerDetail?.email || "";
+        const address = orderDetail.shippingAddress || t.address || "—";
+
+        return (
+            <>
+                <Divider />
+                <Title level={5} style={{ marginTop: 0 }}>
+                    Chi tiết đơn #{orderDetail.orderId || orderDetail.id}
+                </Title>
+                <Descriptions bordered size="small" column={1}>
+                    <Descriptions.Item label="Trạng thái đơn">
+                        {fmtOrderStatus(orderDetail.status || orderDetail.orderStatus)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Khách hàng">
+                        <Space direction="vertical" size={0}>
+                            <span>{customerName}</span>
+                            {customerPhone && (
+                                <span>
+                                    <PhoneOutlined /> {customerPhone}
+                                </span>
+                            )}
+                            {customerEmail && <span>{customerEmail}</span>}
+                        </Space>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Địa chỉ giao">
+                        <Space>
+                            <EnvironmentOutlined />
+                            {address}
+                        </Space>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Thời gian thuê">
+                        {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} →{" "}
+                        {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
+                    </Descriptions.Item>
+                </Descriptions>
+                {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                    <>
+                        <Divider />
+                        <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                        <List
+                            size="small"
+                            dataSource={orderDetail.orderDetails}
+                            renderItem={(d) => (
+                                <List.Item>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                        {d.deviceModel?.image ? (
+                                            <img
+                                                src={d.deviceModel.image}
+                                                alt={d.deviceModel.name}
+                                                style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
+                                            />
+                                        ) : null}
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 600 }}>
+                                                {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
+                                            </div>
+                                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                                                <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                                    {orderDetail.allocatedDevices
+                                                        .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                                        .map((ad, idx) => (
+                                                            <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                                        ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    </>
+                )}
+            </>
+        );
+    };
+
     /** ---- UI phần chi tiết theo loại ---- */
     const renderDetailBody = (t) => {
         if (!t) return null;
@@ -2257,7 +2340,7 @@ export default function TechnicianCalendar() {
         // === QC: chỉ hiển thị thông tin cơ bản + nút Thực hiện QC ===
         const isCompletedQC = String(t.status || "").toUpperCase() === "COMPLETED";
 
-        if (t.type === "QC") {
+        if (t.type === "QC" || isPreRentalQC(t) || isPostRentalQC(t)) {
             return (
                 <>
                     {header}
@@ -2265,29 +2348,27 @@ export default function TechnicianCalendar() {
                     <Descriptions bordered size="small" column={1}>
                         <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mã đơn hàng">{t.orderId || "—"}</Descriptions.Item>
-                        <Descriptions.Item label="Số lượng">{t.quantity ?? "—"}</Descriptions.Item>
-                        <Descriptions.Item label="Thiết bị theo đơn">
-                            {Array.isArray(t.devices) ? t.devices.join(", ") : t.device}
-                        </Descriptions.Item>
                         <Descriptions.Item label="Hạn chót">
                             {fmtDateTime(t.deadline || t.plannedEnd)}
                         </Descriptions.Item>
-                        <Descriptions.Item label="Category">{t.category || "—"}</Descriptions.Item>
-                        <Descriptions.Item label="Địa điểm">{t.location || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.category || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Mô tả">{t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
                         {isCompletedQC && (
-                            <>
-                                <Descriptions.Item label="Thời gian bắt đầu">
-                                    {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian kết thúc">
-                                    {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian hoàn thành">
-                                    {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
-                                </Descriptions.Item>
-                            </>
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
                         )}
                     </Descriptions>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
+
                     <Divider />
                     <Space wrap>
                         {isPreRentalQC(t) && (() => {
@@ -2369,6 +2450,9 @@ export default function TechnicianCalendar() {
                         </p>
                         <p>Kéo thả hoặc bấm để chọn</p>
                     </Dragger>
+
+                    {/* Order, Customer, and Device Details Section */}
+                    {renderOrderCustomerDeviceDetails(t)}
                 </>
             );
         }
@@ -2454,18 +2538,16 @@ export default function TechnicianCalendar() {
                         </Descriptions.Item>
                         <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
                         {isCompleted && (
-                            <>
-                                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
-                                    {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
-                                    {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
-                                    {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
-                                </Descriptions.Item>
-                            </>
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
                         )}
                     </Descriptions>
                     {orderDetail && (
@@ -2571,21 +2653,6 @@ export default function TechnicianCalendar() {
                                                 >
                                                     Tải PDF
                                                 </Button>,
-                                                String(report.handoverType || "").toUpperCase() === "CHECKOUT" &&
-                                                    Number(report.taskId) === Number(t.taskId || t.id) ? (
-                                                    <Button
-                                                        key="update-checkout"
-                                                        size="small"
-                                                        icon={<EditOutlined />}
-                                                        onClick={() =>
-                                                            navigate(`/technician/tasks/handover/${t.taskId || t.id}`, {
-                                                                state: { task: t, handoverReport: report },
-                                                            })
-                                                        }
-                                                    >
-                                                        Cập nhật biên bản
-                                                    </Button>
-                                                ) : null,
                                             ]}
                                         >
                                             <List.Item.Meta
@@ -2640,6 +2707,30 @@ export default function TechnicianCalendar() {
                                 Xác nhận giao hàng
                             </Button>
                         )}
+                        {reportForTask && (
+                            <>
+                                <Tooltip title={reportForTask.status === "BOTH_SIGNED" ? "Không thể cập nhật biên bản khi cả 2 bên đã ký" : ""}>
+                                    <Button
+                                        type="primary"
+                                        icon={<EditOutlined />}
+                                        disabled={reportForTask.status === "BOTH_SIGNED"}
+                                        onClick={() => {
+                                            navigate(`/technician/tasks/handover/${taskId}`, {
+                                                state: { task: t, handoverReport: reportForTask },
+                                            });
+                                        }}
+                                    >
+                                        Cập nhật biên bản bàn giao
+                                    </Button>
+                                </Tooltip>
+                                <Button
+                                    icon={<EyeOutlined />}
+                                    onClick={() => handlePreviewPdf(reportForTask)}
+                                >
+                                    Xem biên bản
+                                </Button>
+                            </>
+                        )}
                     </Space>
                 </>
             );
@@ -2684,18 +2775,16 @@ export default function TechnicianCalendar() {
                         </Descriptions.Item>
                         <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
                         {isCompleted && (
-                            <>
-                                <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
-                                    {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
-                                    {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
-                                </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
-                                    {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
-                                </Descriptions.Item>
-                            </>
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
                         )}
                     </Descriptions>
                     {orderDetail && (
@@ -2833,17 +2922,20 @@ export default function TechnicianCalendar() {
                         )}
                         {hasCheckinReport && primaryCheckinReport && (
                             <>
-                                <Button
-                                    type="primary"
-                                    icon={<EditOutlined />}
-                                    onClick={() => {
-                                        navigate(`/technician/tasks/handover-checkin/${taskId}`, {
-                                            state: { task: t, handoverReport: primaryCheckinReport },
-                                        });
-                                    }}
-                                >
-                                    Cập nhật biên bản thu hồi
-                                </Button>
+                                <Tooltip title={primaryCheckinReport.status === "BOTH_SIGNED" ? "Không thể cập nhật biên bản khi cả 2 bên đã ký" : ""}>
+                                    <Button
+                                        type="primary"
+                                        icon={<EditOutlined />}
+                                        disabled={primaryCheckinReport.status === "BOTH_SIGNED"}
+                                        onClick={() => {
+                                            navigate(`/technician/tasks/handover-checkin/${taskId}`, {
+                                                state: { task: t, handoverReport: primaryCheckinReport },
+                                            });
+                                        }}
+                                    >
+                                        Cập nhật biên bản thu hồi
+                                    </Button>
+                                </Tooltip>
                                 <Button
                                     icon={<EyeOutlined />}
                                     onClick={() => handlePreviewPdf(primaryCheckinReport)}
@@ -2878,13 +2970,13 @@ export default function TechnicianCalendar() {
                     <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
                     {isCompleted && (
                         <>
-                            <Descriptions.Item label="Thời gian bắt đầu Task">
+                            <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
                                 {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Thời gian kết thúc Task">
+                            <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
                                 {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
                             </Descriptions.Item>
-                            <Descriptions.Item label="Thời gian hoàn thành Task">
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
                                 {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
                             </Descriptions.Item>
                         </>
@@ -3290,10 +3382,10 @@ export default function TechnicianCalendar() {
                                         dataSource={qcTasks}
                                         rowKey={(r) => r.id || r.taskId}
                                         columns={[
-                                            { title: 'Task', dataIndex: 'title' },
+                                            { title: 'Công việc', dataIndex: 'title' },
                                             { title: 'Loại', dataIndex: 'type', render: (t, r) => <Tag color={TYPES[t]?.color || 'blue'}>{r.taskCategoryName || TYPES[t]?.label || t}</Tag> },
-                                            { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
-                                            { title: '', render: (r) => <Button onClick={() => { setDetailTask(r); setDrawerOpen(true); }}>Chi tiết</Button> }
+                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
                                         pagination={false}
                                     />
@@ -3659,6 +3751,16 @@ export default function TechnicianCalendar() {
                     </Form.Item>
                 </Form>
             </Modal>
+
+            {/* Task Detail Drawer */}
+            <Drawer
+                title={detailTask ? detailTask.title || detailTask.taskCategoryName || "Chi tiết công việc" : "Chi tiết công việc"}
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                width={720}
+            >
+                {renderDetailBody(detailTask)}
+            </Drawer>
         </div >
     );
 }
