@@ -39,6 +39,7 @@ import {
 import dayjs from "dayjs";
 import {
   listRentalOrders,
+  searchRentalOrders,
   getRentalOrderById,
   deleteRentalOrder,
   fmtVND,
@@ -1183,6 +1184,13 @@ export default function OperatorOrders() {
   const [rows, setRows] = useState([]);
   const [kw, setKw] = useState("");
   const [range, setRange] = useState(null);
+  
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    current: 1,
+    pageSize: 10,
+    total: 0,
+  });
 
   // Drawer xem chi tiết đơn
   const [open, setOpen] = useState(false);
@@ -1274,18 +1282,24 @@ export default function OperatorOrders() {
     };
   }, [detail?.orderId]);
 
-  const fetchAll = async () => {
+  const fetchAll = async (page = 1, pageSize = 10) => {
+    // Ensure valid integers
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
+    
     try {
       setLoading(true);
-      const list = await listRentalOrders();
-      const arr = Array.isArray(list) ? list : [];
-      arr.sort((a, b) => {
-        const ta = new Date(a?.createdAt || 0).getTime();
-        const tb = new Date(b?.createdAt || 0).getTime();
-        if (tb !== ta) return tb - ta;
-        return (b?.orderId || 0) - (a?.orderId || 0);
+      const result = await searchRentalOrders({
+        page: safePage - 1, // API uses 0-based index
+        size: safeSize,
+        sort: ["createdAt,desc"],
       });
-      setRows(arr);
+      setRows(result.content);
+      setPagination({
+        current: safePage,
+        pageSize: safeSize,
+        total: result.totalElements,
+      });
     } catch (e) {
       message.error(
         e?.response?.data?.message || e?.message || "Không tải được danh sách đơn."
@@ -1296,7 +1310,7 @@ export default function OperatorOrders() {
   };
 
   useEffect(() => {
-    fetchAll();
+    fetchAll(1, 10);
   }, []);
 
   useEffect(() => {
@@ -2513,7 +2527,16 @@ export default function OperatorOrders() {
             onView,
           })}
           dataSource={filtered}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total: pagination.total,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50', '100'],
+            showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} đơn`,
+            onChange: (page, pageSize) => fetchAll(page, pageSize),
+            onShowSizeChange: (current, size) => fetchAll(1, size),
+          }}
           scroll={{ x: 1200 }}
         />
       )}
