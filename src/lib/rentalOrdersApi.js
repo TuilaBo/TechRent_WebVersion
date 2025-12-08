@@ -45,6 +45,69 @@ export async function listRentalOrders() {
   return Array.isArray(payload) ? payload : [];
 }
 
+/**
+ * Tìm kiếm đơn thuê với phân trang và lọc
+ * @param {Object} params - Các tham số tìm kiếm
+ * @param {number} [params.page=0] - Số trang (bắt đầu từ 0)
+ * @param {number} [params.size=20] - Số lượng mỗi trang
+ * @param {string} [params.orderStatus] - Lọc theo trạng thái đơn
+ * @param {number} [params.customerId] - Lọc theo customerId
+ * @param {string} [params.shippingAddress] - Lọc theo địa chỉ
+ * @param {number} [params.minTotalPrice] - Giá tối thiểu
+ * @param {number} [params.maxTotalPrice] - Giá tối đa
+ * @param {string} [params.createdAtFrom] - Ngày tạo từ (ISO format)
+ * @param {string} [params.createdAtTo] - Ngày tạo đến (ISO format)
+ * @param {string} [params.endDateFrom] - Ngày kết thúc từ
+ * @param {string} [params.endDateTo] - Ngày kết thúc đến
+ * @param {string[]} [params.sort] - Sắp xếp, ví dụ: ["createdAt,desc"]
+ * @returns {Promise<{content: Array, totalElements: number, totalPages: number, page: number, size: number}>}
+ */
+export async function searchRentalOrders({
+  page = 0,
+  size = 20,
+  orderStatus,
+  customerId,
+  shippingAddress,
+  minTotalPrice,
+  maxTotalPrice,
+  createdAtFrom,
+  createdAtTo,
+  endDateFrom,
+  endDateTo,
+  sort,
+} = {}) {
+  const params = new URLSearchParams();
+  params.append("page", String(page));
+  params.append("size", String(size));
+  
+  if (orderStatus) params.append("orderStatus", orderStatus);
+  if (customerId) params.append("customerId", String(customerId));
+  if (shippingAddress) params.append("shippingAddress", shippingAddress);
+  if (minTotalPrice != null) params.append("minTotalPrice", String(minTotalPrice));
+  if (maxTotalPrice != null) params.append("maxTotalPrice", String(maxTotalPrice));
+  if (createdAtFrom) params.append("createdAtFrom", createdAtFrom);
+  if (createdAtTo) params.append("createdAtTo", createdAtTo);
+  if (endDateFrom) params.append("endDateFrom", endDateFrom);
+  if (endDateTo) params.append("endDateTo", endDateTo);
+  if (Array.isArray(sort)) {
+    sort.forEach((s) => params.append("sort", s));
+  } else if (sort) {
+    params.append("sort", sort);
+  }
+
+  const { data } = await api.get(`/api/rental-orders/search?${params.toString()}`);
+  const payload = data?.data ?? data ?? {};
+  
+  // Handle paginated response
+  return {
+    content: Array.isArray(payload.content) ? payload.content : (Array.isArray(payload) ? payload : []),
+    totalElements: payload.totalElements ?? 0,
+    totalPages: payload.totalPages ?? 1,
+    page: payload.number ?? page,
+    size: payload.size ?? size,
+  };
+}
+
 /** Lấy 1 đơn thuê theo id */
 export async function getRentalOrderById(id) {
   const { data } = await api.get(`/api/rental-orders/${id}`);
