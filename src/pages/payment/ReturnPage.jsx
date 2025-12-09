@@ -1,11 +1,25 @@
 // src/pages/payment/ReturnPage.jsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, Result, Button, Space, Typography, Spin } from "antd";
 import { CheckCircleOutlined, HomeOutlined, ShoppingOutlined } from "@ant-design/icons";
 import { getInvoiceByRentalOrderId } from "../../lib/Payment";
 
 const { Title, Text } = Typography;
+
+// Config cho retry logic
+const RETRY_CONFIG = {
+  maxRetries: 10,
+  initialDelay: 1500,
+  maxDelay: 3000,
+  backoffMultiplier: 1.2,
+};
+
+// Invoice statuses that indicate payment is complete
+const PAID_STATUSES = ['SUCCEEDED', 'COMPLETED', 'PAID'];
+
+// Invoice statuses that indicate still processing
+const PENDING_STATUSES = ['PENDING', 'PROCESSING', 'AWAITING_PAYMENT'];
 
 function formatVNDHelper(n = 0) {
   try {
@@ -15,7 +29,6 @@ function formatVNDHelper(n = 0) {
   }
 }
 
-// Mapping trạng thái hóa đơn sang tiếng Việt
 const INVOICE_STATUS_MAP = {
   PENDING: "Chờ thanh toán",
   SUCCEEDED: "Đã thanh toán",
@@ -33,89 +46,191 @@ function translateStatus(status) {
   return INVOICE_STATUS_MAP[upperStatus] || status;
 }
 
+// Helper functions for status checking
+function isPaymentComplete(status) {
+  const upperStatus = String(status || "").toUpperCase();
+  return PAID_STATUSES.some(s => upperStatus.includes(s));
+}
+
+function isStillProcessing(status) {
+  const upperStatus = String(status || "").toUpperCase();
+  return PENDING_STATUSES.some(s => upperStatus.includes(s));
+}
+
 export default function ReturnPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [invoiceData, setInvoiceData] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [statusMessage, setStatusMessage] = useState("Đang xử lý thanh toán...");
+  const retryTimeoutRef = useRef(null);
 
   const orderCode = searchParams.get("orderCode");
   const orderId = searchParams.get("orderId");
-
-  // VNPay params
   const vnpResponseCode = searchParams.get("vnp_ResponseCode");
 
-  const loadInvoice = useCallback(async (rentalOrderId, retryCount = 0) => {
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Get all VNPay params for logging
+  const getVnpayParams = useCallback(() => {
+    const vnpParams = {};
+    searchParams.forEach((value, key) => {
+      if (key.startsWith("vnp_")) {
+        vnpParams[key] = value;
+      }
+    });
+    return vnpParams;
+  }, [searchParams]);
+
+  const loadInvoice = useCallback(async (rentalOrderId, currentRetry = 0) => {
     try {
-      setLoading(true);
+      setRetryCount(currentRetry);
+
+      if (currentRetry === 0) {
+        setStatusMessage("Đang xác nhận thanh toán với hệ thống...");
+      } else {
+        setStatusMessage(`Đang đồng bộ với cổng thanh toán (${currentRetry}/${RETRY_CONFIG.maxRetries})...`);
+      }
+
+      console.log(`📄 [ReturnPage] Fetching invoice for order ${rentalOrderId}, retry: ${currentRetry}`);
+
       const invoiceResult = await getInvoiceByRentalOrderId(rentalOrderId);
-      
-      console.log("📄 ReturnPage - Loaded invoice result:", {
+
+      console.log("📄 [ReturnPage] Invoice API response:", {
         rentalOrderId,
         result: invoiceResult,
-        retryCount,
+        retryCount: currentRetry,
       });
-      
+
       // API may return a single invoice object or an array of invoices
       let invoice = null;
       if (Array.isArray(invoiceResult)) {
-        // If result is an array, prioritize RENT_PAYMENT type, otherwise use first invoice
         invoice =
           invoiceResult.find(
             (inv) =>
+              String(inv?.invoiceType || "").toUpperCase() === "RENT_PAYMENT" &&
+              isPaymentComplete(inv?.invoiceStatus)
+          ) ||
+          invoiceResult.find(
+            (inv) =>
               String(inv?.invoiceType || "").toUpperCase() === "RENT_PAYMENT"
-          ) || invoiceResult[0] || null;
+          ) ||
+          invoiceResult[0] || null;
       } else {
         invoice = invoiceResult || null;
       }
-      
+
       if (invoice) {
-        console.log("📄 ReturnPage - Selected invoice:", {
+        const status = invoice.invoiceStatus;
+        const isConfirmed = isPaymentComplete(status);
+        const isPending = isStillProcessing(status);
+
+        console.log("📄 [ReturnPage] Invoice status check:", {
           invoiceId: invoice.invoiceId || invoice.id,
-          totalAmount: invoice.totalAmount,
-          invoiceStatus: invoice.invoiceStatus,
+          invoiceStatus: status,
+          isConfirmed,
+          isPending,
+          retryCount: currentRetry,
         });
+
+        // If payment is complete, show success immediately
+        if (isConfirmed) {
+          console.log("✅ [ReturnPage] Payment confirmed as SUCCEEDED");
+          setInvoiceData(invoice);
+          setLoading(false);
+          return;
+        }
+
+        // If still processing and retries available, wait and retry
+        if (isPending && currentRetry < RETRY_CONFIG.maxRetries) {
+          const delay = Math.min(
+            RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, currentRetry),
+            RETRY_CONFIG.maxDelay
+          );
+
+          console.log(`⏳ [ReturnPage] Invoice status is ${status}, retrying in ${delay}ms (attempt ${currentRetry + 1}/${RETRY_CONFIG.maxRetries})...`);
+
+          retryTimeoutRef.current = setTimeout(() => {
+            loadInvoice(rentalOrderId, currentRetry + 1);
+          }, delay);
+          return;
+        }
+
+        // Max retries reached
+        console.log(`⚠️ [ReturnPage] Max retries reached. Final status: ${status}`);
+        console.log("[ReturnPage] Showing success based on VNPay response (backend may still be processing)");
         setInvoiceData(invoice);
         setLoading(false);
       } else {
-        // Retry after a short delay if invoice not found (backend might still be processing)
-        if (retryCount < 3) {
-          console.log(`⏳ Retrying invoice load (attempt ${retryCount + 1}/3)...`);
-          setTimeout(() => {
-            loadInvoice(rentalOrderId, retryCount + 1);
-          }, 2000); // Wait 2 seconds before retry
+        // No invoice found - retry if possible
+        if (currentRetry < RETRY_CONFIG.maxRetries) {
+          const delay = Math.min(
+            RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, currentRetry),
+            RETRY_CONFIG.maxDelay
+          );
+
+          console.log(`⏳ [ReturnPage] No invoice found, retrying in ${delay}ms...`);
+
+          retryTimeoutRef.current = setTimeout(() => {
+            loadInvoice(rentalOrderId, currentRetry + 1);
+          }, delay);
           return;
         }
-        console.warn("No invoice found for order after retries:", rentalOrderId);
+
+        console.warn("❌ [ReturnPage] No invoice found after max retries:", rentalOrderId);
         setLoading(false);
       }
     } catch (err) {
-      console.error("Error loading invoice:", err);
-      // Retry on error if we haven't exceeded retry limit
-      if (retryCount < 3) {
-        console.log(`⏳ Retrying invoice load after error (attempt ${retryCount + 1}/3)...`);
-        setTimeout(() => {
-          loadInvoice(rentalOrderId, retryCount + 1);
-        }, 2000);
+      console.error("❌ [ReturnPage] Error loading invoice:", err);
+
+      if (currentRetry < RETRY_CONFIG.maxRetries) {
+        const delay = Math.min(
+          RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, currentRetry),
+          RETRY_CONFIG.maxDelay
+        );
+
+        console.log(`⏳ [ReturnPage] Error occurred, retrying in ${delay}ms...`);
+
+        retryTimeoutRef.current = setTimeout(() => {
+          loadInvoice(rentalOrderId, currentRetry + 1);
+        }, delay);
         return;
       }
-      // Silently handle error - user can still see success message
+
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Kiểm tra nếu là VNPay và có response code
-    // VNPay: vnp_ResponseCode = "00" là success, khác là failure/cancel
+    // Log VNPay params received
+    const vnpParams = getVnpayParams();
+    console.log("🔔 [ReturnPage] Page loaded with params:", {
+      orderId,
+      orderCode,
+      vnpResponseCode,
+      vnpParams,
+    });
+
+    // Check VNPay response
     if (vnpResponseCode !== null) {
       const isSuccess = vnpResponseCode === "00";
-      
+
+      console.log(`🔔 [ReturnPage] VNPay response code: ${vnpResponseCode}, isSuccess: ${isSuccess}`);
+
       if (!isSuccess) {
-        // Redirect sang CancelPage nếu không phải success
+        console.log("❌ [ReturnPage] VNPay payment failed/cancelled, redirecting to failure page");
         const cancelParams = new URLSearchParams();
         if (orderId) cancelParams.set("orderId", orderId);
         if (orderCode) cancelParams.set("orderCode", orderCode);
-        // Giữ lại các params VNPay để debug
+        cancelParams.set("vnp_ResponseCode", vnpResponseCode);
         searchParams.forEach((value, key) => {
           if (key.startsWith("vnp_")) {
             cancelParams.set(key, value);
@@ -129,7 +244,7 @@ export default function ReturnPage() {
     // PayOS params check
     const payosCode = searchParams.get("code");
     if (payosCode !== null && payosCode !== "00") {
-      // PayOS: code != "00" là failure
+      console.log("❌ [ReturnPage] PayOS payment failed, redirecting to failure page");
       const cancelParams = new URLSearchParams();
       if (orderId) cancelParams.set("orderId", orderId);
       if (orderCode) cancelParams.set("orderCode", orderCode);
@@ -137,21 +252,36 @@ export default function ReturnPage() {
       return;
     }
 
-    // Nếu có orderId từ URL và đã confirm là success, fetch thông tin invoice
+    // VNPay success - wait for IPN and load invoice
     if (orderId) {
-      loadInvoice(Number(orderId));
+      const initialDelay = RETRY_CONFIG.initialDelay;
+      console.log(`⏳ [ReturnPage] Waiting ${initialDelay}ms for IPN callback before fetching invoice...`);
+
+      retryTimeoutRef.current = setTimeout(() => {
+        loadInvoice(Number(orderId), 0);
+      }, initialDelay);
     } else {
+      console.warn("⚠️ [ReturnPage] No orderId in URL params");
       setLoading(false);
     }
-  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode, loadInvoice]);
+  }, [orderId, vnpResponseCode, navigate, searchParams, orderCode, getVnpayParams, loadInvoice]);
 
   if (loading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "60vh" }}>
-        <Spin size="large" tip="Đang xử lý..." />
+      <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: "60vh", gap: 16 }}>
+        <Spin size="large" />
+        <Text style={{ fontSize: 16 }}>{statusMessage}</Text>
+        {retryCount > 0 && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Đang đồng bộ với cổng thanh toán...
+          </Text>
+        )}
       </div>
     );
   }
+
+  const invoiceStatus = invoiceData?.invoiceStatus;
+  const isConfirmedSuccess = isPaymentComplete(invoiceStatus);
 
   return (
     <div
@@ -162,12 +292,7 @@ export default function ReturnPage() {
       }}
     >
       <div style={{ maxWidth: 800, margin: "0 auto" }}>
-        <Card
-          style={{
-            borderRadius: 12,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-          }}
-        >
+        <Card style={{ borderRadius: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
           <Result
             status="success"
             icon={<CheckCircleOutlined style={{ color: "#52c41a", fontSize: 72 }} />}
@@ -192,50 +317,31 @@ export default function ReturnPage() {
                         {invoiceData.depositApplied > 0 && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
                             <Text type="secondary">Tiền cọc đã áp dụng:</Text>
-                            <Text type="secondary">
-                              {formatVNDHelper(invoiceData.depositApplied)}
-                            </Text>
-                          </div>
-                        )}
-                        {invoiceData.subTotal && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            {/* <Text type="secondary">Tạm tính:</Text> */}
-                            {/* <Text type="secondary">
-                              {formatVNDHelper(invoiceData.subTotal)}
-                            </Text> */}
+                            <Text type="secondary">{formatVNDHelper(invoiceData.depositApplied)}</Text>
                           </div>
                         )}
                       </Space>
                     </div>
-                    {invoiceData.invoiceStatus && (
+                    {invoiceStatus && (
                       <Text type="secondary">
-                        Trạng thái: <Text strong>{translateStatus(invoiceData.invoiceStatus)}</Text>
+                        Trạng thái hóa đơn: <Text strong>{translateStatus(invoiceStatus)}</Text>
+                        {!isConfirmedSuccess && " (đang cập nhật)"}
                       </Text>
                     )}
                   </>
                 )}
                 <Text type="secondary" style={{ fontSize: 14 }}>
-                  Cảm ơn bạn đã thanh toán! bạn đã thanh toán thành công cho đơn thuê.
+                  Cảm ơn bạn đã thanh toán! Đơn thuê của bạn đang được xử lý.
                 </Text>
               </Space>
             }
             extra={[
-              <Button
-                key="home"
-                type="primary"
-                size="large"
-                icon={<HomeOutlined />}
-                onClick={() => navigate("/")}
-              >
-                Về trang chủ
-              </Button>,
-              <Button
-                key="orders"
-                size="large"
-                icon={<ShoppingOutlined />}
-                onClick={() => navigate(orderId ? `/orders?orderId=${orderId}` : "/orders")}
-              >
+              <Button key="orders" type="primary" size="large" icon={<ShoppingOutlined />}
+                onClick={() => navigate(orderId ? `/orders?orderId=${orderId}` : "/orders")}>
                 Xem đơn hàng
+              </Button>,
+              <Button key="home" size="large" icon={<HomeOutlined />} onClick={() => navigate("/")}>
+                Về trang chủ
               </Button>,
             ]}
           />
