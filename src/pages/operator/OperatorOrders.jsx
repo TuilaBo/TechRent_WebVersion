@@ -1246,15 +1246,10 @@ export default function OperatorOrders() {
   const [orderDetailMetaLoading, setOrderDetailMetaLoading] = useState(false);
   const [detailHasPreRentalQc, setDetailHasPreRentalQc] = useState(null); // PRE_RENTAL QC tồn tại?
 
+  // Always load device model metadata for all order statuses
   const shouldLoadOrderItemMeta = useMemo(() => {
-    const status = String(detail?.orderStatus || "").toUpperCase();
-    return (
-      status === "PROCESSING" ||
-      status === "READY_FOR_DELIVERY" ||
-      status === "DELIVERY_CONFIRMED" ||
-      status === "DELIVERY_C"
-    );
-  }, [detail?.orderStatus]);
+    return detail != null; // Load metadata whenever we have order details
+  }, [detail]);
 
   // Khi chọn 1 đơn trong drawer, kiểm tra xem đã có QC PRE_RENTAL chưa để quyết định hiển thị nút Tạo hợp đồng
   useEffect(() => {
