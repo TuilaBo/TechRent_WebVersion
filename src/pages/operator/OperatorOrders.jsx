@@ -546,11 +546,18 @@ const mapInvoiceStatusToPaymentStatus = (invoiceStatus) => {
 const paymentStatusTag = (paymentStatus, orderStatus, invoiceInfo = null) => {
   // Use invoice status if available, otherwise fallback to order paymentStatus
   const invoiceStatus = invoiceInfo?.invoiceStatus;
-  const displayPaymentStatus = invoiceStatus
-    ? mapInvoiceStatusToPaymentStatus(invoiceStatus)
-    : (String(orderStatus).toUpperCase() === "DELIVERY_CONFIRMED"
-        ? "paid"
-        : paymentStatus || "unpaid");
+  const oStatus = String(orderStatus).toUpperCase();
+  
+  // Determine payment status from invoice or derive from order status
+  let displayPaymentStatus;
+  if (invoiceStatus) {
+    displayPaymentStatus = mapInvoiceStatusToPaymentStatus(invoiceStatus);
+  } else if (["DELIVERY_CONFIRMED", "READY_FOR_DELIVERY", "IN_USE", "ACTIVE", "COMPLETED", "RETURNED", "DELIVERING"].includes(oStatus)) {
+    // Orders in these states have been paid (passed payment gate)
+    displayPaymentStatus = "paid";
+  } else {
+    displayPaymentStatus = paymentStatus || "unpaid";
+  }
 
   const s = String(displayPaymentStatus || "unpaid").toUpperCase();
   switch (s) {
@@ -1282,29 +1289,45 @@ export default function OperatorOrders() {
     };
   }, [detail?.orderId]);
 
+  /**
+   * Hàm tải danh sách đơn hàng với phân trang
+   * Được gọi khi: Component mount, chuyển trang, thay đổi pageSize
+   * @param {number} page - Số trang (1-indexed, mặc định 1)
+   * @param {number} pageSize - Số đơn mỗi trang (mặc định 10)
+   */
   const fetchAll = async (page = 1, pageSize = 10) => {
-    // Ensure valid integers
+    // Đảm bảo giá trị page và pageSize là số nguyên hợp lệ
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
     
     try {
+      // Bật loading spinner cho Table
       setLoading(true);
+      
+      // ========== GỌI API TÌM KIẾM ĐƠN HÀNG ==========
+      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc
+      // Trả về: { content: [], totalElements, totalPages, number, size }
       const result = await searchRentalOrders({
-        page: safePage - 1, // API uses 0-based index
+        page: safePage - 1, // API dùng 0-indexed (page 0 = trang 1)
         size: safeSize,
-        sort: ["createdAt,desc"],
+        sort: ["createdAt,desc"], // Sắp xếp mới nhất lên đầu
       });
+      
+      // Lưu danh sách đơn vào state để hiển thị
       setRows(result.content);
+      
+      // Cập nhật thông tin phân trang cho Table
       setPagination({
         current: safePage,
         pageSize: safeSize,
-        total: result.totalElements,
+        total: result.totalElements, // Tổng số đơn (dùng để tính số trang)
       });
     } catch (e) {
       message.error(
         e?.response?.data?.message || e?.message || "Không tải được danh sách đơn."
       );
     } finally {
+      // Tắt loading spinner
       setLoading(false);
     }
   };
@@ -1387,12 +1410,26 @@ export default function OperatorOrders() {
     };
   }, [detail, shouldLoadOrderItemMeta]);
 
-  // ====== Actions ======
+  // ====== ACTIONS (CÁC HÀNH ĐỘNG CHÍNH) ======
+  
+  /**
+   * Hàm xóa/hủy đơn hàng
+   * Được gọi khi operator click nút "Xóa" trong cột Thao tác
+   * @param {Object} r - Đối tượng đơn hàng cần xóa
+   */
   const doDelete = async (r) => {
     try {
+      // ========== GỌI API XÓA ĐƠN ==========
+      // API: DELETE /api/rental-orders/{orderId}
+      // Trả về: success message hoặc lỗi
       await deleteRentalOrder(r.orderId);
+      
       message.success(`Đã huỷ đơn #${r.orderId}`);
+      
+      // Xóa đơn khỏi danh sách local (không cần fetch lại)
       setRows((prev) => prev.filter((x) => x.orderId !== r.orderId));
+      
+      // Nếu đang xem chi tiết đơn này → đóng Drawer
       if (detail?.orderId === r.orderId) {
         setOpen(false);
         setDetail(null);
@@ -1402,7 +1439,14 @@ export default function OperatorOrders() {
     }
   };
 
+  /**
+   * Hàm tạo hợp đồng từ đơn hàng
+   * Được gọi khi operator click nút "Tạo hợp đồng" trong Drawer
+   * Điều kiện: Đơn phải ở trạng thái PROCESSING và đã có QC report PRE_RENTAL
+   * @param {Object} r - Đối tượng đơn hàng
+   */
   const doCreateContract = async (r) => {
+    // Kiểm tra trạng thái đơn hàng
     const orderStatus = String(r.orderStatus || r.order?.orderStatus || "").toUpperCase();
     if (orderStatus !== "PROCESSING") {
       message.error(
@@ -1414,7 +1458,9 @@ export default function OperatorOrders() {
     }
 
     try {
-      // Kiểm tra đã có QC report PRE_RENTAL cho đơn này chưa
+      // ========== BƯỚC 1: KIỂM TRA QC REPORT ==========
+      // API: GET /api/qc-reports/order/{orderId}
+      // Phải có ít nhất 1 report với phase = PRE_RENTAL
       let hasPreRentalQc = false;
       try {
         const qcReports = await getQcReportsByOrderId(r.orderId);
@@ -1436,11 +1482,16 @@ export default function OperatorOrders() {
         return;
       }
 
+      // ========== BƯỚC 2: TẠO HỢP ĐỒNG ==========
+      // API: POST /api/contracts/from-order/{orderId}
+      // Trả về: contractId, contractContent, status...
       const response = await createContractFromOrder(r.orderId);
       const contract = response?.data || response;
       message.success(
         `Đã tạo hợp đồng #${contract?.contractId || contract?.id} từ đơn #${r.orderId}`
       );
+      
+      // Reload danh sách hợp đồng để hiển thị hợp đồng mới
       if (detail?.orderId) {
         fetchOrderContracts(detail.orderId, detail?.customerId);
       }
@@ -1449,28 +1500,55 @@ export default function OperatorOrders() {
     }
   };
 
+  /**
+   * Hàm xem chi tiết đơn hàng
+   * Được gọi khi operator click nút "Xem" trên 1 đơn trong bảng
+   * Luồng: Load đơn → Load invoice → Load khách hàng → Load KYC → Load hợp đồng → Load biên bản
+   * @param {number} orderId - ID của đơn hàng cần xem
+   */
   const viewDetail = async (orderId) => {
     try {
+      // ========== BƯỚC 1: KHỞI TẠO ==========
+      // Bật loading spinner trong Drawer
       setLoadingDetail(true);
-      setInvoiceInfo(null); // Reset invoice info
+      // Reset invoice cũ để tránh hiển thị dữ liệu cũ
+      setInvoiceInfo(null);
+      
+      // ========== BƯỚC 2: LẤY CHI TIẾT ĐƠN HÀNG ==========
+      // API: GET /api/rental-orders/{orderId}
+      // Trả về: orderId, orderStatus, startDate, endDate, orderDetails[], customerId...
       const d = await getRentalOrderById(orderId);
+      // Lưu vào state để hiển thị trong Drawer
       setDetail(d || null);
       
-      // Load invoice info
+      // ========== BƯỚC 3: LẤY THÔNG TIN HÓA ĐƠN/THANH TOÁN ==========
+      // API: GET /api/invoices/rental-order/{orderId}
+      // Trả về: invoiceId, invoiceStatus (PENDING/SUCCEEDED/FAILED), amount...
+      // Dùng để xác định "Đã thanh toán" hay "Chưa thanh toán"
       try {
         const invoice = await getInvoiceByRentalOrderId(orderId);
         setInvoiceInfo(invoice || null);
       } catch {
+        // Đơn chưa thanh toán sẽ không có invoice → bỏ qua lỗi
         console.log("No invoice found for order:", orderId);
         setInvoiceInfo(null);
       }
       
+      // ========== BƯỚC 4: LẤY THÔNG TIN KHÁCH HÀNG ==========
+      // Chỉ load nếu đơn có liên kết với khách hàng
       if (d?.customerId) {
         try {
+          // API: GET /api/customers/{customerId}
+          // Trả về: fullName, email, phoneNumber, address...
           const c = await fetchCustomerById(d.customerId);
           setCustomer(c || null);
+          
+          // ========== BƯỚC 5: LẤY THÔNG TIN KYC ==========
           try {
+            // API: GET /api/kyc/customer/{customerId}
+            // Trả về: kycId, kycStatus, frontUrl (CCCD mặt trước), backUrl, selfieUrl...
             const kyc = await getKycByCustomerId(d.customerId);
+            // Chuẩn hóa dữ liệu KYC để format đồng nhất
             const normalized = normalizeKycItem(kyc || {});
             console.log("KYC raw:", kyc);
             console.log("KYC normalized:", normalized);
@@ -1478,8 +1556,11 @@ export default function OperatorOrders() {
             console.log("Back URL:", normalized.backUrl);
             console.log("Selfie URL:", normalized.selfieUrl);
             setKycInfo(normalized);
+            
+            // Kiểm tra nếu khách vừa submit KYC → tự động mở modal duyệt
             const st = String(normalized?.kycStatus || normalized?.status || "").toUpperCase();
             if (st === "DOCUMENTS_SUBMITTED" || st === "SUBMITTED") {
+              // Mở modal để operator duyệt KYC ngay
               setKycReviewOpen(true);
             }
           } catch (e) {
@@ -1492,36 +1573,64 @@ export default function OperatorOrders() {
           setKycInfo(null);
         }
       } else {
+        // Đơn không có customerId → clear state
         setCustomer(null);
         setKycInfo(null);
       }
+      
+      // ========== BƯỚC 6: LẤY DANH SÁCH HỢP ĐỒNG ==========
+      // Gọi hàm riêng để load contracts của đơn này
+      // API: GET /api/contracts/order/{orderId}
       await fetchOrderContracts(orderId, d?.customerId);
+      
+      // ========== BƯỚC 7: LẤY BIÊN BẢN BÀN GIAO ==========
+      // Gọi hàm riêng để load handover reports
+      // API: GET /api/handover-reports/order/{orderId}
       await fetchHandoverReports(orderId);
+      
     } catch (e) {
+      // Lỗi chính (load đơn thất bại) → hiển thị thông báo
       message.error(e?.response?.data?.message || e?.message || "Không tải chi tiết đơn.");
     } finally {
+      // Tắt loading spinner dù thành công hay thất bại
       setLoadingDetail(false);
     }
   };
 
+  /**
+   * Hàm tải danh sách hợp đồng của đơn hàng
+   * Được gọi trong viewDetail và sau khi tạo/cập nhật hợp đồng
+   * @param {number} orderId - ID đơn hàng
+   * @param {number} customerId - ID khách hàng (dùng làm fallback)
+   */
   const fetchOrderContracts = async (orderId, customerId) => {
     try {
       setContractsLoading(true);
       let contracts = [];
+      
       try {
+        // ========== CÁCH 1: LẤY HỢP ĐỒNG THEO ĐƠN HÀNG ==========
+        // API: GET /api/contracts/order/{orderId}
+        // Trả về: danh sách contracts của đơn này
         const orderContracts = await listContractsByOrder(orderId);
         contracts = Array.isArray(orderContracts)
-          ? orderContracts.map(normalizeContract)
+          ? orderContracts.map(normalizeContract) // Chuẩn hóa dữ liệu
           : [];
       } catch {
+        // ========== FALLBACK: LẤY THEO KHÁCH HÀNG ==========
+        // Nếu API trên lỗi, thử lấy theo customerId rồi filter
         if (customerId) {
+          // API: GET /api/contracts/customer/{customerId}
           const customerContracts = await listContractsByCustomer(customerId);
           const normalized = Array.isArray(customerContracts)
             ? customerContracts.map(normalizeContract)
             : [];
+          // Lọc chỉ lấy hợp đồng của đơn này
           contracts = normalized.filter((contract) => contract.orderId === orderId);
         }
       }
+      
+      // Lưu vào state để hiển thị trong tab Hợp đồng
       setOrderContracts(contracts);
     } catch (e) {
       console.error("Failed to fetch order contracts:", e);
@@ -1531,14 +1640,26 @@ export default function OperatorOrders() {
     }
   };
 
+  /**
+   * Hàm tải danh sách biên bản bàn giao/thu hồi của đơn
+   * Được gọi trong viewDetail
+   * @param {number} orderId - ID đơn hàng
+   */
   const fetchHandoverReports = async (orderId) => {
+    // Không có orderId → không làm gì
     if (!orderId) {
       setHandoverReports([]);
       return;
     }
     try {
       setHandoverLoading(true);
+      
+      // ========== GỌI API LẤY BIÊN BẢN BÀN GIAO ==========
+      // API: GET /api/handover-reports/order/{orderId}
+      // Trả về: danh sách handover reports (có thể bao gồm CHECKOUT và CHECKIN)
       const reports = await getHandoverReportsByOrderId(orderId);
+      
+      // Lưu vào state để hiển thị trong tab Biên bản
       setHandoverReports(Array.isArray(reports) ? reports : []);
     } catch (e) {
       console.error("Failed to fetch handover reports:", e);
@@ -2055,16 +2176,29 @@ export default function OperatorOrders() {
     }
   };
 
+  /**
+   * Hàm gửi hợp đồng cho khách hàng ký
+   * Được gọi khi operator click nút "Gửi cho khách ký" trong modal chi tiết HĐ
+   * @param {number} contractId - ID hợp đồng cần gửi
+   */
   const doSendForSignature = async (contractId) => {
     try {
       setSendingForSignature(true);
+      
+      // ========== BƯỚC 1: GỬI YÊU CẦU KÝ HĐ ==========
+      // API: POST /api/contracts/{contractId}/send-for-signature
+      // Gửi email/notification cho khách hàng để ký
       await sendContractForSignature(contractId);
       message.success("Đã gửi hợp đồng cho khách hàng ký!");
 
+      // ========== BƯỚC 2: LOAD LẠI CHI TIẾT HĐ ==========
+      // API: GET /api/contracts/{contractId}
+      // Để cập nhật status mới (PENDING_SIGNATURE)
       const updatedContract = await getContractById(contractId);
       const normalized = normalizeContract(updatedContract);
       setContractDetail(normalized);
 
+      // Reload danh sách hợp đồng trong Drawer
       if (detail?.orderId) {
         await fetchOrderContracts(detail.orderId, detail?.customerId);
       }
@@ -2361,18 +2495,30 @@ export default function OperatorOrders() {
     return columns;
   }, [detailDays]);
 
-  // Inline approve/reject actions (refer OperatorKYC)
+  // ========== KYC APPROVAL/REJECTION ==========
+  
+  /**
+   * Hàm duyệt KYC của khách hàng
+   * Được gọi khi operator click nút "Duyệt" trong modal KYC Review
+   */
   const approveKycInline = async () => {
     if (!detail?.customerId) return;
     try {
       setKycUpdating(true);
+      
+      // ========== GỌI API CẬP NHẬT KYC STATUS ==========
+      // API: PUT /api/kyc/customer/{customerId}/status
+      // Body: { status: "VERIFIED", verifiedAt, verifiedBy }
       await updateKycStatus(detail.customerId, {
         status: "VERIFIED",
         verifiedAt: dayjs().toISOString(),
-        verifiedBy: undefined,
+        verifiedBy: undefined, // Backend tự lấy từ token
       });
       message.success("Đã duyệt KYC");
       setKycReviewOpen(false);
+      
+      // Reload KYC info để cập nhật UI
+      // API: GET /api/kyc/customer/{customerId}
       const kyc = await getKycByCustomerId(detail.customerId);
       const normalized = normalizeKycItem(kyc || {});
       setKycInfo(normalized);
@@ -2383,22 +2529,35 @@ export default function OperatorOrders() {
     }
   };
 
+  /**
+   * Hàm từ chối KYC của khách hàng
+   * Được gọi khi operator click nút "Từ chối" trong modal KYC Review
+   * Bắt buộc phải nhập lý do từ chối
+   */
   const rejectKycInline = async () => {
     if (!detail?.customerId) return;
     try {
+      // Validate: phải có lý do từ chối
       if (!kycRejectReason.trim()) {
         return message.warning("Vui lòng nhập lý do từ chối");
       }
       setKycUpdating(true);
+      
+      // ========== GỌI API CẬP NHẬT KYC STATUS ==========
+      // API: PUT /api/kyc/customer/{customerId}/status
+      // Body: { status: "REJECTED", rejectionReason, verifiedAt, verifiedBy }
       await updateKycStatus(detail.customerId, {
         status: "REJECTED",
         rejectionReason: kycRejectReason.trim(),
         verifiedAt: dayjs().toISOString(),
-        verifiedBy: undefined,
+        verifiedBy: undefined, // Backend tự lấy từ token
       });
       message.success("Đã từ chối KYC");
       setKycReviewOpen(false);
-      setKycRejectReason("");
+      setKycRejectReason(""); // Clear lý do sau khi xong
+      
+      // Reload KYC info để cập nhật UI
+      // API: GET /api/kyc/customer/{customerId}
       const kyc = await getKycByCustomerId(detail.customerId);
       const normalized = normalizeKycItem(kyc || {});
       setKycInfo(normalized);

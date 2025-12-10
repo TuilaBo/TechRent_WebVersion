@@ -135,7 +135,11 @@ export default function TechnicianQcDetail() {
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
 
-  // Fetch task and order details
+  /**
+   * useEffect: Tải dữ liệu chính (Task, Order, QC Reports)
+   * Được gọi khi: Component mount hoặc taskId thay đổi
+   * Luồng: Load task → Load order (nếu có orderId) → Load QC reports cũ
+   */
   useEffect(() => {
     const loadData = async () => {
       if (!actualTaskId) {
@@ -145,7 +149,10 @@ export default function TechnicianQcDetail() {
 
       try {
         setLoading(true);
-        // Fetch task
+        
+        // ========== BƯỚC 1: LẤY THÔNG TIN TASK ==========
+        // API: GET /api/tasks/{taskId}
+        // Trả về: { taskId, orderId, status, type, description... }
         const taskData = await getTaskById(actualTaskId);
         if (!taskData) {
           toast.error("Không tìm thấy công việc");
@@ -156,22 +163,27 @@ export default function TechnicianQcDetail() {
         const normalizedTask = normalizeTask(taskData);
         setTask(normalizedTask);
 
-        // Fetch order details
+        // ========== BƯỚC 2: LẤY THÔNG TIN ĐƠN HÀNG ==========
         if (normalizedTask.orderId) {
+          // API: GET /api/rental-orders/{orderId}
+          // Trả về: { orderId, orderDetails[], startDate, endDate... }
           const orderData = await getRentalOrderById(normalizedTask.orderId);
           console.log("📦 [DEBUG] Order Data from API:", orderData);
           console.log("📦 [DEBUG] Order Details:", orderData?.orderDetails);
           setOrder(orderData);
 
-          // Fetch existing QC report by orderId (only for matching phase)
+          // ========== BƯỚC 3: LẤY QC REPORTS CŨ (NẾU CÓ) ==========
           try {
             setLoadingQcReport(true);
+            // API: GET /api/qc-reports/order/{orderId}
+            // Trả về: danh sách QC reports của đơn (PRE_RENTAL, POST_RENTAL)
             const qcReports = await getQcReportsByOrderId(normalizedTask.orderId);
 
             if (Array.isArray(qcReports) && qcReports.length > 0) {
               const taskIdNum = Number(normalizedTask.taskId || normalizedTask.id);
               const taskIdStr = String(normalizedTask.taskId || normalizedTask.id);
 
+              // Tìm QC report PRE_RENTAL khớp với task này
               let matchingReport = qcReports.find((r) => {
                 const reportPhase = String(r.phase || "").toUpperCase();
                 if (reportPhase !== "PRE_RENTAL") return false;
@@ -184,6 +196,7 @@ export default function TechnicianQcDetail() {
                 );
               });
 
+              // Fallback: lấy PRE_RENTAL bất kỳ nếu không match taskId
               if (!matchingReport) {
                 matchingReport = qcReports.find((r) => String(r.phase || "").toUpperCase() === "PRE_RENTAL");
               }
@@ -194,13 +207,15 @@ export default function TechnicianQcDetail() {
               console.log("📋 [DEBUG] QC Report orderDetailId:", matchingReport?.orderDetailId);
               setExistingQcReport(matchingReport || null);
 
-              // Track POST_RENTAL discrepancies (nếu có) để cảnh báo khi update
+              // Kiểm tra POST_RENTAL discrepancies (để cảnh báo khi update)
               const postReportSummary = qcReports.find((r) => String(r.phase || "").toUpperCase() === "POST_RENTAL");
               if (postReportSummary) {
                 if (Array.isArray(postReportSummary.discrepancies) && postReportSummary.discrepancies.length > 0) {
                   setPostRentalDiscrepancyCount(postReportSummary.discrepancies.length);
                 } else if (postReportSummary.qcReportId || postReportSummary.id) {
                   try {
+                    // API: GET /api/qc-reports/post-rental/{qcReportId}
+                    // Lấy chi tiết discrepancies
                     const detail = await getPostRentalQcReportById(postReportSummary.qcReportId || postReportSummary.id);
                     const count = Array.isArray(detail?.discrepancies) ? detail.discrepancies.length : 0;
                     setPostRentalDiscrepancyCount(count);
@@ -237,7 +252,11 @@ export default function TechnicianQcDetail() {
     loadData();
   }, [actualTaskId, nav]);
 
-  // Fetch devices for each orderDetail based on deviceModelId
+  /**
+   * useEffect: Tải danh sách thiết bị có sẵn cho từng orderDetail
+   * Được gọi khi: Order được load xong
+   * Mục đích: Lấy danh sách thiết bị trong kho để technician chọn cho QC
+   */
   useEffect(() => {
     const fetchDevices = async () => {
       if (!order || !Array.isArray(order.orderDetails) || order.orderDetails.length === 0) {
@@ -249,7 +268,8 @@ export default function TechnicianQcDetail() {
         const devicesMap = {};
         const namesMap = {};
 
-        // Lấy startDate và endDate từ order
+        // ========== CHUẨN BỊ KHOẢNG THỜI GIAN THUÊ ==========
+        // Lấy startDate và endDate từ order để filter thiết bị available
         const startDate = order.startDate || order.rentalStartDate;
         const endDate = order.endDate || order.rentalEndDate;
         let start = null;
@@ -266,7 +286,7 @@ export default function TechnicianQcDetail() {
           }
         }
 
-        // Fetch devices for each orderDetail concurrently
+        // ========== GỌI API CHO TỪNG ORDER DETAIL SONG SONG ==========
         const fetchPromises = order.orderDetails.map(async (orderDetail) => {
           const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
           const deviceModelId = orderDetail.deviceModelId;
@@ -277,18 +297,25 @@ export default function TechnicianQcDetail() {
           }
 
           try {
+            // Gọi 2 API song song:
+            // 1. Lấy devices available cho model này
+            // 2. Lấy thông tin model name
             const [devices, model] = await Promise.all([
+              // API: GET /api/devices/model/{modelId}/available?start=X&end=Y
+              // hoặc GET /api/devices/model/{modelId}
               start && end
                 ? getAvailableDevicesByModel(deviceModelId, start, end).catch(() => [])
                 : getDevicesByModelId(deviceModelId).catch(() => []),
+              // API: GET /api/device-models/{modelId}
               getDeviceModelById(deviceModelId).catch(() => null),
             ]);
 
             const name = model?.deviceName || model?.name || null;
 
+            // Filter chỉ lấy devices AVAILABLE (nếu không dùng API available)
             const availableDevices = Array.isArray(devices)
               ? start && end
-                ? devices
+                ? devices // API đã filter rồi
                 : devices.filter((device) => {
                     const status = String(
                       device.status || device.deviceStatus || device.state || ""
@@ -308,7 +335,7 @@ export default function TechnicianQcDetail() {
 
         const results = await Promise.all(fetchPromises);
 
-        // Build devicesMap
+        // Build devicesMap và namesMap
         results.forEach(({ orderDetailId, devices, deviceModelId, name }) => {
           devicesMap[orderDetailId] = devices;
           if (deviceModelId != null && name) namesMap[deviceModelId] = name;
@@ -559,9 +586,14 @@ export default function TechnicianQcDetail() {
     return order.orderDetails;
   }, [order]);
 
-  // Load condition definitions when devices are selected
+  /**
+   * useEffect: Tải danh sách condition definitions khi devices được chọn
+   * Được gọi khi: Technician chọn thiết bị cho QC
+   * Mục đích: Load các loại tình trạng có thể chọn (vết xước, rạn màn hình...)
+   */
   useEffect(() => {
     const loadConditionDefinitions = async () => {
+      // Chưa chọn device nào → không load
       if (!orderDetails.length || !selectedDevicesByOrderDetail || Object.keys(selectedDevicesByOrderDetail).length === 0) {
         setConditionDefinitions([]);
         return;
@@ -571,6 +603,7 @@ export default function TechnicianQcDetail() {
         setLoadingConditions(true);
         const modelIds = new Set();
 
+        // Thu thập tất cả modelIds từ các orderDetail đã chọn device
         for (const orderDetail of orderDetails) {
           const orderDetailId = String(orderDetail.orderDetailId || orderDetail.id);
           const serials = selectedDevicesByOrderDetail[orderDetailId] || [];
@@ -580,9 +613,12 @@ export default function TechnicianQcDetail() {
           }
         }
 
+        // ========== GỌI API LẤY CONDITION DEFINITIONS ==========
         const allConditions = [];
         for (const modelId of modelIds) {
           try {
+            // API: GET /api/conditions/definitions?deviceModelId=X
+            // Trả về: [{ id, name, severity, description... }]
             const conditions = await getConditionDefinitions({ deviceModelId: modelId });
             allConditions.push(...conditions);
           } catch (e) {
@@ -590,8 +626,10 @@ export default function TechnicianQcDetail() {
           }
         }
 
+        // Loại bỏ duplicate conditions (dựa vào id)
         const uniqueConditions = Array.from(new Map(allConditions.map((c) => [c.id, c])).values());
 
+        // Lưu vào state để hiển thị trong dropdown chọn tình trạng
         setConditionDefinitions(uniqueConditions);
       } catch (e) {
         console.error("Error loading condition definitions:", e);
@@ -778,6 +816,15 @@ export default function TechnicianQcDetail() {
     });
   };
 
+  /**
+   * Hàm lưu QC Report (Tạo mới hoặc Cập nhật)
+   * Được gọi khi: Technician click nút "Lưu QC Report"
+   * Luồng phức tạp:
+   * 1. Validate: đủ thiết bị chọn, có findings, có ảnh phụ kiện
+   * 2. Build payload: orderDetailSerialNumbers, deviceConditions, accessoryFile
+   * 3. Tạo mới hoặc Update dựa vào existingQcReport
+   * 4. Reload data sau khi thành công
+   */
   const onSave = async () => {
     if (saving) return;
     if (!task || !actualTaskId) {
@@ -785,6 +832,7 @@ export default function TechnicianQcDetail() {
       return;
     }
 
+    // ========== BƯỚC 1: VALIDATE SỐ LƯỢNG THIẾT BỊ ==========
     if (!isPickComplete()) {
       const incompleteDetails = orderDetails.map((od) => {
         const orderDetailId = od.orderDetailId || od.id;
@@ -817,6 +865,7 @@ export default function TechnicianQcDetail() {
       return;
     }
 
+    // ========== BƯỚC 2: VALIDATE FINDINGS VÀ ACCESSORY IMAGE ==========
     if (!findings.trim()) {
       message.error("Vui lòng nhập Ghi chú/Phát hiện");
       return;
@@ -828,6 +877,7 @@ export default function TechnicianQcDetail() {
     }
 
     try {
+      // Cảnh báo nếu có POST_RENTAL discrepancy
       if (postRentalDiscrepancyCount > 0) {
         message.warning(
           "QC sau thuê đã ghi nhận sự cố. Việc cập nhật QC trước thuê có thể gặp lỗi, vui lòng phối hợp điều phối viên nếu cần."
@@ -836,6 +886,8 @@ export default function TechnicianQcDetail() {
 
       setSaving(true);
 
+      // ========== BƯỚC 3: XÂY DỰNG orderDetailSerialNumbers ==========
+      // Map mỗi orderDetailId → danh sách serial numbers đã chọn
       const orderDetailSerialNumbers = {};
 
       orderDetails.forEach((orderDetail) => {
@@ -845,14 +897,19 @@ export default function TechnicianQcDetail() {
         orderDetailSerialNumbers[key] = serialNumbers.map(String);
       });
 
+      // ========== BƯỚC 4: XÂY DỰNG deviceConditions PAYLOAD ==========
+      // Fetch toàn bộ devices để map serialNumber → deviceId thật
+      // API: GET /api/devices
       const allDevices = await listDevices();
       const deviceConditionsMap = new Map();
 
+      // Duyệt qua từng condition đã chọn để build payload
       for (const condition of deviceConditions) {
         if (!condition.deviceId || !condition.conditionDefinitionId || !condition.severity) {
           continue;
         }
 
+        // Tìm device thật dựa vào serialNumber
         const device = Array.isArray(allDevices)
           ? allDevices.find((d) => {
               const deviceSerial = String(
@@ -867,15 +924,18 @@ export default function TechnicianQcDetail() {
           const conditionDefinitionId = Number(condition.conditionDefinitionId);
           const severity = String(condition.severity);
 
+          // Key để merge duplicates (cùng device + condition + severity)
           const key = `${deviceId}_${conditionDefinitionId}_${severity}`;
 
           if (deviceConditionsMap.has(key)) {
+            // Đã tồn tại → merge images
             const existing = deviceConditionsMap.get(key);
             const newImages = Array.isArray(condition.images)
               ? condition.images.map(String)
               : [];
             newImages.forEach((img) => existing.images.add(img));
           } else {
+            // Tạo mới entry
             const images = new Set(
               Array.isArray(condition.images) ? condition.images.map(String) : []
             );
@@ -889,6 +949,7 @@ export default function TechnicianQcDetail() {
         }
       }
 
+      // Convert Map to Array payload
       const deviceConditionsPayload = Array.from(deviceConditionsMap.values()).map(
         (entry) => ({
           deviceId: entry.deviceId,
@@ -898,6 +959,7 @@ export default function TechnicianQcDetail() {
         })
       );
 
+      // ========== BƯỚC 5: XÂY DỰNG BASE PAYLOAD ==========
       const basePayload = {
         taskId: Number(actualTaskId),
         orderDetailSerialNumbers,
@@ -911,6 +973,7 @@ export default function TechnicianQcDetail() {
       const isCompleted = taskStatus === "COMPLETED";
       const qcReportId = existingQcReport?.qcReportId || existingQcReport?.id;
 
+      // Kiểm tra: task đã COMPLETED nhưng chưa có QC report → không cho tạo mới
       if (isCompleted && !qcReportId) {
         message.error(
           "Task đã hoàn thành. Chỉ có thể cập nhật QC report đã tồn tại, không thể tạo mới."
@@ -918,8 +981,12 @@ export default function TechnicianQcDetail() {
         return;
       }
 
+      // ========== BƯỚC 6A: CẬP NHẬT QC REPORT CŨ ==========
       if (existingQcReport && qcReportId) {
+        // Xây dựng finalOrderDetailSerialNumbers từ existing report (phức tạp vì nhiều format)
         let finalOrderDetailSerialNumbers = {};
+        
+        // TH1: existingQcReport đã có orderDetailSerialNumbers
         if (
           existingQcReport.orderDetailSerialNumbers &&
           typeof existingQcReport.orderDetailSerialNumbers === "object"
@@ -932,7 +999,9 @@ export default function TechnicianQcDetail() {
               }
             }
           );
-        } else if (
+        } 
+        // TH2: existingQcReport có devices[] → map về orderDetailId
+        else if (
           Array.isArray(existingQcReport.devices) &&
           existingQcReport.devices.length > 0
         ) {
@@ -946,6 +1015,7 @@ export default function TechnicianQcDetail() {
             }
           });
 
+          // Map devices về orderDetailId dựa vào modelId
           orderDetails.forEach((od) => {
             const orderDetailId = od.orderDetailId || od.id;
             const modelId = Number(od.deviceModelId ?? NaN);
@@ -956,7 +1026,9 @@ export default function TechnicianQcDetail() {
                 .map(String);
             }
           });
-        } else {
+        } 
+        // TH3: Fallback - dùng selectedDevicesByOrderDetail hiện tại
+        else {
           orderDetails.forEach((orderDetail) => {
             const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
             const serialNumbers =
@@ -970,6 +1042,7 @@ export default function TechnicianQcDetail() {
           });
         }
 
+        // Nếu vẫn rỗng → dùng basePayload
         if (Object.keys(finalOrderDetailSerialNumbers).length === 0) {
           finalOrderDetailSerialNumbers = basePayload.orderDetailSerialNumbers;
         }
@@ -982,9 +1055,15 @@ export default function TechnicianQcDetail() {
           deviceConditions: basePayload.deviceConditions,
         };
 
+        // API: PUT /api/qc-reports/pre-rental/{qcReportId}
+        // Body: { orderDetailSerialNumbers, result, findings, accessoryFile, deviceConditions }
         await updatePreRentalQcReport(qcReportId, updatePayload);
         toast.success("Đã cập nhật QC report thành công!");
-      } else {
+      } 
+      // ========== BƯỚC 6B: TẠO MỚI QC REPORT ==========
+      else {
+        // API: POST /api/qc-reports/pre-rental
+        // Body: { taskId, orderDetailSerialNumbers, result, findings, deviceConditions, accessoryFile }
         const createdReport = await createPreRentalQcReport(basePayload);
         toast.success("Đã tạo QC report thành công!");
 
