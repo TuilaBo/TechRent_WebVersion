@@ -1150,7 +1150,7 @@ export default function CartPage() {
                               marginLeft: 12,
                             }}
                           >
-                            Tiền thuê: {fmtVND(ln.subtotal)}
+                            Tiền thuê {ln.qty > 1 ? `(×${ln.qty})` : ''}: {fmtVND(ln.subtotal)}
                           </Text>
                           <Tooltip title="Xoá khỏi giỏ hàng">
                             <Button

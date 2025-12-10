@@ -1,17 +1,12 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
-  Table, Tag, Typography, Input, DatePicker, Space, Button,
-  Dropdown, Menu, Tooltip, message, Drawer, Descriptions,
+  Table, Tag, Typography, Input, DatePicker, Space, Button, message, Drawer, Descriptions,
   Avatar, Tabs, Modal, Card, Row, Col, Divider, Form, Steps, Radio, Checkbox, Alert
 } from "antd";
 import dayjs from "dayjs";
 import {
-  EyeOutlined,
-  ReloadOutlined,
   FilePdfOutlined,
   DownloadOutlined,
-  ExpandOutlined,
-  DollarOutlined,
   PrinterOutlined,
 } from "@ant-design/icons";
 import { listRentalOrders, getRentalOrderById, confirmReturnRentalOrder, extendRentalOrder } from "../../lib/rentalOrdersApi";
@@ -749,44 +744,6 @@ export default function MyOrders() {
 
       const validOrders = enrichedOrders.filter(o => o && o.id != null);
       setOrders(validOrders);
-
-      // Check for orders that might have return tasks created
-      // This helps detect orders that were confirmed for return even if status hasn't changed
-      try {
-        const tasksRes = await listTasks({ size: 1000 });
-        // Handle paginated response
-        const allTasks = (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content))
-          ? tasksRes.content
-          : (Array.isArray(tasksRes) ? tasksRes : []);
-        const returnTaskOrderIds = new Set();
-        allTasks.forEach(task => {
-          const taskType = String(task?.type || "").toUpperCase();
-          const taskDesc = String(task?.description || "").toLowerCase();
-          const isReturnTask = taskType.includes("RETURN") ||
-            taskType.includes("PICKUP") ||
-            taskDesc.includes("thu hồi") ||
-            taskDesc.includes("trả hàng");
-          if (isReturnTask && task?.orderId) {
-            returnTaskOrderIds.add(task.orderId);
-          }
-        });
-
-        // Update confirmedReturnOrders if we found return tasks
-        if (returnTaskOrderIds.size > 0) {
-          setConfirmedReturnOrders(prev => {
-            const newSet = new Set([...prev, ...returnTaskOrderIds]);
-            try {
-              localStorage.setItem("confirmedReturnOrders", JSON.stringify(Array.from(newSet)));
-            } catch (e) {
-              console.error("Failed to save confirmed return orders to localStorage:", e);
-            }
-            return newSet;
-          });
-        }
-      } catch (taskErr) {
-        console.error("Error checking return tasks:", taskErr);
-        // Don't fail the whole load if task check fails
-      }
     } catch (err) {
       console.error(err);
       message.error("Không thể tải danh sách đơn hàng.");
