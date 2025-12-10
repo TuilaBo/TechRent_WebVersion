@@ -129,17 +129,43 @@ export default function AdminProducts() {
     [brands]
   );
 
+  /**
+   * Hàm tải toàn bộ dữ liệu sản phẩm (Categories, Models, Devices, Accessories, Brands)
+   * Được gọi khi: Component mount, sau khi create/update/delete thành công
+   * Gọi 6 API song song để tăng tốc độ load
+   */
   const loadAll = async () => {
     setLoading(true);
     try {
+      // ========== GỌI 6 API SONG SONG ==========
       const [cats, mods, devs, acs, aCats, brs] = await Promise.all([
+        // API: GET /api/device-categories
+        // Trả về: danh sách loại thiết bị (VR/AR, Camera, Drone...)
         listDeviceCategories(),
+        
+        // API: GET /api/device-models
+        // Trả về: danh sách mẫu thiết bị (Meta Quest 3, Sony A7III...)
         listDeviceModels(),
+        
+        // API: GET /api/devices
+        // Trả về: danh sách thiết bị cụ thể với serial number
         listDevices(),
+        
+        // API: GET /api/accessories
+        // Trả về: danh sách phụ kiện (lens, tripod, memory card...)
         listAccessories(),
-        listAccessoryCategories(), // NEW
+        
+        // API: GET /api/accessory-categories
+        // Trả về: danh sách loại phụ kiện
+        listAccessoryCategories(),
+        
+        // API: GET /api/brands
+        // Trả về: danh sách thương hiệu (Sony, Canon, Meta...)
         listBrands(),
       ]);
+      
+      // ========== HÀM SẮP XẾP GIẢM DẦN THEO TIMESTAMP ==========
+      // Sắp xếp: Mới nhất lên đầu, fallback theo ID nếu timestamp giống nhau
       const sortDesc = (arr, keys = []) =>
         (Array.isArray(arr) ? arr.slice() : []).sort((a, b) => {
           const getTime = (x) =>
@@ -153,12 +179,14 @@ export default function AdminProducts() {
           const ida = a?.id || a?.deviceId || a?.deviceModelId || a?.brandId || a?.accessoryId || a?.deviceCategoryId || a?.accessoryCategoryId || 0;
           return idb - ida;
         });
+      
+      // Lưu vào state, mỗi loại có key ưu tiên khác nhau
       setCategories(sortDesc(cats, ["createdAt", "updatedAt"]));
       setModels(sortDesc(mods, ["createdAt", "updatedAt"]));
-      setDevices(sortDesc(devs, ["acquireAt", "createdAt", "updatedAt"]));
+      setDevices(Array.isArray(devs) ? devs : []); 
       setAccs(sortDesc(acs, ["createdAt", "updatedAt"]));
-      setAccCats(sortDesc(aCats, ["createdAt", "updatedAt"])); // NEW
-      setBrands(sortDesc(brs, ["createdAt", "updatedAt"])); // NEW
+      setAccCats(sortDesc(aCats, ["createdAt", "updatedAt"]));
+      setBrands(sortDesc(brs, ["createdAt", "updatedAt"]));
     } catch (e) {
       toast.error(e?.message || "Không tải được dữ liệu");
     } finally {
@@ -246,9 +274,16 @@ export default function AdminProducts() {
       },
     ];
 
+    /**
+     * Hàm tạo/cập nhật Device Category
+     * @param {Object} v - Form values từ Ant Design Form
+     */
     const submit = async (v) => {
       try {
         if (editing) {
+          // ========== CẬP NHẬT CATEGORY ==========
+          // API: PUT /api/device-categories/{id}
+          // Body: { deviceCategoryName, description, active }
           const id = editing.deviceCategoryId ?? editing.id;
           await updateDeviceCategory(id, {
             deviceCategoryName: v.deviceCategoryName,
@@ -257,6 +292,9 @@ export default function AdminProducts() {
           });
           toast.success("Cập nhật loại thiết bị thành công");
         } else {
+          // ========== TẠO MỚI CATEGORY ==========
+          // API: POST /api/device-categories
+          // Body: { deviceCategoryName, description, active }
           await createDeviceCategory({
             deviceCategoryName: v.deviceCategoryName,
             description: v.description ?? "",
@@ -267,7 +305,7 @@ export default function AdminProducts() {
         setOpen(false);
         setEditing(null);
         form.resetFields();
-        loadAll();
+        loadAll(); // Reload toàn bộ data
       } catch (e) {
         toast.error(e?.message || "Lưu thất bại");
       }
@@ -501,8 +539,15 @@ export default function AdminProducts() {
       },
     ];
 
+    /**
+     * Hàm tạo/cập nhật Device Model (Mẫu thiết bị)
+     * Hỗ trợ upload ảnh qua FormData multipart/form-data
+     * @param {Object} v - Form values từ Ant Design Form
+     */
     const submit = async (v) => {
       try {
+        // ========== XỬ LÝ FILE UPLOAD ==========
+        // Lấy file object từ nhiều nguồn có thể (Ant Design Upload component)
         const img =
           v.imageFile?.file?.originFileObj ||
           v.imageFile?.file ||
@@ -510,6 +555,8 @@ export default function AdminProducts() {
           v.imageFile ||
           imageFile ||
           null;
+        
+        // Build payload
         const payload = {
           deviceName: v.deviceName,
           brandId: v.brandId,
@@ -520,21 +567,29 @@ export default function AdminProducts() {
           pricePerDay: Number(v.pricePerDay ?? 0),
           depositPercent: Number(v.depositPercent ?? 0),
           active: !!v.active,
-          imageFile: img || undefined,
+          imageFile: img || undefined, // File sẽ được gửi qua FormData
         };
+        
         if (editing) {
+          // ========== CẬP NHẬT MODEL ==========
+          // API: PUT /api/device-models/{id}
+          // Content-Type: multipart/form-data (nếu có imageFile)
           const id = editing.deviceModelId ?? editing.id;
           await updateDeviceModel(id, payload);
           toast.success("Cập nhật mẫu thiết bị thành công");
         } else {
+          // ========== TẠO MỚI MODEL ==========
+          // API: POST /api/device-models
+          // Content-Type: multipart/form-data (nếu có imageFile)
           await createDeviceModel(payload);
           toast.success("Thêm mẫu thiết bị thành công");
         }
+        
         setOpen(false);
         setEditing(null);
         setImageFile(null);
         form.resetFields();
-        loadAll();
+        loadAll(); // Reload toàn bộ data
       } catch (e) {
         toast.error(e?.message || "Lưu thất bại");
       }
@@ -651,6 +706,7 @@ export default function AdminProducts() {
     const [modal, contextHolder] = Modal.useModal();
     const [filterStatus, setFilterStatus] = useState(); // 'AVAILABLE' | 'RENTED' | 'MAINTENANCE' | 'BROKEN'
     const [filterModelId, setFilterModelId] = useState(); // deviceModelId
+    const [filterSerial, setFilterSerial] = useState(""); // Filter by serial number ⭐ THÊM MỚI
 
     const cols = [
       {
@@ -728,35 +784,64 @@ export default function AdminProducts() {
 
     const filteredDevices = useMemo(() => {
       let rows = Array.isArray(devices) ? devices.slice() : [];
+      
+      // Filter theo Status
       if (filterStatus) {
         rows = rows.filter((d) => String(d.status || '').toUpperCase() === String(filterStatus).toUpperCase());
       }
+      
+      // Filter theo DeviceModelId
       if (filterModelId) {
         rows = rows.filter((d) => String(d.deviceModelId || '') === String(filterModelId));
       }
+      
+      // ========== THÊM MỚI: Filter theo Serial Number ==========
+      if (filterSerial && filterSerial.trim()) {
+        const q = filterSerial.trim().toLowerCase();
+        rows = rows.filter((d) => {
+          const serial = String(
+            d.serialNumber || d.serial || d.serialNo || ''
+          ).toLowerCase();
+          return serial.includes(q);
+        });
+      }
+      
       return rows;
-    }, [devices, filterStatus, filterModelId]);
+    }, [devices, filterStatus, filterModelId, filterSerial]); // ⭐ Thêm filterSerial vào dependencies
 
+    /**
+     * Hàm tạo/cập nhật Device (Thiết bị cụ thể)
+     * Mỗi device có serial number riêng và trạng thái (AVAILABLE, RENTED, MAINTENANCE...)
+     * @param {Object} v - Form values từ Ant Design Form
+     */
     const submit = async (v) => {
       try {
         const payload = {
-          deviceModelId: v.deviceModelId,
-          serialNumber: v.serialNumber,
-          acquireAt: v.acquireAt ? v.acquireAt.toDate().toISOString() : null,
-          status: v.status ?? "AVAILABLE",
+          deviceModelId: v.deviceModelId,    // FK -> Device Model
+          serialNumber: v.serialNumber,      // Unique serial
+          acquireAt: v.acquireAt ? v.acquireAt.toDate().toISOString() : null, // Ngày nhập kho
+          status: v.status ?? "AVAILABLE",   // Trạng thái hiện tại
         };
+        
         if (editing) {
+          // ========== CẬP NHẬT DEVICE ==========
+          // API: PUT /api/devices/{id}
+          // Body: { deviceModelId, serialNumber, acquireAt, status }
           const id = editing.deviceId ?? editing.id;
           await updateDevice(id, payload);
           toast.success("Cập nhật thiết bị thành công");
         } else {
+          // ========== TẠO MỚI DEVICE ==========
+          // API: POST /api/devices
+          // Body: { deviceModelId, serialNumber, acquireAt, status }
           await createDevice(payload);
           toast.success("Thêm thiết bị thành công");
         }
+        
         setOpen(false);
         setEditing(null);
         form.resetFields();
-        loadAll();
+        loadAll(); // Reload toàn bộ data
       } catch (e) {
         toast.error(e?.message || "Lưu thất bại");
       }
@@ -777,6 +862,14 @@ export default function AdminProducts() {
           >
             Thêm thiết bị
           </Button>
+          {/* ⭐ THÊM MỚI: Input search theo Serial Number */}
+          <Input
+            placeholder="Tìm theo Serial Number"
+            allowClear
+            style={{ minWidth: 220 }}
+            value={filterSerial}
+            onChange={(e) => setFilterSerial(e.target.value)}
+          />
           <Select
             allowClear
             placeholder="Lọc theo trạng thái"

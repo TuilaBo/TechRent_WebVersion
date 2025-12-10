@@ -1196,9 +1196,16 @@ export default function TechnicianCalendar() {
         return status !== "COMPLETED" && status !== "FAILED";
     };
 
+    /**
+     * Hàm xem chi tiết lịch bảo trì
+     * Được gọi khi: Click vào 1 maintenance schedule trong danh sách
+     * @param {number} id - ID của maintenance schedule
+     */
     const viewMaintenanceDetail = async (id) => {
         if (!id) return;
         try {
+            // API: GET /api/maintenance/{id}
+            // Trả về: { id, deviceId, scheduledDate, priority, status, notes... }
             const res = await getMaintenanceScheduleById(id);
             if (res && res.data) {
                 setMaintenanceDetail(res.data);
@@ -1213,14 +1220,26 @@ export default function TechnicianCalendar() {
     };
 
 
+    /**
+     * Hàm xem chi tiết đơn hàng
+     * Được gọi khi: Click vào task có liên kết orderId
+     * Luồng: Load order → Enrich với device model info → Load customer
+     * @param {number} oid - Order ID
+     */
     const viewOrderDetail = async (oid) => {
         if (!oid) return;
         try {
+            // ========== BƯỚC 1: LẤY THÔNG TIN ĐƠN HÀNG ==========
+            // API: GET /api/rental-orders/{orderId}
+            // Trả về: { orderId, orderDetails[], customerId, startDate, endDate... }
             const od = await getRentalOrderById(oid);
             let enriched = od || null;
-            // attach device model info for each order detail
+            
+            // ========== BƯỚC 2: LẤY THÔNG TIN DEVICE MODEL ==========
+            // Attach device model info for each order detail
             if (enriched && Array.isArray(enriched.orderDetails) && enriched.orderDetails.length) {
                 const ids = Array.from(new Set(enriched.orderDetails.map((d) => d.deviceModelId).filter(Boolean)));
+                // API: GET /api/device-models/{modelId} cho mỗi modelId
                 const pairs = await Promise.all(
                     ids.map(async (id) => {
                         try { const m = await getDeviceModelById(id); return [id, normalizeModel(m)]; }
@@ -1234,10 +1253,12 @@ export default function TechnicianCalendar() {
                 };
             }
             setOrderDetail(enriched);
-            // fetch customer info if available
+            
+            // ========== BƯỚC 3: LẤY THÔNG TIN KHÁCH HÀNG ==========
             const cid = od?.customerId;
             if (cid) {
                 try {
+                    // API: GET /api/customers/{customerId}
                     const cus = await fetchCustomerById(cid);
                     setCustomerDetail(normalizeCustomer ? normalizeCustomer(cus) : cus);
                 } catch {
@@ -1252,13 +1273,25 @@ export default function TechnicianCalendar() {
         }
     };
 
-    // Load all tasks từ /api/staff/tasks (backend tự filter theo technician từ token)
+    /**
+     * Hàm tải toàn bộ dữ liệu cho calendar (Tasks + Maintenance Schedules + Task Rules)
+     * Được gọi khi: Component mount, reload data
+     * Luồng phức tạp:
+     * 1. Load tasks của technician
+     * 2. Load 3 loại maintenance schedules (active, priority, inactive)
+     * 3. Load task category stats để hiển thị giới hạn công việc
+     */
     const loadTasks = useCallback(async () => {
         setLoading(true);
         let allTasksRaw = [];
+        
         try {
-            // listTasks now returns paginated response or array
+            // ========== BƯỚC 1: LOAD TASKS ==========
+            // API: GET /api/staff/tasks?size=1000
+            // Backend tự filter theo technician từ JWT token
+            // Trả về: paginated response hoặc array
             const tasksRes = await listTasks({ size: 1000 }); // Get all tasks for calendar
+            
             // Handle paginated response
             if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
                 allTasksRaw = tasksRes.content;
@@ -1270,14 +1303,19 @@ export default function TechnicianCalendar() {
             toast.error("Không thể tải danh sách công việc");
         }
 
+        // ========== BƯỚC 2: LOAD MAINTENANCE SCHEDULES ==========
         let activeRes = { data: [] };
         let priorityRes = { data: [] };
         let inactiveRes = { data: [] };
 
         try {
+            // Gọi 3 API song song với Promise.allSettled (không fail nếu 1 API lỗi)
             const results = await Promise.allSettled([
+                // API: GET /api/maintenance/active
                 getActiveMaintenanceSchedules(),
+                // API: GET /api/maintenance/priority
                 getPriorityMaintenanceSchedules(),
+                // API: GET /api/maintenance/inactive
                 getInactiveMaintenanceSchedules(),
             ]);
 
@@ -1290,7 +1328,8 @@ export default function TechnicianCalendar() {
             if (results[2].status === 'fulfilled') inactiveRes = results[2].value || { data: [] };
             else console.warn("Failed inactive maintenance:", results[2].reason);
 
-            // Load task category stats for current technician
+            // ========== BƯỚC 3: LOAD TASK CATEGORY STATS ==========
+            // Load thống kê giới hạn công việc cho từng category
             try {
                 console.log("DEBUG: Calling getStaffCategoryStats API for TECHNICIAN role...");
                 
@@ -1305,11 +1344,15 @@ export default function TechnicianCalendar() {
                 
                 const rulesMap = {};
                 
-                // Load stats for each task category
-                const categoryIds = [1, 2, 4, 6]; // Pre rental QC, Post rental QC, Delivery, Pickup
+                // Danh sách category IDs cần load
+                // 1: Pre rental QC, 2: Post rental QC, 4: Delivery, 6: Pick up
+                const categoryIds = [1, 2, 4, 6];
                 
+                // Gọi API cho từng category song song
                 await Promise.all(categoryIds.map(async (categoryId) => {
                     try {
+                        // API: GET /api/admin/staffs/{staffId}/category-stats?categoryId=X
+                        // Trả về: { maxTasksPerDay, taskCategoryName, taskCount }
                         const stats = await getStaffCategoryStats(staffId, categoryId);
                         console.log(`DEBUG: Category ${categoryId} stats:`, stats);
                         

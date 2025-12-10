@@ -164,16 +164,21 @@ export default function OperatorTasks() {
     return map;
   }, [data, plannedStartValue]);
 
-  // Load task rules cho tất cả roles (operator assign cho mọi người)
+  /**
+   * useEffect: Tải danh sách Task Rules khi component mount
+   * Task Rules quy định số task tối đa mỗi người/ngày theo từng loại công việc
+   */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        // Load all active rules using /api/admin/task-rules/active
+        // ========== GỌI API LẤY TASK RULES ==========
+        // API: GET /api/admin/task-rules/active
+        // Trả về: danh sách rules { taskCategoryId, maxTasksPerDay, staffRole }
         const allRules = await getActiveTaskRules();
 
         if (!cancelled) {
-          // Hiển thị tất cả active rules
+          // Lưu vào state để kiểm tra giới hạn khi gán việc
           setTaskRules(allRules || []);
         }
       } catch (e) {
@@ -186,10 +191,15 @@ export default function OperatorTasks() {
     };
   }, []);
 
-  // Load category stats for all active staff when taskCategoryId and plannedStart are selected
+  /**
+   * useEffect: Tải thống kê category cho từng nhân viên
+   * Được trigger khi: Chọn loại công việc (taskCategoryId) và thời gian (plannedStart)
+   * Dùng để hiển thị số task đã gán / giới hạn tối đa bên cạnh tên nhân viên
+   */
   useEffect(() => {
     console.log('[DEBUG useEffect] taskCategoryIdValue:', taskCategoryIdValue, 'plannedStartValue:', plannedStartValue);
 
+    // Chưa chọn đủ thông tin → clear stats
     if (!taskCategoryIdValue || !plannedStartValue) {
       setStaffCategoryStats({});
       return;
@@ -202,21 +212,23 @@ export default function OperatorTasks() {
       setLoadingCategoryStats(true);
       const statsMap = {};
 
-      // Fetch stats for each staff in parallel
+      // ========== GỌI API LẤY THỐNG KÊ CHO TỪNG NHÂN VIÊN ==========
+      // Chỉ lấy cho TECHNICIAN và CUSTOMER_SUPPORT_STAFF
       const promises = staffs
         .filter(s => ['TECHNICIAN', 'CUSTOMER_SUPPORT_STAFF'].includes(String(s.staffRole || s.role || '').toUpperCase()))
         .map(async (s) => {
           try {
             const id = s.staffId ?? s.id;
-            // Pass categoryId to filter on server side
+            // API: GET /api/admin/staffs/{staffId}/category-stats?date=X&categoryId=Y
+            // Trả về: [{ taskCount, maxTasksPerDay, taskCategoryName }]
             const stats = await getStaffCategoryStats({
               staffId: id,
               date: dateStr,
               categoryId: taskCategoryIdValue
             });
-            // API returns filtered result for the category
+            // Xử lý response
             const catStat = Array.isArray(stats) && stats.length > 0 ? stats[0] : null;
-            // Store stats - if empty array, mark as free (rảnh)
+            // Nếu empty array → nhân viên chưa có task cho category này (rảnh)
             statsMap[id] = catStat ? {
               taskCount: catStat.taskCount || 0,
               maxTasksPerDay: catStat.maxTasksPerDay || 0,
@@ -225,7 +237,7 @@ export default function OperatorTasks() {
             } : {
               taskCount: 0,
               maxTasksPerDay: 0,
-              isEmpty: true // No tasks assigned for this category
+              isEmpty: true // Chưa được gán việc cho category này
             };
           } catch (e) {
             console.warn(`Failed to load category stats for staff ${s.staffId}:`, e);
@@ -237,6 +249,7 @@ export default function OperatorTasks() {
       console.log('[DEBUG] Staff Category Stats loaded:', statsMap);
 
       if (!cancelled) {
+        // Lưu vào state để hiển thị trong dropdown chọn nhân viên
         setStaffCategoryStats(statsMap);
         setLoadingCategoryStats(false);
       }
@@ -245,44 +258,66 @@ export default function OperatorTasks() {
     return () => { cancelled = true; };
   }, [taskCategoryIdValue, plannedStartValue, staffs]);
 
-  // Load data từ API với server-side pagination và filters
+  /**
+   * Hàm tải dữ liệu chính của trang (tasks, categories, staff, orders)
+   * Được gọi khi: Component mount, thay đổi filter, phân trang, reload
+   * Sử dụng server-side pagination và filters
+   */
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Build filter params
+      // ========== BƯỚC 1: CHUẨN BỊ PARAMS CHO API TASKS ==========
       const taskParams = {
         page: taskPage,
         size: taskPageSize,
       };
+      // Thêm các filter nếu có
       if (filterCategoryId) taskParams.categoryId = filterCategoryId;
       if (filterStatus) taskParams.status = filterStatus;
       if (filterOrderId) taskParams.orderId = filterOrderId;
 
+      // ========== BƯỚC 2: GỌI NHIỀU API SONG SONG ==========
+      // Promise.all giúp gọi đồng thời, tăng tốc độ load
       const [tasksRes, catsRes, staffRes, ordersRes] = await Promise.all([
+        // API 1: GET /api/tasks?page=X&size=Y&categoryId=Z...
+        // Trả về: { content: Task[], totalElements, totalPages... }
         listTasks(taskParams),
+        
+        // API 2: GET /api/task-categories
+        // Trả về: danh sách các loại công việc (Pre rental QC, Delivery...)
         listTaskCategories(),
+        
+        // API 3: GET /api/admin/staffs/active
+        // Trả về: danh sách nhân viên đang hoạt động (để gán việc)
         listActiveStaff().catch(() => []),
+        
+        // API 4: GET /api/rental-orders
+        // Trả về: danh sách đơn hàng (để liên kết task với đơn)
         listRentalOrders().catch(() => []),
       ]);
 
-      // Handle paginated response
+      // ========== BƯỚC 3: XỬ LÝ DỮ LIỆU TASKS ==========
+      // Kiểm tra response có pagination hay không
       if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
         setData(tasksRes.content);
         setTaskTotal(tasksRes.totalElements || 0);
       } else {
-        // Fallback for non-paginated response
+        // Fallback cho response không phân trang
         setData(Array.isArray(tasksRes) ? tasksRes : []);
         setTaskTotal(Array.isArray(tasksRes) ? tasksRes.length : 0);
       }
 
+      // Lưu categories, staffs, orders vào state
       setCategories(catsRes.map(normalizeTaskCategory));
       setStaffs(Array.isArray(staffRes) ? staffRes : []);
       setOrders(Array.isArray(ordersRes) ? ordersRes : []);
 
-      // Fetch order details for tasks
+      // ========== BƯỚC 4: LẤY CHI TIẾT ĐƠN HÀNG CHO MỖI TASK ==========
+      // Dùng để hiển thị thông tin đơn trong bảng tasks
       const taskList = tasksRes?.content || tasksRes || [];
       const ids = Array.from(new Set((taskList).map((t) => t.orderId).filter(Boolean)));
       if (ids.length) {
+        // API: GET /api/rental-orders/{orderId} cho mỗi orderId
         const pairs = await Promise.all(ids.map(async (oid) => {
           try { const o = await getRentalOrderById(oid); return [oid, o]; } catch { return [oid, null]; }
         }));
@@ -301,24 +336,35 @@ export default function OperatorTasks() {
     loadData();
   }, [loadData]);
 
-  // Load leaderboard data
+  /**
+   * Hàm tải dữ liệu bảng xếp hạng nhân viên
+   * Được gọi khi: Chuyển sang tab "Leaderboard", thay đổi tháng/năm/role filter
+   * Hiển thị số task hoàn thành của từng nhân viên trong tháng
+   */
   const loadLeaderboard = useCallback(async () => {
+    // Phải có năm và tháng được chọn
     if (!selectedYear || !selectedMonth) return;
 
     setLeaderboardLoading(true);
     try {
+      // ========== GỌI API LẤY THỐNG KÊ HIỆU SUẤT ==========
+      // API: GET /api/admin/staffs/performance-completions
+      // Params: year, month, page, size, sort, staffRole (optional)
+      // Trả về: { content: [{staffId, staffName, completedTaskCount}], totalElements }
       const params = {
         year: selectedYear,
         month: selectedMonth,
         page: leaderboardPage,
         size: leaderboardPageSize,
-        sort: "completedTaskCount,desc",
+        sort: "completedTaskCount,desc", // Sắp xếp theo số task hoàn thành giảm dần
       };
+      // Thêm filter theo role nếu có
       if (leaderboardRoleFilter) {
         params.staffRole = leaderboardRoleFilter;
       }
       const result = await getStaffPerformanceCompletions(params);
-      // Handle paginated response
+      
+      // Xử lý response phân trang
       const content = result?.content || [];
       const total = result?.totalElements || 0;
       setLeaderboardData(content);
@@ -427,26 +473,48 @@ export default function OperatorTasks() {
     }
   };
 
+  /**
+   * Hàm xóa công việc
+   * Được gọi khi operator click nút "Xóa" trong cột Thao tác
+   * Sử dụng optimistic update: xóa local trước, nếu API lỗi thì rollback
+   * @param {Object} r - Đối tượng task cần xóa
+   */
   const remove = async (r) => {
     const taskId = r.taskId;
-    const prev = data;
+    const prev = data; // Lưu lại dữ liệu cũ để rollback nếu lỗi
+    
+    // Optimistic update: xóa khỏi UI trước
     setData(prev.filter((x) => x.taskId !== taskId));
+    
     try {
+      // ========== GỌI API XÓA TASK ==========
+      // API: DELETE /api/tasks/{taskId}
+      // Trả về: success message hoặc lỗi
       await deleteTask(taskId);
       toast.success("Đã xoá công việc.");
+      
+      // Reload lại danh sách để đảm bảo đồng bộ
       await loadData();
     } catch (e) {
+      // Rollback: khôi phục dữ liệu cũ nếu API lỗi
       setData(prev);
       toast.error(getErrorMessage(e, "Xoá thất bại"));
     }
   };
 
+  /**
+   * Hàm tạo mới hoặc cập nhật công việc
+   * Được gọi khi operator submit form trong modal
+   * @param {Object} vals - Giá trị form từ Ant Design Form
+   */
   const submit = async (vals) => {
     try {
+      // Lấy tên loại công việc từ categoryId
       const derivedType = resolveTaskType(vals.taskCategoryId);
 
       if (editing) {
-        // Khi update: không gửi orderId vì backend không cho phép thay đổi
+        // ========== TRƯỜNG HỢP CẬP NHẬT (EDIT) ==========
+        // Lưu ý: không gửi orderId vì backend không cho phép thay đổi
         const formatLocalDateTime = (value) =>
           value ? dayjs(value).format("YYYY-MM-DDTHH:mm:ss") : undefined;
 
@@ -458,26 +526,35 @@ export default function OperatorTasks() {
           plannedStart: formatLocalDateTime(vals.plannedStart),
           plannedEnd: formatLocalDateTime(vals.plannedEnd),
         };
+        
+        // API: PUT /api/tasks/{taskId}
+        // Body: { taskCategoryId, assignedStaffIds, type, description, plannedStart, plannedEnd }
         await updateTask(editing.taskId || editing.id, updatePayload);
         toast.success("Đã cập nhật công việc.");
       } else {
-        // Khi tạo mới: có thể gửi orderId
+        // ========== TRƯỜNG HỢP TẠO MỚI (CREATE) ==========
         const createPayload = {
           taskCategoryId: vals.taskCategoryId,
-          orderId: vals.orderId ? Number(vals.orderId) : undefined,
+          orderId: vals.orderId ? Number(vals.orderId) : undefined, // Có thể gửi orderId khi tạo mới
           assignedStaffIds: Array.isArray(vals.assignedStaffIds) ? vals.assignedStaffIds.map(Number) : [],
           type: derivedType,
           description: vals.description?.trim() || "",
           plannedStart: vals.plannedStart ? dayjs(vals.plannedStart).format("YYYY-MM-DDTHH:mm:ss") : undefined,
           plannedEnd: vals.plannedEnd ? dayjs(vals.plannedEnd).format("YYYY-MM-DDTHH:mm:ss") : undefined,
         };
+        
+        // API: POST /api/tasks
+        // Body: { taskCategoryId, orderId, assignedStaffIds, type, description, plannedStart, plannedEnd }
         await createTask(createPayload);
         toast.success("Đã tạo công việc.");
       }
 
+      // Đóng modal và reset form
       setOpen(false);
       setEditing(null);
       form.resetFields();
+      
+      // Reload danh sách để hiển thị task mới/cập nhật
       await loadData();
     } catch (e) {
       toast.error(getErrorMessage(e, "Lưu thất bại"));
