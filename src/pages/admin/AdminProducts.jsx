@@ -882,7 +882,6 @@ export default function AdminProducts() {
               { label: 'QC sau thuê', value: 'POST_RENTAL_QC' },
               { label: 'Đang thuê', value: 'RENTED' },
               { label: 'Bảo trì', value: 'MAINTENANCE' },
-              { label: 'Hỏng', value: 'BROKEN' },
               { label: 'Hư hỏng', value: 'DAMAGED' },
             ]}
           />
