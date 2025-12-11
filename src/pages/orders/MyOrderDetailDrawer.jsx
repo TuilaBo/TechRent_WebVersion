@@ -368,10 +368,10 @@ export default function MyOrderDetailDrawer({
                                         <Descriptions bordered column={2} size="middle">
                                             <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
                                             <Descriptions.Item label="Ngày tạo đơn">{formatDateTime(current.createdAt)}</Descriptions.Item>
-                                            <Descriptions.Item label="Ngày bắt đầu thuê">
+                                            <Descriptions.Item label="Ngày bắt đầu thuê(Dự kiến)">
                                                 {current.startDate ? formatDateTime(current.startDate) : "—"}
                                             </Descriptions.Item>
-                                            <Descriptions.Item label="Ngày kết thúc thuê">
+                                            <Descriptions.Item label="Ngày kết thúc thuê(Dự kiến)">
                                                 {current.endDate ? formatDateTime(current.endDate) : "—"}
                                             </Descriptions.Item>
                                             <Descriptions.Item label="Trạng thái đơn">
@@ -1020,8 +1020,8 @@ export default function MyOrderDetailDrawer({
                                     <div>
                                         <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
                                             <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
-                                            <li>Ngày bắt đầu thuê: <Text strong>{current.startDate ? formatDateTime(current.startDate) : "—"}</Text></li>
-                                            <li>Ngày kết thúc thuê hiện tại: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                                            <li>Ngày bắt đầu thuê(Dự kiến): <Text strong>{current.startDate ? formatDateTime(current.startDate) : "—"}</Text></li>
+                                            <li>Ngày kết thúc thuê(Dự kiến): <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
                                             {(() => {
                                                 const days = getDaysRemaining(current.endDate);
                                                 if (days === null) return null;

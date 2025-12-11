@@ -405,15 +405,17 @@ export default function MyOrders() {
     });
   }, [handoverReports]);
 
-  // Auto select and preview first handover report when reports are loaded
-  useEffect(() => {
-    if (checkoutReports.length > 0 && !selectedHandoverReport) {
-      const firstReport = checkoutReports[0];
-      setSelectedHandoverReport(firstReport);
-      previewHandoverReportAsPdf(firstReport, { target: "handover" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checkoutReports]);
+  // PERFORMANCE OPTIMIZATION: Removed auto-generate PDF when reports first load
+  // PDF will now generate only when user clicks on the handover/checkin tab
+  // This prevents blocking the drawer from opening while PDF is being generated
+  // useEffect(() => {
+  //   if (checkoutReports.length > 0 && !selectedHandoverReport) {
+  //     const firstReport = checkoutReports[0];
+  //     setSelectedHandoverReport(firstReport);
+  //     previewHandoverReportAsPdf(firstReport, { target: "handover" });
+  //   }
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [checkoutReports]);
 
   // Auto select first checkin report when reports are loaded
   useEffect(() => {
@@ -435,48 +437,71 @@ export default function MyOrders() {
   }, [checkinReports, selectedCheckinReport, checkinPdfPreviewUrl]);
 
   // Ensure PDFs are available when switching tabs
+  // Auto-select first report if none selected yet
   useEffect(() => {
-    if (
-      detailTab === "handover" &&
-      selectedHandoverReport &&
-      !handoverPdfPreviewUrl &&
-      !handoverPdfGenerating
-    ) {
-      previewHandoverReportAsPdf(selectedHandoverReport, {
-        target: "handover",
-        skipSelection: true,
-      });
-    }
-  }, [detailTab, selectedHandoverReport, handoverPdfPreviewUrl, handoverPdfGenerating]);
-
-  useEffect(() => {
-    if (
-      detailTab === "checkin" &&
-      selectedCheckinReport &&
-      !checkinPdfPreviewUrl &&
-      !handoverPdfGenerating
-    ) {
-      previewHandoverReportAsPdf(selectedCheckinReport, {
-        target: "checkin",
-        skipSelection: true,
-      });
-    }
-  }, [detailTab, selectedCheckinReport, checkinPdfPreviewUrl, handoverPdfGenerating]);
-
-  // Reload handover reports when switching to handover/checkin tabs (only if switching to this tab for the first time)
-  const handoverTabRef = useRef(null);
-  useEffect(() => {
-    if (current?.id && (detailTab === "handover" || detailTab === "checkin")) {
-      const orderId = current.id;
-      const previousTab = handoverTabRef.current;
-      // Only reload if switching to this tab for the first time (not on every render)
-      if (previousTab !== detailTab) {
-        loadOrderHandoverReports(orderId);
+    if (detailTab === "handover") {
+      // Auto-select first report if none selected
+      if (!selectedHandoverReport && checkoutReports.length > 0) {
+        const firstReport = checkoutReports[0];
+        setSelectedHandoverReport(firstReport);
+        // Don't generate PDF yet, let the next condition handle it
+        return;
       }
-      handoverTabRef.current = detailTab;
+      
+      // Generate PDF if report is selected but preview not available
+      if (
+        selectedHandoverReport &&
+        !handoverPdfPreviewUrl &&
+        !handoverPdfGenerating
+      ) {
+        previewHandoverReportAsPdf(selectedHandoverReport, {
+          target: "handover",
+          skipSelection: true,
+        });
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailTab, current?.id]);
+  }, [detailTab, selectedHandoverReport, handoverPdfPreviewUrl, handoverPdfGenerating, checkoutReports]);
+
+  // Auto-select first checkin report if none selected when switching to checkin tab
+  useEffect(() => {
+    if (detailTab === "checkin") {
+      // Auto-select first checkin report if none selected
+      if (!selectedCheckinReport && checkinReports.length > 0) {
+        const firstReport = checkinReports[0];
+        setSelectedCheckinReport(firstReport);
+        // Don't generate PDF yet, let the next condition handle it
+        return;
+      }
+      
+      // Generate PDF if report is selected but preview not available
+      if (
+        selectedCheckinReport &&
+        !checkinPdfPreviewUrl &&
+        !handoverPdfGenerating
+      ) {
+        previewHandoverReportAsPdf(selectedCheckinReport, {
+          target: "checkin",
+          skipSelection: true,
+        });
+      }
+    }
+  }, [detailTab, selectedCheckinReport, checkinPdfPreviewUrl, handoverPdfGenerating, checkinReports]);
+
+  // REMOVED: Unnecessary reload on tab switch - reports already loaded when drawer opens
+  // This was causing slow loading every time user switches to handover/checkin tab
+  // const handoverTabRef = useRef(null);
+  // useEffect(() => {
+  //   if (current?.id && (detailTab === "handover" || detailTab === "checkin")) {
+  //     const orderId = current.id;
+  //     const previousTab = handoverTabRef.current;
+  //     // Only reload if switching to this tab for the first time (not on every render)
+  //     if (previousTab !== detailTab) {
+  //       loadOrderHandoverReports(orderId);
+  //     }
+  //     handoverTabRef.current = detailTab;
+  //   }
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [detailTab, current?.id]);
 
   // Auto select and preview first contract when contracts are loaded
   useEffect(() => {
@@ -1185,44 +1210,61 @@ export default function MyOrders() {
         setHandoverPdfBlobUrl("");
       }
 
-      // Fetch order and condition definitions
+      // PERFORMANCE OPTIMIZATION: Same as previewHandoverReportAsPdf
       let order = null;
       let conditionDefinitions = [];
 
-      if (report.orderId) {
-        try {
-          order = await getRentalOrderById(report.orderId);
-          // Enrich order with device model info
-          if (order && Array.isArray(order.orderDetails)) {
-            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
-            const modelPairs = await Promise.all(
-              modelIds.map(async (id) => {
-                try {
-                  const m = await getDeviceModelById(id);
-                  return [id, m];
-                } catch {
-                  return [id, null];
-                }
-              })
-            );
-            const modelMap = Object.fromEntries(modelPairs);
-            order = {
-              ...order,
-              orderDetails: order.orderDetails.map(od => ({
-                ...od,
-                deviceModel: modelMap[od.deviceModelId] || null,
-              })),
-            };
-          }
-        } catch (e) {
-          console.warn("Could not fetch order for PDF:", e);
-        }
-      }
+      const useCurrentOrder = current && current.id === report.orderId;
+      
+      const [fetchedOrder, fetchedConditions] = await Promise.all([
+        useCurrentOrder 
+          ? Promise.resolve(current)
+          : (report.orderId 
+              ? getRentalOrderById(report.orderId).catch(e => {
+                  console.warn("Could not fetch order for PDF:", e);
+                  return null;
+                })
+              : Promise.resolve(null)
+            ),
+        getConditionDefinitions().catch(e => {
+          console.warn("Could not fetch condition definitions for PDF:", e);
+          return [];
+        })
+      ]);
 
-      try {
-        conditionDefinitions = await getConditionDefinitions();
-      } catch (e) {
-        console.warn("Could not fetch condition definitions for PDF:", e);
+      order = fetchedOrder;
+      conditionDefinitions = fetchedConditions;
+
+      if (order && Array.isArray(order.orderDetails)) {
+        const needsEnrichment = order.orderDetails.some(od => 
+          od.deviceModelId && !od.deviceModel
+        );
+        
+        if (needsEnrichment) {
+          const modelIds = Array.from(new Set(
+            order.orderDetails.map(od => od.deviceModelId).filter(Boolean)
+          ));
+          
+          const modelPairs = await Promise.all(
+            modelIds.map(async (id) => {
+              try {
+                const m = await getDeviceModelById(id);
+                return [id, m];
+              } catch {
+                return [id, null];
+              }
+            })
+          );
+          
+          const modelMap = Object.fromEntries(modelPairs);
+          order = {
+            ...order,
+            orderDetails: order.orderDetails.map(od => ({
+              ...od,
+              deviceModel: od.deviceModel || modelMap[od.deviceModelId] || null,
+            })),
+          };
+        }
       }
 
       if (handoverPrintRef.current) {
@@ -1249,7 +1291,8 @@ export default function MyOrders() {
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // OPTIMIZATION: Reduced timeout from 500ms to 200ms
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
 
@@ -1303,44 +1346,67 @@ export default function MyOrders() {
         }
       }
 
-      // Fetch order and condition definitions
+      // PERFORMANCE OPTIMIZATION: Fetch order and condition definitions IN PARALLEL
       let order = null;
       let conditionDefinitions = [];
 
-      if (report.orderId) {
-        try {
-          order = await getRentalOrderById(report.orderId);
-          // Enrich order with device model info
-          if (order && Array.isArray(order.orderDetails)) {
-            const modelIds = Array.from(new Set(order.orderDetails.map(od => od.deviceModelId).filter(Boolean)));
-            const modelPairs = await Promise.all(
-              modelIds.map(async (id) => {
-                try {
-                  const m = await getDeviceModelById(id);
-                  return [id, m];
-                } catch {
-                  return [id, null];
-                }
-              })
-            );
-            const modelMap = Object.fromEntries(modelPairs);
-            order = {
-              ...order,
-              orderDetails: order.orderDetails.map(od => ({
-                ...od,
-                deviceModel: modelMap[od.deviceModelId] || null,
-              })),
-            };
-          }
-        } catch (e) {
-          console.warn("Could not fetch order for PDF:", e);
-        }
-      }
+      // Use cached current order if available (avoid redundant API call)
+      const useCurrentOrder = current && current.id === report.orderId;
+      
+      const [fetchedOrder, fetchedConditions] = await Promise.all([
+        // Only fetch order if not already in current state
+        useCurrentOrder 
+          ? Promise.resolve(current)
+          : (report.orderId 
+              ? getRentalOrderById(report.orderId).catch(e => {
+                  console.warn("Could not fetch order for PDF:", e);
+                  return null;
+                })
+              : Promise.resolve(null)
+            ),
+        // Fetch condition definitions in parallel
+        getConditionDefinitions().catch(e => {
+          console.warn("Could not fetch condition definitions for PDF:", e);
+          return [];
+        })
+      ]);
 
-      try {
-        conditionDefinitions = await getConditionDefinitions();
-      } catch (e) {
-        console.warn("Could not fetch condition definitions for PDF:", e);
+      order = fetchedOrder;
+      conditionDefinitions = fetchedConditions;
+
+      // Enrich order with device model info (only if not already enriched)
+      if (order && Array.isArray(order.orderDetails)) {
+        const needsEnrichment = order.orderDetails.some(od => 
+          od.deviceModelId && !od.deviceModel
+        );
+        
+        if (needsEnrichment) {
+          const modelIds = Array.from(new Set(
+            order.orderDetails
+              .map(od => od.deviceModelId)
+              .filter(Boolean)
+          ));
+          
+          const modelPairs = await Promise.all(
+            modelIds.map(async (id) => {
+              try {
+                const m = await getDeviceModelById(id);
+                return [id, m];
+              } catch {
+                return [id, null];
+              }
+            })
+          );
+          
+          const modelMap = Object.fromEntries(modelPairs);
+          order = {
+            ...order,
+            orderDetails: order.orderDetails.map(od => ({
+              ...od,
+              deviceModel: od.deviceModel || modelMap[od.deviceModelId] || null,
+            })),
+          };
+        }
       }
 
       if (handoverPrintRef.current) {
@@ -1367,7 +1433,8 @@ export default function MyOrders() {
         if (document.fonts && document.fonts.ready) {
           await document.fonts.ready;
         }
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // OPTIMIZATION: Reduced timeout from 500ms to 200ms
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         const blob = await elementToPdfBlobHandover(handoverPrintRef.current);
 
@@ -1382,6 +1449,7 @@ export default function MyOrders() {
       console.error("Error generating handover PDF:", e);
       message.error("Không thể tạo bản xem trước PDF");
     } finally {
+      setHandoverPdfGenerating(false);
     }
   };
 
