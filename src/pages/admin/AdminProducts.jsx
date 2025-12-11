@@ -1420,19 +1420,13 @@ export default function AdminProducts() {
 
   return (
     <>
-      <Title level={3}>Quản lý sản phẩm</Title>
+      <Title level={3}>Quản lý thiết bị</Title>
       <Tabs
         items={[
           { key: "brand", label: "Thương hiệu", children: <BrandTab /> },
           { key: "cat", label: "Loại Thiết Bị", children: <CategoryTab /> },
           { key: "model", label: "Mẫu Thiết Bị", children: <ModelTab /> },
           { key: "device", label: "Thiết Bị", children: <DeviceTab /> },
-          {
-            key: "acc-cat",
-            label: "Danh mục Phụ kiện",
-            children: <AccessoryCategoryTab />,
-          }, // NEW
-          { key: "acc", label: "Phụ Kiện", children: <AccessoryTab /> },
         ]}
       />
     </>
