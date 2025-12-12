@@ -35,22 +35,22 @@ import {
   createDevice,
   updateDevice,
   deleteDevice,
-  // Accessories
-  listAccessories,
-  createAccessory,
-  updateAccessory,
-  deleteAccessory,
+  // REMOVED: Accessories - backend no longer supports this
+  // listAccessories,
+  // createAccessory,
+  // updateAccessory,
+  // deleteAccessory,
   // Brands (NEW)
   listBrands,
   getBrandById,
   createBrand,
   updateBrand,
   deleteBrand,
-  // Accessory Categories  <-- NEW
-  listAccessoryCategories,
-  createAccessoryCategory,
-  updateAccessoryCategory,
-  deleteAccessoryCategory,
+  // REMOVED: Accessory Categories - backend no longer supports this
+  // listAccessoryCategories,
+  // createAccessoryCategory,
+  // updateAccessoryCategory,
+  // deleteAccessoryCategory,
 } from "../../lib/deviceManage";
 
 const { Title } = Typography;
@@ -85,11 +85,12 @@ export default function AdminProducts() {
   const [categories, setCategories] = useState([]);
   const [models, setModels] = useState([]);
   const [devices, setDevices] = useState([]);
-  const [accs, setAccs] = useState([]);
+  // REMOVED: accessories state - backend no longer supports this
+  // const [accs, setAccs] = useState([]);
   const [brands, setBrands] = useState([]); // NEW
 
-  // NEW: accessory categories
-  const [accCats, setAccCats] = useState([]);
+  // REMOVED: accessory category state - backend no longer supports this
+  // const [accCats, setAccCats] = useState([]);
 
   const catOptions = useMemo(
     () =>
@@ -109,15 +110,15 @@ export default function AdminProducts() {
     [models]
   );
 
-  // NEW: accessory category options
-  const accCatOptions = useMemo(
-    () =>
-      accCats.map((c) => ({
-        label: c.accessoryCategoryName ?? c.name,
-        value: c.accessoryCategoryId ?? c.id,
-      })),
-    [accCats]
-  );
+  // REMOVED: accessory category options - backend no longer supports this
+  // const accCatOptions = useMemo(
+  //   () =>
+  //     accCats.map((c) => ({
+  //       label: c.accessoryCategoryName ?? c.name,
+  //       value: c.accessoryCategoryId ?? c.id,
+  //     })),
+  //   [accCats]
+  // );
 
   // NEW: brand options for device model form
   const brandOptions = useMemo(
@@ -137,8 +138,8 @@ export default function AdminProducts() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      // ========== GỌI 6 API SONG SONG ==========
-      const [cats, mods, devs, acs, aCats, brs] = await Promise.all([
+      // ========== GỌI 4 API SONG SONG (REMOVED ACCESSORIES & ACCESSORY CATEGORIES) ==========
+      const [cats, mods, devs, brs] = await Promise.all([
         // API: GET /api/device-categories
         // Trả về: danh sách loại thiết bị (VR/AR, Camera, Drone...)
         listDeviceCategories(),
@@ -151,13 +152,11 @@ export default function AdminProducts() {
         // Trả về: danh sách thiết bị cụ thể với serial number
         listDevices(),
         
-        // API: GET /api/accessories
-        // Trả về: danh sách phụ kiện (lens, tripod, memory card...)
-        listAccessories(),
+        // REMOVED: API call to accessories - endpoint no longer exists
+        // listAccessories(),
         
-        // API: GET /api/accessory-categories
-        // Trả về: danh sách loại phụ kiện
-        listAccessoryCategories(),
+        // REMOVED: API call to accessory-categories - endpoint no longer exists
+        // listAccessoryCategories(),
         
         // API: GET /api/brands
         // Trả về: danh sách thương hiệu (Sony, Canon, Meta...)
@@ -175,8 +174,8 @@ export default function AdminProducts() {
           const ta = getTime(a);
           if (tb !== ta) return tb - ta;
           // fallback by id
-          const idb = b?.id || b?.deviceId || b?.deviceModelId || b?.brandId || b?.accessoryId || b?.deviceCategoryId || b?.accessoryCategoryId || 0;
-          const ida = a?.id || a?.deviceId || a?.deviceModelId || a?.brandId || a?.accessoryId || a?.deviceCategoryId || a?.accessoryCategoryId || 0;
+          const idb = b?.id || b?.deviceId || b?.deviceModelId || b?.brandId || b?.accessoryId || b?.deviceCategoryId || 0;
+          const ida = a?.id || a?.deviceId || a?.deviceModelId || a?.brandId || a?.accessoryId || a?.deviceCategoryId || 0;
           return idb - ida;
         });
       
@@ -184,8 +183,10 @@ export default function AdminProducts() {
       setCategories(sortDesc(cats, ["createdAt", "updatedAt"]));
       setModels(sortDesc(mods, ["createdAt", "updatedAt"]));
       setDevices(Array.isArray(devs) ? devs : []); 
-      setAccs(sortDesc(acs, ["createdAt", "updatedAt"]));
-      setAccCats(sortDesc(aCats, ["createdAt", "updatedAt"]));
+      // REMOVED: setAccs - no longer loading accessories
+      // setAccs(sortDesc(acs, ["createdAt", "updatedAt"]));
+      // REMOVED: setAccCats - no longer loading accessory categories
+      // setAccCats(sortDesc(aCats, ["createdAt", "updatedAt"]));
       setBrands(sortDesc(brs, ["createdAt", "updatedAt"]));
     } catch (e) {
       toast.error(e?.message || "Không tải được dữ liệu");

@@ -16,7 +16,7 @@ export default function MyOrderReturnTab({
 }) {
   if (!current) return null;
 
-  const daysRemaining = getDaysRemaining(current?.endDate);
+  const daysRemaining = getDaysRemaining(current?.planEndDate);
   const isClose = isCloseToReturnDate(current);
   const returnConfirmed = isReturnConfirmedSync(current);
   const status = String(current?.orderStatus || "").toLowerCase();
@@ -96,17 +96,17 @@ export default function MyOrderReturnTab({
               <Text strong>#{current?.displayId ?? current?.id}</Text>
             </Descriptions.Item>
             <Descriptions.Item label="Ngày bắt đầu thuê">
-              {current?.startDate ? formatDateTime(current.startDate) : "—"}
+              {current?.planStartDate ? formatDateTime(current.planStartDate) : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Ngày kết thúc thuê">
-              {current?.endDate ? formatDateTime(current.endDate) : "—"}
+              {current?.planEndDate ? formatDateTime(current.planEndDate) : "—"}
             </Descriptions.Item>
             <Descriptions.Item label="Số ngày thuê">
               {(() => {
-                if (!current?.startDate || !current?.endDate) {
+                if (!current?.planStartDate || !current?.planEndDate) {
                   return current?.days ? `${current.days} ngày` : "—";
                 }
-                const rentalDays = diffDays(current.startDate, current.endDate);
+                const rentalDays = diffDays(current.planStartDate, current.planEndDate);
                 return `${rentalDays} ngày`;
               })()}
             </Descriptions.Item>
@@ -142,17 +142,17 @@ export default function MyOrderReturnTab({
       >
         <Descriptions bordered column={1} size="middle">
           <Descriptions.Item label="Ngày bắt đầu thuê">
-            {current?.startDate ? formatDateTime(current.startDate) : "—"}
+            {current?.planStartDate ? formatDateTime(current.planStartDate) : "—"}
           </Descriptions.Item>
           <Descriptions.Item label="Ngày kết thúc thuê">
-            {current?.endDate ? formatDateTime(current.endDate) : "—"}
+            {current?.planEndDate ? formatDateTime(current.planEndDate) : "—"}
           </Descriptions.Item>
           <Descriptions.Item label="Số ngày thuê">
             {(() => {
-              if (!current?.startDate || !current?.endDate) {
+              if (!current?.planStartDate || !current?.planEndDate) {
                 return current?.days ? `${current.days} ngày` : "—";
               }
-              const rentalDays = diffDays(current.startDate, current.endDate);
+              const rentalDays = diffDays(current.planStartDate, current.planEndDate);
               return `${rentalDays} ngày`;
             })()}
           </Descriptions.Item>

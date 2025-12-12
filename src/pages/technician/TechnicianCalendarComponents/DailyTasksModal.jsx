@@ -29,8 +29,8 @@ const DailyTasksModal = ({
 
     const qcTabsContent = () => {
         const qcTasks = dayTasks.filter(t => {
-            // Exclude Delivery and Pick up tasks
-            if (t.taskCategoryId === 4 || t.taskCategoryId === 6) return false;
+            // Exclude Delivery (4), Pick up (6), and Device Replacement (8) tasks
+            if (t.taskCategoryId === 4 || t.taskCategoryId === 6 || t.taskCategoryId === 8) return false;
             // Additional checks to ensure excluded types
             const type = String(t.type || "").toUpperCase();
             if (['DELIVERY', 'PICKUP'].includes(type)) return false;
@@ -105,7 +105,16 @@ const DailyTasksModal = ({
     };
 
     const deliveryTabsContent = () => {
-        const deliveryTasks = dayTasks.filter(t => ['DELIVERY', 'PICKUP'].includes(String(t.type).toUpperCase()) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order'));
+        // Include Delivery (4), Pick up (6), and Device Replacement (8) tasks
+        const deliveryTasks = dayTasks.filter(t => 
+            ['DELIVERY', 'PICKUP'].includes(String(t.type).toUpperCase()) || 
+            (t.taskCategoryName || '').includes('Giao') || 
+            (t.taskCategoryName || '').includes('Thu') || 
+            t.taskCategoryName === 'Delivery' || 
+            t.taskCategoryName === 'Pick up rental order' ||
+            t.taskCategoryId === 8 ||
+            t.taskCategoryName === 'Device Replacement'
+        );
 
         const cat4Tasks = dayTasks.filter(t => t.taskCategoryId === 4 || t.taskCategoryName === 'Delivery');
         const cat6Tasks = dayTasks.filter(t => t.taskCategoryId === 6 || t.taskCategoryName === 'Pick up rental order');

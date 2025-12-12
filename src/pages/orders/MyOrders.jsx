@@ -24,6 +24,7 @@ import {
   updateCustomerHandoverReportSignature
 } from "../../lib/handoverReportApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
+import { getComplaintsByOrderId, createComplaint } from "../../lib/complaints";
 import {
   augmentContractContent,
 } from "../../lib/contractPrintUtils";
@@ -155,6 +156,12 @@ export default function MyOrders() {
   const [processingReturn, setProcessingReturn] = useState(false);
   const [processingExtend, setProcessingExtend] = useState(false);
   const [extendedEndTime, setExtendedEndTime] = useState(null);
+
+  // Complaints state
+  const [complaints, setComplaints] = useState([]);
+  const [complaintsLoading, setComplaintsLoading] = useState(false);
+  const [creatingComplaint, setCreatingComplaint] = useState(false);
+
   const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
     // Load from localStorage on init
     try {
@@ -824,6 +831,8 @@ export default function MyOrders() {
     setContractsLoading(true);
     setSettlementLoading(true);
     setHandoverReportsLoading(true);
+    setComplaintsLoading(true);
+    setComplaints([]);
 
     // NOTE: Drawer opens AFTER data loads to prevent tab flickering
 
@@ -889,7 +898,8 @@ export default function MyOrders() {
       await Promise.all([
         loadOrderContracts(idNum),
         loadOrderSettlement(idNum),
-        loadOrderHandoverReports(idNum)
+        loadOrderHandoverReports(idNum),
+        loadOrderComplaints(idNum)
       ]);
 
       // Mark data as fully loaded AND open drawer - all tabs appear at once
@@ -1081,6 +1091,48 @@ export default function MyOrders() {
       return [];
     } finally {
       setHandoverReportsLoading(false);
+    }
+  };
+
+  // ========== COMPLAINTS ==========
+  const loadOrderComplaints = async (orderId) => {
+    if (!orderId) {
+      setComplaints([]);
+      return [];
+    }
+    try {
+      setComplaintsLoading(true);
+      const complaintsData = await getComplaintsByOrderId(orderId);
+      const complaintsArray = Array.isArray(complaintsData) ? complaintsData : [];
+      setComplaints(complaintsArray);
+      return complaintsArray;
+    } catch (e) {
+      console.error("Failed to fetch complaints by orderId:", e);
+      setComplaints([]);
+      return [];
+    } finally {
+      setComplaintsLoading(false);
+    }
+  };
+
+  const handleCreateComplaint = async ({ orderId, deviceId, customerDescription }) => {
+    try {
+      setCreatingComplaint(true);
+      const result = await createComplaint({ orderId, deviceId, customerDescription });
+      // Reload complaints after creating
+      await loadOrderComplaints(orderId);
+      return result;
+    } catch (e) {
+      console.error("Failed to create complaint:", e);
+      throw e;
+    } finally {
+      setCreatingComplaint(false);
+    }
+  };
+
+  const handleRefreshComplaints = async () => {
+    if (current?.id) {
+      await loadOrderComplaints(current.id);
     }
   };
 
@@ -1680,6 +1732,13 @@ export default function MyOrders() {
         handleSignHandover={handleSignHandover}
         printPdfUrl={printPdfUrl}
         downloadContractAsPdf={downloadContractAsPdf}
+
+        // Complaints state
+        complaints={complaints}
+        complaintsLoading={complaintsLoading}
+        creatingComplaint={creatingComplaint}
+        onCreateComplaint={handleCreateComplaint}
+        onRefreshComplaints={handleRefreshComplaints}
 
         // Refs
         handoverPrintRef={handoverPrintRef}

@@ -1286,11 +1286,12 @@ export default function OperatorOrders() {
 
   /**
    * Hàm tải danh sách đơn hàng với phân trang
-   * Được gọi khi: Component mount, chuyển trang, thay đổi pageSize
+   * Được gọi khi: Component mount, chuyển trang, thay đổi pageSize, tìm kiếm
    * @param {number} page - Số trang (1-indexed, mặc định 1)
    * @param {number} pageSize - Số đơn mỗi trang (mặc định 10)
+   * @param {number} [orderId] - Mã đơn hàng để filter (optional)
    */
-  const fetchAll = async (page = 1, pageSize = 10) => {
+  const fetchAll = async (page = 1, pageSize = 10, orderId = null) => {
     // Đảm bảo giá trị page và pageSize là số nguyên hợp lệ
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
@@ -1300,12 +1301,13 @@ export default function OperatorOrders() {
       setLoading(true);
       
       // ========== GỌI API TÌM KIẾM ĐƠN HÀNG ==========
-      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc
+      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z
       // Trả về: { content: [], totalElements, totalPages, number, size }
       const result = await searchRentalOrders({
         page: safePage - 1, // API dùng 0-indexed (page 0 = trang 1)
         size: safeSize,
         sort: ["createdAt,desc"], // Sắp xếp mới nhất lên đầu
+        orderId: orderId != null ? Number(orderId) : undefined,
       });
       
       // Lưu danh sách đơn vào state để hiển thị
@@ -2207,9 +2209,16 @@ export default function OperatorOrders() {
   };
 
   // ====== Filters ======
+  // Khi search bằng orderId (số hợp lệ), kết quả đã được filter từ API
+  // nên chỉ cần filter frontend cho các trường hợp khác (date range)
   const filtered = useMemo(() => {
     let ds = rows;
-    if (kw.trim()) {
+    
+    // Nếu kw là số (orderId), API đã filter rồi -> không filter frontend theo kw
+    const isOrderIdSearch = kw.trim() && !isNaN(Number(kw.trim()));
+    
+    if (!isOrderIdSearch && kw.trim()) {
+      // Filter theo text (customerId) nếu không phải search orderId
       const k = kw.trim().toLowerCase();
       ds = ds.filter(
         (r) =>
@@ -2217,6 +2226,8 @@ export default function OperatorOrders() {
           String(r.customerId ?? "").toLowerCase().includes(k)
       );
     }
+    
+    // Filter theo date range (frontend)
     if (range?.length === 2) {
       const [s, e] = range;
       const sMs = s.startOf("day").valueOf();
@@ -2251,7 +2262,7 @@ export default function OperatorOrders() {
       dataIndex: "range",
       width: 220,
       render: (_, r) =>
-        `${dayjs(r.startDate).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format(
+        `${dayjs(r.planStartDate || r.startDate).format("YYYY-MM-DD")} → ${dayjs(r.planEndDate || r.endDate).format(
           "YYYY-MM-DD"
         )}`,
     },
@@ -2261,9 +2272,9 @@ export default function OperatorOrders() {
       width: 90,
       render: (_, r) => {
         const d =
-          dayjs(r.endDate)
+          dayjs(r.planEndDate || r.endDate)
             .startOf("day")
-            .diff(dayjs(r.startDate).startOf("day"), "day") || 1;
+            .diff(dayjs(r.planStartDate || r.startDate).startOf("day"), "day") || 1;
         return Math.max(1, d);
       },
     },
@@ -2367,10 +2378,14 @@ export default function OperatorOrders() {
 
   const detailDays = useMemo(() => {
     if (!detail) return 1;
+    // Sử dụng planStartDate/planEndDate để tính số ngày thuê
+    const startDate = detail.planStartDate || detail.startDate;
+    const endDate = detail.planEndDate || detail.endDate;
+    if (!startDate || !endDate) return detail.durationDays || 1;
     const d =
-      dayjs(detail.endDate)
+      dayjs(endDate)
         .startOf("day")
-        .diff(dayjs(detail.startDate).startOf("day"), "day") || 1;
+        .diff(dayjs(startDate).startOf("day"), "day") || 1;
     return Math.max(1, d);
   }, [detail]);
 
@@ -2663,9 +2678,26 @@ export default function OperatorOrders() {
       <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search
           allowClear
-          placeholder="Tìm mã đơn hoặc mã KH…"
-          onSearch={setKw}
-          onChange={(e) => setKw(e.target.value)}
+          placeholder="Tìm mã đơn hàng..."
+          onSearch={(value) => {
+            const trimmed = value.trim();
+            // Nếu nhập số (mã đơn hàng), gọi API search với orderId
+            if (trimmed && !isNaN(Number(trimmed))) {
+              fetchAll(1, pagination.pageSize, Number(trimmed));
+            } else if (!trimmed) {
+              // Nếu xóa hết, tải lại toàn bộ
+              fetchAll(1, pagination.pageSize);
+            }
+            setKw(trimmed);
+          }}
+          onChange={(e) => {
+            const value = e.target.value;
+            setKw(value);
+            // Khi xóa hết input, tải lại toàn bộ
+            if (!value.trim()) {
+              fetchAll(1, pagination.pageSize);
+            }
+          }}
           style={{ width: 300 }}
         />
         <RangePicker value={range} onChange={setRange} />
@@ -2751,12 +2783,30 @@ export default function OperatorOrders() {
                 {dayjs(detail.createdAt).format("DD/MM/YYYY HH:mm")}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Ngày bắt đầu thuê">
-                {detail.startDate ? dayjs(detail.startDate).format("DD/MM/YYYY HH:mm") : "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Ngày kết thúc thuê">
-                {detail.endDate ? dayjs(detail.endDate).format("DD/MM/YYYY HH:mm") : "—"}
-              </Descriptions.Item>
+              {/* Ngày bắt đầu thuê: ưu tiên chính thức, nếu không có thì hiện dự kiến */}
+              {detail.startDate ? (
+                <Descriptions.Item label="Ngày bắt đầu thuê (Chính thức)">
+                  <Text strong style={{ color: "#52c41a" }}>
+                    {dayjs(detail.startDate).format("DD/MM/YYYY HH:mm")}
+                  </Text>
+                </Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="Ngày bắt đầu thuê (Dự kiến)">
+                  {detail.planStartDate ? dayjs(detail.planStartDate).format("DD/MM/YYYY HH:mm") : "—"}
+                </Descriptions.Item>
+              )}
+              {/* Ngày kết thúc thuê: ưu tiên chính thức, nếu không có thì hiện dự kiến */}
+              {detail.endDate ? (
+                <Descriptions.Item label="Ngày kết thúc thuê (Chính thức)">
+                  <Text strong style={{ color: "#52c41a" }}>
+                    {dayjs(detail.endDate).format("DD/MM/YYYY HH:mm")}
+                  </Text>
+                </Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="Ngày kết thúc thuê (Dự kiến)">
+                  {detail.planEndDate ? dayjs(detail.planEndDate).format("DD/MM/YYYY HH:mm") : "—"}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Số ngày">{detailDays} ngày</Descriptions.Item>
               <Descriptions.Item label="Địa chỉ giao">{detail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>

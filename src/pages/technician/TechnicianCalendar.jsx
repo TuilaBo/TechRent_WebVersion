@@ -2314,10 +2314,7 @@ export default function TechnicianCalendar() {
                             {address}
                         </Space>
                     </Descriptions.Item>
-                    <Descriptions.Item label="Thời gian thuê">
-                        {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} →{" "}
-                        {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
-                    </Descriptions.Item>
+
                 </Descriptions>
                 {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
                     <>
@@ -2629,9 +2626,7 @@ export default function TechnicianCalendar() {
                                         orderDetail.customerId ?? "—"
                                     )}
                                 </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian">
-                                    {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
-                                </Descriptions.Item>
+
                                 <Descriptions.Item label="Địa chỉ giao">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
                             </Descriptions>
                             {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
@@ -2866,9 +2861,7 @@ export default function TechnicianCalendar() {
                                         orderDetail.customerId ?? "—"
                                     )}
                                 </Descriptions.Item>
-                                <Descriptions.Item label="Thời gian">
-                                    {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
-                                </Descriptions.Item>
+
                                 <Descriptions.Item label="Địa chỉ">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
                             </Descriptions>
                             {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (

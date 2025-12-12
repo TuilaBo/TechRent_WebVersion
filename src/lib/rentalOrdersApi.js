@@ -26,11 +26,13 @@ export async function createRentalOrder({
           quantity: Number(it.qty || 1),
         }));
 
+  // Backend DTO only accepts planStartDate/planEndDate (not startDate/endDate)
+  // Backend will map plan dates to actual dates internally in DB
+  // Backend gets customerId from auth token, so we don't send it
   const payload = {
-    startDate,
-    endDate,
-    shippingAddress, // <-- bổ sung
-    customerId,
+    planStartDate: startDate,
+    planEndDate: endDate,
+    shippingAddress,
     orderDetails: details,
   };
 
@@ -51,6 +53,7 @@ export async function listRentalOrders() {
  * @param {number} [params.page=0] - Số trang (bắt đầu từ 0)
  * @param {number} [params.size=20] - Số lượng mỗi trang
  * @param {string} [params.orderStatus] - Lọc theo trạng thái đơn
+ * @param {number} [params.orderId] - Lọc theo mã đơn hàng
  * @param {number} [params.customerId] - Lọc theo customerId
  * @param {string} [params.shippingAddress] - Lọc theo địa chỉ
  * @param {number} [params.minTotalPrice] - Giá tối thiểu
@@ -66,6 +69,7 @@ export async function searchRentalOrders({
   page = 0,
   size = 20,
   orderStatus,
+  orderId,
   customerId,
   shippingAddress,
   minTotalPrice,
@@ -81,6 +85,7 @@ export async function searchRentalOrders({
   params.append("size", String(size));
   
   if (orderStatus) params.append("orderStatus", orderStatus);
+  if (orderId != null) params.append("orderId", String(orderId));
   if (customerId) params.append("customerId", String(customerId));
   if (shippingAddress) params.append("shippingAddress", shippingAddress);
   if (minTotalPrice != null) params.append("minTotalPrice", String(minTotalPrice));

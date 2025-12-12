@@ -45,6 +45,7 @@ import OperatorTasks from "./pages/operator/OperatorTasks.jsx";
 import OperatorShifts from "./pages/operator/OperatorShifts.jsx";
 import OperatorKyc from "./pages/operator/OperatorKYC.jsx";
 import OperatorOrderDetail from "./pages/operator/OperatorOrderDetail.jsx";
+import OperatorComplaint from "./pages/operator/OperatorComplaint.jsx";
 
 import TechnicianShell from "./pages/technician/TechnicianShell.jsx";
 import TechnicianCalendar from "./pages/technician/TechnicianCalendar.jsx";
@@ -164,6 +165,7 @@ export default function App() {
             <Route path="shifts" element={<OperatorShifts />} />
             <Route path="kyc" element={<OperatorKyc />} />
             <Route path="ordersdetail" element={<OperatorOrderDetail />} />
+            <Route path="complaints" element={<OperatorComplaint />} />
           </Route>
 
           <Route

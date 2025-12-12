@@ -53,8 +53,19 @@ export function mapOrderFromApi(order) {
         };
     });
 
-    const startDate = order?.startDate ?? order?.rentalStartDate ?? null;
-    const endDate = order?.endDate ?? order?.rentalEndDate ?? null;
+    // NEW: Backend now has separate fields:
+    // - planStartDate/planEndDate: Ngày dự kiến (khi tạo đơn)
+    // - startDate/endDate: Ngày chính thức (sau khi ký biên bản bàn giao/thu hồi)
+    const planStartDate = order?.planStartDate ?? order?.rentalStartDate ?? null;
+    const planEndDate = order?.planEndDate ?? order?.rentalEndDate ?? null;
+    
+    // Actual dates - only set when handover/return is completed
+    const actualStartDate = order?.startDate ?? null;
+    const actualEndDate = order?.endDate ?? null;
+
+    // For calculating days, use planDates as primary
+    const dateForCalc = planStartDate;
+    const endDateForCalc = planEndDate;
 
     const rawTotal = Number(order?.totalPrice ?? order?.total ?? 0);
     const rawDailyFromBE = Number(order?.pricePerDay ?? 0);
@@ -63,7 +74,7 @@ export function mapOrderFromApi(order) {
     );
     const dailyTotal = rawDailyFromBE > 0 ? rawDailyFromBE : dailyFromItems;
     const daysFromMoney = dailyTotal > 0 ? Math.max(1, Math.round(rawTotal / dailyTotal)) : 0;
-    const daysByRange = diffDays(startDate, endDate);
+    const daysByRange = diffDays(dateForCalc, endDateForCalc);
     const normalizedDays = daysFromMoney || daysByRange || 1;
 
     const rawStatus = String(order?.orderStatus ?? "pending").toLowerCase();
@@ -73,8 +84,12 @@ export function mapOrderFromApi(order) {
         id: backendId,
         displayId,
         createdAt: order?.createdAt ?? order?.created_date ?? null,
-        startDate,
-        endDate,
+        // Planned dates (dự kiến)
+        planStartDate,
+        planEndDate,
+        // Actual dates (chính thức - after handover/return signed)
+        startDate: actualStartDate,
+        endDate: actualEndDate,
         days: normalizedDays,
         items,
         total: order?.totalPrice ?? order?.total ?? 0,
@@ -86,6 +101,8 @@ export function mapOrderFromApi(order) {
         cancelReason: order?.cancelReason ?? null,
         contractUrl: order?.contractUrl ?? "",
         contractFileName: order?.contractFileName ?? `${displayId}.pdf`,
+        // Allocated devices for complaints tab
+        allocatedDevices: order?.allocatedDevices || [],
     };
 }
 
@@ -123,8 +140,10 @@ export function formatRemainingDaysText(daysRemaining) {
  * Check if order is close to return date (less than 1 day)
  */
 export function isCloseToReturnDate(order) {
-    if (!order?.endDate) return false;
-    const daysRemaining = getDaysRemaining(order.endDate);
+    // Use planEndDate first, fallback to endDate
+    const endDate = order?.planEndDate ?? order?.endDate;
+    if (!endDate) return false;
+    const daysRemaining = getDaysRemaining(endDate);
     return daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 1;
 }
 

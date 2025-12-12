@@ -18,6 +18,7 @@ import MyOrderHandoverTab from "./MyOrderHandoverTab.jsx";
 import MyOrderCheckinTab from "./MyOrderCheckinTab.jsx";
 import MyOrderReturnTab from "./MyOrderReturnTab.jsx";
 import MyOrderSettlementTab from "./MyOrderSettlementTab.jsx";
+import MyOrderComplaintsTab from "./MyOrderComplaintsTab.jsx";
 
 const { Title, Text } = Typography;
 
@@ -160,6 +161,13 @@ export default function MyOrderDetailDrawer({
     handleSignHandover,
     printPdfUrl,
     downloadContractAsPdf,
+
+    // Complaints state
+    complaints,
+    complaintsLoading,
+    creatingComplaint,
+    onCreateComplaint,
+    onRefreshComplaints,
 
     // Refs
     handoverPrintRef,
@@ -368,12 +376,30 @@ export default function MyOrderDetailDrawer({
                                         <Descriptions bordered column={2} size="middle">
                                             <Descriptions.Item label="Mã đơn"><Text strong>{current.displayId ?? current.id}</Text></Descriptions.Item>
                                             <Descriptions.Item label="Ngày tạo đơn">{formatDateTime(current.createdAt)}</Descriptions.Item>
-                                            <Descriptions.Item label="Ngày bắt đầu thuê(Dự kiến)">
-                                                {current.startDate ? formatDateTime(current.startDate) : "—"}
-                                            </Descriptions.Item>
-                                            <Descriptions.Item label="Ngày kết thúc thuê(Dự kiến)">
-                                                {current.endDate ? formatDateTime(current.endDate) : "—"}
-                                            </Descriptions.Item>
+                                            {/* Ngày bắt đầu: ưu tiên hiển thị chính thức, nếu không có thì hiện dự kiến */}
+                                            {current.startDate ? (
+                                                <Descriptions.Item label="Ngày bắt đầu thuê (Chính thức)">
+                                                    <Text strong style={{ color: "#52c41a" }}>
+                                                        {formatDateTime(current.startDate)}
+                                                    </Text>
+                                                </Descriptions.Item>
+                                            ) : (
+                                                <Descriptions.Item label="Ngày bắt đầu thuê (Dự kiến)">
+                                                    {current.planStartDate ? formatDateTime(current.planStartDate) : "—"}
+                                                </Descriptions.Item>
+                                            )}
+                                            {/* Ngày kết thúc: ưu tiên hiển thị chính thức, nếu không có thì hiện dự kiến */}
+                                            {current.endDate ? (
+                                                <Descriptions.Item label="Ngày kết thúc thuê (Chính thức)">
+                                                    <Text strong style={{ color: "#52c41a" }}>
+                                                        {formatDateTime(current.endDate)}
+                                                    </Text>
+                                                </Descriptions.Item>
+                                            ) : (
+                                                <Descriptions.Item label="Ngày kết thúc thuê (Dự kiến)">
+                                                    {current.planEndDate ? formatDateTime(current.planEndDate) : "—"}
+                                                </Descriptions.Item>
+                                            )}
                                             <Descriptions.Item label="Trạng thái đơn">
                                                 <Tag color={(ORDER_STATUS_MAP[current.orderStatus] || {}).color} style={{ borderRadius: 20, padding: "0 12px" }}>
                                                     {(ORDER_STATUS_MAP[current.orderStatus] || {}).label ?? current.orderStatus ?? "—"}
@@ -593,6 +619,21 @@ export default function MyOrderDetailDrawer({
                                 />
                             ),
                         },
+                        {
+                            key: "complaints",
+                            label: "Khiếu nại",
+                            children: (
+                                <MyOrderComplaintsTab
+                                    current={current}
+                                    complaints={complaints}
+                                    complaintsLoading={complaintsLoading}
+                                    allocatedDevices={current?.allocatedDevices || []}
+                                    onCreateComplaint={onCreateComplaint}
+                                    onRefreshComplaints={onRefreshComplaints}
+                                    creatingComplaint={creatingComplaint}
+                                />
+                            ),
+                        },
                     ];
 
                     // Only show dynamic tabs when ALL data is ready (prevents flickering)
@@ -617,6 +658,11 @@ export default function MyOrderDetailDrawer({
                         }
                         if (tab.key === "settlement") {
                             return settlementInfo !== null;
+                        }
+                        // Tab khiếu nại chỉ hiển thị khi đơn đang sử dụng (IN_USE)
+                        if (tab.key === "complaints") {
+                            const orderStatus = String(current?.orderStatus || "").toUpperCase();
+                            return orderStatus === "IN_USE";
                         }
                         return true;
                     });
@@ -976,9 +1022,9 @@ export default function MyOrderDetailDrawer({
                                         <Text strong>Thông tin đơn hàng:</Text>
                                         <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
                                             <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
-                                            <li>Ngày kết thúc thuê: <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                                            <li>Ngày kết thúc thuê: <Text strong>{current.planEndDate ? formatDateTime(current.planEndDate) : "—"}</Text></li>
                                             {(() => {
-                                                const days = getDaysRemaining(current.endDate);
+                                                const days = getDaysRemaining(current.planEndDate);
                                                 if (days === null) return null;
                                                 return (
                                                     <li>
@@ -1020,10 +1066,10 @@ export default function MyOrderDetailDrawer({
                                     <div>
                                         <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
                                             <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
-                                            <li>Ngày bắt đầu thuê(Dự kiến): <Text strong>{current.startDate ? formatDateTime(current.startDate) : "—"}</Text></li>
-                                            <li>Ngày kết thúc thuê(Dự kiến): <Text strong>{current.endDate ? formatDateTime(current.endDate) : "—"}</Text></li>
+                                            <li>Ngày bắt đầu thuê(Dự kiến): <Text strong>{current.planStartDate ? formatDateTime(current.planStartDate) : "—"}</Text></li>
+                                            <li>Ngày kết thúc thuê(Dự kiến): <Text strong>{current.planEndDate ? formatDateTime(current.planEndDate) : "—"}</Text></li>
                                             {(() => {
-                                                const days = getDaysRemaining(current.endDate);
+                                                const days = getDaysRemaining(current.planEndDate);
                                                 if (days === null) return null;
                                                 return (
                                                     <li>
