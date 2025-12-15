@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, Table, Space, Button, Tag, Typography, Divider, Skeleton, Modal, Row, Col } from "antd";
+import { Card, Table, Space, Button, Tag, Typography, Divider, Skeleton, Modal, Row, Col, Form, Input } from "antd";
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -19,14 +19,17 @@ const EXTENSION_STATUS_MAP = {
   DONE: { label: "Hoàn thành", color: "green" },
   PENDING: { label: "Chờ xử lý", color: "orange" },
   CANCELLED: { label: "Đã hủy", color: "red" },
+  IN_USE: { label: "Có hiệu lực", color: "green" },
+  PAID: { label: "Đã thanh toán", color: "cyan" },
 };
 
 // Annex status mapping
 const ANNEX_STATUS_MAP = {
   PENDING_ADMIN_SIGNATURE: { label: "Chờ admin ký", color: "orange" },
   PENDING_CUSTOMER_SIGNATURE: { label: "Chờ khách hàng ký", color: "gold" },
-  SIGNED: { label: "Đã ký", color: "green" },
-  ACTIVE: { label: "Có hiệu lực", color: "green" },
+  PENDING_SIGNATURE: { label: "Chờ ký", color: "gold" },
+  SIGNED: { label: "2 bên đã ký", color: "green" },
+  ACTIVE: { label: "2 bên đã ký", color: "green" },
   CANCELLED: { label: "Đã hủy", color: "red" },
 };
 
@@ -63,6 +66,19 @@ export default function MyOrderContractTab({
   annexPdfBlobUrl,
   annexPdfGenerating,
   previewAnnexAsPdf,
+  // Annex signing props
+  handleSignAnnex,
+  annexSignModalOpen,
+  setAnnexSignModalOpen,
+  currentAnnexId,
+  annexPinSent,
+  signingAnnex,
+  annexSigning,
+  sendAnnexPin,
+  handleAnnexSign,
+  customerProfile,
+  annexSigningEmail,
+  confirmExtensionPayment,
 }) {
   // Ẩn các hợp đồng ở trạng thái "Nháp" đối với khách hàng
   const visibleContracts = Array.isArray(contracts)
@@ -329,7 +345,7 @@ export default function MyOrderContractTab({
                   render: renderExtensionStatus,
                 },
               ]}
-              dataSource={orderExtensions}
+              dataSource={orderExtensions.filter(ext => String(ext.status || "").toUpperCase() !== "DRAFT")}
               pagination={false}
               size="small"
             />
@@ -393,17 +409,70 @@ export default function MyOrderContractTab({
                   key: "action",
                   width: 100,
                   render: (_, record) => (
-                    <Button
-                      size="small"
-                      icon={<EyeOutlined />}
-                      onClick={() => {
-                        setAnnexDetail(record);
-                        setAnnexDetailOpen(true);
-                        previewAnnexAsPdf(record);
-                      }}
-                    >
-                      Xem
-                    </Button>
+                    <Space size="small">
+                      <Button
+                        size="small"
+                        icon={<EyeOutlined />}
+                        onClick={() => {
+                          setAnnexDetail(record);
+                          setAnnexDetailOpen(true);
+                          previewAnnexAsPdf(record);
+                        }}
+                      >
+                        Xem
+                      </Button>
+                      {(String(record.status || "").toUpperCase() === "PENDING_CUSTOMER_SIGNATURE" || 
+                        String(record.status || "").toUpperCase() === "PENDING_SIGNATURE") && (
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={() => handleSignAnnex(record)}
+                        >
+                          Ký
+                        </Button>
+                      )}
+                      {(String(record.status || "").toUpperCase() === "SIGNED" || 
+                        String(record.status || "").toUpperCase() === "ACTIVE") && (() => {
+                        // Find matching extension to check if already paid
+                        const matchingExtension = orderExtensions.find(
+                          ext => ext.extensionId === record.extensionId
+                        );
+                        const extensionStatus = String(matchingExtension?.status || "").toUpperCase();
+                        // Hide button if extension is already paid (IN_USE, PAID, or COMPLETED)
+                        const isPaid = ["IN_USE", "PAID", "COMPLETED", "DONE"].includes(extensionStatus);
+                        
+                        if (isPaid) return null;
+                        
+                        return (
+                          <Button
+                            size="small"
+                            type="primary"
+                            onClick={() => {
+                              if (matchingExtension && confirmExtensionPayment) {
+                                confirmExtensionPayment({
+                                  extensionId: matchingExtension.extensionId,
+                                  additionalPrice: matchingExtension.additionalPrice,
+                                  annexId: record.annexId || record.id,
+                                  contractId: record.contractId,
+                                });
+                              } else if (confirmExtensionPayment && record.extensionId) {
+                                const fallbackAmount = record.extensionFee || record.totalPayable || 0;
+                                confirmExtensionPayment({
+                                  extensionId: record.extensionId,
+                                  additionalPrice: fallbackAmount,
+                                  annexId: record.annexId || record.id,
+                                });
+                              } else {
+                                message.warning("Không tìm thấy thông tin gia hạn để thanh toán.");
+                              }
+                            }}
+                            loading={processingPayment}
+                          >
+                            Thanh toán
+                          </Button>
+                        );
+                      })()}
+                    </Space>
                   ),
                 },
               ]}
@@ -589,6 +658,60 @@ export default function MyOrderContractTab({
         ) : (
           <Text type="secondary">Không có dữ liệu.</Text>
         )}
+      </Modal>
+
+      {/* ========== ANNEX SIGNING MODAL ========== */}
+      <Modal
+        title="Ký phụ lục gia hạn"
+        open={annexSignModalOpen}
+        onCancel={() => {
+          setAnnexSignModalOpen(false);
+          setCurrentAnnexId(null);
+          setCurrentAnnexContractId(null);
+          setAnnexPinSent(false);
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form layout="vertical" onFinish={annexPinSent ? handleAnnexSign : sendAnnexPin}>
+          {!annexPinSent ? (
+            <>
+              <Text>Email nhận mã PIN: <strong>{annexSigningEmail || customerProfile?.email || "Chưa cập nhật"}</strong></Text>
+              <Divider />
+              <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+                <Button
+                  onClick={() => {
+                    setAnnexSignModalOpen(false);
+                    setCurrentAnnexId(null);
+                    setCurrentAnnexContractId(null);
+                    setAnnexPinSent(false);
+                  }}
+                >
+                  Hủy
+                </Button>
+                <Button type="primary" htmlType="submit" loading={signingAnnex} disabled={!annexSigningEmail && !customerProfile?.email}>
+                  Gửi mã PIN
+                </Button>
+              </Space>
+            </>
+          ) : (
+            <>
+              <Form.Item
+                label="Mã PIN"
+                name="pinCode"
+                rules={[{ required: true, message: "Vui lòng nhập mã PIN" }, { min: 6, message: "Ít nhất 6 ký tự" }]}
+              >
+                <Input placeholder="Nhập mã PIN" maxLength={10} />
+              </Form.Item>
+              <Space style={{ justifyContent: "space-between", width: "100%" }}>
+                <Button onClick={() => setAnnexPinSent(false)}>Quay lại</Button>
+                <Button type="primary" htmlType="submit" loading={annexSigning}>
+                  Ký phụ lục
+                </Button>
+              </Space>
+            </>
+          )}
+        </Form>
       </Modal>
     </div>
   );

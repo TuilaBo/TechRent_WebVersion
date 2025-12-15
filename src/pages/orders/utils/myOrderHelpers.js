@@ -103,6 +103,8 @@ export function mapOrderFromApi(order) {
         contractFileName: order?.contractFileName ?? `${displayId}.pdf`,
         // Allocated devices for complaints tab
         allocatedDevices: order?.allocatedDevices || [],
+        // Extensions (gia hạn đơn thuê)
+        extensions: order?.extensions || [],
     };
 }
 

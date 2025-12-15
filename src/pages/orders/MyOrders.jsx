@@ -25,7 +25,7 @@ import {
 } from "../../lib/handoverReportApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
 import { getComplaintsByOrderId, createComplaint } from "../../lib/complaints";
-import { getAnnexesByContractId } from "../../lib/annexes";
+import { getAnnexesByContractId, sendAnnexPinEmail, signAnnexAsCustomer } from "../../lib/annexes";
 import {
   augmentContractContent,
 } from "../../lib/contractPrintUtils";
@@ -174,6 +174,18 @@ export default function MyOrders() {
   const [annexDetailOpen, setAnnexDetailOpen] = useState(false);
   const [annexPdfBlobUrl, setAnnexPdfBlobUrl] = useState("");
   const [annexPdfGenerating, setAnnexPdfGenerating] = useState(false);
+  // Annex signing states
+  const [annexSignModalOpen, setAnnexSignModalOpen] = useState(false);
+  const [currentAnnexId, setCurrentAnnexId] = useState(null);
+  const [currentAnnexContractId, setCurrentAnnexContractId] = useState(null);
+  const [annexPinSent, setAnnexPinSent] = useState(false);
+  const [signingAnnex, setSigningAnnex] = useState(false);
+  const [annexSigning, setAnnexSigning] = useState(false);
+  const [pendingExtensionPayment, setPendingExtensionPayment] = useState(null);
+  const [annexSigningEmail, setAnnexSigningEmail] = useState(""); // Store email for modal display
+  const [extensionPaymentModalOpen, setExtensionPaymentModalOpen] = useState(false);
+  const [extensionPaymentMethod, setExtensionPaymentMethod] = useState("VNPAY");
+
 
   const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
     // Load from localStorage on init
@@ -1296,6 +1308,181 @@ export default function MyOrders() {
     }
   };
 
+  // ========== ANNEX SIGNING HANDLERS ==========
+  
+  /** Open annex signing modal - similar to handleSignContract */
+  const handleSignAnnex = async (annex) => {
+    if (!annex || !annex.annexId) {
+      message.error("ID phụ lục không hợp lệ");
+      return;
+    }
+    
+    let profile = customerProfile;
+    if (!profile) {
+      try {
+        const loaded = await fetchMyCustomerProfile();
+        profile = normalizeCustomer(loaded || {});
+        setCustomerProfile(profile);
+      } catch {
+        message.error("Không thể tải thông tin khách hàng.");
+        return;
+      }
+    }
+    
+    if (!profile?.email) {
+      message.error("Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin cá nhân.");
+      return;
+    }
+    
+    // Find the matching extension for payment
+    const matchingExtension = orderExtensions.find(ext => ext.extensionId === annex.extensionId);
+    setPendingExtensionPayment(matchingExtension || null);
+    
+    // Store email for modal display
+    setAnnexSigningEmail(profile.email || "");
+    
+    setCurrentAnnexId(annex.annexId);
+    setCurrentAnnexContractId(annex.contractId);
+    setAnnexSignModalOpen(true);
+    setAnnexPinSent(false);
+  };
+
+  /** Send PIN for annex signing */
+  const sendAnnexPin = async () => {
+    if (!currentAnnexId || !currentAnnexContractId || !customerProfile?.email) {
+      message.error("Không tìm thấy email để gửi mã PIN.");
+      return;
+    }
+    
+    try {
+      setSigningAnnex(true);
+      await sendAnnexPinEmail(currentAnnexContractId, currentAnnexId, customerProfile.email);
+      message.success("Đã gửi mã PIN đến email của bạn!");
+      setAnnexPinSent(true);
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Không gửi được mã PIN.");
+    } finally {
+      setSigningAnnex(false);
+    }
+  };
+
+  /** Sign annex with PIN */
+  const handleAnnexSign = async (values) => {
+    if (!currentAnnexId || !currentAnnexContractId) {
+      message.error("Không tìm thấy phụ lục để ký.");
+      return;
+    }
+    
+    try {
+      setAnnexSigning(true);
+      await signAnnexAsCustomer(currentAnnexContractId, currentAnnexId, {
+        pinCode: values.pinCode,
+        signatureMethod: "EMAIL_OTP",
+      });
+      
+      message.success("Ký phụ lục thành công!");
+      setAnnexSignModalOpen(false);
+      setCurrentAnnexId(null);
+      setCurrentAnnexContractId(null);
+      setAnnexPinSent(false);
+      
+      // Reload annexes
+      const signedContract = contracts.find(c => {
+        const status = String(c.status || "").toUpperCase();
+        return status === "SIGNED" || status === "ACTIVE";
+      });
+      if (signedContract?.id) {
+        await loadOrderAnnexes(signedContract.id);
+      }
+
+      // If there's a pending extension payment, prompt for payment
+      if (pendingExtensionPayment && pendingExtensionPayment.additionalPrice > 0) {
+        Modal.confirm({
+          title: "Thanh toán phí gia hạn",
+          content: `Bạn đã ký phụ lục thành công. Vui lòng thanh toán phí gia hạn ${Number(pendingExtensionPayment.additionalPrice || 0).toLocaleString("vi-VN")} ₫ để hoàn tất.`,
+          okText: "Thanh toán ngay",
+          cancelText: "Để sau",
+          onOk: () => confirmExtensionPayment(pendingExtensionPayment),
+        });
+      }
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Không thể ký phụ lục.");
+    } finally {
+      setAnnexSigning(false);
+    }
+  };
+
+  /** Open modal to select payment method for extension */
+  const confirmExtensionPayment = (extension) => {
+    if (!extension || !current?.id) {
+      message.error("Không có thông tin gia hạn để thanh toán.");
+      return;
+    }
+    
+    const additionalPrice = Number(extension.additionalPrice || extension.extensionFee || 0);
+    if (additionalPrice <= 0) {
+      message.warning("Không có phí gia hạn cần thanh toán.");
+      return;
+    }
+    
+    // Store pending extension payment and open modal
+    setPendingExtensionPayment(extension);
+    setExtensionPaymentMethod("VNPAY");
+    setExtensionPaymentModalOpen(true);
+  };
+
+  /** Execute payment for extension with selected payment method */
+  const executeExtensionPayment = async () => {
+    const extension = pendingExtensionPayment;
+    if (!extension || !current?.id) {
+      message.error("Không có thông tin gia hạn để thanh toán.");
+      return;
+    }
+    
+    const additionalPrice = Number(extension.additionalPrice || extension.extensionFee || 0);
+    
+    try {
+      setProcessingPayment(true);
+      
+      const baseUrl = window.location.origin;
+      const orderIdParam = Number(current.id);
+      const orderCodeParam = current.displayId || current.id;
+      const cancelUrl = `${baseUrl}/payment/cancel?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
+      const frontendSuccessUrl = `${baseUrl}/success?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
+      const frontendFailureUrl = `${baseUrl}/failure?orderId=${orderIdParam}&orderCode=${encodeURIComponent(orderCodeParam)}`;
+
+      const payload = {
+        orderId: orderIdParam,
+        extensionId: extension.extensionId,  // Add extensionId required by backend
+        invoiceType: "RENT_PAYMENT",
+        paymentMethod: extensionPaymentMethod,
+        amount: additionalPrice,
+        description: `Thanh toán gia hạn đơn hàng #${orderCodeParam} - Extension #${extension.extensionId}`,
+        cancelUrl,
+        frontendSuccessUrl,
+        frontendFailureUrl,
+      };
+
+      const result = await createPayment(payload);
+      const redirectUrl = result?.checkoutUrl || result?.payUrl || result?.deeplink || result?.qrUrl;
+      
+      if (redirectUrl) {
+        localStorage.setItem("pendingPaymentOrderId", String(orderIdParam));
+        localStorage.setItem("pendingPaymentOrderCode", String(orderCodeParam));
+        window.location.href = redirectUrl;
+      } else {
+        message.error("Không nhận được link thanh toán từ hệ thống.");
+      }
+    } catch (error) {
+      console.error("Error creating extension payment:", error);
+      message.error(error?.response?.data?.message || error?.message || "Không thể tạo thanh toán.");
+    } finally {
+      setProcessingPayment(false);
+      setExtensionPaymentModalOpen(false);
+      setPendingExtensionPayment(null);
+    }
+  };
+
   // ========== HANDLERS FROM HOOK ==========
   // Called here (after loadOrder* functions are defined) to avoid "can't access before initialization" error
   const handlers = useMyOrdersHandlers({
@@ -1915,7 +2102,63 @@ export default function MyOrders() {
         annexPdfBlobUrl={annexPdfBlobUrl}
         annexPdfGenerating={annexPdfGenerating}
         previewAnnexAsPdf={previewAnnexAsPdf}
+        // Annex signing props
+        handleSignAnnex={handleSignAnnex}
+        annexSignModalOpen={annexSignModalOpen}
+        setAnnexSignModalOpen={setAnnexSignModalOpen}
+        currentAnnexId={currentAnnexId}
+        annexPinSent={annexPinSent}
+        signingAnnex={signingAnnex}
+        annexSigning={annexSigning}
+        sendAnnexPin={sendAnnexPin}
+        handleAnnexSign={handleAnnexSign}
+        confirmExtensionPayment={confirmExtensionPayment}
+        customerProfile={customerProfile}
+        annexSigningEmail={annexSigningEmail}
       />
+
+      {/* Extension Payment Modal */}
+      <Modal
+        title="Thanh toán gia hạn"
+        open={extensionPaymentModalOpen}
+        onCancel={() => {
+          setExtensionPaymentModalOpen(false);
+          setPendingExtensionPayment(null);
+        }}
+        onOk={executeExtensionPayment}
+        okText="Thanh toán"
+        cancelText="Hủy"
+        confirmLoading={processingPayment}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Typography.Text strong>
+            Số tiền thanh toán: {formatVND(Number(pendingExtensionPayment?.additionalPrice || pendingExtensionPayment?.extensionFee || 0))}
+          </Typography.Text>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <Typography.Text>Chọn phương thức thanh toán:</Typography.Text>
+        </div>
+        <Radio.Group
+          value={extensionPaymentMethod}
+          onChange={(e) => setExtensionPaymentMethod(e.target.value)}
+          style={{ width: "100%" }}
+        >
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <Radio value="VNPAY" style={{ padding: "12px", border: "1px solid #d9d9d9", borderRadius: 8, width: "100%" }}>
+              <Space>
+                <img src="/icons/vnpay.png" alt="VNPay" style={{ width: 32, height: 32 }} onError={(e) => e.target.style.display = 'none'} />
+                <span>VNPay</span>
+              </Space>
+            </Radio>
+            <Radio value="PAYOS" style={{ padding: "12px", border: "1px solid #d9d9d9", borderRadius: 8, width: "100%" }}>
+              <Space>
+                <img src="/icons/payos.png" alt="PayOS" style={{ width: 32, height: 32 }} onError={(e) => e.target.style.display = 'none'} />
+                <span>PayOS</span>
+              </Space>
+            </Radio>
+          </Space>
+        </Radio.Group>
+      </Modal>
     </>
   );
 }

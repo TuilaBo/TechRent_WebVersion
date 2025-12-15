@@ -184,6 +184,18 @@ export default function MyOrderDetailDrawer({
     annexPdfBlobUrl,
     annexPdfGenerating,
     previewAnnexAsPdf,
+    // Annex signing props
+    handleSignAnnex,
+    annexSignModalOpen,
+    setAnnexSignModalOpen,
+    currentAnnexId,
+    annexPinSent,
+    signingAnnex,
+    annexSigning,
+    sendAnnexPin,
+    handleAnnexSign,
+    confirmExtensionPayment,
+    annexSigningEmail,
 }) {
     return (
         <>
@@ -558,6 +570,20 @@ export default function MyOrderDetailDrawer({
                                     annexPdfBlobUrl={annexPdfBlobUrl}
                                     annexPdfGenerating={annexPdfGenerating}
                                     previewAnnexAsPdf={previewAnnexAsPdf}
+                                    // Annex signing props
+                                    handleSignAnnex={handleSignAnnex}
+                                    annexSignModalOpen={annexSignModalOpen}
+                                    setAnnexSignModalOpen={setAnnexSignModalOpen}
+                                    currentAnnexId={currentAnnexId}
+                                    annexPinSent={annexPinSent}
+                                    signingAnnex={signingAnnex}
+                                    annexSigning={annexSigning}
+                                    sendAnnexPin={sendAnnexPin}
+                                    handleAnnexSign={handleAnnexSign}
+                                    customerProfile={customerProfile}
+                                    annexSigningEmail={annexSigningEmail}
+                                    confirmExtensionPayment={confirmExtensionPayment}
+                                    processingPayment={processingPayment}
                                 />
                             ),
                         },

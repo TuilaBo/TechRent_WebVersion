@@ -587,7 +587,7 @@ const contractStatusTag = (status) => {
     case "PENDING_ADMIN_SIGNATURE":
       return <Tag color="orange">Chờ ký (admin)</Tag>;
     case "SIGNED":
-      return <Tag color="green">Đã ký</Tag>;
+      return <Tag color="green">2 bên đã ký</Tag>;
     case "ACTIVE":
       return <Tag color="green">2 bên đã ký</Tag>;
     case "EXPIRED":

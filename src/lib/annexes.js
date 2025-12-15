@@ -148,12 +148,19 @@ export async function signAnnexAsAdmin(contractId, annexId, signatureData) {
  * @returns {Promise<Object>} Annex đã ký
  */
 export async function signAnnexAsCustomer(contractId, annexId, signatureData) {
+  const pin = signatureData.pinCode ?? "";
+  const method = signatureData.signatureMethod ?? "EMAIL_OTP";
+  // If digitalSignature is empty, use pinCode as signature for EMAIL_OTP method
+  const digital =
+    String(signatureData.digitalSignature ?? "").trim() ||
+    (method === "EMAIL_OTP" ? String(pin) : "SIGNED_BY_CUSTOMER");
+
   const payload = {
-    digitalSignature: signatureData.digitalSignature ?? "",
-    signatureMethod: signatureData.signatureMethod ?? "EMAIL_OTP",
+    digitalSignature: digital,
+    signatureMethod: method,
     deviceInfo: signatureData.deviceInfo ?? "",
     ipAddress: signatureData.ipAddress ?? "",
-    pinCode: signatureData.pinCode ?? "",
+    pinCode: pin,
   };
   
   const { data } = await api.post(
@@ -163,3 +170,4 @@ export async function signAnnexAsCustomer(contractId, annexId, signatureData) {
   const result = data?.data ?? data ?? null;
   return result ? normalizeAnnex(result) : null;
 }
+

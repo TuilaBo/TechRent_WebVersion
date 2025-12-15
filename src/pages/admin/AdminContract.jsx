@@ -396,8 +396,8 @@ function statusTag(s) {
   const v = String(s || "").toUpperCase();
   if (v === "PENDING_SIGNATURE") return <Tag color="gold">Chờ khách hàng ký</Tag>;
   if (v === "PENDING_ADMIN_SIGNATURE") return <Tag color="orange">Chờ ký (admin)</Tag>;
-  if (v === "ACTIVE") return <Tag color="green">Đã ký</Tag>;
-  if (v.includes("SIGNED")) return <Tag color="green">Đã ký</Tag>;
+  if (v === "ACTIVE") return <Tag color="green">2 bên đã ký</Tag>;
+  if (v.includes("SIGNED")) return <Tag color="green">2 bên đã ký</Tag>;
   if (v.includes("DRAFT")) return <Tag color="default">Nháp</Tag>;
   if (v.includes("EXPIRED")) return <Tag color="red">Hết hạn</Tag>;
   return <Tag>{v || "—"}</Tag>;
