@@ -25,6 +25,7 @@ import {
 } from "../../lib/handoverReportApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
 import { getComplaintsByOrderId, createComplaint } from "../../lib/complaints";
+import { getAnnexesByContractId } from "../../lib/annexes";
 import {
   augmentContractContent,
 } from "../../lib/contractPrintUtils";
@@ -161,6 +162,18 @@ export default function MyOrders() {
   const [complaints, setComplaints] = useState([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
   const [creatingComplaint, setCreatingComplaint] = useState(false);
+
+  // Extensions state (Gia hạn đơn thuê)
+  const [orderExtensions, setOrderExtensions] = useState([]);
+  const [extensionsLoading, setExtensionsLoading] = useState(false);
+
+  // Annexes state (Phụ lục gia hạn hợp đồng)
+  const [orderAnnexes, setOrderAnnexes] = useState([]);
+  const [annexesLoading, setAnnexesLoading] = useState(false);
+  const [annexDetail, setAnnexDetail] = useState(null);
+  const [annexDetailOpen, setAnnexDetailOpen] = useState(false);
+  const [annexPdfBlobUrl, setAnnexPdfBlobUrl] = useState("");
+  const [annexPdfGenerating, setAnnexPdfGenerating] = useState(false);
 
   const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
     // Load from localStorage on init
@@ -902,6 +915,9 @@ export default function MyOrders() {
         loadOrderComplaints(idNum)
       ]);
 
+      // Load extensions from order data (sync - from record.extensions)
+      loadOrderExtensions(record);
+
       // Mark data as fully loaded AND open drawer - all tabs appear at once
       setDetailDataReady(true);
       setDetailOpen(true);
@@ -992,6 +1008,17 @@ export default function MyOrders() {
 
       if (contractUrl) setPdfPreviewUrl(contractUrl);
       else setPdfPreviewUrl("");
+
+      // Load annexes for first signed contract
+      const signedContract = orderContracts.find(c => {
+        const status = String(c.status || "").toUpperCase();
+        return status === "SIGNED" || status === "ACTIVE";
+      });
+      if (signedContract?.id) {
+        loadOrderAnnexes(signedContract.id);
+      } else {
+        setOrderAnnexes([]);
+      }
     } catch (e) {
       console.error("Failed to filter order contracts:", e);
       setContracts([]);
@@ -1133,6 +1160,139 @@ export default function MyOrders() {
   const handleRefreshComplaints = async () => {
     if (current?.id) {
       await loadOrderComplaints(current.id);
+    }
+  };
+
+  // ========== EXTENSIONS (Gia hạn đơn thuê) ==========
+  const loadOrderExtensions = (order) => {
+    const extensions = order?.extensions || [];
+    setOrderExtensions(Array.isArray(extensions) ? extensions : []);
+  };
+
+  // ========== ANNEXES (Phụ lục gia hạn hợp đồng) ==========
+  const loadOrderAnnexes = async (contractId) => {
+    if (!contractId) {
+      setOrderAnnexes([]);
+      return;
+    }
+    try {
+      setAnnexesLoading(true);
+      const annexes = await getAnnexesByContractId(contractId);
+      setOrderAnnexes(Array.isArray(annexes) ? annexes : []);
+    } catch (e) {
+      console.error("Failed to fetch annexes:", e);
+      setOrderAnnexes([]);
+    } finally {
+      setAnnexesLoading(false);
+    }
+  };
+
+  /** Format annexContent text - convert ISO dates and money values */
+  const formatAnnexContent = (content) => {
+    if (!content) return "";
+    let formatted = content;
+    formatted = formatted.replace(
+      /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(:\d{2}(\.\d+)?)?/g,
+      (match, year, month, day, hour, minute) => `${day}/${month}/${year} ${hour}:${minute}`
+    );
+    formatted = formatted.replace(
+      /(\d+)(\.\d{2})?\s*VND/g,
+      (match, amount) => {
+        const num = parseInt(amount, 10);
+        return num.toLocaleString("vi-VN") + " VNĐ";
+      }
+    );
+    return formatted;
+  };
+
+  /** Build printable HTML for Annex */
+  const buildPrintableAnnexHtml = (annex, customer = null) => {
+    if (!annex) return "<div>Không có dữ liệu phụ lục</div>";
+    const title = annex.title || "PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ THIẾT BỊ";
+    const annexNumber = annex.annexNumber || "";
+    const contractNumber = annex.contractNumber || "";
+    const customerName = customer?.fullName || customer?.name || `Khách hàng #${annex.originalOrderId || ""}`;
+    const fmtDate = (d) => d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—";
+    const fmtMoney = (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "0 ₫");
+    const adminSigned = !!annex.adminSignedAt;
+    const customerSigned = !!annex.customerSignedAt;
+
+    return `
+      <div style="width:794px;margin:0 auto;background:#fff;color:#111;font-family:Inter,Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;padding:32px 40px;box-sizing:border-box;">
+        <div style="text-align:center;margin-bottom:12px">
+          <div style="font-size:20px;font-weight:700;letter-spacing:.5px">${title}</div>
+          <div style="color:#666;margin-top:4px">Số: ${annexNumber}</div>
+        </div>
+        <hr style="border:none;border-top:1px solid #e8e8e8;margin:12px 0 16px"/>
+        <section style="background:#fafafa;padding:12px;border-radius:6px;margin-bottom:16px">
+          <div><b>Căn cứ hợp đồng số:</b> ${contractNumber}</div>
+          <div><b>Đơn hàng:</b> #${annex.originalOrderId || "—"}</div>
+          <div><b>Bên A (Bên cho thuê):</b> CÔNG TY TECHRENT</div>
+          <div><b>Bên B (Khách hàng):</b> ${customerName}</div>
+        </section>
+        <section style="margin:16px 0">
+          <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Nội dung gia hạn</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5;width:40%"><b>Thời gian gia hạn</b></td><td style="padding:6px 8px;border:1px solid #ddd">${fmtDate(annex.extensionStartDate)} → ${fmtDate(annex.extensionEndDate)}</td></tr>
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Số ngày gia hạn</b></td><td style="padding:6px 8px;border:1px solid #ddd">${annex.extensionDays || 0} ngày</td></tr>
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Phí gia hạn</b></td><td style="padding:6px 8px;border:1px solid #ddd">${fmtMoney(annex.extensionFee)}</td></tr>
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Tổng thanh toán</b></td><td style="padding:6px 8px;border:1px solid #ddd;font-weight:bold;color:#1890ff">${fmtMoney(annex.extensionFee)}</td></tr>
+          </table>
+        </section>
+        ${annex.annexContent ? `
+        <section style="margin:16px 0">
+          <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Điều khoản phụ lục</h3>
+          <div style="background:#fafafa;padding:12px;border-radius:6px;white-space:pre-wrap;font-size:12px;line-height:1.7">${formatAnnexContent(annex.annexContent)}</div>
+        </section>` : ""}
+        <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN B</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">${customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}</div>
+            <div>${customerSigned ? `<div style="color:#000;font-weight:600">${customerName}</div>` : "(Ký, ghi rõ họ tên)"}</div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN A</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">${adminSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}</div>
+            <div>${adminSigned ? '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>' : "(Ký, ghi rõ họ tên)"}</div>
+          </div>
+        </section>
+        <div style="text-align:center;margin-top:20px;font-size:11px;color:#888">Ngày hiệu lực: ${fmtDate(annex.effectiveDate)} | Ngày phát hành: ${fmtDate(annex.issuedAt)}</div>
+      </div>
+    `;
+  };
+
+  /** Preview Annex as PDF */
+  const previewAnnexAsPdf = async (annex) => {
+    if (!annex) return message.warning("Chưa có dữ liệu phụ lục.");
+    try {
+      setAnnexPdfGenerating(true);
+      if (annexPdfBlobUrl) {
+        try { URL.revokeObjectURL(annexPdfBlobUrl); } catch (e) {}
+      }
+      const tempContainer = document.createElement("div");
+      tempContainer.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;";
+      tempContainer.innerHTML = buildPrintableAnnexHtml(annex, customerProfile);
+      document.body.appendChild(tempContainer);
+      try {
+        // Use html2canvas + jsPDF
+        const canvas = await import("html2canvas").then(m => m.default(tempContainer, { scale: 2, useCORS: true, allowTaint: true }));
+        const imgData = canvas.toDataURL("image/png");
+        const { default: jsPDF } = await import("jspdf");
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+        const blob = pdf.output("blob");
+        const url = URL.createObjectURL(blob);
+        setAnnexPdfBlobUrl(url);
+      } finally {
+        document.body.removeChild(tempContainer);
+      }
+    } catch (e) {
+      console.error(e);
+      message.error("Không tạo được bản xem trước PDF phụ lục.");
+    } finally {
+      setAnnexPdfGenerating(false);
     }
   };
 
@@ -1742,6 +1902,19 @@ export default function MyOrders() {
 
         // Refs
         handoverPrintRef={handoverPrintRef}
+
+        // Extensions & Annexes
+        orderExtensions={orderExtensions}
+        extensionsLoading={extensionsLoading}
+        orderAnnexes={orderAnnexes}
+        annexesLoading={annexesLoading}
+        annexDetail={annexDetail}
+        setAnnexDetail={setAnnexDetail}
+        annexDetailOpen={annexDetailOpen}
+        setAnnexDetailOpen={setAnnexDetailOpen}
+        annexPdfBlobUrl={annexPdfBlobUrl}
+        annexPdfGenerating={annexPdfGenerating}
+        previewAnnexAsPdf={previewAnnexAsPdf}
       />
     </>
   );

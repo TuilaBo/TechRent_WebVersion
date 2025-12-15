@@ -171,6 +171,19 @@ export default function MyOrderDetailDrawer({
 
     // Refs
     handoverPrintRef,
+
+    // Extensions & Annexes
+    orderExtensions,
+    extensionsLoading,
+    orderAnnexes,
+    annexesLoading,
+    annexDetail,
+    setAnnexDetail,
+    annexDetailOpen,
+    setAnnexDetailOpen,
+    annexPdfBlobUrl,
+    annexPdfGenerating,
+    previewAnnexAsPdf,
 }) {
     return (
         <>
@@ -533,6 +546,18 @@ export default function MyOrderDetailDrawer({
                                     mapInvoiceStatusToPaymentStatus={mapInvoiceStatusToPaymentStatus}
                                     message={message}
                                     pdfPreviewUrl={pdfPreviewUrl}
+                                    // Extensions & Annexes
+                                    orderExtensions={orderExtensions}
+                                    extensionsLoading={extensionsLoading}
+                                    orderAnnexes={orderAnnexes}
+                                    annexesLoading={annexesLoading}
+                                    annexDetail={annexDetail}
+                                    setAnnexDetail={setAnnexDetail}
+                                    annexDetailOpen={annexDetailOpen}
+                                    setAnnexDetailOpen={setAnnexDetailOpen}
+                                    annexPdfBlobUrl={annexPdfBlobUrl}
+                                    annexPdfGenerating={annexPdfGenerating}
+                                    previewAnnexAsPdf={previewAnnexAsPdf}
                                 />
                             ),
                         },

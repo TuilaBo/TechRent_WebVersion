@@ -1,14 +1,34 @@
 import React from "react";
-import { Card, Table, Space, Button, Tag, Typography } from "antd";
+import { Card, Table, Space, Button, Tag, Typography, Divider, Skeleton, Modal, Row, Col } from "antd";
 import {
   EyeOutlined,
   DownloadOutlined,
   ExpandOutlined,
   DollarOutlined,
   FilePdfOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
+import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
+
+// Extension status mapping
+const EXTENSION_STATUS_MAP = {
+  PROCESSING: { label: "Đang xử lý", color: "blue" },
+  COMPLETED: { label: "Hoàn thành", color: "green" },
+  DONE: { label: "Hoàn thành", color: "green" },
+  PENDING: { label: "Chờ xử lý", color: "orange" },
+  CANCELLED: { label: "Đã hủy", color: "red" },
+};
+
+// Annex status mapping
+const ANNEX_STATUS_MAP = {
+  PENDING_ADMIN_SIGNATURE: { label: "Chờ admin ký", color: "orange" },
+  PENDING_CUSTOMER_SIGNATURE: { label: "Chờ khách hàng ký", color: "gold" },
+  SIGNED: { label: "Đã ký", color: "green" },
+  ACTIVE: { label: "Có hiệu lực", color: "green" },
+  CANCELLED: { label: "Đã hủy", color: "red" },
+};
 
 export default function MyOrderContractTab({
   current,
@@ -31,6 +51,18 @@ export default function MyOrderContractTab({
   mapInvoiceStatusToPaymentStatus,
   message,
   pdfPreviewUrl,
+  // Extensions & Annexes
+  orderExtensions = [],
+  extensionsLoading = false,
+  orderAnnexes = [],
+  annexesLoading = false,
+  annexDetail,
+  setAnnexDetail,
+  annexDetailOpen,
+  setAnnexDetailOpen,
+  annexPdfBlobUrl,
+  annexPdfGenerating,
+  previewAnnexAsPdf,
 }) {
   // Ẩn các hợp đồng ở trạng thái "Nháp" đối với khách hàng
   const visibleContracts = Array.isArray(contracts)
@@ -38,6 +70,18 @@ export default function MyOrderContractTab({
         (c) => String(c?.status || "").toUpperCase() !== "DRAFT"
       )
     : [];
+
+  const renderExtensionStatus = (status) => {
+    const s = String(status || "").toUpperCase();
+    const config = EXTENSION_STATUS_MAP[s] || { label: status || "—", color: "default" };
+    return <Tag color={config.color}>{config.label}</Tag>;
+  };
+
+  const renderAnnexStatus = (status) => {
+    const s = String(status || "").toUpperCase();
+    const config = ANNEX_STATUS_MAP[s] || { label: status || "—", color: "default" };
+    return <Tag color={config.color}>{config.label}</Tag>;
+  };
 
   return (
     <div style={{ padding: 24 }}>
@@ -219,6 +263,159 @@ export default function MyOrderContractTab({
         })()}
       </Card>
 
+      {/* ========== GIA HẠN ĐƠN THUÊ ========== */}
+      {orderExtensions.length > 0 && (
+        <Card
+          style={{
+            marginBottom: 24,
+            borderRadius: 12,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            border: "1px solid #e8e8e8",
+          }}
+          title={
+            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+              Gia hạn đơn thuê
+            </Title>
+          }
+        >
+          {extensionsLoading ? (
+            <Skeleton active paragraph={{ rows: 2 }} />
+          ) : (
+            <Table
+              rowKey="extensionId"
+              columns={[
+                {
+                  title: "ID",
+                  dataIndex: "extensionId",
+                  width: 60,
+                  render: (v) => <strong>#{v}</strong>,
+                },
+                {
+                  title: "Thời gian gia hạn",
+                  key: "extensionPeriod",
+                  width: 200,
+                  render: (_, record) => (
+                    <span>
+                      {record.extensionStart ? dayjs(record.extensionStart).format("DD/MM/YYYY HH:mm") : "—"}
+                      {" → "}
+                      {record.extensionEnd ? dayjs(record.extensionEnd).format("DD/MM/YYYY HH:mm") : "—"}
+                    </span>
+                  ),
+                },
+                {
+                  title: "Số ngày",
+                  dataIndex: "durationDays",
+                  width: 80,
+                  align: "center",
+                  render: (v) => `${v || 0} ngày`,
+                },
+                {
+                  title: "Phí thêm",
+                  dataIndex: "additionalPrice",
+                  width: 120,
+                  align: "right",
+                  render: (v) => formatVND(v || 0),
+                },
+                {
+                  title: "Ngày tạo",
+                  dataIndex: "createdAt",
+                  width: 130,
+                  render: (v) => v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "—",
+                },
+                {
+                  title: "Trạng thái",
+                  dataIndex: "status",
+                  width: 120,
+                  render: renderExtensionStatus,
+                },
+              ]}
+              dataSource={orderExtensions}
+              pagination={false}
+              size="small"
+            />
+          )}
+        </Card>
+      )}
+
+      {/* ========== PHỤ LỤC GIA HẠN HỢP ĐỒNG ========== */}
+      {orderAnnexes.length > 0 && (
+        <Card
+          style={{
+            marginBottom: 24,
+            borderRadius: 12,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            border: "1px solid #e8e8e8",
+          }}
+          title={
+            <Title level={5} style={{ margin: 0, color: "#1a1a1a" }}>
+              Phụ lục gia hạn hợp đồng
+            </Title>
+          }
+        >
+          {annexesLoading ? (
+            <Skeleton active paragraph={{ rows: 2 }} />
+          ) : (
+            <Table
+              rowKey="annexId"
+              columns={[
+                {
+                  title: "ID",
+                  dataIndex: "annexId",
+                  width: 80,
+                  render: (v) => <strong>#{v || "—"}</strong>,
+                },
+                {
+                  title: "Thời gian gia hạn",
+                  key: "extensionPeriod",
+                  width: 180,
+                  render: (_, record) => (
+                    <span>
+                      {record.extensionStartDate ? dayjs(record.extensionStartDate).format("DD/MM/YYYY") : "—"}
+                      {" → "}
+                      {record.extensionEndDate ? dayjs(record.extensionEndDate).format("DD/MM/YYYY") : "—"}
+                    </span>
+                  ),
+                },
+                {
+                  title: "Phí gia hạn",
+                  dataIndex: "extensionFee",
+                  width: 120,
+                  render: (v) => formatVND(v || 0),
+                },
+                {
+                  title: "Trạng thái",
+                  dataIndex: "status",
+                  width: 140,
+                  render: renderAnnexStatus,
+                },
+                {
+                  title: "Thao tác",
+                  key: "action",
+                  width: 100,
+                  render: (_, record) => (
+                    <Button
+                      size="small"
+                      icon={<EyeOutlined />}
+                      onClick={() => {
+                        setAnnexDetail(record);
+                        setAnnexDetailOpen(true);
+                        previewAnnexAsPdf(record);
+                      }}
+                    >
+                      Xem
+                    </Button>
+                  ),
+                },
+              ]}
+              dataSource={orderAnnexes}
+              pagination={false}
+              size="small"
+            />
+          )}
+        </Card>
+      )}
+
+      {/* ========== HỢP ĐỒNG PDF ========== */}
       <Card
         style={{
           borderRadius: 12,
@@ -324,8 +521,75 @@ export default function MyOrderContractTab({
           )}
         </div>
       </Card>
+
+      {/* ========== MODAL XEM PHỤ LỤC PDF ========== */}
+      <Modal
+        title={`Chi tiết phụ lục: ${annexDetail?.annexNumber || annexDetail?.annexId || ""}`}
+        open={annexDetailOpen}
+        onCancel={() => {
+          setAnnexDetailOpen(false);
+          setAnnexDetail(null);
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setAnnexDetailOpen(false);
+            setAnnexDetail(null);
+          }}>Đóng</Button>,
+        ]}
+        width={900}
+        style={{ top: 20 }}
+      >
+        {annexDetail ? (
+          <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
+            <Title level={5} style={{ marginBottom: 16 }}>Phụ lục PDF</Title>
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Button
+                icon={<ExpandOutlined />}
+                onClick={() => {
+                  return annexPdfBlobUrl
+                    ? window.open(annexPdfBlobUrl, "_blank", "noopener")
+                    : message.warning("Đang tạo PDF, vui lòng chờ...");
+                }}
+              >Xem toàn màn hình</Button>
+              {annexPdfBlobUrl && (
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={() => {
+                    const link = document.createElement("a");
+                    link.href = annexPdfBlobUrl;
+                    link.download = `Phu-luc-${annexDetail.annexNumber || annexDetail.annexId}.pdf`;
+                    link.click();
+                  }}
+                >Tải phụ lục</Button>
+              )}
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => previewAnnexAsPdf(annexDetail)}
+                loading={annexPdfGenerating}
+              >Tạo lại PDF</Button>
+            </Space>
+
+            {/* PDF Preview */}
+            <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, overflow: "hidden", height: 500 }}>
+              {annexPdfGenerating ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+                  <Skeleton.Button active style={{ width: 200, height: 20 }} />
+                  <Text type="secondary">Đang tạo PDF phụ lục...</Text>
+                </div>
+              ) : annexPdfBlobUrl ? (
+                <iframe src={annexPdfBlobUrl} title="Annex PDF Preview" style={{ width: "100%", height: "100%", border: "none" }} />
+              ) : (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Text type="secondary"><FilePdfOutlined /> Nhấn "Tạo lại PDF" để xem phụ lục.</Text>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Text type="secondary">Không có dữ liệu.</Text>
+        )}
+      </Modal>
     </div>
   );
 }
-
-
