@@ -8,6 +8,7 @@ import {
   Modal,
   Form,
   Input,
+  InputNumber,
   Select,
   DatePicker,
   Tag,
@@ -677,13 +678,44 @@ export default function AdminProducts() {
               </Upload.Dragger>
             </Form.Item>
             <Form.Item name="pricePerDay" label="Giá/ngày">
-              <Input type="number" />
+              <InputNumber
+                style={{ width: '100%' }}
+                min={0}
+                formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+                parser={(value) => value.replace(/\./g, '')}
+                addonAfter="VNĐ"
+              />
             </Form.Item>
             <Form.Item name="deviceValue" label="Giá trị thiết bị">
-              <Input type="number" />
+              <InputNumber
+                style={{ width: '100%' }}
+                min={0}
+                formatter={(value) => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+                parser={(value) => value.replace(/\./g, '')}
+                addonAfter="VNĐ"
+              />
             </Form.Item>
-            <Form.Item name="depositPercent" label="Tỉ lệ cọc (0 → 1)">
-              <Input type="number" step="0.01" />
+            <Form.Item 
+              name="depositPercent" 
+              label="Tỉ lệ cọc"
+              tooltip="Nhập số từ 0-100, ví dụ: 10 = 10%"
+            >
+              <InputNumber
+                style={{ width: '100%' }}
+                min={0}
+                max={100}
+                formatter={(value) => {
+                  // Convert 0.1 to 10, 0.5 to 50, etc.
+                  const percent = value && value < 1 ? value * 100 : value;
+                  return `${percent}`;
+                }}
+                parser={(value) => {
+                  // Convert back: store as decimal (10 -> 0.1)
+                  const num = parseFloat(value) || 0;
+                  return num > 1 ? num / 100 : num;
+                }}
+                addonAfter="%"
+              />
             </Form.Item>
             <Form.Item name="active" label="Trạng thái" initialValue={true}>
               <Select

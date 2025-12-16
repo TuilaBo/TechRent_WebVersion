@@ -721,9 +721,6 @@ function revokeBlob(url) {
             <div style="height:72px;display:flex;align-items:center;justify-content:center">${adminSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}</div>
             <div>${adminSigned ? '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>' : "(Ký, ghi rõ họ tên)"}</div>
           </div>
-        </section>
-        <div style="text-align:center;margin-top:20px;font-size:11px;color:#888">Ngày hiệu lực: ${fmtDate(annex.effectiveDate)} | Ngày phát hành: ${fmtDate(annex.issuedAt)}</div>
-      </div>
     `;
   }
 
@@ -1466,7 +1463,7 @@ function revokeBlob(url) {
                         ),
                       },
                       {
-                        title: "Phí",
+                        title: "Phí gia hạn",
                         dataIndex: "extensionFee",
                         width: 120,
                         render: (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "—"),

@@ -188,9 +188,11 @@ export function useMyOrdersHandlers(deps) {
                 setExtendedEndTime(null);
                 await loadOrders();
                 if (current?.id) {
-                    const updatedOrder = await getRentalOrderById(current.id);
-                    if (updatedOrder) {
-                        setCurrent(updatedOrder);
+                    const rawOrder = await getRentalOrderById(current.id);
+                    if (rawOrder) {
+                        // Normalize the API response before setting current
+                        const normalizedOrder = await mapOrderFromApi(rawOrder);
+                        setCurrent(normalizedOrder);
                     }
                 }
             } else {
