@@ -1268,7 +1268,7 @@ export default function MyOrders() {
             <div>${adminSigned ? '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>' : "(Ký, ghi rõ họ tên)"}</div>
           </div>
         </section>
-        <div style="text-align:center;margin-top:20px;font-size:11px;color:#888">Ngày hiệu lực: ${fmtDate(annex.effectiveDate)} | Ngày phát hành: ${fmtDate(annex.issuedAt)}</div>
+  
       </div>
     `;
   };

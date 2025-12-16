@@ -2112,9 +2112,6 @@ export default function OperatorOrders() {
           </div>
         </section>
 
-        <div style="text-align:center;margin-top:20px;font-size:11px;color:#888">
-          Ngày hiệu lực: ${fmtDate(annex.effectiveDate)} | Ngày phát hành: ${fmtDate(annex.issuedAt)}
-        </div>
       </div>
     `;
   }
@@ -3164,7 +3161,7 @@ export default function OperatorOrders() {
                       render: (v) => `${v || 0} ngày`,
                     },
                     {
-                      title: "Phí thêm",
+                      title: "Phí gia hạn",
                       dataIndex: "additionalPrice",
                       width: 120,
                       align: "right",
@@ -3186,6 +3183,9 @@ export default function OperatorOrders() {
                         if (s === "COMPLETED" || s === "DONE") return <Tag color="green">Hoàn thành</Tag>;
                         if (s === "PENDING") return <Tag color="orange">Chờ xử lý</Tag>;
                         if (s === "CANCELLED") return <Tag color="red">Đã hủy</Tag>;
+                        if (s === "IN_USE") return <Tag color="green">Có hiệu lực</Tag>;
+                        if (s === "DRAFT") return <Tag color="default">Đang chờ xử lý</Tag>;
+                        if (s === "PAID") return <Tag color="cyan">Đã thanh toán</Tag>;
                         return <Tag>{v || "—"}</Tag>;
                       },
                     },

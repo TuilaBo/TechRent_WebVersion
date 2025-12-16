@@ -21,6 +21,7 @@ const EXTENSION_STATUS_MAP = {
   CANCELLED: { label: "Đã hủy", color: "red" },
   IN_USE: { label: "Có hiệu lực", color: "green" },
   PAID: { label: "Đã thanh toán", color: "cyan" },
+  DRAFT: { label: "Đang chờ xử lý", color: "default" },
 };
 
 // Annex status mapping
@@ -326,7 +327,7 @@ export default function MyOrderContractTab({
                   render: (v) => `${v || 0} ngày`,
                 },
                 {
-                  title: "Phí thêm",
+                  title: "Phí gia hạn",
                   dataIndex: "additionalPrice",
                   width: 120,
                   align: "right",
@@ -345,7 +346,7 @@ export default function MyOrderContractTab({
                   render: renderExtensionStatus,
                 },
               ]}
-              dataSource={orderExtensions.filter(ext => String(ext.status || "").toUpperCase() !== "DRAFT")}
+              dataSource={orderExtensions}
               pagination={false}
               size="small"
             />
