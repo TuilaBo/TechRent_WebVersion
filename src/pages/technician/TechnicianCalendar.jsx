@@ -39,73 +39,98 @@ import dayjs from "dayjs";
 import isBetween from "dayjs/plugin/isBetween";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
-import {
-    listTasks,
-    getTaskById,
-    normalizeTask,
-    confirmDelivery,
-    confirmRetrieval,
-    getDeviceReplacementReportsByTaskId,
-    getDeviceReplacementReportById,
-    sendDeviceReplacementReportPin,
-    signDeviceReplacementReport,
-    parseComplaintIdFromDescription,
-    uploadDeviceReplacementEvidence,
-} from "../../lib/taskApi";
-import { getStaffComplaintById, updateComplaintFault } from "../../lib/complaints";
-import { getQcReportsByOrderId } from "../../lib/qcReportApi";
-import {
-    TECH_TASK_STATUS,
-    getTechnicianStatusColor,
-    getTaskBadgeStatus,
-} from "../../lib/technicianTaskApi";
-import { getRentalOrderById } from "../../lib/rentalOrdersApi";
-import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
-import { getDeviceModelById, normalizeModel, fmtVND } from "../../lib/deviceModelsApi";
-import {
-    getHandoverReportByOrderIdAndTaskId,
-    getHandoverReportsByOrderId
-} from "../../lib/handoverReportApi";
-import { getActiveTaskRules } from "../../lib/taskRulesApi";
-import { getConditionDefinitions } from "../../lib/condition.js";
-import {
-    getActiveMaintenanceSchedules,
-    getPriorityMaintenanceSchedules,
-    getInactiveMaintenanceSchedules,
-    getMaintenanceScheduleById,
-    updateMaintenanceStatus
-} from "../../lib/maintenanceApi";
-import {
-    buildPrintableReplacementReportHtml,
-    elementToPdfBlobReplacement,
-    translateReplacementStatus,
-} from "../../lib/replacementReportPrintUtils";
-
-// Import utilities and PDF generators from extracted component files
-import {
-    TYPES,
-    taskToDisplay,
-    fmtStatus,
-    fmtDateTime,
-    fmtOrderStatus,
-    isPreRentalQC,
-    isPostRentalQC,
-    isPickupTask,
-    getMaintenanceBadgeStatus,
-    formatDateTime,
-    parseInfoString,
-    translateRole,
-    translateHandoverStatus,
-} from "./TechnicianCalendarComponents/TechnicianCalendarUtils";
-import {
-    buildPrintableHandoverReportHtml,
-    elementToPdfBlob,
-} from "./TechnicianCalendarComponents/PDFGenerator";
-
-dayjs.extend(isBetween);
-
-const { Title, Text } = Typography;
-const { Dragger } = Upload;
+import {
+
+    listTasks,
+
+    getTaskById,
+
+    normalizeTask,
+
+    confirmDelivery,
+
+    confirmRetrieval,
+
+    getDeviceReplacementReportsByTaskId,
+
+    getDeviceReplacementReportById,
+
+    sendDeviceReplacementReportPin,
+
+    signDeviceReplacementReport,
+
+    parseComplaintIdFromDescription,
+
+    uploadDeviceReplacementEvidence,
+
+} from "../../lib/taskApi";
+
+import { getStaffComplaintById, updateComplaintFault } from "../../lib/complaints";
+
+import { getQcReportsByOrderId } from "../../lib/qcReportApi";
+
+import {
+
+    TECH_TASK_STATUS,
+
+    getTechnicianStatusColor,
+
+    getTaskBadgeStatus,
+
+} from "../../lib/technicianTaskApi";
+
+import { getRentalOrderById } from "../../lib/rentalOrdersApi";
+
+import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
+
+import { getDeviceModelById, normalizeModel, fmtVND } from "../../lib/deviceModelsApi";
+
+import {
+    getHandoverReportByOrderIdAndTaskId,
+    getHandoverReportsByOrderId
+} from "../../lib/handoverReportApi";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
+import { getConditionDefinitions } from "../../lib/condition.js";
+import {
+    getActiveMaintenanceSchedules,
+    getPriorityMaintenanceSchedules,
+    getInactiveMaintenanceSchedules,
+    getMaintenanceScheduleById,
+    updateMaintenanceStatus
+} from "../../lib/maintenanceApi";
+import {
+    buildPrintableReplacementReportHtml,
+    elementToPdfBlobReplacement,
+    translateReplacementStatus,
+} from "../../lib/replacementReportPrintUtils";
+
+// Import utilities and PDF generators from extracted component files
+import {
+    TYPES,
+    taskToDisplay,
+    fmtStatus,
+    fmtDateTime,
+    fmtOrderStatus,
+    isPreRentalQC,
+    isPostRentalQC,
+    isPickupTask,
+    getMaintenanceBadgeStatus,
+    formatDateTime,
+    parseInfoString,
+    translateRole,
+    translateHandoverStatus,
+} from "./TechnicianCalendarComponents/TechnicianCalendarUtils";
+import {
+    buildPrintableHandoverReportHtml,
+    elementToPdfBlob,
+} from "./TechnicianCalendarComponents/PDFGenerator";
+import ReplacementResolveButton from "./TechnicianCalendarComponents/ReplacementResolveButton";
+
+
+dayjs.extend(isBetween);
+
+const { Title, Text } = Typography;
+const { Dragger } = Upload;
 
 export default function TechnicianCalendar() {
 
@@ -3273,6 +3298,20 @@ export default function TechnicianCalendar() {
                                     <Text type="secondary">
                                         Ký lúc: {dayjs(replacementReportDetails.staffSignedAt).format("DD/MM/YYYY HH:mm")}
                                     </Text>
+                                </div>
+                            )}
+
+                            {/* Show resolve button when BOTH_SIGNED */}
+                            {replacementReportDetails.status === "BOTH_SIGNED" && (
+                                <div style={{ marginTop: 16 }}>
+                                    <Divider style={{ margin: '16px 0' }}>Hoàn thành thay thế</Divider>
+                                    <ReplacementResolveButton
+                                        complaintId={replacementComplaintId}
+                                        onResolveSuccess={() => {
+                                            setReplacementPinModalOpen(false);
+                                            loadTasks();
+                                        }}
+                                    />
                                 </div>
                             )}
                         </div>
