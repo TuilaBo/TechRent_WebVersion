@@ -479,7 +479,7 @@ export default function MyOrders() {
         // Don't generate PDF yet, let the next condition handle it
         return;
       }
-      
+
       // Generate PDF if report is selected but preview not available
       if (
         selectedHandoverReport &&
@@ -504,7 +504,7 @@ export default function MyOrders() {
         // Don't generate PDF yet, let the next condition handle it
         return;
       }
-      
+
       // Generate PDF if report is selected but preview not available
       if (
         selectedCheckinReport &&
@@ -1154,10 +1154,10 @@ export default function MyOrders() {
     }
   };
 
-  const handleCreateComplaint = async ({ orderId, deviceId, customerDescription }) => {
+  const handleCreateComplaint = async ({ orderId, deviceId, customerDescription, evidenceImage }) => {
     try {
       setCreatingComplaint(true);
-      const result = await createComplaint({ orderId, deviceId, customerDescription });
+      const result = await createComplaint({ orderId, deviceId, customerDescription, evidenceImage });
       // Reload complaints after creating
       await loadOrderComplaints(orderId);
       return result;
@@ -1279,7 +1279,7 @@ export default function MyOrders() {
     try {
       setAnnexPdfGenerating(true);
       if (annexPdfBlobUrl) {
-        try { URL.revokeObjectURL(annexPdfBlobUrl); } catch (e) {}
+        try { URL.revokeObjectURL(annexPdfBlobUrl); } catch (e) { }
       }
       const tempContainer = document.createElement("div");
       tempContainer.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;";
@@ -1309,14 +1309,14 @@ export default function MyOrders() {
   };
 
   // ========== ANNEX SIGNING HANDLERS ==========
-  
+
   /** Open annex signing modal - similar to handleSignContract */
   const handleSignAnnex = async (annex) => {
     if (!annex || !annex.annexId) {
       message.error("ID phụ lục không hợp lệ");
       return;
     }
-    
+
     let profile = customerProfile;
     if (!profile) {
       try {
@@ -1328,19 +1328,19 @@ export default function MyOrders() {
         return;
       }
     }
-    
+
     if (!profile?.email) {
       message.error("Không tìm thấy email trong tài khoản. Vui lòng cập nhật thông tin cá nhân.");
       return;
     }
-    
+
     // Find the matching extension for payment
     const matchingExtension = orderExtensions.find(ext => ext.extensionId === annex.extensionId);
     setPendingExtensionPayment(matchingExtension || null);
-    
+
     // Store email for modal display
     setAnnexSigningEmail(profile.email || "");
-    
+
     setCurrentAnnexId(annex.annexId);
     setCurrentAnnexContractId(annex.contractId);
     setAnnexSignModalOpen(true);
@@ -1353,7 +1353,7 @@ export default function MyOrders() {
       message.error("Không tìm thấy email để gửi mã PIN.");
       return;
     }
-    
+
     try {
       setSigningAnnex(true);
       await sendAnnexPinEmail(currentAnnexContractId, currentAnnexId, customerProfile.email);
@@ -1372,20 +1372,20 @@ export default function MyOrders() {
       message.error("Không tìm thấy phụ lục để ký.");
       return;
     }
-    
+
     try {
       setAnnexSigning(true);
       await signAnnexAsCustomer(currentAnnexContractId, currentAnnexId, {
         pinCode: values.pinCode,
         signatureMethod: "EMAIL_OTP",
       });
-      
+
       message.success("Ký phụ lục thành công!");
       setAnnexSignModalOpen(false);
       setCurrentAnnexId(null);
       setCurrentAnnexContractId(null);
       setAnnexPinSent(false);
-      
+
       // Reload annexes
       const signedContract = contracts.find(c => {
         const status = String(c.status || "").toUpperCase();
@@ -1418,13 +1418,13 @@ export default function MyOrders() {
       message.error("Không có thông tin gia hạn để thanh toán.");
       return;
     }
-    
+
     const additionalPrice = Number(extension.additionalPrice || extension.extensionFee || 0);
     if (additionalPrice <= 0) {
       message.warning("Không có phí gia hạn cần thanh toán.");
       return;
     }
-    
+
     // Store pending extension payment and open modal
     setPendingExtensionPayment(extension);
     setExtensionPaymentMethod("VNPAY");
@@ -1438,12 +1438,12 @@ export default function MyOrders() {
       message.error("Không có thông tin gia hạn để thanh toán.");
       return;
     }
-    
+
     const additionalPrice = Number(extension.additionalPrice || extension.extensionFee || 0);
-    
+
     try {
       setProcessingPayment(true);
-      
+
       const baseUrl = window.location.origin;
       const orderIdParam = Number(current.id);
       const orderCodeParam = current.displayId || current.id;
@@ -1465,7 +1465,7 @@ export default function MyOrders() {
 
       const result = await createPayment(payload);
       const redirectUrl = result?.checkoutUrl || result?.payUrl || result?.deeplink || result?.qrUrl;
-      
+
       if (redirectUrl) {
         localStorage.setItem("pendingPaymentOrderId", String(orderIdParam));
         localStorage.setItem("pendingPaymentOrderCode", String(orderCodeParam));
@@ -1614,17 +1614,17 @@ export default function MyOrders() {
       let conditionDefinitions = [];
 
       const useCurrentOrder = current && current.id === report.orderId;
-      
+
       const [fetchedOrder, fetchedConditions] = await Promise.all([
-        useCurrentOrder 
+        useCurrentOrder
           ? Promise.resolve(current)
-          : (report.orderId 
-              ? getRentalOrderById(report.orderId).catch(e => {
-                  console.warn("Could not fetch order for PDF:", e);
-                  return null;
-                })
-              : Promise.resolve(null)
-            ),
+          : (report.orderId
+            ? getRentalOrderById(report.orderId).catch(e => {
+              console.warn("Could not fetch order for PDF:", e);
+              return null;
+            })
+            : Promise.resolve(null)
+          ),
         getConditionDefinitions().catch(e => {
           console.warn("Could not fetch condition definitions for PDF:", e);
           return [];
@@ -1635,15 +1635,15 @@ export default function MyOrders() {
       conditionDefinitions = fetchedConditions;
 
       if (order && Array.isArray(order.orderDetails)) {
-        const needsEnrichment = order.orderDetails.some(od => 
+        const needsEnrichment = order.orderDetails.some(od =>
           od.deviceModelId && !od.deviceModel
         );
-        
+
         if (needsEnrichment) {
           const modelIds = Array.from(new Set(
             order.orderDetails.map(od => od.deviceModelId).filter(Boolean)
           ));
-          
+
           const modelPairs = await Promise.all(
             modelIds.map(async (id) => {
               try {
@@ -1654,7 +1654,7 @@ export default function MyOrders() {
               }
             })
           );
-          
+
           const modelMap = Object.fromEntries(modelPairs);
           order = {
             ...order,
@@ -1751,18 +1751,18 @@ export default function MyOrders() {
 
       // Use cached current order if available (avoid redundant API call)
       const useCurrentOrder = current && current.id === report.orderId;
-      
+
       const [fetchedOrder, fetchedConditions] = await Promise.all([
         // Only fetch order if not already in current state
-        useCurrentOrder 
+        useCurrentOrder
           ? Promise.resolve(current)
-          : (report.orderId 
-              ? getRentalOrderById(report.orderId).catch(e => {
-                  console.warn("Could not fetch order for PDF:", e);
-                  return null;
-                })
-              : Promise.resolve(null)
-            ),
+          : (report.orderId
+            ? getRentalOrderById(report.orderId).catch(e => {
+              console.warn("Could not fetch order for PDF:", e);
+              return null;
+            })
+            : Promise.resolve(null)
+          ),
         // Fetch condition definitions in parallel
         getConditionDefinitions().catch(e => {
           console.warn("Could not fetch condition definitions for PDF:", e);
@@ -1775,17 +1775,17 @@ export default function MyOrders() {
 
       // Enrich order with device model info (only if not already enriched)
       if (order && Array.isArray(order.orderDetails)) {
-        const needsEnrichment = order.orderDetails.some(od => 
+        const needsEnrichment = order.orderDetails.some(od =>
           od.deviceModelId && !od.deviceModel
         );
-        
+
         if (needsEnrichment) {
           const modelIds = Array.from(new Set(
             order.orderDetails
               .map(od => od.deviceModelId)
               .filter(Boolean)
           ));
-          
+
           const modelPairs = await Promise.all(
             modelIds.map(async (id) => {
               try {
@@ -1796,7 +1796,7 @@ export default function MyOrders() {
               }
             })
           );
-          
+
           const modelMap = Object.fromEntries(modelPairs);
           order = {
             ...order,

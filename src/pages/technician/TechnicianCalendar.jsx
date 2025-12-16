@@ -33,6 +33,7 @@ import {
     DownloadOutlined,
     EyeOutlined,
     EditOutlined,
+    UploadOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import isBetween from "dayjs/plugin/isBetween";
@@ -46,7 +47,14 @@ import {
     normalizeTask,
     confirmDelivery,
     confirmRetrieval,
+    getDeviceReplacementReportsByTaskId,
+    getDeviceReplacementReportById,
+    sendDeviceReplacementReportPin,
+    signDeviceReplacementReport,
+    parseComplaintIdFromDescription,
+    uploadDeviceReplacementEvidence,
 } from "../../lib/taskApi";
+import { getStaffComplaintById, updateComplaintFault } from "../../lib/complaints";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 import {
     TECH_TASK_STATUS,
@@ -60,7 +68,7 @@ import {
     getHandoverReportByOrderIdAndTaskId,
     getHandoverReportsByOrderId
 } from "../../lib/handoverReportApi";
-import { getStaffCategoryStats } from "../../lib/staffManage";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
 import {
     getActiveMaintenanceSchedules,
@@ -69,6 +77,11 @@ import {
     getMaintenanceScheduleById,
     updateMaintenanceStatus
 } from "../../lib/maintenanceApi";
+import {
+    buildPrintableReplacementReportHtml,
+    elementToPdfBlobReplacement,
+    translateReplacementStatus,
+} from "../../lib/replacementReportPrintUtils";
 
 dayjs.extend(isBetween);
 
@@ -94,6 +107,7 @@ const taskToDisplay = (t) => ({
     location: t.location || "—",
     orderId: t.orderId ?? null,
     status: t.status ?? null,
+    taskCategoryId: t.taskCategoryId ?? null,
     taskCategoryName: t.taskCategoryName || "",
     assignedStaffName: t.assignedStaffName || "",
     assignedStaffRole: t.assignedStaffRole || "",
@@ -1151,13 +1165,58 @@ export default function TechnicianCalendar() {
     const [maintenanceDetail, setMaintenanceDetail] = useState(null);
     const [maintenanceDrawerOpen, setMaintenanceDrawerOpen] = useState(false);
 
-    // Maintenance Status Update Modal State
     const [updateStatusModalOpen, setUpdateStatusModalOpen] = useState(false);
     const [selectedMaintenance, setSelectedMaintenance] = useState(null);
     const [updatingStatus, setUpdatingStatus] = useState(false);
     const [statusForm] = Form.useForm();
     const [uploadFileList, setUploadFileList] = useState([]);
     const [taskRulesMap, setTaskRulesMap] = useState({}); // { categoryId -> { maxTasksPerDay, name } }
+
+    // Device Replacement signing states
+    const [signingReplacementReport, setSigningReplacementReport] = useState({}); // taskId -> loading
+    const [signedReplacementTasks, setSignedReplacementTasks] = useState(new Set()); // Set of taskIds that have been signed
+
+    // Device Replacement PIN Modal states
+    const [replacementPinModalOpen, setReplacementPinModalOpen] = useState(false);
+    const [replacementPinTask, setReplacementPinTask] = useState(null); // Current task being signed
+    const [replacementReportId, setReplacementReportId] = useState(null); // replacementReportId for signing
+    const [replacementReportDetails, setReplacementReportDetails] = useState(null); // Full report details for display
+    const [replacementPinValue, setReplacementPinValue] = useState(""); // PIN input value
+    const [replacementPinSending, setReplacementPinSending] = useState(false); // loading for sending PIN
+    const [replacementPinSigning, setReplacementPinSigning] = useState(false); // loading for signing
+    const [replacementPinSent, setReplacementPinSent] = useState(false); // PIN has been sent
+
+    // Device Replacement Evidence Upload & Fault Diagnosis states
+    const [replacementEvidenceFiles, setReplacementEvidenceFiles] = useState([]); // Selected evidence files
+    const [replacementEvidenceUploading, setReplacementEvidenceUploading] = useState(false); // uploading state
+    const [replacementEvidenceUploaded, setReplacementEvidenceUploaded] = useState(false); // evidence uploaded to server
+    const [replacementFaultSource, setReplacementFaultSource] = useState("UNKNOWN"); // UNKNOWN, RENTAL_DEVICE, CUSTOMER
+    const [replacementFaultNote, setReplacementFaultNote] = useState(""); // damage/staff note
+    const [replacementFaultUpdating, setReplacementFaultUpdating] = useState(false); // updating fault source
+    const [replacementFaultUpdated, setReplacementFaultUpdated] = useState(false); // fault has been updated
+    const [replacementComplaintId, setReplacementComplaintId] = useState(null); // complaint ID for fault update
+
+    /** Kiểm tra task có phải là Device Replacement (taskCategoryId = 8) */
+    const isDeviceReplacementTask = useCallback((task) => {
+        if (!task) return false;
+        const categoryId = task.taskCategoryId ?? task.categoryId;
+        const categoryName = String(task.taskCategoryName || "").toUpperCase();
+        return categoryId === 8 || categoryName.includes("DEVICE REPLACEMENT") || categoryName.includes("THAY THẾ");
+    }, []);
+
+    /** Kiểm tra task có phải là Delivery thông thường (taskCategoryId = 4, không phải Device Replacement) */
+    const isRegularDeliveryTask = useCallback((task) => {
+        if (!task) return false;
+        const categoryId = task.taskCategoryId ?? task.categoryId;
+        const type = String(task.type || "").toUpperCase();
+        const categoryName = String(task.taskCategoryName || "").toUpperCase();
+        // Phải là Delivery (categoryId=4 hoặc type/name chứa DELIVERY/GIAO) VÀ không phải Device Replacement
+        const isDelivery = categoryId === 4 ||
+            type === "DELIVERY" ||
+            categoryName.includes("DELIVERY") ||
+            categoryName.includes("GIAO");
+        return isDelivery && !isDeviceReplacementTask(task);
+    }, [isDeviceReplacementTask]);
 
     const openUpdateStatusModal = (record) => {
         setSelectedMaintenance(record);
@@ -1234,7 +1293,7 @@ export default function TechnicianCalendar() {
             // Trả về: { orderId, orderDetails[], customerId, startDate, endDate... }
             const od = await getRentalOrderById(oid);
             let enriched = od || null;
-            
+
             // ========== BƯỚC 2: LẤY THÔNG TIN DEVICE MODEL ==========
             // Attach device model info for each order detail
             if (enriched && Array.isArray(enriched.orderDetails) && enriched.orderDetails.length) {
@@ -1253,7 +1312,7 @@ export default function TechnicianCalendar() {
                 };
             }
             setOrderDetail(enriched);
-            
+
             // ========== BƯỚC 3: LẤY THÔNG TIN KHÁCH HÀNG ==========
             const cid = od?.customerId;
             if (cid) {
@@ -1284,14 +1343,14 @@ export default function TechnicianCalendar() {
     const loadTasks = useCallback(async () => {
         setLoading(true);
         let allTasksRaw = [];
-        
+
         try {
             // ========== BƯỚC 1: LOAD TASKS ==========
             // API: GET /api/staff/tasks?size=1000
             // Backend tự filter theo technician từ JWT token
             // Trả về: paginated response hoặc array
             const tasksRes = await listTasks({ size: 1000 }); // Get all tasks for calendar
-            
+
             // Handle paginated response
             if (tasksRes && typeof tasksRes === 'object' && Array.isArray(tasksRes.content)) {
                 allTasksRaw = tasksRes.content;
@@ -1328,50 +1387,40 @@ export default function TechnicianCalendar() {
             if (results[2].status === 'fulfilled') inactiveRes = results[2].value || { data: [] };
             else console.warn("Failed inactive maintenance:", results[2].reason);
 
-            // ========== BƯỚC 3: LOAD TASK CATEGORY STATS ==========
-            // Load thống kê giới hạn công việc cho từng category
+            // ========== BƯỚC 3: LOAD ACTIVE TASK RULES ==========
+            // Load giới hạn công việc từ API /admin/task-rules/active
             try {
-                console.log("DEBUG: Calling getStaffCategoryStats API for TECHNICIAN role...");
-                
-                // Get current user's staff ID from localStorage or auth context
-                const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-                const staffId = currentUser.staffId || currentUser.id;
-                
-                if (!staffId) {
-                    console.warn("No staffId found, cannot load category stats");
-                    throw new Error("Staff ID not found");
-                }
-                
+                console.log("DEBUG: Calling getActiveTaskRules API...");
+
+                // API: GET /api/admin/task-rules/active
+                // Trả về: [{ taskRuleId, taskCategoryId, maxTasksPerDay, name, ... }]
+                const activeRules = await getActiveTaskRules();
+                console.log("DEBUG: Active task rules from API:", activeRules);
+
                 const rulesMap = {};
-                
-                // Danh sách category IDs cần load
-                // 1: Pre rental QC, 2: Post rental QC, 4: Delivery, 6: Pick up
-                const categoryIds = [1, 2, 4, 6];
-                
-                // Gọi API cho từng category song song
-                await Promise.all(categoryIds.map(async (categoryId) => {
-                    try {
-                        // API: GET /api/admin/staffs/{staffId}/category-stats?categoryId=X
-                        // Trả về: { maxTasksPerDay, taskCategoryName, taskCount }
-                        const stats = await getStaffCategoryStats(staffId, categoryId);
-                        console.log(`DEBUG: Category ${categoryId} stats:`, stats);
-                        
-                        if (stats && stats.maxTasksPerDay !== undefined) {
-                            rulesMap[categoryId] = {
-                                maxTasksPerDay: stats.maxTasksPerDay,
-                                name: stats.taskCategoryName || `Category ${categoryId}`,
-                                taskCount: stats.taskCount || 0
+
+                // Map rules theo taskCategoryId
+                // Nếu có nhiều rules cho cùng 1 category, lấy rule có effectiveFrom mới nhất
+                (activeRules || []).forEach(rule => {
+                    if (rule.taskCategoryId && rule.active) {
+                        const existingRule = rulesMap[rule.taskCategoryId];
+                        // Nếu chưa có rule cho category này hoặc rule mới có effectiveFrom mới hơn
+                        if (!existingRule ||
+                            (rule.effectiveFrom && existingRule.effectiveFrom &&
+                                new Date(rule.effectiveFrom) > new Date(existingRule.effectiveFrom))) {
+                            rulesMap[rule.taskCategoryId] = {
+                                maxTasksPerDay: rule.maxTasksPerDay,
+                                name: rule.name || `Category ${rule.taskCategoryId}`,
+                                effectiveFrom: rule.effectiveFrom
                             };
                         }
-                    } catch (err) {
-                        console.warn(`Failed to load stats for category ${categoryId}:`, err);
                     }
-                }));
-                
-                console.log("DEBUG: taskRulesMap built from getStaffCategoryStats:", rulesMap);
+                });
+
+                console.log("DEBUG: taskRulesMap built from getActiveTaskRules:", rulesMap);
                 setTaskRulesMap(rulesMap);
             } catch (e) {
-                console.warn("Failed to load task category stats:", e);
+                console.warn("Failed to load active task rules:", e);
                 console.warn("Error status:", e?.response?.status);
                 console.warn("Error message:", e?.response?.data?.message || e?.message);
 
@@ -1381,7 +1430,8 @@ export default function TechnicianCalendar() {
                     1: { maxTasksPerDay: 6, name: "Pre rental QC" },
                     2: { maxTasksPerDay: 5, name: "Post rental QC" },
                     4: { maxTasksPerDay: 4, name: "Delivery" },
-                    6: { maxTasksPerDay: 4, name: "Pick up" }
+                    6: { maxTasksPerDay: 4, name: "Pick up" },
+                    8: { maxTasksPerDay: 5, name: "Device Replacement" }
                 };
                 setTaskRulesMap(mockRulesMap);
             }
@@ -2002,6 +2052,199 @@ export default function TechnicianCalendar() {
         }
     }, [loadTasks, detailTask]);
 
+    // Ký biên bản thay thế thiết bị (Device Replacement) - Mở modal
+    const handleSignReplacementReport = useCallback(async (task) => {
+        const taskId = task.taskId || task.id;
+
+        try {
+            setSigningReplacementReport((prev) => ({ ...prev, [taskId]: true }));
+
+            // Fetch replacement reports by taskId directly
+            const reports = await getDeviceReplacementReportsByTaskId(taskId);
+
+            if (!reports || reports.length === 0) {
+                toast.error("Chưa có biên bản thay thế thiết bị cho task này. Vui lòng đợi hệ thống tạo biên bản.");
+                return;
+            }
+
+            // Get the first (and usually only) report for this task
+            const report = reports[0];
+            const reportId = report.replacementReportId;
+
+            if (!reportId) {
+                toast.error("Không tìm thấy ID biên bản. Vui lòng liên hệ quản trị viên.");
+                return;
+            }
+
+            // Check if already signed by staff
+            if (report.staffSigned) {
+                toast("Biên bản này đã được ký bởi nhân viên.", { icon: "ℹ️" });
+                // Still show modal for viewing
+            }
+
+            // Parse complaint ID from task description for fault update
+            const taskDescription = task.description || detailTask?.description || "";
+            const complaintId = parseComplaintIdFromDescription(taskDescription);
+
+            // Store info and open modal
+            setReplacementPinTask(task);
+            setReplacementReportId(reportId);
+            setReplacementReportDetails(report);
+            setReplacementPinValue("");
+            setReplacementPinSent(false);
+
+            // Reset evidence and fault states
+            setReplacementEvidenceFiles([]);
+            setReplacementEvidenceUploaded(false);
+            setReplacementFaultSource("UNKNOWN");
+            setReplacementFaultNote("");
+            setReplacementFaultUpdated(false);
+            setReplacementComplaintId(complaintId);
+
+            setReplacementPinModalOpen(true);
+        } catch (error) {
+            toast.error(error?.response?.data?.message || error?.message || "Không thể tải biên bản thay thế thiết bị");
+        } finally {
+            setSigningReplacementReport((prev) => ({ ...prev, [taskId]: false }));
+        }
+    }, [detailTask]);
+
+    // Gửi mã PIN xác nhận cho Device Replacement
+    const handleSendReplacementPin = useCallback(async () => {
+        if (!replacementReportId) {
+            toast.error("Không tìm thấy biên bản để gửi PIN.");
+            return;
+        }
+
+        try {
+            setReplacementPinSending(true);
+            await sendDeviceReplacementReportPin(replacementReportId);
+            toast.success("Đã gửi mã PIN xác nhận đến email!");
+            setReplacementPinSent(true);
+        } catch (error) {
+            toast.error(error?.response?.data?.message || error?.message || "Không thể gửi mã PIN");
+        } finally {
+            setReplacementPinSending(false);
+        }
+    }, [replacementReportId]);
+
+    // Upload bằng chứng cho thiết bị cũ (trước khi ký biên bản)
+    const handleUploadReplacementEvidence = useCallback(async () => {
+        if (!replacementReportId || !replacementReportDetails) {
+            toast.error("Không tìm thấy biên bản để upload bằng chứng.");
+            return;
+        }
+
+        if (replacementEvidenceFiles.length === 0) {
+            toast.error("Vui lòng chọn ít nhất một ảnh bằng chứng.");
+            return;
+        }
+
+        // Find the old device from report items
+        const oldDevice = replacementReportDetails.items?.find(item => item.isOldDevice);
+        if (!oldDevice || !oldDevice.deviceId) {
+            toast.error("Không tìm thấy thông tin thiết bị cũ trong biên bản.");
+            return;
+        }
+
+        try {
+            setReplacementEvidenceUploading(true);
+            await uploadDeviceReplacementEvidence(
+                replacementReportId,
+                oldDevice.deviceId,
+                replacementEvidenceFiles
+            );
+            toast.success("Đã upload bằng chứng thành công!");
+            setReplacementEvidenceUploaded(true);
+        } catch (error) {
+            toast.error(error?.response?.data?.message || error?.message || "Không thể upload bằng chứng");
+        } finally {
+            setReplacementEvidenceUploading(false);
+        }
+    }, [replacementReportId, replacementReportDetails, replacementEvidenceFiles]);
+
+    // Chuẩn đoán nguồn lỗi (RENTAL_DEVICE, CUSTOMER, UNKNOWN)
+    const handleUpdateReplacementFault = useCallback(async () => {
+        if (!replacementComplaintId) {
+            toast.error("Không tìm thấy ID khiếu nại để cập nhật nguồn lỗi.");
+            return;
+        }
+
+        try {
+            setReplacementFaultUpdating(true);
+            await updateComplaintFault(replacementComplaintId, {
+                faultSource: replacementFaultSource,
+                staffNote: replacementFaultNote || undefined,
+                damageNote: replacementFaultNote || undefined,
+            });
+            toast.success("Đã cập nhật nguồn lỗi thành công!");
+            setReplacementFaultUpdated(true);
+        } catch (error) {
+            toast.error(error?.response?.data?.message || error?.message || "Không thể cập nhật nguồn lỗi");
+        } finally {
+            setReplacementFaultUpdating(false);
+        }
+    }, [replacementComplaintId, replacementFaultSource, replacementFaultNote]);
+
+
+    // Ký biên bản với mã PIN
+    const handleSubmitReplacementSignature = useCallback(async () => {
+        if (!replacementReportId) {
+            toast.error("Không tìm thấy biên bản để ký.");
+            return;
+        }
+
+        if (!replacementPinValue.trim()) {
+            toast.error("Vui lòng nhập mã PIN.");
+            return;
+        }
+
+        const taskId = replacementPinTask?.taskId || replacementPinTask?.id;
+
+        try {
+            setReplacementPinSigning(true);
+
+            // Get technician signature (username or full name)
+            const user = window.localStorage.getItem("auth") ? JSON.parse(window.localStorage.getItem("auth"))?.state?.user : null;
+            const signature = user?.fullName || user?.username || user?.name || "Technician";
+
+            await signDeviceReplacementReport(replacementReportId, {
+                pin: replacementPinValue.trim(),
+                signature: signature,
+            });
+
+            toast.success("Đã ký biên bản thay thế thiết bị thành công!");
+
+            // Close modal and reset
+            setReplacementPinModalOpen(false);
+            setReplacementPinTask(null);
+            setReplacementReportId(null);
+            setReplacementPinValue("");
+            setReplacementPinSent(false);
+
+            // Mark task as signed
+            if (taskId) {
+                const key = String(taskId);
+                setSignedReplacementTasks((prev) => new Set([...prev, key]));
+            }
+
+            // Reload tasks
+            await loadTasks();
+
+            // Reload detail task if open
+            if (detailTask && taskId && (detailTask.taskId === taskId || detailTask.id === taskId)) {
+                const full = await getTaskById(taskId);
+                if (full) {
+                    setDetailTask(normalizeTask(full));
+                }
+            }
+        } catch (error) {
+            toast.error(error?.response?.data?.message || error?.message || "Không thể ký biên bản");
+        } finally {
+            setReplacementPinSigning(false);
+        }
+    }, [replacementReportId, replacementPinValue, replacementPinTask, loadTasks, detailTask]);
+
     // Table columns
     const columns = useMemo(
         () => [
@@ -2086,7 +2329,51 @@ export default function TechnicianCalendar() {
                                 </Button>
                             );
                         })()}
-                        {(String(r.type || "").toUpperCase() === "DELIVERY" || String(r.taskCategoryName || "").toUpperCase().includes("DELIVERY") || String(r.taskCategoryName || "").toUpperCase().includes("GIAO")) && (() => {
+                        {/* Device Replacement task (taskCategoryId = 8) - Hiển thị nút Ký biên bản thay thế thiết bị */}
+                        {isDeviceReplacementTask(r) && (() => {
+                            const taskId = r.taskId || r.id;
+                            const status = String(r.status || "").toUpperCase();
+                            const isCompleted = status === "COMPLETED";
+                            const isInProgress = status === "IN_PROGRESS";
+                            const taskKey = String(taskId);
+                            const isSigned = signedReplacementTasks.has(taskKey);
+                            const isLoading = signingReplacementReport[taskId];
+                            const isConfirmed = confirmedTasks.has(taskKey);
+                            const isConfirmLoading = confirmingDelivery[taskId];
+
+                            return (
+                                <>
+                                    {/* Hiển thị nút Xác nhận giao hàng khi task chưa IN_PROGRESS và chưa COMPLETED */}
+                                    {!isCompleted && !isInProgress && !isConfirmed && (
+                                        <Button
+                                            size="small"
+                                            type="default"
+                                            loading={isConfirmLoading}
+                                            onClick={() => handleConfirmDelivery(taskId)}
+                                        >
+                                            Xác nhận giao hàng
+                                        </Button>
+                                    )}
+                                    {/* Hiển thị nút Ký biên bản thay thế thiết bị khi task IN_PROGRESS và chưa ký */}
+                                    {isInProgress && !isSigned && !isCompleted && (
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            icon={<FileTextOutlined />}
+                                            loading={isLoading}
+                                            onClick={() => handleSignReplacementReport(r)}
+                                        >
+                                            Ký biên bản thay thế thiết bị
+                                        </Button>
+                                    )}
+                                    {isSigned && !isCompleted && (
+                                        <Tag color="green">Đã gửi PIN xác nhận</Tag>
+                                    )}
+                                </>
+                            );
+                        })()}
+                        {/* Regular Delivery task (taskCategoryId = 4) - Hiển thị các nút Tạo biên bản bàn giao, Xác nhận giao hàng */}
+                        {isRegularDeliveryTask(r) && (() => {
                             const taskId = r.taskId || r.id;
                             const status = String(r.status || "").toUpperCase();
                             const isPending = status === "PENDING";
@@ -2108,12 +2395,11 @@ export default function TechnicianCalendar() {
                                     : checkoutReports.find(
                                         (report) => Number(report.taskId) === Number(taskId)
                                     ) || null;
-                            const previewCheckoutReport = reportForTask || checkoutReports[0] || null;
                             const hasCheckoutReportForTask = Boolean(reportForTask);
 
                             return (
                                 <>
-                                    {/* Chỉ hiển thị nút "Tạo biên bản" khi không phải PENDING, không phải COMPLETED và chưa có handover report */}
+                                    {/* Chỉ hiển thị nút "Tạo biên bản bàn giao" khi không phải PENDING, không phải COMPLETED và chưa có handover report */}
                                     {!isPending && !isCompleted && !hasCheckoutReportForTask && (
                                         <Button
                                             size="small"
@@ -2123,10 +2409,9 @@ export default function TechnicianCalendar() {
                                                 navigate(`/technician/tasks/handover/${taskId}`, { state: { task: r } });
                                             }}
                                         >
-                                            Tạo biên bản
+                                            Tạo biên bản bàn giao
                                         </Button>
                                     )}
-                                    {/* Hiển thị nút "Xem biên bản" nếu đã có handover report */}
 
                                     {/* Hiển thị nút "Xác nhận giao hàng" cho task DELIVERY */}
                                     {!isCompleted && !isInProgress && !isConfirmed && (
@@ -2265,6 +2550,11 @@ export default function TechnicianCalendar() {
             handoverReportMap,
             handoverReportsByOrder,
             handlePreviewPdf,
+            isDeviceReplacementTask,
+            isRegularDeliveryTask,
+            signingReplacementReport,
+            signedReplacementTasks,
+            handleSignReplacementReport,
         ]
     );
 
@@ -2543,13 +2833,86 @@ export default function TechnicianCalendar() {
             );
         }
 
-        // Check if this is a DELIVERY task (check both type and taskCategoryName)
+        // Check if this is a Device Replacement task (taskCategoryId = 8)
+        if (isDeviceReplacementTask(t)) {
+            const taskId = t.taskId || t.id;
+            const status = String(t.status || "").toUpperCase();
+            const isCompleted = status === "COMPLETED";
+            const isInProgress = status === "IN_PROGRESS";
+            const taskKey = String(taskId);
+            const isSigned = signedReplacementTasks.has(taskKey);
+            const isLoading = signingReplacementReport[taskId];
+            const isConfirmed = confirmedTasks.has(taskKey);
+            const isConfirmLoading = confirmingDelivery[taskId];
+
+            return (
+                <>
+                    {header}
+                    <Divider />
+                    <Descriptions bordered size="small" column={1}>
+                        <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Loại công việc">{t.taskCategoryName || t.type || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Trạng thái">
+                            {t.status ? (() => {
+                                const { bg, text } = getTechnicianStatusColor(t.status);
+                                return (
+                                    <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+                                );
+                            })() : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Mã đơn">{t.orderId || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Mô tả">{t.title || t.description || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Thời gian bắt đầu nhiệm vụ">
+                            {t.plannedStart ? fmtDateTime(t.plannedStart) : "—"}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Thời gian kết thúc nhiệm vụ">
+                            {t.plannedEnd ? fmtDateTime(t.plannedEnd) : "—"}
+                        </Descriptions.Item>
+                        {isCompleted && (
+                            <Descriptions.Item label="Thời gian hoàn thành nhiệm vụ">
+                                {t.completedAt ? fmtDateTime(t.completedAt) : "—"}
+                            </Descriptions.Item>
+                        )}
+                    </Descriptions>
+                    {orderDetail && renderOrderCustomerDeviceDetails(t)}
+                    <Divider />
+                    <Space wrap>
+                        {/* Hiển thị nút Xác nhận giao hàng khi task chưa IN_PROGRESS và chưa COMPLETED */}
+                        {!isCompleted && !isInProgress && !isConfirmed && (
+                            <Button
+                                type="default"
+                                loading={isConfirmLoading}
+                                onClick={() => handleConfirmDelivery(taskId)}
+                            >
+                                Xác nhận giao hàng
+                            </Button>
+                        )}
+                        {/* Hiển thị nút Ký biên bản thay thế thiết bị khi task IN_PROGRESS và chưa ký */}
+                        {isInProgress && !isSigned && !isCompleted && (
+                            <Button
+                                type="primary"
+                                icon={<FileTextOutlined />}
+                                loading={isLoading}
+                                onClick={() => handleSignReplacementReport(t)}
+                            >
+                                Ký biên bản thay thế thiết bị
+                            </Button>
+                        )}
+                        {isSigned && !isCompleted && (
+                            <Tag color="green">Đã gửi PIN xác nhận</Tag>
+                        )}
+                    </Space>
+                </>
+            );
+        }
+
+        // Check if this is a regular DELIVERY task (taskCategoryId = 4, not Device Replacement)
         const taskType = String(t.type || "").toUpperCase();
-        const taskCategoryName = String(t.taskCategoryName || "").toUpperCase();
+        const taskCategoryNameCheck = String(t.taskCategoryName || "").toUpperCase();
         const description = String(t.description || t.title || "").toUpperCase();
         const isDeliveryTask = taskType === "DELIVERY" ||
-            taskCategoryName.includes("DELIVERY") ||
-            taskCategoryName.includes("GIAO") ||
+            taskCategoryNameCheck.includes("DELIVERY") ||
+            taskCategoryNameCheck.includes("GIAO") ||
             description.includes("GIAO");
 
         if (isDeliveryTask || t.type === "DELIVERY") {
@@ -3262,7 +3625,6 @@ export default function TechnicianCalendar() {
             return value.isBetween(start, end, 'day', '[]');
         });
 
-        console.log(`[getCalendarData] Date: ${value.format('DD/MM/YYYY')} - Found ${dayMaintenance.length} active, ${dayInactive.length} inactive maintenance items`);
 
         return { tasks: dayTasks, maintenance: dayMaintenance, inactive: dayInactive };
     };
@@ -3451,14 +3813,16 @@ export default function TechnicianCalendar() {
                         label: 'Giao hàng / Thu hồi',
                         children: (() => {
                             const tasksData = getCalendarData(selectedDate).tasks;
-                            const deliveryTasks = tasksData.filter(t => ['DELIVERY', 'PICKUP'].includes(t.type) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order'));
+                            const deliveryTasks = tasksData.filter(t => ['DELIVERY', 'PICKUP'].includes(t.type) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order' || t.taskCategoryId === 8 || t.taskCategoryName === 'Device Replacement'));
 
                             // Count tasks by category
                             const cat4Tasks = tasksData.filter(t => t.taskCategoryId === 4 || t.taskCategoryName === 'Delivery');
                             const cat6Tasks = tasksData.filter(t => t.taskCategoryId === 6 || t.taskCategoryName === 'Pick up rental order');
+                            const cat8Tasks = tasksData.filter(t => t.taskCategoryId === 8 || t.taskCategoryName === 'Device Replacement');
 
                             const rule4 = taskRulesMap[4];
                             const rule6 = taskRulesMap[6];
+                            const rule8 = taskRulesMap[8];
 
                             return (
                                 <>
@@ -3496,6 +3860,24 @@ export default function TechnicianCalendar() {
                                                     <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {rule6.maxTasksPerDay}</strong>
                                                     <Tag color={cat6Tasks.length >= rule6.maxTasksPerDay ? 'red' : 'green'}>
                                                         {cat6Tasks.length >= rule6.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                                    </Tag>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {rule8 && (
+                                            <div style={{
+                                                flex: 1,
+                                                minWidth: 200,
+                                                background: cat8Tasks.length >= rule8.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #13c2c2 0%, #08979c 100%)',
+                                                borderRadius: 8,
+                                                padding: '10px 14px',
+                                                color: '#fff',
+                                            }}>
+                                                <div style={{ fontSize: 12, opacity: 0.9 }}>🔄 Device Replacement</div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                    <strong style={{ fontSize: 18 }}>{cat8Tasks.length} / {rule8.maxTasksPerDay}</strong>
+                                                    <Tag color={cat8Tasks.length >= rule8.maxTasksPerDay ? 'red' : 'green'}>
+                                                        {cat8Tasks.length >= rule8.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
                                                     </Tag>
                                                 </div>
                                             </div>
@@ -3539,16 +3921,6 @@ export default function TechnicianCalendar() {
                                 const pb = priorityOrder[b.priorityReason] || 99;
                                 return pa - pb;
                             });
-
-                            // DEBUG: Console log for priority schedules
-                            console.log("DEBUG [Bảo trì Tab] prioritySchedules:", prioritySchedules);
-                            console.log("DEBUG [Bảo trì Tab] priorityIds (maintenanceScheduleId):", [...priorityIds]);
-                            console.log("DEBUG [Bảo trì Tab] allMaintenance after sorting:", allMaintenance.map(m => ({
-                                id: m.maintenanceScheduleId,
-                                name: m.deviceModelName,
-                                priorityReason: m.priorityReason,
-                                isPriority: priorityIds.has(m.maintenanceScheduleId)
-                            })));
 
                             const getPriorityTag = (item) => {
                                 const reason = item.priorityReason;
@@ -3800,6 +4172,298 @@ export default function TechnicianCalendar() {
                 </Form>
             </Modal>
 
+            {/* Device Replacement PIN Signing Modal */}
+            <Modal
+                title="Ký biên bản thay thế thiết bị"
+                open={replacementPinModalOpen}
+                onCancel={() => {
+                    setReplacementPinModalOpen(false);
+                    setReplacementPinTask(null);
+                    setReplacementReportId(null);
+                    setReplacementReportDetails(null);
+                    setReplacementPinValue("");
+                    setReplacementPinSent(false);
+                }}
+                footer={[
+                    <Button key="cancel" onClick={() => {
+                        setReplacementPinModalOpen(false);
+                        setReplacementPinTask(null);
+                        setReplacementReportId(null);
+                        setReplacementReportDetails(null);
+                        setReplacementPinValue("");
+                        setReplacementPinSent(false);
+                    }}>
+                        Đóng
+                    </Button>,
+                    !replacementReportDetails?.staffSigned && (
+                        <Button
+                            key="sign"
+                            type="primary"
+                            disabled={!replacementPinValue.trim() || !replacementPinSent}
+                            loading={replacementPinSigning}
+                            onClick={handleSubmitReplacementSignature}
+                        >
+                            Xác nhận ký
+                        </Button>
+                    ),
+                ].filter(Boolean)}
+                destroyOnHidden
+                width={600}
+            >
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    {/* Report info */}
+                    {replacementReportDetails && (
+                        <>
+                            <Descriptions bordered size="small" column={1}>
+                                <Descriptions.Item label="Mã biên bản">
+                                    <Text strong>#{replacementReportDetails.replacementReportId}</Text>
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Mã đơn hàng">
+                                    #{replacementReportDetails.orderId || "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Khách hàng">
+                                    {replacementReportDetails.customerInfo || "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Kỹ thuật viên">
+                                    {replacementReportDetails.technicianInfo || "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Thời gian">
+                                    {replacementReportDetails.replacementDateTime
+                                        ? dayjs(replacementReportDetails.replacementDateTime).format("DD/MM/YYYY HH:mm")
+                                        : "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Địa điểm">
+                                    {replacementReportDetails.replacementLocation || "—"}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Trạng thái">
+                                    <Tag color={
+                                        replacementReportDetails.status === "BOTH_SIGNED" ? "green" :
+                                            replacementReportDetails.status === "STAFF_SIGNED" ? "blue" :
+                                                "orange"
+                                    }>
+                                        {replacementReportDetails.status === "BOTH_SIGNED" ? "Đã ký 2 bên" :
+                                            replacementReportDetails.status === "STAFF_SIGNED" ? "NV đã ký" :
+                                                replacementReportDetails.status === "CUSTOMER_SIGNED" ? "KH đã ký" :
+                                                    replacementReportDetails.status || "Chờ ký"}
+                                    </Tag>
+                                </Descriptions.Item>
+                            </Descriptions>
+
+                            {/* Device Items */}
+                            {replacementReportDetails.items && replacementReportDetails.items.length > 0 && (
+                                <>
+                                    <Divider style={{ margin: '8px 0' }}>Thiết bị thay thế</Divider>
+                                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                                        {replacementReportDetails.items.map((item, idx) => (
+                                            <Card
+                                                key={item.itemId || idx}
+                                                size="small"
+                                                style={{
+                                                    width: 260,
+                                                    borderColor: item.isOldDevice ? '#ff7875' : '#95de64',
+                                                    background: item.isOldDevice ? '#fff2f0' : '#f6ffed'
+                                                }}
+                                            >
+                                                <Tag color={item.isOldDevice ? "red" : "green"} style={{ marginBottom: 8 }}>
+                                                    {item.isOldDevice ? "🔄 Thu hồi" : "✅ Giao mới"}
+                                                </Tag>
+                                                <div><Text strong>{item.deviceModelName || "—"}</Text></div>
+                                                <div><Text type="secondary">SN: {item.deviceSerialNumber || "—"}</Text></div>
+                                            </Card>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </>
+                    )}
+
+                    <Divider style={{ margin: '8px 0' }} />
+
+                    {/* Already signed message */}
+                    {replacementReportDetails?.staffSigned ? (
+                        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                            <Tag color="green" style={{ fontSize: 14, padding: '4px 12px' }}>
+                                ✓ Biên bản đã được ký bởi nhân viên
+                            </Tag>
+                            {replacementReportDetails.staffSignedAt && (
+                                <div style={{ marginTop: 8 }}>
+                                    <Text type="secondary">
+                                        Ký lúc: {dayjs(replacementReportDetails.staffSignedAt).format("DD/MM/YYYY HH:mm")}
+                                    </Text>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            {/* Step 1: Fault Diagnosis (MOVED FIRST) */}
+                            <div>
+                                <Text strong>Bước 1: Chuẩn đoán nguồn lỗi</Text>
+                                {!replacementComplaintId ? (
+                                    <div style={{ marginTop: 8 }}>
+                                        <Text type="secondary">
+                                            Không tìm thấy ID khiếu nại. Bước này sẽ được bỏ qua.
+                                        </Text>
+                                    </div>
+                                ) : (
+                                    <div style={{ marginTop: 8 }}>
+                                        <Select
+                                            value={replacementFaultSource}
+                                            onChange={setReplacementFaultSource}
+                                            style={{ width: 280 }}
+                                            disabled={replacementFaultUpdated}
+                                            options={[
+                                                { value: "UNKNOWN", label: "Chưa xác định" },
+                                                { value: "RENTAL_DEVICE", label: "Lỗi do thiết bị/nhà cung cấp" },
+                                                { value: "CUSTOMER", label: "Lỗi do khách hàng sử dụng" },
+                                            ]}
+                                        />
+                                        <Input.TextArea
+                                            placeholder="Ghi chú (tùy chọn)..."
+                                            value={replacementFaultNote}
+                                            onChange={(e) => setReplacementFaultNote(e.target.value)}
+                                            rows={2}
+                                            style={{ marginTop: 8, width: 280 }}
+                                            maxLength={500}
+                                            disabled={replacementFaultUpdated}
+                                        />
+                                        {!replacementFaultUpdated ? (
+                                            <div style={{ marginTop: 8 }}>
+                                                <Button
+                                                    type="primary"
+                                                    loading={replacementFaultUpdating}
+                                                    onClick={handleUpdateReplacementFault}
+                                                >
+                                                    Xác nhận nguồn lỗi
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <Text type="success" style={{ display: 'block', marginTop: 8 }}>
+                                                ✓ Đã cập nhật nguồn lỗi thành công
+                                            </Text>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Step 2: Upload Evidence (MOVED SECOND) */}
+                            <div>
+                                <Text strong>Bước 2: Upload ảnh bằng chứng cho quyết định</Text>
+                                <div style={{ marginTop: 8 }}>
+                                    <Upload
+                                        accept="image/*"
+                                        multiple
+                                        maxCount={5}
+                                        beforeUpload={(file) => {
+                                            const isImage = file.type.startsWith("image/");
+                                            if (!isImage) {
+                                                message.error("Chỉ hỗ trợ file ảnh!");
+                                                return Upload.LIST_IGNORE;
+                                            }
+                                            const isLt5M = file.size / 1024 / 1024 < 5;
+                                            if (!isLt5M) {
+                                                message.error("Ảnh phải nhỏ hơn 5MB!");
+                                                return Upload.LIST_IGNORE;
+                                            }
+                                            setReplacementEvidenceFiles(prev => [...prev, file]);
+                                            return false;
+                                        }}
+                                        onRemove={(file) => {
+                                            setReplacementEvidenceFiles(prev =>
+                                                prev.filter(f => f.uid !== file.uid)
+                                            );
+                                        }}
+                                        fileList={replacementEvidenceFiles.map((f, idx) => ({
+                                            uid: f.uid || `-${idx}`,
+                                            name: f.name,
+                                            status: 'done',
+                                        }))}
+                                        listType="picture"
+                                        disabled={replacementEvidenceUploaded || (!replacementFaultUpdated && replacementComplaintId)}
+                                    >
+                                        {!replacementEvidenceUploaded && replacementEvidenceFiles.length < 5 && (
+                                            <Button
+                                                icon={<UploadOutlined />}
+                                                disabled={!replacementFaultUpdated && replacementComplaintId}
+                                            >
+                                                Chọn ảnh
+                                            </Button>
+                                        )}
+                                    </Upload>
+                                    {replacementEvidenceFiles.length > 0 && !replacementEvidenceUploaded && (
+                                        <Button
+                                            type="primary"
+                                            style={{ marginTop: 8 }}
+                                            loading={replacementEvidenceUploading}
+                                            onClick={handleUploadReplacementEvidence}
+                                            disabled={!replacementFaultUpdated && replacementComplaintId}
+                                        >
+                                            Upload bằng chứng
+                                        </Button>
+                                    )}
+                                    {replacementEvidenceUploaded && (
+                                        <Text type="success" style={{ display: 'block', marginTop: 8 }}>
+                                            ✓ Đã upload bằng chứng thành công
+                                        </Text>
+                                    )}
+                                    {!replacementFaultUpdated && replacementComplaintId && (
+                                        <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                                            Vui lòng hoàn thành Bước 1 trước
+                                        </Text>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Step 3: Send PIN and Sign */}
+                            <div>
+                                <Text strong>Bước 3: Gửi mã PIN và ký biên bản</Text>
+                                <div style={{ marginTop: 8 }}>
+                                    <Button
+                                        type="primary"
+                                        loading={replacementPinSending}
+                                        onClick={handleSendReplacementPin}
+                                        disabled={replacementPinSent || !replacementEvidenceUploaded}
+                                    >
+                                        {replacementPinSent ? "Đã gửi mã PIN" : "Gửi mã PIN đến email"}
+                                    </Button>
+                                    {replacementPinSent && (
+                                        <Text type="success" style={{ marginLeft: 8 }}>
+                                            ✓ Mã PIN đã được gửi đến email khách hàng
+                                        </Text>
+                                    )}
+                                    {!replacementEvidenceUploaded && (
+                                        <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                                            Vui lòng hoàn thành Bước 1 và Bước 2 trước
+                                        </Text>
+                                    )}
+                                </div>
+
+                                {/* PIN Input */}
+                                {replacementPinSent && (
+                                    <div style={{ marginTop: 12 }}>
+                                        <Input
+                                            placeholder="Nhập mã PIN (6 chữ số)"
+                                            value={replacementPinValue}
+                                            onChange={(e) => setReplacementPinValue(e.target.value)}
+                                            maxLength={6}
+                                            style={{ width: 200 }}
+                                        />
+                                        <Text type="secondary" style={{ marginLeft: 8 }}>
+                                            Hỏi khách hàng mã PIN nhận được qua email
+                                        </Text>
+                                    </div>
+                                )}
+                            </div>
+
+                            {!replacementEvidenceUploaded && (
+                                <Text type="warning">
+                                    ⚠ Vui lòng hoàn thành các bước trên trước khi ký biên bản
+                                </Text>
+                            )}
+                        </>
+                    )}
+                </Space>
+            </Modal>
+
             {/* Task Detail Drawer */}
             <Drawer
                 title={detailTask ? detailTask.title || detailTask.taskCategoryName || "Chi tiết công việc" : "Chi tiết công việc"}
@@ -3809,7 +4473,6 @@ export default function TechnicianCalendar() {
             >
                 {renderDetailBody(detailTask)}
             </Drawer>
-        </div >
+        </div>
     );
 }
-

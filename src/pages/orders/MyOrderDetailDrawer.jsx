@@ -583,7 +583,6 @@ export default function MyOrderDetailDrawer({
                                     customerProfile={customerProfile}
                                     annexSigningEmail={annexSigningEmail}
                                     confirmExtensionPayment={confirmExtensionPayment}
-                                    processingPayment={processingPayment}
                                 />
                             ),
                         },
@@ -682,6 +681,7 @@ export default function MyOrderDetailDrawer({
                                     onCreateComplaint={onCreateComplaint}
                                     onRefreshComplaints={onRefreshComplaints}
                                     creatingComplaint={creatingComplaint}
+                                    customerEmail={customerProfile?.email || ""}
                                 />
                             ),
                         },

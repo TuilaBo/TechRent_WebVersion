@@ -106,11 +106,11 @@ const DailyTasksModal = ({
 
     const deliveryTabsContent = () => {
         // Include Delivery (4), Pick up (6), and Device Replacement (8) tasks
-        const deliveryTasks = dayTasks.filter(t => 
-            ['DELIVERY', 'PICKUP'].includes(String(t.type).toUpperCase()) || 
-            (t.taskCategoryName || '').includes('Giao') || 
-            (t.taskCategoryName || '').includes('Thu') || 
-            t.taskCategoryName === 'Delivery' || 
+        const deliveryTasks = dayTasks.filter(t =>
+            ['DELIVERY', 'PICKUP'].includes(String(t.type).toUpperCase()) ||
+            (t.taskCategoryName || '').includes('Giao') ||
+            (t.taskCategoryName || '').includes('Thu') ||
+            t.taskCategoryName === 'Delivery' ||
             t.taskCategoryName === 'Pick up rental order' ||
             t.taskCategoryId === 8 ||
             t.taskCategoryName === 'Device Replacement'
@@ -118,9 +118,11 @@ const DailyTasksModal = ({
 
         const cat4Tasks = dayTasks.filter(t => t.taskCategoryId === 4 || t.taskCategoryName === 'Delivery');
         const cat6Tasks = dayTasks.filter(t => t.taskCategoryId === 6 || t.taskCategoryName === 'Pick up rental order');
+        const cat8Tasks = dayTasks.filter(t => t.taskCategoryId === 8 || t.taskCategoryName === 'Device Replacement');
 
         const rule4 = taskRulesMap[4];
         const rule6 = taskRulesMap[6];
+        const rule8 = taskRulesMap[8];
 
         return (
             <>
@@ -157,6 +159,24 @@ const DailyTasksModal = ({
                                 <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {rule6.maxTasksPerDay}</strong>
                                 <Tag color={cat6Tasks.length >= rule6.maxTasksPerDay ? 'red' : 'green'}>
                                     {cat6Tasks.length >= rule6.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                </Tag>
+                            </div>
+                        </div>
+                    )}
+                    {rule8 && (
+                        <div style={{
+                            flex: 1,
+                            minWidth: 200,
+                            background: cat8Tasks.length >= rule8.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #13c2c2 0%, #08979c 100%)',
+                            borderRadius: 8,
+                            padding: '10px 14px',
+                            color: '#fff',
+                        }}>
+                            <div style={{ fontSize: 12, opacity: 0.9 }}>🔄 Device Replacement</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                <strong style={{ fontSize: 18 }}>{cat8Tasks.length} / {rule8.maxTasksPerDay}</strong>
+                                <Tag color={cat8Tasks.length >= rule8.maxTasksPerDay ? 'red' : 'green'}>
+                                    {cat8Tasks.length >= rule8.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
                                 </Tag>
                             </div>
                         </div>

@@ -16,7 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <ScrollToTop />
         <App />
         <Toaster
-          position="top-right"
+          position="bottom-right"
           toastOptions={{
             duration: 3500,
             style: {
