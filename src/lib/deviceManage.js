@@ -45,6 +45,7 @@ export async function listDeviceModels() {
   const { data } = await api.get("/api/device-models");
   return data?.data ?? data ?? [];
 }
+
 export async function createDeviceModel(payload) {
   // Hỗ trợ multipart khi có ảnh (payload.imageFile là File)
   const file = payload?.imageFile instanceof File ? payload.imageFile : null;
@@ -71,32 +72,33 @@ export async function createDeviceModel(payload) {
   const { data } = await api.post("/api/device-models", payload);
   return data?.data ?? data;
 }
+
 export async function updateDeviceModel(id, payload) {
-  // Nếu có ảnh mới → gửi multipart; ngược lại gửi JSON như cũ
+  // Backend chỉ nhận multipart/form-data cho update, nên luôn dùng FormData
   const file = payload?.imageFile instanceof File ? payload.imageFile : null;
+  const requestObj = {
+    deviceName: payload.deviceName,
+    brandId: payload.brandId,
+    specifications: payload.specifications ?? "",
+    description: payload.description ?? "",
+    deviceCategoryId: payload.deviceCategoryId,
+    deviceValue: Number(payload.deviceValue ?? 0),
+    pricePerDay: Number(payload.pricePerDay ?? 0),
+    depositPercent: Number(payload.depositPercent ?? 0),
+    active: !!payload.active,
+  };
+  const fd = new FormData();
+  fd.append("request", new Blob([JSON.stringify(requestObj)], { type: "application/json" }));
+  // Chỉ append image nếu có file mới
   if (file) {
-    const requestObj = {
-      deviceName: payload.deviceName,
-      brandId: payload.brandId,
-      specifications: payload.specifications ?? "",
-      description: payload.description ?? "",
-      deviceCategoryId: payload.deviceCategoryId,
-      deviceValue: Number(payload.deviceValue ?? 0),
-      pricePerDay: Number(payload.pricePerDay ?? 0),
-      depositPercent: Number(payload.depositPercent ?? 0),
-      active: !!payload.active,
-    };
-    const fd = new FormData();
-    fd.append("request", new Blob([JSON.stringify(requestObj)], { type: "application/json" }));
     fd.append("image", file, file.name || "device-model.jpg");
-    const { data } = await api.put(`/api/device-models/${Number(id)}`, fd, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return data?.data ?? data;
   }
-  const { data } = await api.put(`/api/device-models/${Number(id)}`, payload);
+  const { data } = await api.put(`/api/device-models/${Number(id)}`, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
   return data?.data ?? data;
 }
+
 export async function deleteDeviceModel(id) {
   return safeDelete(`/api/device-models/${Number(id)}`);
 }
