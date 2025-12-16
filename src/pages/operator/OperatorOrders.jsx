@@ -35,6 +35,7 @@ import {
   DownloadOutlined,
   PrinterOutlined,
   ExpandOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
@@ -59,6 +60,7 @@ import { getConditionDefinitions } from "../../lib/condition";
 import { getHandoverReportsByOrderId } from "../../lib/handoverReportApi";
 import { getInvoiceByRentalOrderId } from "../../lib/Payment";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
+import { createAnnexFromExtension, getAnnexesByContractId, normalizeAnnex } from "../../lib/annexes";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -585,7 +587,7 @@ const contractStatusTag = (status) => {
     case "PENDING_ADMIN_SIGNATURE":
       return <Tag color="orange">Chờ ký (admin)</Tag>;
     case "SIGNED":
-      return <Tag color="green">Đã ký</Tag>;
+      return <Tag color="green">2 bên đã ký</Tag>;
     case "ACTIVE":
       return <Tag color="green">2 bên đã ký</Tag>;
     case "EXPIRED":
@@ -1245,6 +1247,14 @@ export default function OperatorOrders() {
   const [orderDetailModels, setOrderDetailModels] = useState({});
   const [orderDetailMetaLoading, setOrderDetailMetaLoading] = useState(false);
   const [detailHasPreRentalQc, setDetailHasPreRentalQc] = useState(null); // PRE_RENTAL QC tồn tại?
+  const [creatingAnnex, setCreatingAnnex] = useState(false); // Loading state for creating annex
+  const [orderAnnexes, setOrderAnnexes] = useState([]); // List of annexes
+  const [annexesLoading, setAnnexesLoading] = useState(false);
+  const [annexDetail, setAnnexDetail] = useState(null); // Selected annex for detail view
+  const [annexDetailOpen, setAnnexDetailOpen] = useState(false);
+  const [annexPdfBlobUrl, setAnnexPdfBlobUrl] = useState(""); // Annex PDF blob URL
+  const [annexPdfGenerating, setAnnexPdfGenerating] = useState(false);
+  const annexPrintRef = useRef(null);
 
   // Always load device model metadata for all order statuses
   const shouldLoadOrderItemMeta = useMemo(() => {
@@ -1286,11 +1296,12 @@ export default function OperatorOrders() {
 
   /**
    * Hàm tải danh sách đơn hàng với phân trang
-   * Được gọi khi: Component mount, chuyển trang, thay đổi pageSize
+   * Được gọi khi: Component mount, chuyển trang, thay đổi pageSize, tìm kiếm
    * @param {number} page - Số trang (1-indexed, mặc định 1)
    * @param {number} pageSize - Số đơn mỗi trang (mặc định 10)
+   * @param {number} [orderId] - Mã đơn hàng để filter (optional)
    */
-  const fetchAll = async (page = 1, pageSize = 10) => {
+  const fetchAll = async (page = 1, pageSize = 10, orderId = null) => {
     // Đảm bảo giá trị page và pageSize là số nguyên hợp lệ
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
@@ -1300,12 +1311,13 @@ export default function OperatorOrders() {
       setLoading(true);
       
       // ========== GỌI API TÌM KIẾM ĐƠN HÀNG ==========
-      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc
+      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z
       // Trả về: { content: [], totalElements, totalPages, number, size }
       const result = await searchRentalOrders({
         page: safePage - 1, // API dùng 0-indexed (page 0 = trang 1)
         size: safeSize,
         sort: ["createdAt,desc"], // Sắp xếp mới nhất lên đầu
+        orderId: orderId != null ? Number(orderId) : undefined,
       });
       
       // Lưu danh sách đơn vào state để hiển thị
@@ -1672,6 +1684,86 @@ export default function OperatorOrders() {
     viewDetail(r.orderId);
   };
 
+  /**
+   * Hàm tạo phụ lục gia hạn từ extension
+   * @param {number} extensionId - ID của extension (gia hạn)
+   */
+  const handleCreateAnnexFromExtension = async (extensionId) => {
+    // Tìm contractId từ orderContracts (lấy contract ACTIVE hoặc SIGNED đầu tiên)
+    const activeContract = orderContracts.find((c) => {
+      const status = String(c.status || "").toUpperCase();
+      return status === "ACTIVE" || status === "SIGNED";
+    });
+    
+    if (!activeContract) {
+      message.warning("Không tìm thấy hợp đồng đang hoạt động để tạo phụ lục. Vui lòng đảm bảo hợp đồng đã được ký.");
+      return;
+    }
+    
+    const contractId = activeContract.id || activeContract.contractId;
+    
+    try {
+      setCreatingAnnex(true);
+      const annex = await createAnnexFromExtension(contractId, extensionId);
+      message.success(`Đã tạo phụ lục gia hạn #${annex?.annexId || annex?.id} thành công!`);
+      
+      // Reload contracts list
+      if (detail?.orderId && detail?.customerId) {
+        try {
+          const contracts = await listContractsByOrder(detail.orderId);
+          const normalized = Array.isArray(contracts) ? contracts.map(normalizeContract) : [];
+          setOrderContracts(normalized);
+        } catch (e) {
+          console.error("Failed to reload contracts:", e);
+        }
+      }
+      
+      // Reload annexes list
+      await fetchOrderAnnexes(contractId);
+    } catch (e) {
+      message.error(
+        e?.response?.data?.message || e?.message || "Không thể tạo phụ lục gia hạn"
+      );
+    } finally {
+      setCreatingAnnex(false);
+    }
+  };
+
+  /**
+   * Hàm lấy danh sách phụ lục của hợp đồng
+   * @param {number} contractId - ID của hợp đồng
+   */
+  const fetchOrderAnnexes = async (contractId) => {
+    if (!contractId) {
+      setOrderAnnexes([]);
+      return;
+    }
+    try {
+      setAnnexesLoading(true);
+      const annexes = await getAnnexesByContractId(contractId);
+      setOrderAnnexes(Array.isArray(annexes) ? annexes : []);
+    } catch (e) {
+      console.error("Failed to fetch annexes:", e);
+      setOrderAnnexes([]);
+    } finally {
+      setAnnexesLoading(false);
+    }
+  };
+
+  // Auto-fetch annexes when orderContracts changes
+  useEffect(() => {
+    const activeContract = orderContracts.find((c) => {
+      const status = String(c.status || "").toUpperCase();
+      return status === "ACTIVE" || status === "SIGNED";
+    });
+    if (activeContract) {
+      const contractId = activeContract.id || activeContract.contractId;
+      fetchOrderAnnexes(contractId);
+    } else {
+      setOrderAnnexes([]);
+    }
+  }, [orderContracts]);
+
   // ====== Helpers for PDF ======
   function revokeBlob(url) {
     try {
@@ -1891,6 +1983,172 @@ export default function OperatorOrders() {
       message.error("Không tạo được bản xem trước PDF.");
     } finally {
       setPdfGenerating(false);
+    }
+  }
+
+  /**
+   * Format annexContent text - convert ISO dates and money values
+   */
+  function formatAnnexContent(content) {
+    if (!content) return "";
+    
+    let formatted = content;
+    
+    // Format ISO datetime strings (e.g., 2025-12-15T22:44:33.727913 -> 15/12/2025 22:44)
+    formatted = formatted.replace(
+      /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(:\d{2}(\.\d+)?)?/g,
+      (match, year, month, day, hour, minute) => `${day}/${month}/${year} ${hour}:${minute}`
+    );
+    
+    // Format money values (e.g., 250000.00 VND -> 250.000 VNĐ)
+    formatted = formatted.replace(
+      /(\d+)(\.\d{2})?\s*VND/g,
+      (match, amount) => {
+        const num = parseInt(amount, 10);
+        return num.toLocaleString("vi-VN") + " VNĐ";
+      }
+    );
+    
+    return formatted;
+  }
+
+  /**
+   * Build printable HTML for Annex (Phụ lục gia hạn)
+   */
+  function buildPrintableAnnexHtml(annex, customer = null) {
+    if (!annex) return "<div>Không có dữ liệu phụ lục</div>";
+    
+    const title = annex.title || "PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ THIẾT BỊ";
+    const annexNumber = annex.annexNumber || "";
+    const contractNumber = annex.contractNumber || "";
+    const customerName = customer?.fullName || customer?.name || `Khách hàng #${annex.originalOrderId || ""}`;
+    
+    // Format dates
+    const fmtDate = (d) => d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—";
+    const fmtMoney = (v) => fmtVND(v || 0);
+    
+    // Signature sections
+    const adminSigned = !!annex.adminSignedAt;
+    const customerSigned = !!annex.customerSignedAt;
+    
+    return `
+      <div style="
+        width:794px;margin:0 auto;background:#fff;color:#111;
+        font-family:Inter,Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;
+        padding:32px 40px;box-sizing:border-box;">
+        ${GLOBAL_PRINT_CSS}
+        ${NATIONAL_HEADER_HTML}
+
+        <div style="text-align:center;margin-bottom:12px">
+          <div style="font-size:20px;font-weight:700;letter-spacing:.5px">${title}</div>
+          <div style="color:#666;margin-top:4px">Số: ${annexNumber}</div>
+        </div>
+        <hr style="border:none;border-top:1px solid #e8e8e8;margin:12px 0 16px"/>
+
+        <section class="kv">
+          <div><b>Căn cứ hợp đồng số:</b> ${contractNumber}</div>
+          <div><b>Đơn hàng:</b> #${annex.originalOrderId || "—"}</div>
+          <div><b>Bên A (Bên cho thuê):</b> CÔNG TY TECHRENT</div>
+          <div><b>Bên B (Khách hàng):</b> ${customerName}</div>
+        </section>
+
+        <section style="margin:16px 0">
+          <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Nội dung gia hạn</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr>
+              <td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5;width:40%"><b>Thời gian gia hạn</b></td>
+              <td style="padding:6px 8px;border:1px solid #ddd">${fmtDate(annex.extensionStartDate)} → ${fmtDate(annex.extensionEndDate)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Số ngày gia hạn</b></td>
+              <td style="padding:6px 8px;border:1px solid #ddd">${annex.extensionDays || 0} ngày</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Phí gia hạn</b></td>
+              <td style="padding:6px 8px;border:1px solid #ddd">${fmtMoney(annex.extensionFee)}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Tổng thanh toán</b></td>
+              <td style="padding:6px 8px;border:1px solid #ddd;font-weight:bold;color:#1890ff">${fmtMoney(annex.extensionFee)}</td>
+            </tr>
+          </table>
+        </section>
+
+        ${annex.annexContent ? `
+        <section style="margin:16px 0">
+          <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Điều khoản phụ lục</h3>
+          <div style="background:#fafafa;padding:12px;border-radius:6px;white-space:pre-wrap;font-size:12px;line-height:1.7">
+            ${formatAnnexContent(annex.annexContent)}
+          </div>
+        </section>
+        ` : ""}
+
+        ${annex.legalReference ? `
+        <div style="margin-top:12px;font-size:11px;color:#666;font-style:italic">
+          ${annex.legalReference}
+        </div>
+        ` : ""}
+
+        <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN B</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">
+              ${customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
+            </div>
+            <div>
+              ${customerSigned ? `<div style="color:#000;font-weight:600">${customerName}</div>` : "(Ký, ghi rõ họ tên)"}
+            </div>
+
+          </div>
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN A</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">
+              ${adminSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
+            </div>
+            <div>
+              ${adminSigned ? '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>' : "(Ký, ghi rõ họ tên)"}
+            </div>
+
+          </div>
+        </section>
+
+        <div style="text-align:center;margin-top:20px;font-size:11px;color:#888">
+          Ngày hiệu lực: ${fmtDate(annex.effectiveDate)} | Ngày phát hành: ${fmtDate(annex.issuedAt)}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Preview Annex as PDF
+   */
+  async function previewAnnexAsPdf(annex) {
+    if (!annex) return message.warning("Chưa có dữ liệu phụ lục.");
+    try {
+      setAnnexPdfGenerating(true);
+      revokeBlob(annexPdfBlobUrl);
+
+      // Try to get customer data if available
+      let customerData = customer;
+      
+      // Create temporary visible element for html2canvas
+      const tempContainer = document.createElement("div");
+      tempContainer.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;";
+      tempContainer.innerHTML = buildPrintableAnnexHtml(annex, customerData);
+      document.body.appendChild(tempContainer);
+      
+      try {
+        const blob = await elementToPdfBlob(tempContainer);
+        const url = URL.createObjectURL(blob);
+        setAnnexPdfBlobUrl(url);
+      } finally {
+        document.body.removeChild(tempContainer);
+      }
+    } catch (e) {
+      console.error(e);
+      message.error("Không tạo được bản xem trước PDF phụ lục.");
+    } finally {
+      setAnnexPdfGenerating(false);
     }
   }
 
@@ -2207,9 +2465,16 @@ export default function OperatorOrders() {
   };
 
   // ====== Filters ======
+  // Khi search bằng orderId (số hợp lệ), kết quả đã được filter từ API
+  // nên chỉ cần filter frontend cho các trường hợp khác (date range)
   const filtered = useMemo(() => {
     let ds = rows;
-    if (kw.trim()) {
+    
+    // Nếu kw là số (orderId), API đã filter rồi -> không filter frontend theo kw
+    const isOrderIdSearch = kw.trim() && !isNaN(Number(kw.trim()));
+    
+    if (!isOrderIdSearch && kw.trim()) {
+      // Filter theo text (customerId) nếu không phải search orderId
       const k = kw.trim().toLowerCase();
       ds = ds.filter(
         (r) =>
@@ -2217,6 +2482,8 @@ export default function OperatorOrders() {
           String(r.customerId ?? "").toLowerCase().includes(k)
       );
     }
+    
+    // Filter theo date range (frontend)
     if (range?.length === 2) {
       const [s, e] = range;
       const sMs = s.startOf("day").valueOf();
@@ -2251,7 +2518,7 @@ export default function OperatorOrders() {
       dataIndex: "range",
       width: 220,
       render: (_, r) =>
-        `${dayjs(r.startDate).format("YYYY-MM-DD")} → ${dayjs(r.endDate).format(
+        `${dayjs(r.planStartDate || r.startDate).format("YYYY-MM-DD")} → ${dayjs(r.planEndDate || r.endDate).format(
           "YYYY-MM-DD"
         )}`,
     },
@@ -2261,9 +2528,9 @@ export default function OperatorOrders() {
       width: 90,
       render: (_, r) => {
         const d =
-          dayjs(r.endDate)
+          dayjs(r.planEndDate || r.endDate)
             .startOf("day")
-            .diff(dayjs(r.startDate).startOf("day"), "day") || 1;
+            .diff(dayjs(r.planStartDate || r.startDate).startOf("day"), "day") || 1;
         return Math.max(1, d);
       },
     },
@@ -2367,10 +2634,14 @@ export default function OperatorOrders() {
 
   const detailDays = useMemo(() => {
     if (!detail) return 1;
+    // Sử dụng planStartDate/planEndDate để tính số ngày thuê
+    const startDate = detail.planStartDate || detail.startDate;
+    const endDate = detail.planEndDate || detail.endDate;
+    if (!startDate || !endDate) return detail.durationDays || 1;
     const d =
-      dayjs(detail.endDate)
+      dayjs(endDate)
         .startOf("day")
-        .diff(dayjs(detail.startDate).startOf("day"), "day") || 1;
+        .diff(dayjs(startDate).startOf("day"), "day") || 1;
     return Math.max(1, d);
   }, [detail]);
 
@@ -2655,6 +2926,37 @@ export default function OperatorOrders() {
   // ====== UI ======
   return (
     <>
+      {/* Hidden print containers for PDF generation */}
+      <div
+        ref={printRef}
+        style={{
+          position: "absolute",
+          left: -9999,
+          top: -9999,
+          width: 794,
+          visibility: "hidden",
+        }}
+      />
+      <div
+        ref={handoverPrintRef}
+        style={{
+          position: "absolute",
+          left: -9999,
+          top: -9999,
+          width: 794,
+          visibility: "hidden",
+        }}
+      />
+      <div
+        ref={annexPrintRef}
+        style={{
+          position: "absolute",
+          left: -9999,
+          top: -9999,
+          width: 794,
+          visibility: "hidden",
+        }}
+      />
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <Title level={3} style={{ margin: 0 }}>Quản lý đơn hàng</Title>
         <Button icon={<ReloadOutlined />} onClick={fetchAll}>Tải lại</Button>
@@ -2663,9 +2965,26 @@ export default function OperatorOrders() {
       <Space style={{ marginBottom: 12 }} wrap>
         <Input.Search
           allowClear
-          placeholder="Tìm mã đơn hoặc mã KH…"
-          onSearch={setKw}
-          onChange={(e) => setKw(e.target.value)}
+          placeholder="Tìm mã đơn hàng..."
+          onSearch={(value) => {
+            const trimmed = value.trim();
+            // Nếu nhập số (mã đơn hàng), gọi API search với orderId
+            if (trimmed && !isNaN(Number(trimmed))) {
+              fetchAll(1, pagination.pageSize, Number(trimmed));
+            } else if (!trimmed) {
+              // Nếu xóa hết, tải lại toàn bộ
+              fetchAll(1, pagination.pageSize);
+            }
+            setKw(trimmed);
+          }}
+          onChange={(e) => {
+            const value = e.target.value;
+            setKw(value);
+            // Khi xóa hết input, tải lại toàn bộ
+            if (!value.trim()) {
+              fetchAll(1, pagination.pageSize);
+            }
+          }}
           style={{ width: 300 }}
         />
         <RangePicker value={range} onChange={setRange} />
@@ -2751,12 +3070,30 @@ export default function OperatorOrders() {
                 {dayjs(detail.createdAt).format("DD/MM/YYYY HH:mm")}
               </Descriptions.Item>
 
-              <Descriptions.Item label="Ngày bắt đầu thuê">
-                {detail.startDate ? dayjs(detail.startDate).format("DD/MM/YYYY HH:mm") : "—"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Ngày kết thúc thuê">
-                {detail.endDate ? dayjs(detail.endDate).format("DD/MM/YYYY HH:mm") : "—"}
-              </Descriptions.Item>
+              {/* Ngày bắt đầu thuê: ưu tiên chính thức, nếu không có thì hiện dự kiến */}
+              {detail.startDate ? (
+                <Descriptions.Item label="Ngày bắt đầu thuê (Chính thức)">
+                  <Text strong style={{ color: "#52c41a" }}>
+                    {dayjs(detail.startDate).format("DD/MM/YYYY HH:mm")}
+                  </Text>
+                </Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="Ngày bắt đầu thuê (Dự kiến)">
+                  {detail.planStartDate ? dayjs(detail.planStartDate).format("DD/MM/YYYY HH:mm") : "—"}
+                </Descriptions.Item>
+              )}
+              {/* Ngày kết thúc thuê: ưu tiên chính thức, nếu không có thì hiện dự kiến */}
+              {detail.endDate ? (
+                <Descriptions.Item label="Ngày kết thúc thuê (Chính thức)">
+                  <Text strong style={{ color: "#52c41a" }}>
+                    {dayjs(detail.endDate).format("DD/MM/YYYY HH:mm")}
+                  </Text>
+                </Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="Ngày kết thúc thuê (Dự kiến)">
+                  {detail.planEndDate ? dayjs(detail.planEndDate).format("DD/MM/YYYY HH:mm") : "—"}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Số ngày">{detailDays} ngày</Descriptions.Item>
               <Descriptions.Item label="Địa chỉ giao">{detail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>
@@ -2793,6 +3130,174 @@ export default function OperatorOrders() {
             />
 
             <Divider />
+
+            {/* Extensions Section - Hiển thị danh sách gia hạn */}
+            {Array.isArray(detail.extensions) && detail.extensions.length > 0 && (
+              <>
+                <Title level={5} style={{ marginBottom: 8 }}>Gia hạn đơn thuê</Title>
+                <Table
+                  rowKey="extensionId"
+                  columns={[
+                    {
+                      title: "ID",
+                      dataIndex: "extensionId",
+                      width: 60,
+                      render: (v) => <strong>#{v}</strong>,
+                    },
+                    {
+                      title: "Thời gian gia hạn",
+                      key: "extensionPeriod",
+                      width: 200,
+                      render: (_, record) => (
+                        <span>
+                          {record.extensionStart ? dayjs(record.extensionStart).format("DD/MM/YYYY HH:mm") : "—"}
+                          {" → "}
+                          {record.extensionEnd ? dayjs(record.extensionEnd).format("DD/MM/YYYY HH:mm") : "—"}
+                        </span>
+                      ),
+                    },
+                    {
+                      title: "Số ngày",
+                      dataIndex: "durationDays",
+                      width: 80,
+                      align: "center",
+                      render: (v) => `${v || 0} ngày`,
+                    },
+                    {
+                      title: "Phí thêm",
+                      dataIndex: "additionalPrice",
+                      width: 120,
+                      align: "right",
+                      render: (v) => fmtVND(v || 0),
+                    },
+                    {
+                      title: "Ngày tạo",
+                      dataIndex: "createdAt",
+                      width: 130,
+                      render: (v) => v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "—",
+                    },
+                    {
+                      title: "Trạng thái",
+                      dataIndex: "status",
+                      width: 120,
+                      render: (v) => {
+                        const s = String(v || "").toUpperCase();
+                        if (s === "PROCESSING") return <Tag color="blue">Đang xử lý</Tag>;
+                        if (s === "COMPLETED" || s === "DONE") return <Tag color="green">Hoàn thành</Tag>;
+                        if (s === "PENDING") return <Tag color="orange">Chờ xử lý</Tag>;
+                        if (s === "CANCELLED") return <Tag color="red">Đã hủy</Tag>;
+                        return <Tag>{v || "—"}</Tag>;
+                      },
+                    },
+                    {
+                      title: "Thao tác",
+                      key: "actions",
+                      width: 140,
+                      render: (_, record) => {
+                        // Check if annex already exists for this extension
+                        const annexExists = orderAnnexes.some(
+                          (a) => a.extensionId === record.extensionId
+                        );
+                        
+                        if (annexExists) {
+                          return <Tag color="green">Đã tạo phụ lục</Tag>;
+                        }
+                        
+                        return (
+                          <Tooltip title="Tạo phụ lục gia hạn hợp đồng từ gia hạn này">
+                            <Button
+                              type="primary"
+                              size="small"
+                              icon={<PlusOutlined />}
+                              loading={creatingAnnex}
+                              onClick={() => handleCreateAnnexFromExtension(record.extensionId)}
+                              disabled={orderContracts.length === 0 || !orderContracts.some((c) => {
+                                const status = String(c.status || "").toUpperCase();
+                                return status === "ACTIVE" || status === "SIGNED";
+                              })}
+                            >
+                              Tạo phụ lục
+                            </Button>
+                          </Tooltip>
+                        );
+                      },
+                    },
+                  ]}
+                  dataSource={detail.extensions}
+                  pagination={false}
+                  size="small"
+                />
+                <Divider />
+              </>
+            )}
+
+            {/* Annexes Section - Hiển thị danh sách phụ lục gia hạn */}
+            {orderAnnexes.length > 0 && (
+              <>
+                <Title level={5} style={{ marginBottom: 8 }}>Phụ lục gia hạn hợp đồng</Title>
+                {annexesLoading ? (
+                  <Skeleton active paragraph={{ rows: 2 }} />
+                ) : (
+                  <Table
+                    rowKey="annexId"
+                    columns={[
+                      {
+                        title: "ID",
+                        dataIndex: "annexId",
+                        width: 80,
+                        render: (v) => <strong>#{v || "—"}</strong>,
+                      },
+                      {
+                        title: "Thời gian gia hạn",
+                        key: "extensionPeriod",
+                        width: 180,
+                        render: (_, record) => (
+                          <span>
+                            {record.extensionStartDate ? dayjs(record.extensionStartDate).format("DD/MM/YYYY") : "—"}
+                            {" → "}
+                            {record.extensionEndDate ? dayjs(record.extensionEndDate).format("DD/MM/YYYY") : "—"}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: "Phí gia hạn",
+                        dataIndex: "extensionFee",
+                        width: 120,
+                        align: "right",
+                        render: (v) => fmtVND(v || 0),
+                      },
+                      {
+                        title: "Trạng thái",
+                        dataIndex: "status",
+                        width: 140,
+                        render: (status) => contractStatusTag(status), // Reuse contract status tag
+                      },
+                      {
+                        title: "Thao tác",
+                        key: "actions",
+                        width: 100,
+                        render: (_, record) => (
+                          <Button
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => {
+                              setAnnexDetail(record);
+                              setAnnexDetailOpen(true);
+                            }}
+                          >
+                            Xem
+                          </Button>
+                        ),
+                      },
+                    ]}
+                    dataSource={orderAnnexes}
+                    pagination={false}
+                    size="small"
+                  />
+                )}
+                <Divider />
+              </>
+            )}
 
             <Title level={5} style={{ marginBottom: 8 }}>Hợp đồng đã tạo</Title>
             {contractsLoading ? (
@@ -3027,6 +3532,123 @@ export default function OperatorOrders() {
                 >
                   <Text type="secondary">
                     <FilePdfOutlined /> Không có URL hợp đồng để hiển thị.
+                  </Text>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Text type="secondary">Không có dữ liệu.</Text>
+        )}
+      </Modal>
+
+      {/* Annex Detail Modal - Chi tiết phụ lục gia hạn với PDF View */}
+      <Modal
+        title={`Chi tiết phụ lục: ${annexDetail?.annexNumber || ""}`}
+        open={annexDetailOpen}
+        onCancel={() => {
+          setAnnexDetailOpen(false);
+          revokeBlob(annexPdfBlobUrl);
+          setAnnexPdfBlobUrl("");
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setAnnexDetailOpen(false);
+            revokeBlob(annexPdfBlobUrl);
+            setAnnexPdfBlobUrl("");
+          }}>
+            Đóng
+          </Button>,
+        ]}
+        width={900}
+        style={{ top: 20 }}
+        afterOpenChange={(open) => {
+          if (open && annexDetail && !annexPdfBlobUrl) {
+            previewAnnexAsPdf(annexDetail);
+          }
+        }}
+      >
+        {annexDetail ? (
+          <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
+            <Title level={5} style={{ marginBottom: 16 }}>Phụ lục PDF</Title>
+
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Button
+                icon={<ExpandOutlined />}
+                onClick={() => {
+                  return annexPdfBlobUrl
+                    ? window.open(annexPdfBlobUrl, "_blank", "noopener")
+                    : message.warning("Đang tạo PDF, vui lòng chờ...");
+                }}
+              >
+                Xem toàn màn hình
+              </Button>
+
+              {annexPdfBlobUrl && (
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={() => {
+                    const link = document.createElement("a");
+                    link.href = annexPdfBlobUrl;
+                    link.download = `Phu-luc-${annexDetail.annexNumber || annexDetail.annexId}.pdf`;
+                    link.click();
+                  }}
+                >
+                  Tải phụ lục
+                </Button>
+              )}
+
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => previewAnnexAsPdf(annexDetail)}
+                loading={annexPdfGenerating}
+              >
+                Tạo lại PDF
+              </Button>
+            </Space>
+            
+
+            {/* PDF Preview */}
+            <div
+              style={{
+                border: "1px solid #e8e8e8",
+                borderRadius: 8,
+                overflow: "hidden",
+                height: 500,
+              }}
+            >
+              {annexPdfGenerating ? (
+                <div
+                  style={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "column",
+                    gap: 12,
+                  }}
+                >
+                  <Skeleton.Button active style={{ width: 200, height: 20 }} />
+                  <Text type="secondary">Đang tạo PDF phụ lục...</Text>
+                </div>
+              ) : annexPdfBlobUrl ? (
+                <iframe
+                  src={annexPdfBlobUrl}
+                  title="Annex PDF Preview"
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text type="secondary">
+                    <FilePdfOutlined /> Nhấn "Tạo lại PDF" để xem phụ lục.
                   </Text>
                 </div>
               )}

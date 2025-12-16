@@ -269,9 +269,9 @@ export default function TechnicianQcDetail() {
         const namesMap = {};
 
         // ========== CHUẨN BỊ KHOẢNG THỜI GIAN THUÊ ==========
-        // Lấy startDate và endDate từ order để filter thiết bị available
-        const startDate = order.startDate || order.rentalStartDate;
-        const endDate = order.endDate || order.rentalEndDate;
+        // Lấy planStartDate và planEndDate từ order để filter thiết bị available
+        const startDate = order.planStartDate || order.startDate || order.rentalStartDate;
+        const endDate = order.planEndDate || order.endDate || order.rentalEndDate;
         let start = null;
         let end = null;
 

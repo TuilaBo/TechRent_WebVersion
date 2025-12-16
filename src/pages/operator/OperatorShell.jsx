@@ -7,6 +7,7 @@ import {
   ScheduleOutlined,
   ContainerOutlined,
   FileTextOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -25,6 +26,7 @@ export default function OperatorShell() {
     if (loc.pathname.startsWith("/operator/tasks")) return "tasks";
     if (loc.pathname.startsWith("/operator/shifts")) return "shifts";
     if (loc.pathname.startsWith("/operator/contracts")) return "contracts";
+    if (loc.pathname.startsWith("/operator/complaints")) return "complaints";
     if (loc.pathname === "/operator/kyc") return "kyc";
     return "dashboard";
   })();
@@ -58,6 +60,7 @@ export default function OperatorShell() {
             // { key: "dashboard", icon: <DashboardOutlined />, label: "Tổng quan", onClick: () => nav("/operator") },
             { key: "orders", icon: <ProfileOutlined />, label: "Quản lý đơn", onClick: () => nav("/operator/orders") },
             { key: "tasks", icon: <ContainerOutlined />, label: "Công việc", onClick: () => nav("/operator/tasks") },
+            { key: "complaints", icon: <ExclamationCircleOutlined />, label: "Khiếu nại", onClick: () => nav("/operator/complaints") },
             { key: "kyc", icon: <ProfileOutlined />, label: "KYC", onClick: () => nav("/operator/kyc") },
           ]}
         />

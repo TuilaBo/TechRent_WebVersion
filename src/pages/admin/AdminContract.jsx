@@ -2,10 +2,10 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   Table, Tag, Typography, Button, Space, Modal, Form, Input, message,
-  Drawer, Divider, Row, Col, Select, DatePicker, Card
+  Drawer, Divider, Row, Col, Select, DatePicker, Card, Skeleton, Descriptions
 } from "antd";
 import {
-  EyeOutlined, FilePdfOutlined, DownloadOutlined, PrinterOutlined, ExpandOutlined
+  EyeOutlined, FilePdfOutlined, DownloadOutlined, PrinterOutlined, ExpandOutlined, ReloadOutlined
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
@@ -13,6 +13,10 @@ import {
 } from "../../lib/contractApi";
 import { fetchCustomerById, normalizeCustomer } from "../../lib/customerApi";
 import { getKycByCustomerId } from "../../lib/kycApi";
+import {
+  getAnnexesByContractId, sendAnnexPinEmail, signAnnexAsAdmin
+} from "../../lib/annexes";
+import { getRentalOrderById } from "../../lib/rentalOrdersApi";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
@@ -392,8 +396,8 @@ function statusTag(s) {
   const v = String(s || "").toUpperCase();
   if (v === "PENDING_SIGNATURE") return <Tag color="gold">Chờ khách hàng ký</Tag>;
   if (v === "PENDING_ADMIN_SIGNATURE") return <Tag color="orange">Chờ ký (admin)</Tag>;
-  if (v === "ACTIVE") return <Tag color="green">Đã ký</Tag>;
-  if (v.includes("SIGNED")) return <Tag color="green">Đã ký</Tag>;
+  if (v === "ACTIVE") return <Tag color="green">2 bên đã ký</Tag>;
+  if (v.includes("SIGNED")) return <Tag color="green">2 bên đã ký</Tag>;
   if (v.includes("DRAFT")) return <Tag color="default">Nháp</Tag>;
   if (v.includes("EXPIRED")) return <Tag color="red">Hết hạn</Tag>;
   return <Tag>{v || "—"}</Tag>;
@@ -603,6 +607,26 @@ export default function AdminContract() {
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const printRef = useRef(null);
 
+  // Annexes states
+  const [orderAnnexes, setOrderAnnexes] = useState([]);
+  const [annexesLoading, setAnnexesLoading] = useState(false);
+  const [annexDetail, setAnnexDetail] = useState(null);
+  const [annexDetailOpen, setAnnexDetailOpen] = useState(false);
+  const [annexPdfBlobUrl, setAnnexPdfBlobUrl] = useState("");
+  const [annexPdfGenerating, setAnnexPdfGenerating] = useState(false);
+  
+  // Annex signing states
+  const [annexSignOpen, setAnnexSignOpen] = useState(false);
+  const [annexSigning, setAnnexSigning] = useState(false);
+  const [annexPinSent, setAnnexPinSent] = useState(false);
+  const [annexSendingPin, setAnnexSendingPin] = useState(false);
+  const [currentAnnexId, setCurrentAnnexId] = useState(null);
+  const [annexForm] = Form.useForm();
+
+  // Extensions (Gia hạn đơn thuê) states
+  const [orderExtensions, setOrderExtensions] = useState([]);
+  const [extensionsLoading, setExtensionsLoading] = useState(false);
+
 function revokeBlob(url) {
   try {
     if (url) URL.revokeObjectURL(url);
@@ -618,7 +642,207 @@ function revokeBlob(url) {
     setContractCustomer(null);
     setContractKyc(null);
     setOrderContracts([]);
+    setOrderAnnexes([]);
+    setOrderExtensions([]);
   }
+
+  // ===== ANNEX HELPER FUNCTIONS =====
+  
+  /** Format annexContent text - convert ISO dates and money values */
+  function formatAnnexContent(content) {
+    if (!content) return "";
+    let formatted = content;
+    // Format ISO datetime strings (e.g., 2025-12-15T22:44:33.727913 -> 15/12/2025 22:44)
+    formatted = formatted.replace(
+      /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(:\d{2}(\.\d+)?)?/g,
+      (match, year, month, day, hour, minute) => `${day}/${month}/${year} ${hour}:${minute}`
+    );
+    // Format money values (e.g., 250000.00 VND -> 250.000 VNĐ)
+    formatted = formatted.replace(
+      /(\d+)(\.\d{2})?\s*VND/g,
+      (match, amount) => {
+        const num = parseInt(amount, 10);
+        return num.toLocaleString("vi-VN") + " VNĐ";
+      }
+    );
+    return formatted;
+  }
+
+  /** Build printable HTML for Annex */
+  function buildPrintableAnnexHtml(annex, customer = null) {
+    if (!annex) return "<div>Không có dữ liệu phụ lục</div>";
+    const title = annex.title || "PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ THIẾT BỊ";
+    const annexNumber = annex.annexNumber || "";
+    const contractNumber = annex.contractNumber || "";
+    const customerName = customer?.fullName || customer?.name || `Khách hàng #${annex.originalOrderId || ""}`;
+    const fmtDate = (d) => d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—";
+    const fmtMoney = (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "0 ₫");
+    const adminSigned = !!annex.adminSignedAt;
+    const customerSigned = !!annex.customerSignedAt;
+
+    return `
+      <div style="width:794px;margin:0 auto;background:#fff;color:#111;font-family:Inter,Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;padding:32px 40px;box-sizing:border-box;">
+        ${GLOBAL_PRINT_CSS}
+        ${NATIONAL_HEADER_HTML}
+        <div style="text-align:center;margin-bottom:12px">
+          <div style="font-size:20px;font-weight:700;letter-spacing:.5px">${title}</div>
+          <div style="color:#666;margin-top:4px">Số: ${annexNumber}</div>
+        </div>
+        <hr style="border:none;border-top:1px solid #e8e8e8;margin:12px 0 16px"/>
+        <section class="kv">
+          <div><b>Căn cứ hợp đồng số:</b> ${contractNumber}</div>
+          <div><b>Đơn hàng:</b> #${annex.originalOrderId || "—"}</div>
+          <div><b>Bên A (Bên cho thuê):</b> CÔNG TY TECHRENT</div>
+          <div><b>Bên B (Khách hàng):</b> ${customerName}</div>
+        </section>
+        <section style="margin:16px 0">
+          <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Nội dung gia hạn</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5;width:40%"><b>Thời gian gia hạn</b></td><td style="padding:6px 8px;border:1px solid #ddd">${fmtDate(annex.extensionStartDate)} → ${fmtDate(annex.extensionEndDate)}</td></tr>
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Số ngày gia hạn</b></td><td style="padding:6px 8px;border:1px solid #ddd">${annex.extensionDays || 0} ngày</td></tr>
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Phí gia hạn</b></td><td style="padding:6px 8px;border:1px solid #ddd">${fmtMoney(annex.extensionFee)}</td></tr>
+            <tr><td style="padding:6px 8px;border:1px solid #ddd;background:#f5f5f5"><b>Tổng thanh toán</b></td><td style="padding:6px 8px;border:1px solid #ddd;font-weight:bold;color:#1890ff">${fmtMoney(annex.extensionFee)}</td></tr>
+          </table>
+        </section>
+        ${annex.annexContent ? `
+        <section style="margin:16px 0">
+          <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Điều khoản phụ lục</h3>
+          <div style="background:#fafafa;padding:12px;border-radius:6px;white-space:pre-wrap;font-size:12px;line-height:1.7">${formatAnnexContent(annex.annexContent)}</div>
+        </section>` : ""}
+        ${annex.legalReference ? `<div style="margin-top:12px;font-size:11px;color:#666;font-style:italic">${annex.legalReference}</div>` : ""}
+        <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN B</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">${customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}</div>
+            <div>${customerSigned ? `<div style="color:#000;font-weight:600">${customerName}</div>` : "(Ký, ghi rõ họ tên)"}</div>
+          </div>
+          <div style="flex:1;text-align:center">
+            <div><b>ĐẠI DIỆN BÊN A</b></div>
+            <div style="height:72px;display:flex;align-items:center;justify-content:center">${adminSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}</div>
+            <div>${adminSigned ? '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>' : "(Ký, ghi rõ họ tên)"}</div>
+          </div>
+        </section>
+        <div style="text-align:center;margin-top:20px;font-size:11px;color:#888">Ngày hiệu lực: ${fmtDate(annex.effectiveDate)} | Ngày phát hành: ${fmtDate(annex.issuedAt)}</div>
+      </div>
+    `;
+  }
+
+  /** Preview Annex as PDF */
+  async function previewAnnexAsPdf(annex) {
+    if (!annex) return message.warning("Chưa có dữ liệu phụ lục.");
+    try {
+      setAnnexPdfGenerating(true);
+      revokeBlob(annexPdfBlobUrl);
+      const tempContainer = document.createElement("div");
+      tempContainer.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;";
+      tempContainer.innerHTML = buildPrintableAnnexHtml(annex, contractCustomer);
+      document.body.appendChild(tempContainer);
+      try {
+        const blob = await elementToPdfBlob(tempContainer);
+        const url = URL.createObjectURL(blob);
+        setAnnexPdfBlobUrl(url);
+      } finally {
+        document.body.removeChild(tempContainer);
+      }
+    } catch (e) {
+      console.error(e);
+      message.error("Không tạo được bản xem trước PDF phụ lục.");
+    } finally {
+      setAnnexPdfGenerating(false);
+    }
+  }
+
+  /** Fetch annexes by contractId */
+  const fetchOrderAnnexes = async (contractId) => {
+    if (!contractId) {
+      setOrderAnnexes([]);
+      return;
+    }
+    try {
+      setAnnexesLoading(true);
+      const annexes = await getAnnexesByContractId(contractId);
+      setOrderAnnexes(Array.isArray(annexes) ? annexes : []);
+    } catch (e) {
+      console.error("Failed to fetch annexes:", e);
+      setOrderAnnexes([]);
+    } finally {
+      setAnnexesLoading(false);
+    }
+  };
+
+  /** Open annex sign modal */
+  const openAnnexSign = (annex) => {
+    setCurrentAnnexId(annex.annexId || annex.id);
+    setAnnexSignOpen(true);
+    setAnnexPinSent(false);
+    annexForm.resetFields();
+    annexForm.setFieldsValue({ email: ADMIN_SIGN_EMAIL, pinCode: undefined });
+  };
+
+  /** Send PIN for annex signing */
+  const doSendAnnexPin = async (values) => {
+    if (!currentAnnexId || !contractDetail?.id) return;
+    const email = values?.email?.trim();
+    if (!email) {
+      message.warning("Vui lòng nhập email để gửi mã PIN");
+      return;
+    }
+    try {
+      setAnnexSendingPin(true);
+      await sendAnnexPinEmail(contractDetail.id, currentAnnexId, email);
+      message.success("Đã gửi mã PIN tới email");
+      setAnnexPinSent(true);
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Gửi mã PIN thất bại");
+    } finally {
+      setAnnexSendingPin(false);
+    }
+  };
+
+  /** Admin sign annex */
+  const doAdminSignAnnex = async (values) => {
+    if (!currentAnnexId || !contractDetail?.id) return;
+    try {
+      setAnnexSigning(true);
+      const payload = {
+        digitalSignature: "string",
+        pinCode: values.pinCode,
+        signatureMethod: "EMAIL_OTP",
+        deviceInfo: "string",
+        ipAddress: "string",
+      };
+      await signAnnexAsAdmin(contractDetail.id, currentAnnexId, payload);
+      message.success("Đã ký phụ lục (admin)");
+      setAnnexSignOpen(false);
+      setCurrentAnnexId(null);
+      setAnnexPinSent(false);
+      // Reload annexes
+      await fetchOrderAnnexes(contractDetail.id);
+    } catch (e) {
+      message.error(e?.response?.data?.message || e?.message || "Ký phụ lục thất bại");
+    } finally {
+      setAnnexSigning(false);
+    }
+  };
+
+  /** Fetch extensions by orderId */
+  const fetchOrderExtensions = async (orderId) => {
+    if (!orderId) {
+      setOrderExtensions([]);
+      return;
+    }
+    try {
+      setExtensionsLoading(true);
+      const orderData = await getOrderById(orderId);
+      const extensions = orderData?.extensions || [];
+      setOrderExtensions(Array.isArray(extensions) ? extensions : []);
+    } catch (e) {
+      console.error("Failed to fetch extensions:", e);
+      setOrderExtensions([]);
+    } finally {
+      setExtensionsLoading(false);
+    }
+  };
 
   const loadOrderContracts = async (orderId) => {
     if (!orderId) return;
@@ -917,6 +1141,16 @@ function revokeBlob(url) {
         }
       }
 
+      // Fetch annexes for this contract
+      if (normalized?.id) {
+        await fetchOrderAnnexes(normalized.id);
+      }
+
+      // Fetch extensions for this order
+      if (normalized?.orderId) {
+        await fetchOrderExtensions(normalized.orderId);
+      }
+
       setDetailOpen(true);
     } catch (e) {
       message.error(e?.response?.data?.message || e?.message || "Không tải được chi tiết hợp đồng.");
@@ -1130,6 +1364,157 @@ function revokeBlob(url) {
             )}
 
             <Divider />
+
+            {/* Extensions Section - Gia hạn đơn thuê */}
+            {orderExtensions.length > 0 && (
+              <>
+                <Title level={4} style={{ marginBottom: 16 }}>Gia hạn đơn thuê</Title>
+                {extensionsLoading ? (
+                  <Skeleton active paragraph={{ rows: 2 }} />
+                ) : (
+                  <Table
+                    rowKey="extensionId"
+                    columns={[
+                      {
+                        title: "ID",
+                        dataIndex: "extensionId",
+                        width: 60,
+                        render: (v) => <strong>#{v}</strong>,
+                      },
+                      {
+                        title: "Thời gian gia hạn",
+                        key: "extensionPeriod",
+                        width: 200,
+                        render: (_, record) => (
+                          <span>
+                            {record.extensionStart ? dayjs(record.extensionStart).format("DD/MM/YYYY HH:mm") : "—"}
+                            {" → "}
+                            {record.extensionEnd ? dayjs(record.extensionEnd).format("DD/MM/YYYY HH:mm") : "—"}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: "Số ngày",
+                        dataIndex: "durationDays",
+                        width: 80,
+                        align: "center",
+                        render: (v) => `${v || 0} ngày`,
+                      },
+                      {
+                        title: "Phí thêm",
+                        dataIndex: "additionalPrice",
+                        width: 120,
+                        align: "right",
+                        render: (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "—"),
+                      },
+                      {
+                        title: "Ngày tạo",
+                        dataIndex: "createdAt",
+                        width: 130,
+                        render: (v) => v ? dayjs(v).format("DD/MM/YYYY HH:mm") : "—",
+                      },
+                      {
+                        title: "Trạng thái",
+                        dataIndex: "status",
+                        width: 120,
+                        render: (v) => {
+                          const s = String(v || "").toUpperCase();
+                          if (s === "PROCESSING") return <Tag color="blue">Đang xử lý</Tag>;
+                          if (s === "COMPLETED" || s === "DONE") return <Tag color="green">Hoàn thành</Tag>;
+                          if (s === "PENDING") return <Tag color="orange">Chờ xử lý</Tag>;
+                          if (s === "CANCELLED") return <Tag color="red">Đã hủy</Tag>;
+                          return <Tag>{v || "—"}</Tag>;
+                        },
+                      },
+                    ]}
+                    dataSource={orderExtensions}
+                    pagination={false}
+                    size="small"
+                    style={{ marginBottom: 16 }}
+                  />
+                )}
+                <Divider />
+              </>
+            )}
+
+            {/* Annexes Section */}
+            {orderAnnexes.length > 0 && (
+              <>
+                <Title level={4} style={{ marginBottom: 16 }}>Phụ lục gia hạn hợp đồng</Title>
+                {annexesLoading ? (
+                  <Skeleton active paragraph={{ rows: 2 }} />
+                ) : (
+                  <Table
+                    rowKey="annexId"
+                    columns={[
+                      {
+                        title: "ID",
+                        dataIndex: "annexId",
+                        width: 80,
+                        render: (v) => <strong>#{v || "—"}</strong>,
+                      },
+                      {
+                        title: "Thời gian gia hạn",
+                        key: "extensionPeriod",
+                        width: 180,
+                        render: (_, record) => (
+                          <span>
+                            {record.extensionStartDate ? dayjs(record.extensionStartDate).format("DD/MM/YYYY") : "—"}
+                            {" → "}
+                            {record.extensionEndDate ? dayjs(record.extensionEndDate).format("DD/MM/YYYY") : "—"}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: "Phí",
+                        dataIndex: "extensionFee",
+                        width: 120,
+                        render: (v) => (v != null ? v.toLocaleString("vi-VN") + " ₫" : "—"),
+                      },
+                      {
+                        title: "Trạng thái",
+                        dataIndex: "status",
+                        width: 140,
+                        render: (v) => statusTag(v),
+                      },
+                      {
+                        title: "Thao tác",
+                        key: "action",
+                        width: 180,
+                        render: (_, record) => (
+                          <Space size="small">
+                            <Button
+                              size="small"
+                              icon={<EyeOutlined />}
+                              onClick={() => {
+                                setAnnexDetail(record);
+                                setAnnexDetailOpen(true);
+                              }}
+                            >
+                              Xem
+                            </Button>
+                            {!record.adminSignedAt && (
+                              <Button
+                                size="small"
+                                type="primary"
+                                onClick={() => openAnnexSign(record)}
+                              >
+                                Ký (admin)
+                              </Button>
+                            )}
+                          </Space>
+                        ),
+                      },
+                    ]}
+                    dataSource={orderAnnexes}
+                    pagination={false}
+                    size="small"
+                    style={{ marginBottom: 16 }}
+                  />
+                )}
+                <Divider />
+              </>
+            )}
 
             <Title level={4} style={{ marginBottom: 16 }}>Hợp đồng PDF đã tạo</Title>
             <Space style={{ marginBottom: 12 }} wrap>
@@ -1408,6 +1793,132 @@ function revokeBlob(url) {
             <Text type="secondary">Đang tạo bản xem trước…</Text>
           </div>
         )}
+      </Modal>
+
+      {/* Annexes Section Modals */}
+      {/* Annex Detail Modal with PDF View */}
+      <Modal
+        title={`Chi tiết phụ lục: ${annexDetail?.annexNumber || ""}`}
+        open={annexDetailOpen}
+        onCancel={() => {
+          setAnnexDetailOpen(false);
+          revokeBlob(annexPdfBlobUrl);
+          setAnnexPdfBlobUrl("");
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setAnnexDetailOpen(false);
+            revokeBlob(annexPdfBlobUrl);
+            setAnnexPdfBlobUrl("");
+          }}>Đóng</Button>,
+        ]}
+        width={900}
+        style={{ top: 20 }}
+        afterOpenChange={(open) => {
+          if (open && annexDetail && !annexPdfBlobUrl) {
+            previewAnnexAsPdf(annexDetail);
+          }
+        }}
+      >
+        {annexDetail ? (
+          <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
+            <Title level={5} style={{ marginBottom: 16 }}>Phụ lục PDF</Title>
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Button
+                icon={<ExpandOutlined />}
+                onClick={() => {
+                  return annexPdfBlobUrl
+                    ? window.open(annexPdfBlobUrl, "_blank", "noopener")
+                    : message.warning("Đang tạo PDF, vui lòng chờ...");
+                }}
+              >Xem toàn màn hình</Button>
+              {annexPdfBlobUrl && (
+                <Button
+                  type="primary"
+                  icon={<DownloadOutlined />}
+                  onClick={() => {
+                    const link = document.createElement("a");
+                    link.href = annexPdfBlobUrl;
+                    link.download = `Phu-luc-${annexDetail.annexNumber || annexDetail.annexId}.pdf`;
+                    link.click();
+                  }}
+                >Tải phụ lục</Button>
+              )}
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => previewAnnexAsPdf(annexDetail)}
+                loading={annexPdfGenerating}
+              >Tạo lại PDF</Button>
+            </Space>
+
+
+            {/* PDF Preview */}
+            <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, overflow: "hidden", height: 500 }}>
+              {annexPdfGenerating ? (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+                  <Skeleton.Button active style={{ width: 200, height: 20 }} />
+                  <Text type="secondary">Đang tạo PDF phụ lục...</Text>
+                </div>
+              ) : annexPdfBlobUrl ? (
+                <iframe src={annexPdfBlobUrl} title="Annex PDF Preview" style={{ width: "100%", height: "100%", border: "none" }} />
+              ) : (
+                <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Text type="secondary"><FilePdfOutlined /> Nhấn "Tạo lại PDF" để xem phụ lục.</Text>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Text type="secondary">Không có dữ liệu.</Text>
+        )}
+      </Modal>
+
+      {/* Annex Sign Modal */}
+      <Modal
+        title={currentAnnexId ? `Ký phụ lục #${currentAnnexId}` : "Ký phụ lục"}
+        open={annexSignOpen}
+        onCancel={() => { setAnnexSignOpen(false); setCurrentAnnexId(null); setAnnexPinSent(false); }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form layout="vertical" form={annexForm} onFinish={annexPinSent ? doAdminSignAnnex : doSendAnnexPin}>
+          {!annexPinSent ? (
+            <>
+              <Form.Item
+                label="Email nhận mã PIN"
+                name="email"
+                rules={[{ required: true, message: "Vui lòng nhập email" }]}
+              >
+                <Input type="email" disabled value={ADMIN_SIGN_EMAIL} />
+              </Form.Item>
+              <Form.Item style={{ marginTop: -8, marginBottom: 12 }}>
+                
+              </Form.Item>
+              <Form.Item style={{ textAlign: "right", marginBottom: 0 }}>
+                <Space>
+                  <Button onClick={() => setAnnexSignOpen(false)}>Hủy</Button>
+                  <Button type="primary" htmlType="submit" loading={annexSendingPin}>Gửi mã PIN</Button>
+                </Space>
+              </Form.Item>
+            </>
+          ) : (
+            <>
+              <Form.Item
+                label="Mã PIN"
+                name="pinCode"
+                rules={[{ required: true, message: "Vui lòng nhập mã PIN" }, { min: 6, message: "Tối thiểu 6 ký tự" }]}
+              >
+                <Input placeholder="Nhập mã PIN" maxLength={10} />
+              </Form.Item>
+              <Form.Item style={{ textAlign: "right", marginBottom: 0 }}>
+                <Space>
+                  <Button onClick={() => setAnnexPinSent(false)}>Quay lại</Button>
+                  <Button type="primary" htmlType="submit" loading={annexSigning}>Ký phụ lục</Button>
+                </Space>
+              </Form.Item>
+            </>
+          )}
+        </Form>
       </Modal>
 
       {/* Container ẩn để render A4 rồi chụp */}

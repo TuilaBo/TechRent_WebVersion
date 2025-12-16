@@ -738,11 +738,6 @@ export default function CustomerProfile() {
                     children: <Text>{customer.email}</Text>,
                   },
                   {
-                    key: "created",
-                    label: "Ngày tạo",
-                    children: <Text>{customer.createdAt}</Text>,
-                  },
-                  {
                     key: "addr",
                     label: (
                       <Space>

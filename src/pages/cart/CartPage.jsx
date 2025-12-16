@@ -958,7 +958,7 @@ export default function CartPage() {
                 >
                   <div style={{ marginBottom: 12 }}>
                     <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                      Ngày bắt đầu
+                      Ngày bắt đầu thuê
                     </Text>
                     <DatePicker
                       value={startDate}
@@ -977,7 +977,7 @@ export default function CartPage() {
                   </div>
                   <div style={{ marginBottom: 12 }}>
                     <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                      Ngày kết thúc
+                      Ngày kết thúc thuê(Dự kiến)
                     </Text>
                     <DatePicker
                       value={endDate}
@@ -1000,7 +1000,7 @@ export default function CartPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <div>
                       <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                        Giờ bắt đầu thuê
+                        Giờ bắt đầu thuê(Dự kiến)
                       </Text>
                       <TimePicker
                         value={startTime}
@@ -1014,7 +1014,7 @@ export default function CartPage() {
                     </div>
                     <div>
                       <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                        Giờ kết thúc thuê
+                        Giờ kết thúc thuê(Dự kiến)
                       </Text>
                       <TimePicker
                         value={endTime}

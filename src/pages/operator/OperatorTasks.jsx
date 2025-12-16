@@ -753,14 +753,40 @@ export default function OperatorTasks() {
     }
   };
 
-  // Filter data based on search query
+  // Filter and sort data: PENDING first, COMPLETED last
   const filteredData = useMemo(() => {
-    if (!searchQuery.trim()) return data;
-    const query = searchQuery.trim().toLowerCase();
-    return data.filter((task) => {
-      const taskId = String(task.taskId || task.id || "").toLowerCase();
-      const orderId = String(task.orderId || "").toLowerCase();
-      return taskId.includes(query) || orderId.includes(query);
+    let result = data;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toLowerCase();
+      result = result.filter((task) => {
+        const taskId = String(task.taskId || task.id || "").toLowerCase();
+        const orderId = String(task.orderId || "").toLowerCase();
+        return taskId.includes(query) || orderId.includes(query);
+      });
+    }
+    
+    // Sort by status: PENDING first, COMPLETED last
+    return [...result].sort((a, b) => {
+      const statusA = String(a.status || "").toUpperCase();
+      const statusB = String(b.status || "").toUpperCase();
+      
+      // Define priority: PENDING = 1, PROCESSING/IN_PROGRESS = 2, COMPLETED = 3, others = 2
+      const getPriority = (status) => {
+        if (status === "PENDING") return 1;
+        if (status === "COMPLETED") return 3;
+        return 2; // PROCESSING, IN_PROGRESS, or other statuses
+      };
+      
+      const priorityA = getPriority(statusA);
+      const priorityB = getPriority(statusB);
+      
+      // Sort by priority, then by taskId (descending for newer first)
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      return (b.taskId || 0) - (a.taskId || 0); // Newer tasks first within same status
     });
   }, [data, searchQuery]);
 
@@ -775,28 +801,21 @@ export default function OperatorTasks() {
     {
       title: "Đơn hàng",
       key: "order",
-      width: 160,
+      width: 120,
       render: (_, r) => {
         const id = r.orderId;
-        const st = id ? (orderMap[id]?.status || orderMap[id]?.orderStatus || null) : null;
-        const { color, label } = describeOrderStatus(st);
         if (!id) return "-";
         return (
-          <Space direction="vertical" size="small">
-            <Space>
-              <span>#{id}</span>
-              <Button
-                size="small"
-                type="link"
-                style={{ padding: 0, height: 'auto' }}
-                onClick={() => openOrderDetail(id)}
-              >
-                Xem
-              </Button>
-            </Space>
-            {st && (
-              <Tag color={color} style={{ margin: 0 }}>{label}</Tag>
-            )}
+          <Space>
+            <span>#{id}</span>
+            <Button
+              size="small"
+              type="link"
+              style={{ padding: 0, height: 'auto' }}
+              onClick={() => openOrderDetail(id)}
+            >
+              Xem
+            </Button>
           </Space>
         );
       },
@@ -1303,7 +1322,7 @@ export default function OperatorTasks() {
               <Table
                 rowKey="taskId"
                 columns={columns}
-                dataSource={data}
+                dataSource={filteredData}
                 pagination={{
                   current: taskPage + 1,
                   pageSize: taskPageSize,
