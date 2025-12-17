@@ -2092,14 +2092,14 @@ export default function TechnicianHandoverCheckin() {
       nav("/technician");
       return;
     } catch (e) {
-      console.error("Sign handover report error:", e);
-      toast.error(
-        e?.response?.data?.message ||
-          e?.response?.data?.details ||
-          e?.message ||
-          "Không thể ký biên bản thu hồi"
-      );
-    } finally {
+    console.error("Sign handover report error:", e);
+    // Prioritize 'details' field for more specific error messages
+    const errorDetails = e?.response?.data?.details;
+    const errorMessage = e?.response?.data?.message;
+    toast.error(
+      errorDetails || errorMessage || e?.message || "Không thể ký biên bản thu hồi"
+    );
+  } finally {
       setSigning(false);
     }
   };

@@ -1589,17 +1589,27 @@ export default function TechnicianQcDetail() {
                     ? Number(deviceInfo.deviceModelId)
                     : null;
 
+                  // Lấy tên model từ modelNameById hoặc từ deviceInfo
+                  const deviceModelName = deviceModelId 
+                    ? (modelNameById[deviceModelId] || deviceInfo?.deviceModelName || null)
+                    : null;
+
                   const filteredConditions = deviceModelId
                     ? conditionDefinitions.filter(
                         (c) => Number(c.deviceModelId) === deviceModelId
                       )
                     : conditionDefinitions;
 
+                  // Tạo title với serial và tên model nếu có
+                  const cardTitle = deviceModelName 
+                    ? `Tình trạng #${index + 1} - ${deviceModelName}`
+                    : `Tình trạng #${index + 1}`;
+
                   return (
                     <Card
                       key={index}
                       size="small"
-                      title={`Tình trạng #${index + 1}`}
+                      title={cardTitle}
                       extra={
                         <Button
                           type="text"

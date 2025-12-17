@@ -61,6 +61,7 @@ import {
     getHandoverReportsByOrderId
 } from "../../lib/handoverReportApi";
 import { getStaffCategoryStats } from "../../lib/staffManage";
+import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
 import {
     getActiveMaintenanceSchedules,
@@ -1328,62 +1329,83 @@ export default function TechnicianCalendar() {
             if (results[2].status === 'fulfilled') inactiveRes = results[2].value || { data: [] };
             else console.warn("Failed inactive maintenance:", results[2].reason);
 
-            // ========== BƯỚC 3: LOAD TASK CATEGORY STATS ==========
-            // Load thống kê giới hạn công việc cho từng category
+            // ========== BƯỚC 3: LOAD TASK RULES ==========
+            // Load giới hạn công việc cho từng category từ API task-rules
+            // Giống cách OperatorTasks lấy dữ liệu
             try {
-                console.log("DEBUG: Calling getStaffCategoryStats API for TECHNICIAN role...");
+                console.log("DEBUG: Calling getActiveTaskRules API...");
                 
-                // Get current user's staff ID from localStorage or auth context
-                const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-                const staffId = currentUser.staffId || currentUser.id;
+                // API: GET /api/admin/task-rules/active
+                // Trả về: Array of { taskRuleId, taskCategoryId, taskCategoryName, maxTasksPerDay, staffRole, ... }
+                const allRules = await getActiveTaskRules();
+                console.log("DEBUG: All active task rules:", allRules);
                 
-                if (!staffId) {
-                    console.warn("No staffId found, cannot load category stats");
-                    throw new Error("Staff ID not found");
-                }
+                // Lấy rules áp dụng cho TECHNICIAN
+                // staffRole === null có nghĩa là áp dụng cho TẤT CẢ roles
+                // staffRole === 'TECHNICIAN' chỉ áp dụng cho TECHNICIAN
+                const applicableRules = Array.isArray(allRules) 
+                    ? allRules.filter(r => r.staffRole === null || r.staffRole === 'TECHNICIAN')
+                    : [];
+                console.log("DEBUG: Applicable rules for TECHNICIAN:", applicableRules);
                 
                 const rulesMap = {};
                 
-                // Danh sách category IDs cần load
-                // 1: Pre rental QC, 2: Post rental QC, 4: Delivery, 6: Pick up
-                const categoryIds = [1, 2, 4, 6];
-                
-                // Gọi API cho từng category song song
-                await Promise.all(categoryIds.map(async (categoryId) => {
-                    try {
-                        // API: GET /api/admin/staffs/{staffId}/category-stats?categoryId=X
-                        // Trả về: { maxTasksPerDay, taskCategoryName, taskCount }
-                        const stats = await getStaffCategoryStats(staffId, categoryId);
-                        console.log(`DEBUG: Category ${categoryId} stats:`, stats);
-                        
-                        if (stats && stats.maxTasksPerDay !== undefined) {
-                            rulesMap[categoryId] = {
-                                maxTasksPerDay: stats.maxTasksPerDay,
-                                name: stats.taskCategoryName || `Category ${categoryId}`,
-                                taskCount: stats.taskCount || 0
-                            };
-                        }
-                    } catch (err) {
-                        console.warn(`Failed to load stats for category ${categoryId}:`, err);
+                // Build map: categoryId -> { maxTasksPerDay, name }
+                applicableRules.forEach(rule => {
+                    const categoryId = rule.taskCategoryId;
+                    if (categoryId != null) {
+                        rulesMap[categoryId] = {
+                            maxTasksPerDay: rule.maxTasksPerDay || 0,
+                            name: rule.taskCategoryName || rule.name || `Category ${categoryId}`,
+                            taskRuleId: rule.taskRuleId || rule.id
+                        };
                     }
-                }));
+                });
                 
-                console.log("DEBUG: taskRulesMap built from getStaffCategoryStats:", rulesMap);
+                console.log("DEBUG: taskRulesMap built from getActiveTaskRules:", rulesMap);
                 setTaskRulesMap(rulesMap);
             } catch (e) {
-                console.warn("Failed to load task category stats:", e);
+                console.warn("Failed to load task rules:", e);
                 console.warn("Error status:", e?.response?.status);
                 console.warn("Error message:", e?.response?.data?.message || e?.message);
-
-                // Fallback: Use mock data for testing
-                console.log("DEBUG: Using fallback mock data for taskRulesMap");
-                const mockRulesMap = {
-                    1: { maxTasksPerDay: 6, name: "Pre rental QC" },
-                    2: { maxTasksPerDay: 5, name: "Post rental QC" },
-                    4: { maxTasksPerDay: 4, name: "Delivery" },
-                    6: { maxTasksPerDay: 4, name: "Pick up" }
-                };
-                setTaskRulesMap(mockRulesMap);
+                
+                // Fallback: Try getStaffCategoryStats as backup
+                console.log("DEBUG: Trying getStaffCategoryStats as fallback...");
+                try {
+                    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+                    const staffId = currentUser.staffId || currentUser.id;
+                    
+                    if (staffId) {
+                        const rulesMap = {};
+                        const categoryIds = [1, 2, 4, 6];
+                        
+                        await Promise.all(categoryIds.map(async (categoryId) => {
+                            try {
+                                const stats = await getStaffCategoryStats(staffId, categoryId);
+                                if (stats && stats.maxTasksPerDay !== undefined) {
+                                    rulesMap[categoryId] = {
+                                        maxTasksPerDay: stats.maxTasksPerDay,
+                                        name: stats.taskCategoryName || `Category ${categoryId}`,
+                                    };
+                                }
+                            } catch (err) {
+                                console.warn(`Failed to load stats for category ${categoryId}:`, err);
+                            }
+                        }));
+                        
+                        if (Object.keys(rulesMap).length > 0) {
+                            console.log("DEBUG: taskRulesMap from getStaffCategoryStats:", rulesMap);
+                            setTaskRulesMap(rulesMap);
+                            return;
+                        }
+                    }
+                } catch (innerE) {
+                    console.warn("getStaffCategoryStats fallback also failed:", innerE);
+                }
+                
+                // Final fallback: No rules (show no limit cards)
+                console.log("DEBUG: No task rules available, showing empty");
+                setTaskRulesMap({});
             }
         } catch (err) {
             console.error("Error loading maintenance data:", err);
@@ -3389,47 +3411,55 @@ export default function TechnicianCalendar() {
 
                             const rule1 = taskRulesMap[1];
                             const rule2 = taskRulesMap[2];
+                            
+                            // Debug logging
+                            console.log("DEBUG Modal: taskRulesMap =", taskRulesMap);
+                            console.log("DEBUG Modal: rule1 =", rule1, "rule2 =", rule2);
+                            console.log("DEBUG Modal: cat1Tasks count =", cat1Tasks.length, "cat2Tasks count =", cat2Tasks.length);
+
+                            // Use rules if available, or show placeholder if not
+                            const showRule1 = rule1 || { maxTasksPerDay: '—', name: 'Pre rental QC' };
+                            const showRule2 = rule2 || { maxTasksPerDay: '—', name: 'Post rental QC' };
+                            const hasAnyRules = rule1 || rule2;
 
                             return (
                                 <>
-                                    {/* Category Summary Bars */}
+                                    {/* Category Summary Bars - Always show for debugging */}
                                     <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                                        {rule1 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat1Tasks.length >= rule1.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Pre rental QC</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat1Tasks.length} / {rule1.maxTasksPerDay}</strong>
-                                                    <Tag color={cat1Tasks.length >= rule1.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat1Tasks.length >= rule1.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        {/* Pre rental QC card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule1 && cat1Tasks.length >= rule1.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Pre rental QC</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat1Tasks.length} / {showRule1.maxTasksPerDay}</strong>
+                                                <Tag color={(rule1 && cat1Tasks.length >= rule1.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule1 && cat1Tasks.length >= rule1.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
-                                        {rule2 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat2Tasks.length >= rule2.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Post rental QC</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {rule2.maxTasksPerDay}</strong>
-                                                    <Tag color={cat2Tasks.length >= rule2.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat2Tasks.length >= rule2.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        </div>
+                                        {/* Post rental QC card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Post rental QC</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {showRule2.maxTasksPerDay}</strong>
+                                                <Tag color={(rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
+                                        </div>
                                     </div>
                                     <Table
                                         dataSource={qcTasks}
@@ -3459,47 +3489,49 @@ export default function TechnicianCalendar() {
 
                             const rule4 = taskRulesMap[4];
                             const rule6 = taskRulesMap[6];
+                            
+                            // Fallback values for display
+                            const showRule4 = rule4 || { maxTasksPerDay: '—', name: 'Delivery' };
+                            const showRule6 = rule6 || { maxTasksPerDay: '—', name: 'Pick up' };
 
                             return (
                                 <>
-                                    {/* Category Summary Bars */}
+                                    {/* Category Summary Bars - Always show */}
                                     <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                                        {rule4 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat4Tasks.length >= rule4.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>🚚 Delivery</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat4Tasks.length} / {rule4.maxTasksPerDay}</strong>
-                                                    <Tag color={cat4Tasks.length >= rule4.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat4Tasks.length >= rule4.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        {/* Delivery card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule4 && cat4Tasks.length >= rule4.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>🚚 Delivery</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat4Tasks.length} / {showRule4.maxTasksPerDay}</strong>
+                                                <Tag color={(rule4 && cat4Tasks.length >= rule4.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule4 && cat4Tasks.length >= rule4.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
-                                        {rule6 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat6Tasks.length >= rule6.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📦 Pick up</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {rule6.maxTasksPerDay}</strong>
-                                                    <Tag color={cat6Tasks.length >= rule6.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat6Tasks.length >= rule6.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        </div>
+                                        {/* Pick up card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule6 && cat6Tasks.length >= rule6.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>📦 Pick up</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {showRule6.maxTasksPerDay}</strong>
+                                                <Tag color={(rule6 && cat6Tasks.length >= rule6.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule6 && cat6Tasks.length >= rule6.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
+                                        </div>
                                     </div>
                                     <Table
                                         dataSource={deliveryTasks}

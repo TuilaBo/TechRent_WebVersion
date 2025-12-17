@@ -1363,7 +1363,13 @@ export default function TechnicianHandover() {
         Array.isArray(report.deviceConditions) &&
         report.deviceConditions.length > 0
       ) {
-        const mappedDeviceConditions = report.deviceConditions.map((dc) => {
+        // Debug: Log raw deviceConditions from report
+        console.log('DEBUG hydrateReportToForm - Raw deviceConditions:', JSON.stringify(report.deviceConditions, null, 2));
+        
+        const mappedDeviceConditions = report.deviceConditions.map((dc, idx) => {
+          // Debug: Log each raw dc
+          console.log(`DEBUG hydrateReportToForm - dc[${idx}]:`, dc);
+          
           const numericDeviceId = Number(dc.deviceId) || null;
           let serial =
             dc.deviceSerial || dc.device?.serialNumber || "";
@@ -2737,30 +2743,53 @@ export default function TechnicianHandover() {
                   )
                 );
 
+                // Tìm deviceModelId từ order.orderDetails dựa trên serial
                 let deviceModelId = null;
                 if (
                   selectedSerial &&
                   order &&
                   Array.isArray(order.orderDetails)
                 ) {
+                  // Tìm trong allocations của các orderDetails
                   for (const od of order.orderDetails) {
-                    const allSerialsOfOd = (items
-                      .filter((i) =>
-                        (i.itemCode || "")
-                          .split(",")
-                          .map((s) => s.trim())
-                          .includes(selectedSerial)
-                      )
-                      .map((i) => i.itemCode)
-                      .join(",") || "")
-                      .split(",")
-                      .map((s) => s.trim());
-                    if (allSerialsOfOd.includes(selectedSerial)) {
-                      deviceModelId = Number(od.deviceModelId);
-                      break;
+                    if (Array.isArray(od.allocations)) {
+                      const matchingAllocation = od.allocations.find((alloc) => {
+                        const allocSerial = 
+                          alloc.device?.serialNumber || 
+                          alloc.serialNumber || 
+                          alloc.deviceSerial || 
+                          '';
+                        return allocSerial === selectedSerial;
+                      });
+                      if (matchingAllocation) {
+                        deviceModelId = Number(od.deviceModelId);
+                        break;
+                      }
+                    }
+                  }
+                  
+                  // Fallback: tìm từ items nếu không tìm thấy trong allocations
+                  if (!deviceModelId) {
+                    const matchingItem = items.find((item) =>
+                      (item.itemCode || '')
+                        .split(',')
+                        .map((s) => s.trim())
+                        .includes(selectedSerial)
+                    );
+                    if (matchingItem) {
+                      // Tìm orderDetail có itemName matching
+                      const matchingOd = order.orderDetails.find((od) => {
+                        const modelName = od.deviceModel?.name || od.deviceModelName || '';
+                        return modelName === matchingItem.itemName;
+                      });
+                      if (matchingOd) {
+                        deviceModelId = Number(matchingOd.deviceModelId);
+                      }
                     }
                   }
                 }
+
+                console.log('DEBUG: selectedSerial =', selectedSerial, 'deviceModelId =', deviceModelId, 'conditionDefinitions count =', conditionDefinitions.length);
 
                 const filteredConditions = deviceModelId
                   ? conditionDefinitions.filter(
@@ -2786,12 +2815,36 @@ export default function TechnicianHandover() {
                     finalConditions = [selectedCondition, ...filteredConditions];
                   }
                 }
+                
+                // Debug: Log condition info
+                console.log('DEBUG Condition #' + (index + 1) + ':', {
+                  conditionDefinitionId: condition.conditionDefinitionId,
+                  currentValue,
+                  severity: condition.severity,
+                  filteredConditionsCount: filteredConditions.length,
+                  finalConditionsCount: finalConditions.length,
+                  finalConditionIds: finalConditions.map(c => c.id)
+                });
+
+                // Lấy tên thiết bị từ serial đã chọn
+                let deviceModelName = '';
+                if (selectedSerial) {
+                  const matchingItem = items.find((item) =>
+                    (item.itemCode || '')
+                      .split(',')
+                      .map((s) => s.trim())
+                      .includes(selectedSerial)
+                  );
+                  if (matchingItem?.itemName) {
+                    deviceModelName = matchingItem.itemName;
+                  }
+                }
 
                 return (
                   <Card
                     key={index}
                     size="small"
-                    title={`Tình trạng #${index + 1}`}
+                    title={`Tình trạng #${index + 1}${deviceModelName ? ` - ${deviceModelName}` : ''}`}
                     extra={
                       <Button
                         type="link"
@@ -2896,7 +2949,8 @@ export default function TechnicianHandover() {
                               setDeviceConditions(newConditions);
                             }}
                             options={[
-                              { label: "Không có", value: "INFO" },
+                              { label: "Không có", value: "NONE" },
+                              { label: "Thông tin", value: "INFO" },
                               { label: "Nhẹ", value: "LOW" },
                               { label: "Trung bình", value: "MEDIUM" },
                               { label: "Nghiêm trọng", value: "HIGH" },
