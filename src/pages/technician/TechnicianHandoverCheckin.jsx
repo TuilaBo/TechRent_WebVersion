@@ -2306,18 +2306,7 @@ export default function TechnicianHandoverCheckin() {
       dataIndex: "deliveredQuantity",
       key: "deliveredQuantity",
       width: 120,
-      render: (val, record, index) => (
-        <InputNumber
-          min={0}
-          max={record.orderedQuantity}
-          value={val}
-          onChange={(v) => {
-            const newItems = [...items];
-            newItems[index].deliveredQuantity = v || 0;
-            setItems(newItems);
-          }}
-        />
-      ),
+      render: (val) => val || 0,
     },
   ];
 
