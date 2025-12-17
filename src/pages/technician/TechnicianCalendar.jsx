@@ -111,6 +111,7 @@ const fmtStatus = (s) => {
     if (v.includes("IN_PROGRESS") || v.includes("INPROGRESS")) return "Đang thực hiện";
     if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
     if (v.includes("FAILED") || v.includes("FAIL")) return "Thất bại";
+    if (v.includes("IN_USE") || v.includes("INUSE")) return "Đang sử dụng";
     return v;
 };
 
@@ -122,15 +123,43 @@ const fmtDateTime = (date) => {
 
 // Dịch status đơn hàng
 const fmtOrderStatus = (s) => {
-    const v = String(s || "").toUpperCase();
-    if (!v) return "—";
-    if (v.includes("PENDING")) return "Chờ xử lý";
-    if (v.includes("PROCESSING")) return "Đang xử lý";
-    if (v.includes("COMPLETED") || v.includes("DONE")) return "Đã hoàn thành";
-    if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
-    if (v.includes("DELIVERED")) return "Đã giao";
-    if (v.includes("RETURNED")) return "Đã trả";
-    return v;
+    if (!s) return "—";
+    const v = String(s).toLowerCase().trim();
+    
+    // Exact matches first (from ORDER_STATUS_MAP in orderConstants.js)
+    const statusMap = {
+        'pending': 'Chờ xác nhận',
+        'pending_kyc': 'Chờ xác thực thông tin',
+        'confirmed': 'Đã xác nhận',
+        'delivering': 'Đang giao',
+        'active': 'Đang thuê',
+        'in_use': 'Đang sử dụng',
+        'returned': 'Đã trả',
+        'cancelled': 'Đã hủy',
+        'canceled': 'Đã hủy',
+        'processing': 'Đang xử lý',
+        'delivery_confirmed': 'Chuẩn bị giao hàng',
+        'completed': 'Hoàn tất đơn hàng',
+    };
+    
+    // Check exact match
+    if (statusMap[v]) return statusMap[v];
+    
+    // Fallback to partial matches for backward compatibility
+    const upper = v.toUpperCase();
+    if (upper.includes('PENDING_KYC')) return 'Chờ xác thực thông tin';
+    if (upper.includes('DELIVERY_CONFIRMED')) return 'Chuẩn bị giao hàng';
+    if (upper.includes('IN_USE')) return 'Đang sử dụng';
+    if (upper.includes('DELIVERING')) return 'Đang giao';
+    if (upper.includes('CONFIRMED')) return 'Đã xác nhận';
+    if (upper.includes('ACTIVE')) return 'Đang thuê';
+    if (upper.includes('PENDING')) return 'Chờ xác nhận';
+    if (upper.includes('PROCESSING')) return 'Đang xử lý';
+    if (upper.includes('COMPLETED') || upper.includes('DONE')) return 'Hoàn tất đơn hàng';
+    if (upper.includes('CANCELLED') || upper.includes('CANCELED')) return 'Đã hủy';
+    if (upper.includes('RETURNED')) return 'Đã trả';
+    
+    return s; // Return original if no match
 };
 
 /** Kiểm tra xem task có phải là Pre rental QC không */

@@ -16,6 +16,7 @@ import {
   Skeleton,
   Alert,
   Select,
+  AutoComplete, 
   Modal,
   Popconfirm,
   Avatar,
@@ -1262,14 +1263,22 @@ export default function CustomerProfile() {
             dependencies={["districtCode"]}
             rules={[{ required: true, message: "Vui lòng chọn phường/xã" }]}
           >
-            <Select
-              options={modalWardOptions}
-              placeholder="Chọn phường/xã"
-              disabled={!modalDistrictCode}
-              loading={modalWardsLoading}
-              showSearch
-              optionFilterProp="label"
-            />
+<AutoComplete  // ← ĐỔI TỪ Select
+  options={modalWardOptions}
+  placeholder={
+    modalWardsLoading ? "Đang tải..." : 
+    (modalWardOptions.length === 0 && modalDistrictCode 
+      ? "Nhập tên phường/xã" 
+      : "Chọn hoặc nhập phường/xã")
+  }
+  disabled={!modalDistrictCode}
+  showSearch
+  filterOption={(inputValue, option) =>
+    option?.label?.toLowerCase().includes(inputValue.toLowerCase())
+  }
+  // Bỏ loading và optionFilterProp
+  notFoundContent={modalWardsLoading ? "Đang tải..." : "Nhập tay"}
+/>
           </Form.Item>
 
           <Form.Item
