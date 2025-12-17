@@ -2949,8 +2949,7 @@ export default function TechnicianHandover() {
                               setDeviceConditions(newConditions);
                             }}
                             options={[
-                              { label: "Không có", value: "NONE" },
-                              { label: "Thông tin", value: "INFO" },
+                              { label: "Không có", value: "INFO" },
                               { label: "Nhẹ", value: "LOW" },
                               { label: "Trung bình", value: "MEDIUM" },
                               { label: "Nghiêm trọng", value: "HIGH" },
