@@ -502,7 +502,7 @@ export default function AdminProducts() {
                   description: r.description ?? "",
                   pricePerDay: r.pricePerDay,
                   deviceValue: r.deviceValue,
-                  depositPercent: r.depositPercent,
+                  depositPercent: r.depositPercent ? r.depositPercent * 100 : null,
                   active: r.active ?? true,
                 });
                 setOpen(true);
@@ -567,7 +567,7 @@ export default function AdminProducts() {
           deviceCategoryId: v.deviceCategoryId,
           deviceValue: Number(v.deviceValue ?? 0),
           pricePerDay: Number(v.pricePerDay ?? 0),
-          depositPercent: Number(v.depositPercent ?? 0),
+          depositPercent: Number(v.depositPercent ?? 0) / 100,
           active: !!v.active,
           imageFile: img || undefined, // File sẽ được gửi qua FormData
         };
@@ -698,23 +698,34 @@ export default function AdminProducts() {
             <Form.Item 
               name="depositPercent" 
               label="Tỉ lệ cọc"
-              tooltip="Nhập số từ 0-100, ví dụ: 10 = 10%"
+              tooltip="Nhập số nguyên từ 1-100, ví dụ: 10 = 10%"
             >
               <InputNumber
                 style={{ width: '100%' }}
-                min={0}
+                min={1}
                 max={100}
-                formatter={(value) => {
-                  // Convert 0.1 to 10, 0.5 to 50, etc.
-                  const percent = value && value < 1 ? value * 100 : value;
-                  return `${percent}`;
-                }}
-                parser={(value) => {
-                  // Convert back: store as decimal (10 -> 0.1)
-                  const num = parseFloat(value) || 0;
-                  return num > 1 ? num / 100 : num;
-                }}
+                precision={0}
+                controls={true}
+                placeholder="Nhập tỉ lệ cọc (1-100)"
                 addonAfter="%"
+                parser={(value) => {
+                  // Chỉ giữ lại số nguyên, bỏ dấu chấm phẩy
+                  const intVal = parseInt(value?.replace(/[^\d]/g, '') || '0', 10);
+                  // Giới hạn max 100
+                  if (intVal > 100) return 100;
+                  return intVal || null;
+                }}
+                formatter={(value) => {
+                  // Không hiển thị 0
+                  if (value === 0 || value === '0' || !value) return '';
+                  return `${value}`;
+                }}
+                onKeyDown={(e) => {
+                  // Chặn dấu chấm, phẩy
+                  if (e.key === '.' || e.key === ',') {
+                    e.preventDefault();
+                  }
+                }}
               />
             </Form.Item>
             <Form.Item name="active" label="Trạng thái" initialValue={true}>

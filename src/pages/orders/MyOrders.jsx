@@ -242,8 +242,10 @@ export default function MyOrders() {
 
   // Check if order is close to return date (less than 1 day)
   const isCloseToReturnDate = (order) => {
-    if (!order?.endDate) return false;
-    const daysRemaining = getDaysRemaining(order.endDate);
+    // Use planEndDate first, fallback to endDate
+    const endDate = order?.planEndDate ?? order?.endDate;
+    if (!endDate) return false;
+    const daysRemaining = getDaysRemaining(endDate);
     return daysRemaining !== null && daysRemaining >= 0 && daysRemaining <= 1;
   };
 
@@ -377,11 +379,31 @@ export default function MyOrders() {
 
   // Check for orders close to return date and show notification
   useEffect(() => {
+    // Extension statuses that should block (DRAFT, PROCESSING, COMPLETED)
+    const blockingExtensionStatuses = ['DRAFT', 'PROCESSING', 'COMPLETED'];
+    
+    // Check if order has blocking extension
+    const hasPendingExtension = (order) => {
+      const extensions = order?.extensions || [];
+      if (!Array.isArray(extensions)) return false;
+      return extensions.some(ext => 
+        blockingExtensionStatuses.includes(String(ext?.status || "").toUpperCase())
+      );
+    };
+    
+    // Check if order has any annex (any status blocks)
+    const hasAnyAnnex = (order) => {
+      const annexes = order?.annexes || [];
+      return Array.isArray(annexes) && annexes.length > 0;
+    };
+    
     const checkCloseToReturn = () => {
       const closeOrders = orders.filter((order) =>
         isOrderInUse(order) &&
         isCloseToReturnDate(order) &&
-        !isReturnConfirmedSync(order)
+        !isReturnConfirmedSync(order) &&
+        !hasPendingExtension(order) &&  // Skip orders with blocking extensions
+        !hasAnyAnnex(order)  // Skip orders with any annexes
       );
       if (closeOrders.length > 0 && !returnModalOpen && !extendModalOpen) {
         const firstCloseOrder = closeOrders[0];
@@ -1551,6 +1573,7 @@ export default function MyOrders() {
     loadOrderHandoverReports,
     loadAllContracts,
     revokeBlob,
+    setOrderExtensions,
   });
 
   // Destructure all handlers for use

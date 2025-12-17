@@ -90,6 +90,7 @@ export function useMyOrdersHandlers(deps) {
         loadOrderHandoverReports,
         loadAllContracts,
         revokeBlob,
+        setOrderExtensions,
     } = deps;
 
     // ========== RETURN/EXTEND HANDLERS ==========
@@ -193,6 +194,9 @@ export function useMyOrdersHandlers(deps) {
                         // Normalize the API response before setting current
                         const normalizedOrder = await mapOrderFromApi(rawOrder);
                         setCurrent(normalizedOrder);
+                        // Cập nhật extensions ngay lập tức để chặn gửi lại yêu cầu
+                        const extensions = normalizedOrder?.extensions || [];
+                        setOrderExtensions(Array.isArray(extensions) ? extensions : []);
                     }
                 }
             } else {
