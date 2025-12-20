@@ -18,6 +18,7 @@ import {
   Form,
   Input,
   Select,
+  AutoComplete,
   Modal,
   Alert,
   Popconfirm,
@@ -1349,16 +1350,23 @@ export default function CartPage() {
                 <Form.Item
                   label="Phường/Xã"
                   name="wardCode"
-                  rules={[{ required: true, message: "Vui lòng chọn phường/xã" }]}
+                  rules={[{ required: true, message: "Vui lòng chọn hoặc nhập phường/xã" }]}
                 >
-                  <Select
-                    placeholder="Chọn phường/xã"
-                    loading={modalWardsLoading}
+                  <AutoComplete
+                    placeholder={
+                      modalWardsLoading
+                        ? "Đang tải..."
+                        : modalWardOptions.length === 0 && modalDistrictCode
+                        ? "API lỗi - Nhập tay phường/xã"
+                        : "Chọn hoặc nhập phường/xã"
+                    }
                     options={modalWardOptions}
                     disabled={!modalDistrictCode}
-                    showSearch
-                    optionFilterProp="label"
+                    filterOption={(inputValue, option) =>
+                      option?.label?.toLowerCase().includes(inputValue.toLowerCase())
+                    }
                     allowClear
+                    notFoundContent={modalWardsLoading ? "Đang tải..." : "Không tìm thấy"}
                   />
                 </Form.Item>
                 <Form.Item

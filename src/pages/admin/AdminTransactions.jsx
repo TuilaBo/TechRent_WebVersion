@@ -83,7 +83,7 @@ const translatePaymentMethod = (method) => {
   const map = {
     VNPAY: "VNPay",
     PAYOS: "PayOS",
-    BANK_ACCOUNT: "Chuyển khoản",
+    BANK_ACCOUNT: "Chuyển khoản ngân hàng",
     CASH: "Tiền mặt",
   };
   return map[method] || method;
@@ -224,8 +224,8 @@ export default function AdminTransactions() {
       title: "Phương thức",
       dataIndex: "paymentMethod",
       key: "paymentMethod",
-      render: (value) => (value ? value.toUpperCase() : "—"),
-      width: 120,
+      render: (value) => translatePaymentMethod(value),
+      width: 180,
     },
     {
       title: "Trạng thái hóa đơn",

@@ -1325,7 +1325,7 @@ export default function MyOrderDetailDrawer({
                             >
                                 Tôi đồng ý với các{" "}
                                 <a
-                                    href="https://docs.google.com/document/d/1GtAaYcQcSuvX8f-al_v_Q0mYYOWZMj-To8zHAKa0OnA/edit?tab=t.0"
+                                    href="https://www.techrent.website/api/admin/policies/5/file"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}

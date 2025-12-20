@@ -648,23 +648,11 @@ export function buildPrintableHandoverReportHtml(report, order = null, condition
       ${(() => {
         // For CHECKIN: show discrepancies
         if (isCheckin && (report.discrepancies || []).length > 0) {
-          return `
-      <h3>Sự cố thiết bị khi thu hồi</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px">STT</th>
-            <th>Loại sự cố</th>
-            <th>Thiết bị (Serial Number)</th>
-            <th>Tình trang thiết bị</th>
-            <th>Phí phạt</th>
-            <th>Ghi chú nhân viên</th>
-           
-          </tr>
-        </thead>
-        <tbody>
-          ${(report.discrepancies || []).map((disc, idx) => {
-            // Try to get serial number from deviceId
+          // Group discrepancies by serialNumber + discrepancyType, keep individual conditions with their penalties
+          const groupedDiscrepancies = {};
+          
+          (report.discrepancies || []).forEach((disc) => {
+            // Get serial number
             let deviceSerial = disc.serialNumber || disc.deviceSerialNumber || "—";
             if ((deviceSerial === "—" || !deviceSerial) && disc.deviceId && order && Array.isArray(order.orderDetails)) {
               for (const od of order.orderDetails) {
@@ -681,29 +669,74 @@ export function buildPrintableHandoverReportHtml(report, order = null, condition
               }
             }
             
-            const conditionDef = conditionMap[disc.conditionDefinitionId];
-            const conditionName = conditionDef?.name || `Tình trạng  #${disc.conditionDefinitionId}`;
-            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
-                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
-                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
+            const discrepancyType = disc.discrepancyType || "OTHER";
+            const groupKey = `${deviceSerial}_${discrepancyType}`;
             
-            // Format penalty amount
-            const penaltyAmount = disc.penaltyAmount != null && disc.penaltyAmount !== undefined 
-              ? formatVND(Number(disc.penaltyAmount))
-              : "—";
+            if (!groupedDiscrepancies[groupKey]) {
+              groupedDiscrepancies[groupKey] = {
+                deviceSerial,
+                discrepancyType,
+                items: [], // Array of {conditionName, penaltyAmount, staffNote}
+                totalPenalty: 0,
+              };
+            }
+            
+            // Add condition with its penalty
+            const conditionDef = conditionMap[disc.conditionDefinitionId];
+            const conditionName = conditionDef?.name || `Tình trạng #${disc.conditionDefinitionId}`;
+            const penaltyAmount = Number(disc.penaltyAmount || 0);
+            
+            groupedDiscrepancies[groupKey].items.push({
+              conditionName,
+              penaltyAmount,
+              staffNote: disc.staffNote || "",
+            });
+            
+            // Sum total penalty
+            groupedDiscrepancies[groupKey].totalPenalty += penaltyAmount;
+          });
+          
+          // Convert to array
+          const groupedArray = Object.values(groupedDiscrepancies);
+          
+          return `
+      <h3>Sự cố thiết bị khi thu hồi</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Loại sự cố</th>
+            <th>Thiết bị (Serial Number)</th>
+            <th>Tình trạng thiết bị</th>
+            <th>Phí phạt</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${groupedArray.map((group, idx) => {
+            const discrepancyTypeLabel = group.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   group.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   group.discrepancyType === "OTHER" ? "Khác" : group.discrepancyType || "—";
+            
+            // Build conditions with individual penalties
+            const conditionsWithPenalty = group.items.map(item => 
+              `${item.conditionName}: ${item.penaltyAmount > 0 ? formatVND(item.penaltyAmount) : "—"}`
+            ).join("<br/>");
+            
+            // Show total if more than 1 item
+            const totalPenaltyText = group.items.length > 1 && group.totalPenalty > 0
+              ? `<br/><b style="border-top:1px solid #ddd;display:block;padding-top:4px;margin-top:4px">Tổng: ${formatVND(group.totalPenalty)}</b>`
+              : "";
             
             return `
               <tr>
-                <td style="text-align:center">${idx + 1}</td>
-                <td>${discrepancyType}</td>
-                <td>${deviceSerial}</td>
-                <td>${conditionName}</td>
-                <td style="text-align:right">${penaltyAmount}</td>
-                <td>${disc.staffNote || "—"}</td>
-                
+                <td style="text-align:center;vertical-align:top">${idx + 1}</td>
+                <td style="vertical-align:top">${discrepancyTypeLabel}</td>
+                <td style="vertical-align:top">${group.deviceSerial}</td>
+                <td style="vertical-align:top">${conditionsWithPenalty}${totalPenaltyText}</td>
+                <td style="text-align:right;vertical-align:top;font-weight:600">${group.totalPenalty > 0 ? formatVND(group.totalPenalty) : "—"}</td>
               </tr>
             `;
-          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+          }).join("") || "<tr><td colspan='5' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
       `;

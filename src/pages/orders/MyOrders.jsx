@@ -185,6 +185,7 @@ export default function MyOrders() {
   const [annexSigningEmail, setAnnexSigningEmail] = useState(""); // Store email for modal display
   const [extensionPaymentModalOpen, setExtensionPaymentModalOpen] = useState(false);
   const [extensionPaymentMethod, setExtensionPaymentMethod] = useState("VNPAY");
+  const [extensionTermsAccepted, setExtensionTermsAccepted] = useState(false);
 
 
   const [confirmedReturnOrders, setConfirmedReturnOrders] = useState(() => {
@@ -2147,40 +2148,58 @@ export default function MyOrders() {
         onCancel={() => {
           setExtensionPaymentModalOpen(false);
           setPendingExtensionPayment(null);
+          setExtensionTermsAccepted(false);
         }}
         onOk={executeExtensionPayment}
         okText="Thanh toán"
         cancelText="Hủy"
+        okButtonProps={{ disabled: !extensionTermsAccepted, loading: processingPayment }}
         confirmLoading={processingPayment}
+        destroyOnClose
       >
-        <div style={{ marginBottom: 16 }}>
-          <Typography.Text strong>
-            Số tiền thanh toán: {formatVND(Number(pendingExtensionPayment?.additionalPrice || pendingExtensionPayment?.extensionFee || 0))}
-          </Typography.Text>
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <Typography.Text>Chọn phương thức thanh toán:</Typography.Text>
-        </div>
-        <Radio.Group
-          value={extensionPaymentMethod}
-          onChange={(e) => setExtensionPaymentMethod(e.target.value)}
-          style={{ width: "100%" }}
-        >
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <Radio value="VNPAY" style={{ padding: "12px", border: "1px solid #d9d9d9", borderRadius: 8, width: "100%" }}>
-              <Space>
-                <img src="/icons/vnpay.png" alt="VNPay" style={{ width: 32, height: 32 }} onError={(e) => e.target.style.display = 'none'} />
-                <span>VNPay</span>
-              </Space>
-            </Radio>
-            <Radio value="PAYOS" style={{ padding: "12px", border: "1px solid #d9d9d9", borderRadius: 8, width: "100%" }}>
-              <Space>
-                <img src="/icons/payos.png" alt="PayOS" style={{ width: 32, height: 32 }} onError={(e) => e.target.style.display = 'none'} />
-                <span>PayOS</span>
-              </Space>
-            </Radio>
-          </Space>
-        </Radio.Group>
+        <Space direction="vertical" style={{ width: "100%" }} size="large">
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <Typography.Text>Phí gia hạn:</Typography.Text>
+            <Typography.Text strong>
+              {formatVND(Number(pendingExtensionPayment?.additionalPrice || pendingExtensionPayment?.extensionFee || 0))}
+            </Typography.Text>
+          </div>
+          <Divider style={{ margin: "8px 0" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography.Text style={{ fontSize: 15, fontWeight: 600 }}>Tổng thanh toán</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 18 }}>
+              {formatVND(Number(pendingExtensionPayment?.additionalPrice || pendingExtensionPayment?.extensionFee || 0))}
+            </Typography.Text>
+          </div>
+
+          <div>
+            <Typography.Text style={{ display: "block", marginBottom: 8 }}>Phương thức thanh toán</Typography.Text>
+            <Radio.Group
+              value={extensionPaymentMethod}
+              onChange={(e) => setExtensionPaymentMethod(e.target.value)}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="VNPAY">VNPay</Radio.Button>
+              <Radio.Button value="PAYOS">PayOS</Radio.Button>
+            </Radio.Group>
+          </div>
+
+          <Checkbox
+            checked={extensionTermsAccepted}
+            onChange={(e) => setExtensionTermsAccepted(e.target.checked)}
+          >
+            Tôi đồng ý với các{" "}
+            <a
+              href="https://www.techrent.website/api/admin/policies/5/file"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              điều khoản thanh toán
+            </a>
+          </Checkbox>
+        </Space>
       </Modal>
     </>
   );
