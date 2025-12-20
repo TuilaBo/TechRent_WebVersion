@@ -1047,65 +1047,99 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         </tbody>
       </table>
 
-      ${
-        isCheckin && (report.discrepancies || []).length > 0
-          ? `
-      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      ${(() => {
+        if (!isCheckin || (report.discrepancies || []).length === 0) return "";
+        
+        // Group discrepancies by serialNumber + discrepancyType
+        const groupedDiscrepancies = {};
+        
+        (report.discrepancies || []).forEach((disc) => {
+          // Get serial number
+          let deviceSerial = "—";
+          if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+            for (const od of order.orderDetails) {
+              if (od.allocations && Array.isArray(od.allocations)) {
+                for (const allocation of od.allocations) {
+                  const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                  if (deviceId === disc.deviceId) {
+                    deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                    break;
+                  }
+                }
+                if (deviceSerial && deviceSerial !== "—") break;
+              }
+            }
+          }
+          
+          const discrepancyType = disc.discrepancyType || "OTHER";
+          const groupKey = `${deviceSerial}_${discrepancyType}`;
+          
+          if (!groupedDiscrepancies[groupKey]) {
+            groupedDiscrepancies[groupKey] = {
+              deviceSerial,
+              discrepancyType,
+              items: [],
+              totalPenalty: 0,
+            };
+          }
+          
+          // Add condition with its penalty
+          const conditionDef = conditionMap[disc.conditionDefinitionId];
+          const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+          const penaltyAmount = Number(disc.penaltyAmount || 0);
+          
+          groupedDiscrepancies[groupKey].items.push({
+            conditionName,
+            penaltyAmount,
+          });
+          
+          groupedDiscrepancies[groupKey].totalPenalty += penaltyAmount;
+        });
+        
+        const groupedArray = Object.values(groupedDiscrepancies);
+        
+        return `
+      <h3>Sự cố thiết bị khi thu hồi</h3>
       <table>
         <thead>
           <tr>
             <th style="width:40px">STT</th>
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
-            <th>Điều kiện</th>
+            <th>Tình trạng thiết bị</th>
             <th>Phí phạt</th>
-            <th>Ghi chú nhân viên</th>
-            <th>Ghi chú khách hàng</th>
           </tr>
         </thead>
         <tbody>
-          ${(report.discrepancies || []).map((disc, idx) => {
-            // Try to get serial number from deviceId
-            let deviceSerial = "—";
-            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
-              for (const od of order.orderDetails) {
-                if (od.allocations && Array.isArray(od.allocations)) {
-                  for (const allocation of od.allocations) {
-                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                    if (deviceId === disc.deviceId) {
-                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
-                      break;
-                    }
-                  }
-                  if (deviceSerial && deviceSerial !== "—") break;
-                }
-              }
-            }
+          ${groupedArray.map((group, idx) => {
+            const discrepancyTypeLabel = group.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   group.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   group.discrepancyType === "OTHER" ? "Khác" : group.discrepancyType || "—";
             
-            const conditionDef = conditionMap[disc.conditionDefinitionId];
-            const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
-            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
-                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
-                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
-            const penaltyAmount = disc.penaltyAmount != null ? fmtVND(disc.penaltyAmount) : "—";
+            // Build conditions with individual penalties
+            const conditionsWithPenalty = group.items.map(item => 
+              `${item.conditionName}: ${item.penaltyAmount > 0 ? fmtVND(item.penaltyAmount) : "—"}`
+            ).join("<br/>");
+            
+            // Show total if more than 1 item
+            const totalPenaltyText = group.items.length > 1 && group.totalPenalty > 0
+              ? `<br/><b style="border-top:1px solid #ddd;display:block;padding-top:4px;margin-top:4px">Tổng: ${fmtVND(group.totalPenalty)}</b>`
+              : "";
             
             return `
               <tr>
-                <td style="text-align:center">${idx + 1}</td>
-                <td>${discrepancyType}</td>
-                <td>${deviceSerial}</td>
-                <td>${conditionName}</td>
-                <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
-                <td>${disc.staffNote || "—"}</td>
-                <td>${disc.customerNote || "—"}</td>
+                <td style="text-align:center;vertical-align:top">${idx + 1}</td>
+                <td style="vertical-align:top">${discrepancyTypeLabel}</td>
+                <td style="vertical-align:top">${group.deviceSerial}</td>
+                <td style="vertical-align:top">${conditionsWithPenalty}${totalPenaltyText}</td>
+                <td style="text-align:right;vertical-align:top;font-weight:600">${group.totalPenalty > 0 ? fmtVND(group.totalPenalty) : "—"}</td>
               </tr>
             `;
-          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+          }).join("") || "<tr><td colspan='5' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
-      `
-          : ""
-      }
+      `;
+      })()}
 
       ${
         report.createdByStaff

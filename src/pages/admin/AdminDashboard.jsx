@@ -20,6 +20,7 @@ import {
   Empty,
   Drawer,
   Descriptions,
+  Select,
 } from "antd";
 import {
   ArrowUpOutlined,
@@ -48,6 +49,14 @@ import {
 import { getTransactions } from "../../lib/Payment";
 import { listRentalOrders, getRentalOrderById } from "../../lib/rentalOrdersApi";
 import { listAllKycs } from "../../lib/kycApi";
+import { listCustomers } from "../../lib/customerApi";
+import {
+  getOrdersStatus,
+  getNewCustomers,
+  getDeviceIncidents,
+  getDeviceImportsByCategory,
+  getDamages,
+} from "../../lib/dashBoard";
 
 const { Title, Text } = Typography;
 
@@ -142,10 +151,21 @@ export default function AdminDashboard() {
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [ordersRaw, setOrdersRaw] = useState([]);
+  const [customersRaw, setCustomersRaw] = useState([]);
   const [kycRecords, setKycRecords] = useState([]);
   const [orderDetailOpen, setOrderDetailOpen] = useState(false);
   const [orderDetail, setOrderDetail] = useState(null);
   const [orderDetailLoading, setOrderDetailLoading] = useState(false);
+
+  // New dashboard API states
+  const [dashboardMonth, setDashboardMonth] = useState(dayjs().month() + 1);
+  const [dashboardYear, setDashboardYear] = useState(dayjs().year());
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [ordersStatusData, setOrdersStatusData] = useState(null);
+  const [newCustomersData, setNewCustomersData] = useState(null);
+  const [deviceIncidentsData, setDeviceIncidentsData] = useState(null);
+  const [deviceImportsData, setDeviceImportsData] = useState(null);
+  const [damagesData, setDamagesData] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,15 +173,17 @@ export default function AdminDashboard() {
       try {
         setLoading(true);
         setError(null);
-        const [tx, orders, kycs] = await Promise.all([
+        const [tx, orders, kycs, customers] = await Promise.all([
           getTransactions().catch(() => []),
           listRentalOrders().catch(() => []),
           listAllKycs().catch(() => []),
+          listCustomers().catch(() => []),
         ]);
         if (cancelled) return;
         setTransactions(Array.isArray(tx) ? tx : []);
         setOrdersRaw(Array.isArray(orders) ? orders : []);
         setKycRecords(Array.isArray(kycs) ? kycs : []);
+        setCustomersRaw(Array.isArray(customers) ? customers : []);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -179,6 +201,44 @@ export default function AdminDashboard() {
       cancelled = true;
     };
   }, []);
+
+  // Load dashboard API data when month/year changes
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDashboardStats() {
+      try {
+        setDashboardLoading(true);
+        const params = { year: dashboardYear, month: dashboardMonth };
+        const [
+          ordersStatus,
+          newCustomers,
+          deviceIncidents,
+          deviceImports,
+          damages,
+        ] = await Promise.all([
+          getOrdersStatus(params).catch(() => null),
+          getNewCustomers(params).catch(() => null),
+          getDeviceIncidents(params).catch(() => null),
+          getDeviceImportsByCategory(params).catch(() => null),
+          getDamages(params).catch(() => null),
+        ]);
+        if (cancelled) return;
+        setOrdersStatusData(ordersStatus);
+        setNewCustomersData(newCustomers);
+        setDeviceIncidentsData(deviceIncidents);
+        setDeviceImportsData(deviceImports);
+        setDamagesData(damages);
+      } catch (err) {
+        console.error("Error loading dashboard stats:", err);
+      } finally {
+        if (!cancelled) setDashboardLoading(false);
+      }
+    }
+    loadDashboardStats();
+    return () => {
+      cancelled = true;
+    };
+  }, [dashboardMonth, dashboardYear]);
 
   const successfulTransactions = useMemo(
     () =>
@@ -369,6 +429,41 @@ export default function AdminDashboard() {
       }));
   }, [kycRecords]);
 
+  // Calculate local stats from existing data (fallback when dashboard API returns 0)
+  const localMonthlyStats = useMemo(() => {
+    const startOfMonth = dayjs().year(dashboardYear).month(dashboardMonth - 1).startOf("month");
+    const endOfMonth = startOfMonth.endOf("month");
+
+    // Customers created this month
+    const newCustomersCount = customersRaw.filter((c) => {
+      const created = dayjs(c?.createdAt);
+      return created.isValid() && created.isAfter(startOfMonth) && created.isBefore(endOfMonth);
+    }).length;
+
+    // Orders by status this month
+    const ordersThisMonth = ordersRaw.filter((o) => {
+      const created = dayjs(o?.createdAt);
+      return created.isValid() && created.isAfter(startOfMonth) && created.isBefore(endOfMonth);
+    });
+
+    const completedCount = ordersThisMonth.filter((o) => {
+      const status = String(o?.orderStatus || "").toLowerCase();
+      return status === "returned" || status === "completed";
+    }).length;
+
+    const cancelledCount = ordersThisMonth.filter((o) => {
+      const status = String(o?.orderStatus || "").toLowerCase();
+      return status === "cancelled" || status === "canceled";
+    }).length;
+
+    return {
+      newCustomersCount,
+      completedCount,
+      cancelledCount,
+      totalOrdersThisMonth: ordersThisMonth.length,
+    };
+  }, [customersRaw, ordersRaw, dashboardMonth, dashboardYear]);
+
   const orderColumns = [
     {
       title: "Mã đơn",
@@ -437,6 +532,152 @@ export default function AdminDashboard() {
             description={error}
           />
         )}
+
+        {/* Month/Year Selector for Dashboard APIs */}
+        <Card>
+          <Row gutter={16} align="middle">
+            <Col>
+              <Text strong>Thống kê theo tháng:</Text>
+            </Col>
+            <Col>
+              <Select
+                value={dashboardMonth}
+                onChange={setDashboardMonth}
+                style={{ width: 120 }}
+                options={[
+                  { label: "Tháng 1", value: 1 },
+                  { label: "Tháng 2", value: 2 },
+                  { label: "Tháng 3", value: 3 },
+                  { label: "Tháng 4", value: 4 },
+                  { label: "Tháng 5", value: 5 },
+                  { label: "Tháng 6", value: 6 },
+                  { label: "Tháng 7", value: 7 },
+                  { label: "Tháng 8", value: 8 },
+                  { label: "Tháng 9", value: 9 },
+                  { label: "Tháng 10", value: 10 },
+                  { label: "Tháng 11", value: 11 },
+                  { label: "Tháng 12", value: 12 },
+                ]}
+              />
+            </Col>
+            <Col>
+              <Select
+                value={dashboardYear}
+                onChange={setDashboardYear}
+                style={{ width: 100 }}
+                options={[
+                  { label: "2023", value: 2023 },
+                  { label: "2024", value: 2024 },
+                  { label: "2025", value: 2025 },
+                  { label: "2026", value: 2026 },
+                ]}
+              />
+            </Col>
+            {dashboardLoading && (
+              <Col>
+                <Spin size="small" />
+              </Col>
+            )}
+          </Row>
+        </Card>
+
+        {/* New Dashboard Stats Cards */}
+        <Spin spinning={dashboardLoading}>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Khách hàng mới</Text>}
+                  value={newCustomersData?.data?.newCustomerCount ?? newCustomersData?.newCustomerCount ?? localMonthlyStats.newCustomersCount ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 28 }}
+                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>người</Text>}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Thiết bị sự cố</Text>}
+                  value={deviceIncidentsData?.data?.totalIncidents ?? deviceIncidentsData?.totalIncidents ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 28 }}
+                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>thiết bị</Text>}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Đơn hoàn thành</Text>}
+                  value={ordersStatusData?.data?.completedCount ?? ordersStatusData?.completedCount ?? localMonthlyStats.completedCount ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 28 }}
+                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>đơn</Text>}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Đơn bị hủy</Text>}
+                  value={ordersStatusData?.data?.cancelledCount ?? ordersStatusData?.cancelledCount ?? localMonthlyStats.cancelledCount ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 28 }}
+                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>đơn</Text>}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ background: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#333" }}>Thiệt hại</Text>}
+                  value={damagesData?.data?.totalDamage ?? damagesData?.totalDamage ?? 0}
+                  valueStyle={{ color: "#333", fontSize: 20 }}
+                  formatter={(value) => formatVND(value)}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={4}>
+              <Card style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#333" }}>TB nhập kho</Text>}
+                  value={(() => {
+                    const categories = deviceImportsData?.data?.categories ?? deviceImportsData?.categories;
+                    if (!categories) return 0;
+                    if (Array.isArray(categories)) {
+                      return categories.reduce((sum, item) => sum + (item.deviceCount || item.count || 0), 0);
+                    }
+                    return 0;
+                  })()}
+                  valueStyle={{ color: "#333", fontSize: 28 }}
+                  suffix={<Text style={{ color: "#333", fontSize: 14 }}>thiết bị</Text>}
+                />
+              </Card>
+            </Col>
+          </Row>
+        </Spin>
+
+        {/* Device Imports by Category Chart */}
+        {(() => {
+          const categories = deviceImportsData?.data?.categories ?? deviceImportsData?.categories;
+          if (!categories || !Array.isArray(categories) || categories.length === 0) return null;
+          return (
+            <Card title={`Thiết bị nhập theo danh mục - Tháng ${dashboardMonth}/${dashboardYear}`}>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={categories}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="categoryName" angle={-45} textAnchor="end" height={80} />
+                  <YAxis allowDecimals={false} />
+                  <ChartTooltip />
+                  <Bar dataKey="deviceCount" fill="#8884d8" radius={[4, 4, 0, 0]}>
+                    {categories.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={["#667eea", "#764ba2", "#f093fb", "#f5576c", "#4facfe", "#00f2fe", "#43e97b", "#38f9d7"][index % 8]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          );
+        })()}
+
+        <Divider />
 
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} md={6}>

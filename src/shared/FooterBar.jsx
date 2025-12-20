@@ -80,7 +80,7 @@ const supportLinks = [
   { label: "Hướng dẫn thuê", href: "#" },
   { label: "Bảo hành & đổi trả", href: "#" },
   { label: "Câu hỏi thường gặp", href: "#" },
-  { label: "Chính sách & điều khoản", href: "/policies" },
+  { label: "Chính sách & điều khoản", href: "https://www.techrent.website/api/admin/policies/5/file", external: true },
 ];
 
 const socialLinks = [
@@ -304,6 +304,19 @@ export default function FooterBar() {
             </Title>
             <Space direction="vertical" size={8}>
               {supportLinks.map((link) => {
+                if (link.external) {
+                  return (
+                    <Link
+                      key={link.label}
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "rgba(255,255,255,0.75)" }}
+                    >
+                      {link.label}
+                    </Link>
+                  );
+                }
                 if (link.href.startsWith("/")) {
                   return (
                     <RouterLink
@@ -395,9 +408,14 @@ export default function FooterBar() {
           </Col>
           <Col>
             <Space size={16}>
-              <RouterLink to="/policies" style={{ color: "rgba(255,255,255,0.65)" }}>
+              <Link 
+                href="https://www.techrent.website/api/admin/policies/5/file" 
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "rgba(255,255,255,0.65)" }}
+              >
                 Điều khoản
-              </RouterLink>
+              </Link>
               <Link href="#" style={{ color: "rgba(255,255,255,0.65)" }}>
                 Bảo mật
               </Link>

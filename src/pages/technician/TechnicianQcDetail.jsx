@@ -1824,14 +1824,7 @@ export default function TechnicianQcDetail() {
                               style={{ width: "100%" }}
                               placeholder="Chọn mức độ"
                               value={condition.severity}
-                              onChange={(value) => {
-                                const newConditions = [...deviceConditions];
-                                newConditions[index] = {
-                                  ...newConditions[index],
-                                  severity: value,
-                                };
-                                setDeviceConditions(newConditions);
-                              }}
+                              disabled
                               options={[
                                 { label: "Không có", value: "INFO" },
                                 { label: "Nhẹ", value: "LOW" },

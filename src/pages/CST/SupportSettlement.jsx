@@ -651,7 +651,7 @@ export default function SupportSettlement() {
 
       {/* Order Detail Drawer */}
       <Drawer
-        title={`Chi tiết đơn hàng #${selectedOrder?.orderId || selectedOrder?.id || ""
+        title={`Chi tiết hoá đơn của đơn hàng #${selectedOrder?.orderId || selectedOrder?.id || ""
           }`}
         open={drawerOpen}
         onClose={() => {
@@ -682,38 +682,6 @@ export default function SupportSettlement() {
             </Descriptions>
 
             <Divider />
-            <Row gutter={16}>
-              <Col span={8}>
-                <Statistic
-                  title="Tổng tiền thuê"
-                  value={
-                    selectedOrder.totalPrice || selectedOrder.totalAmount || 0
-                  }
-                  formatter={(v) => formatCurrency(v)}
-                  valueStyle={{ fontWeight: "bold" }} // <- Đã thêm
-                />
-              </Col>
-              <Col span={8}>
-                <Statistic
-                  title="Tiền cọc"
-                  value={selectedOrder.depositAmount || 0}
-                  formatter={(v) => formatCurrency(v)}
-                  valueStyle={{ fontWeight: "bold" }} // <- Đã thêm
-                />
-              </Col>
-              <Col span={8}>
-                <Statistic
-                  title="Tổng thanh toán"
-                  value={
-                    (selectedOrder.totalPrice ||
-                      selectedOrder.totalAmount ||
-                      0) + (selectedOrder.depositAmount || 0)
-                  }
-                  formatter={(v) => formatCurrency(v)}
-                  valueStyle={{ fontWeight: "bold" }} // <- Đã thêm
-                />
-              </Col>
-            </Row>
 
             {invoiceInfo && (
               <>
