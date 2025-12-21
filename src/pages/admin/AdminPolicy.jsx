@@ -32,6 +32,8 @@ import {
   createPolicy,
   updatePolicy,
   deletePolicy,
+  downloadPolicyFile,
+  getPolicyFileUrl,
 } from "../../lib/policy";
 import toast from "react-hot-toast";
 
@@ -53,6 +55,7 @@ export default function AdminPolicy() {
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [viewingPolicy, setViewingPolicy] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -160,6 +163,33 @@ export default function AdminPolicy() {
       toast.error("Không thể tải chi tiết policy.");
     } finally {
       setViewLoading(false);
+    }
+  };
+
+  const handleDownloadFile = async (policy) => {
+    try {
+      setDownloading(true);
+      const id = policy.policyId || policy.id;
+      const blob = await downloadPolicyFile(id);
+      
+      // Tạo link download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      // Đặt tên file với title của policy
+      const fileName = `${policy.title || "policy"}.docx`;
+      link.download = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success("Đã tải file thành công!");
+    } catch (error) {
+      console.error(error);
+      toast.error("Không thể tải file policy.");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -457,18 +487,25 @@ export default function AdminPolicy() {
           <Button key="close" onClick={() => setViewModalVisible(false)}>
             Đóng
           </Button>,
-          viewingPolicy?.fileUrl && (
-            <Button
-              key="download"
-              type="primary"
-              icon={<FileTextOutlined />}
-              onClick={() => {
-                window.open(viewingPolicy.fileUrl, "_blank");
-              }}
-            >
-              Xem/Tải file
-            </Button>
-          ),
+          <Button
+            key="view"
+            icon={<EyeOutlined />}
+            onClick={() => {
+              const id = viewingPolicy?.policyId || viewingPolicy?.id;
+              if (id) window.open(getPolicyFileUrl(id), "_blank");
+            }}
+          >
+            Xem file (PDF)
+          </Button>,
+          <Button
+            key="download"
+            type="primary"
+            icon={<FileTextOutlined />}
+            loading={downloading}
+            onClick={() => handleDownloadFile(viewingPolicy)}
+          >
+            Tải file gốc (Word)
+          </Button>,
         ]}
         width={700}
       >
@@ -503,22 +540,26 @@ export default function AdminPolicy() {
               </Tag>
             </Descriptions.Item>
             <Descriptions.Item label="File">
-              {viewingPolicy.fileUrl || viewingPolicy.file ? (
+              <Space>
+                <Button
+                  type="link"
+                  icon={<EyeOutlined />}
+                  onClick={() => {
+                    const id = viewingPolicy?.policyId || viewingPolicy?.id;
+                    if (id) window.open(getPolicyFileUrl(id), "_blank");
+                  }}
+                >
+                  Xem (PDF)
+                </Button>
                 <Button
                   type="link"
                   icon={<FileTextOutlined />}
-                  onClick={() => {
-                    window.open(
-                      viewingPolicy.fileUrl || viewingPolicy.file,
-                      "_blank"
-                    );
-                  }}
+                  loading={downloading}
+                  onClick={() => handleDownloadFile(viewingPolicy)}
                 >
-                  Xem file
+                  Tải file gốc (Word)
                 </Button>
-              ) : (
-                "—"
-              )}
+              </Space>
             </Descriptions.Item>
             {viewingPolicy.createdAt && (
               <Descriptions.Item label="Ngày tạo">

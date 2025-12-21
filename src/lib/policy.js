@@ -99,3 +99,24 @@ export async function deletePolicy(policyId) {
   return data?.data ?? data;
 }
 
+/**
+ * GET /api/admin/policies/{policyId}/download - Tải file gốc policy (Word/DOCX)
+ * @param {number} policyId - ID của policy
+ * @returns {Promise<Blob>} File blob để download
+ */
+export async function downloadPolicyFile(policyId) {
+  const response = await api.get(`/api/admin/policies/${policyId}/download`, {
+    responseType: "blob",
+  });
+  return response.data;
+}
+
+/**
+ * GET /api/admin/policies/{policyId}/file - Xem file policy (PDF) trực tiếp trên browser
+ * @param {number} policyId - ID của policy
+ * @returns {string} URL để xem file PDF
+ */
+export function getPolicyFileUrl(policyId) {
+  // Trả về URL trực tiếp để mở trong browser
+  return `${api.defaults.baseURL || ""}/api/admin/policies/${policyId}/file`;
+}
