@@ -681,9 +681,6 @@ export default function AdminOrders() {
                           />
                         </Col>
                         <Col span={4}>
-                          <Statistic title="Cọc đã giữ" value={fmtVND(detail.depositAmountHeld)} />
-                        </Col>
-                        <Col span={4}>
                           <Statistic title="Cọc hoàn lại" value={fmtVND(detail.depositAmountRefunded)} />
                         </Col>
                       </Row>
