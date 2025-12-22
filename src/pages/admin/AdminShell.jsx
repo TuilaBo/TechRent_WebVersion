@@ -29,7 +29,7 @@ import {
 import {
   AppstoreOutlined,
   ShoppingOutlined,
-  ShoppingCartOutlined,
+  LaptopOutlined,
   TeamOutlined,
   SettingOutlined,
   BellOutlined,
@@ -215,8 +215,8 @@ export default function AdminShell() {
             },
             {
               key: "products",
-              icon: <ShoppingCartOutlined />,
-              label: <Link to="/admin/products">Sản phẩm</Link>,
+              icon: <LaptopOutlined />,
+              label: <Link to="/admin/products">Thiết bị</Link>,
             },
             {
               key: "transactions",

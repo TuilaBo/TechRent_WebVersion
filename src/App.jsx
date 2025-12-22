@@ -62,6 +62,8 @@ import SupportChat from "./pages/CST/SupportChat.jsx";
 import SupportTask from "./pages/CST/SupportTask.jsx";
 import SupportSettlement from "./pages/CST/SupportSettlement.jsx";
 import RequireRole from "./routes/RequireRole.jsx";
+import BlockStaff from "./routes/BlockStaff.jsx";
+
 export default function App() {
   return (
     <>
@@ -86,8 +88,15 @@ export default function App() {
       >
         <Routes>
           {/* ✅ Chỉ chứa <Route> hoặc <React.Fragment> */}
-          {/* Public routes - accessible to everyone */}
-          <Route path="/" element={<LayoutRoot />}>
+          {/* Public routes - accessible to CUSTOMER and guests only, staff will be redirected */}
+          <Route 
+            path="/" 
+            element={
+              <BlockStaff>
+                <LayoutRoot />
+              </BlockStaff>
+            }
+          >
             <Route index element={<Home />} />
             <Route path="login" element={<LoginForm />} />
             <Route path="register" element={<RegisterForm />} />
