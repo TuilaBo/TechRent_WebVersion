@@ -1204,25 +1204,28 @@ export default function MyOrderDetailDrawer({
                             <Form.Item
                                 label="Ngày kết thúc mới"
                                 required
-                                help="Chọn ngày kết thúc mới (tối thiểu 24 giờ sau ngày kết thúc dự kiến)."
+                                help="Chọn ngày kết thúc mới (tối thiểu 1 ngày sau ngày kết thúc dự kiến)."
                             >
                                 {(() => {
-                                    // Tính ngày tối thiểu: 24h sau planEndDate
+                                    // Tính ngày tối thiểu: 1 ngày sau planEndDate
                                     const planEndDate = current?.planEndDate || current?.endDate;
-                                    const minDateTime = planEndDate ? dayjs(planEndDate).add(24, 'hour') : dayjs().add(1, 'day');
+                                    const minDate = planEndDate ? dayjs(planEndDate).add(1, 'day').startOf('day') : dayjs().add(1, 'day');
+                                    // Lấy giờ gốc từ planEndDate để giữ lại
+                                    const originalTime = planEndDate ? dayjs(planEndDate) : dayjs().hour(9).minute(0);
                                     
                                     return (
                                         <DatePicker
                                             style={{ width: "100%" }}
-                                            showTime
                                             format="DD/MM/YYYY HH:mm"
                                             placeholder="Chọn ngày kết thúc mới"
                                             value={extendedEndTime ? dayjs(extendedEndTime) : null}
                                             onChange={(date) => {
                                                 if (date) {
-                                                    // Đảm bảo không chọn trước minDateTime
-                                                    const finalDate = date.isBefore(minDateTime) ? minDateTime : date;
-                                                    // Sử dụng format để giữ nguyên timezone local, không dùng toISOString (UTC)
+                                                    // Đặt ngày mới với giờ từ ngày kết thúc gốc
+                                                    const finalDate = date
+                                                        .hour(originalTime.hour())
+                                                        .minute(originalTime.minute())
+                                                        .second(originalTime.second());
                                                     setExtendedEndTime(finalDate.format("YYYY-MM-DDTHH:mm:ss"));
                                                 } else {
                                                     setExtendedEndTime(null);
@@ -1230,26 +1233,8 @@ export default function MyOrderDetailDrawer({
                                             }}
                                             disabledDate={(currentDate) => {
                                                 if (!currentDate) return false;
-                                                // Ngày phải >= ngày của minDateTime
-                                                return currentDate.isBefore(minDateTime, "day");
-                                            }}
-                                            disabledTime={(selectedDate) => {
-                                                if (!selectedDate) return {};
-                                                // Nếu chọn cùng ngày với minDateTime, giới hạn giờ
-                                                if (selectedDate.isSame(minDateTime, 'day')) {
-                                                    const minHour = minDateTime.hour();
-                                                    const minMinute = minDateTime.minute();
-                                                    return {
-                                                        disabledHours: () => Array.from({ length: minHour }, (_, i) => i),
-                                                        disabledMinutes: (selectedHour) => {
-                                                            if (selectedHour === minHour) {
-                                                                return Array.from({ length: minMinute }, (_, i) => i);
-                                                            }
-                                                            return [];
-                                                        },
-                                                    };
-                                                }
-                                                return {};
+                                                // Ngày phải >= ngày của minDate
+                                                return currentDate.isBefore(minDate, "day");
                                             }}
                                         />
                                     );

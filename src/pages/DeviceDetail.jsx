@@ -2,19 +2,45 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  Row, Col, Card, Typography, Breadcrumb, Space, Divider,
-  InputNumber, Button, Image, Tabs, Skeleton, Carousel, Tag, DatePicker, Alert
+  Row,
+  Col,
+  Card,
+  Typography,
+  Breadcrumb,
+  Space,
+  Divider,
+  InputNumber,
+  Button,
+  Image,
+  Tabs,
+  Skeleton,
+  Carousel,
+  Tag,
+  DatePicker,
+  Alert,
 } from "antd";
-import { 
-  ShoppingCartOutlined, MinusOutlined, PlusOutlined, LeftOutlined, 
-  RightOutlined, CheckCircleFilled, CloseCircleFilled, FireOutlined,
-  SafetyOutlined, CalendarOutlined
+import {
+  ShoppingCartOutlined,
+  MinusOutlined,
+  PlusOutlined,
+  LeftOutlined,
+  RightOutlined,
+  CheckCircleFilled,
+  CloseCircleFilled,
+  FireOutlined,
+  SafetyOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import toast from "react-hot-toast";
 import dayjs from "dayjs";
 
 import { useAuth } from "../context/AuthContext";
-import { getDeviceModelById, normalizeModel, fmtVND, getDeviceAvailability } from "../lib/deviceModelsApi";
+import {
+  getDeviceModelById,
+  normalizeModel,
+  fmtVND,
+  getDeviceAvailability,
+} from "../lib/deviceModelsApi";
 import { getBrandById } from "../lib/deviceManage";
 import { addToCart, getCartCount } from "../lib/cartUtils";
 import RelatedCard from "../components/RelatedCard";
@@ -51,9 +77,7 @@ const flattenEntries = (val, prefix = "") => {
 const renderSpecsText = (specs) => {
   if (!specs) return "Chưa có thông số.";
   try {
-    const parsed = typeof specs === "string" && looksLikeJSON(specs)
-      ? JSON.parse(specs)
-      : specs;
+    const parsed = typeof specs === "string" && looksLikeJSON(specs) ? JSON.parse(specs) : specs;
 
     if (typeof parsed === "string") {
       return <span style={{ whiteSpace: "pre-line" }}>{parsed}</span>;
@@ -65,14 +89,16 @@ const renderSpecsText = (specs) => {
     return (
       <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", lineHeight: 1.8 }}>
         {entries.map(([k, v], idx) => (
-          <li key={idx} style={{ 
-            padding: "10px 16px", 
-            background: idx % 2 === 0 ? "#fafafa" : "transparent",
-            borderRadius: 6,
-            marginBottom: 2,
-            transition: "all 0.2s"
-          }}
-          className="spec-item"
+          <li
+            key={idx}
+            style={{
+              padding: "10px 16px",
+              background: idx % 2 === 0 ? "#fafafa" : "transparent",
+              borderRadius: 6,
+              marginBottom: 2,
+              transition: "all 0.2s",
+            }}
+            className="spec-item"
           >
             <span style={{ color: "#666", fontSize: 14, fontWeight: 500 }}>
               {String(k).replace(/\.$/, "")}
@@ -98,7 +124,7 @@ export default function DeviceDetail() {
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  
+
   // Rental dates for availability check
   const [startDate, setStartDate] = useState(dayjs().add(1, "day"));
   const [endDate, setEndDate] = useState(dayjs().add(6, "day"));
@@ -116,7 +142,7 @@ export default function DeviceDetail() {
             const b = await getBrandById(nm.brandId);
             nm.brand = b?.brandName ?? b?.name ?? nm.brand;
           } catch {
-            // Ignore
+            // ignore
           }
         }
         setItem(nm);
@@ -141,10 +167,10 @@ export default function DeviceDetail() {
         const start = startDate.format("YYYY-MM-DD[T]HH:mm:ss");
         const end = endDate.format("YYYY-MM-DD[T]HH:mm:ss");
         const result = await getDeviceAvailability(item.id, start, end);
-        // API có thể trả về số hoặc object có field availableCount/available
-        const count = typeof result === "number" 
-          ? result 
-          : (result?.availableCount ?? result?.available ?? result?.count ?? 0);
+        const count =
+          typeof result === "number"
+            ? result
+            : result?.availableCount ?? result?.available ?? result?.count ?? 0;
         setAvailableCount(Math.max(0, Number(count) || 0));
       } catch (err) {
         console.error("Error checking availability:", err);
@@ -164,12 +190,10 @@ export default function DeviceDetail() {
     } else if (availableCount === 0) {
       setQty(1);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableCount]);
 
-  const perDaySubtotal = useMemo(
-    () => Math.round((item?.pricePerDay || 0) * qty),
-    [item, qty]
-  );
+  const perDaySubtotal = useMemo(() => Math.round((item?.pricePerDay || 0) * qty), [item, qty]);
 
   const depositPercent = Number(item?.depositPercent ?? 0);
   const depositAmount = useMemo(() => {
@@ -180,17 +204,12 @@ export default function DeviceDetail() {
   const displayDesc =
     item?.deviceDescription ||
     (item?.specifications
-      ? (item?.description || "")
+      ? item?.description || ""
       : looksLikeJSON(item?.description)
       ? ""
-      : (item?.description || ""));
+      : item?.description || "");
 
-  const displaySpecs =
-    item?.specifications
-      ? item.specifications
-      : looksLikeJSON(item?.description)
-      ? item.description
-      : "";
+  const displaySpecs = item?.specifications ? item.specifications : looksLikeJSON(item?.description) ? item.description : "";
 
   const handleAddToCart = async () => {
     if (adding) return;
@@ -205,7 +224,7 @@ export default function DeviceDetail() {
       setQty(available);
       return;
     }
-    
+
     if (!startDate || !endDate) {
       toast.error("Vui lòng chọn ngày bắt đầu và kết thúc thuê");
       return;
@@ -217,11 +236,18 @@ export default function DeviceDetail() {
           <b>Vui lòng đăng nhập để thêm vào giỏ hàng</b>
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => { toast.dismiss(t.id); navigate("/login"); }}
+              onClick={() => {
+                toast.dismiss(t.id);
+                navigate("/login");
+              }}
               style={{
-                padding: "8px 12px", borderRadius: 8,
-                border: "none", background: "#111827",
-                color: "#fff", cursor: "pointer", fontWeight: 500,
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: "none",
+                background: "#111827",
+                color: "#fff",
+                cursor: "pointer",
+                fontWeight: 500,
               }}
             >
               Đăng nhập
@@ -229,9 +255,13 @@ export default function DeviceDetail() {
             <button
               onClick={() => toast.dismiss(t.id)}
               style={{
-                padding: "8px 12px", borderRadius: 8,
-                border: "1px solid #e5e7eb", background: "#fff",
-                color: "#111827", cursor: "pointer", fontWeight: 500,
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                color: "#111827",
+                cursor: "pointer",
+                fontWeight: 500,
               }}
             >
               Để sau
@@ -244,45 +274,57 @@ export default function DeviceDetail() {
 
     try {
       setAdding(true);
-      // Lưu thời gian thuê vào cart item (có thể mở rộng cartUtils sau)
       const result = await addToCart(id, qty);
       if (result.success) {
-        toast.success((t) => (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div>
-              <b>{item?.name}</b> × <b>{qty}</b> đã thêm vào giỏ •{" "}
-              <b>{fmtVND(item?.pricePerDay)}/ngày</b>
+        toast.success(
+          (t) => (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>
+                <b>{item?.name}</b> × <b>{qty}</b> đã thêm vào giỏ • <b>{fmtVND(item?.pricePerDay)}/ngày</b>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    navigate("/cart");
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: "#111827",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                  }}
+                >
+                  Xem giỏ hàng
+                </button>
+                <button
+                  onClick={() => toast.dismiss(t.id)}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: "#fff",
+                    color: "#111827",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                  }}
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => { toast.dismiss(t.id); navigate("/cart"); }}
-                style={{
-                  padding: "8px 12px", borderRadius: 8,
-                  border: "none", background: "#111827",
-                  color: "#fff", cursor: "pointer", fontWeight: 500,
-                }}
-              >
-                Xem giỏ hàng
-              </button>
-              <button
-                onClick={() => toast.dismiss(t.id)}
-                style={{
-                  padding: "8px 12px", borderRadius: 8,
-                  border: "1px solid #e5e7eb", background: "#fff",
-                  color: "#111827", cursor: "pointer", fontWeight: 500,
-                }}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        ), { duration: 2500 });
+          ),
+          { duration: 2500 }
+        );
 
         try {
           const count = getCartCount();
           window.dispatchEvent(new CustomEvent("cart:updated", { detail: { count } }));
         } catch {
-          // Ignore
+          // ignore
         }
       } else {
         toast.error(result.error || "Không thể thêm vào giỏ hàng");
@@ -307,6 +349,9 @@ export default function DeviceDetail() {
   const isAvailable = (availableCount ?? 0) > 0;
   const isLowStock = isAvailable && (availableCount ?? 0) < 2;
   const disabledPast = (cur) => cur && cur < dayjs().startOf("day");
+
+  // ✅ Chuẩn hoá list ảnh: lọc null/undefined/"" để tránh ảnh rỗng làm carousel lệch
+  const images = (item?.images?.length ? item.images : [item.image]).filter(Boolean);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#fafafa" }}>
@@ -337,21 +382,21 @@ export default function DeviceDetail() {
                   autoplay
                   autoplaySpeed={5000}
                   dots={{ className: "custom-dots" }}
-                className="product-carousel media-carousel"
+                  className="product-carousel media-carousel"
                 >
-                  {(item.images?.length ? item.images : [item.image]).map((src, idx) => (
+                  {(images.length ? images : ["https://placehold.co/1200x900?text=No+Image"]).map((src, idx) => (
                     <div key={idx} className="carousel-item">
+                      {/* ✅ Fix lệch hình: không ép width/height=100%, dùng max-width/max-height qua CSS */}
                       <Image
-                        src={src || "https://placehold.co/1200x900?text=No+Image"}
+                        src={src}
                         alt={`${item.name} ${idx + 1}`}
-                        width="100%"
-                        height="100%"
-                        style={{ objectFit: "contain" }}
+                        className="carousel-img"
                         placeholder
                       />
                     </div>
                   ))}
                 </Carousel>
+
                 {isLowStock && (
                   <Tag
                     icon={<FireOutlined />}
@@ -387,54 +432,61 @@ export default function DeviceDetail() {
               bodyStyle={{ padding: 28 }}
             >
               <div className="mb-5">
-                <Title level={2} style={{ 
-                  marginBottom: 8, 
-                  fontFamily: "'Inter', sans-serif", 
-                  color: "#111",
-                  fontWeight: 700,
-                  fontSize: 26,
-                  lineHeight: 1.3
-                }}>
+                <Title
+                  level={2}
+                  style={{
+                    marginBottom: 8,
+                    fontFamily: "'Inter', sans-serif",
+                    color: "#111",
+                    fontWeight: 700,
+                    fontSize: 26,
+                    lineHeight: 1.3,
+                  }}
+                >
                   {item.name}
                 </Title>
-                
+
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                   <Text style={{ color: "#666", fontSize: 14 }}>Thương hiệu:</Text>
-                  <Tag style={{ 
-                    fontSize: 13, 
-                    padding: "4px 10px",
-                    fontWeight: 600,
-                    border: "1px solid #e5e7eb",
-                    background: "#fafafa"
-                  }}>
+                  <Tag
+                    style={{
+                      fontSize: 13,
+                      padding: "4px 10px",
+                      fontWeight: 600,
+                      border: "1px solid #e5e7eb",
+                      background: "#fafafa",
+                    }}
+                  >
                     {item.brand || "—"}
                   </Tag>
                 </div>
 
                 {availableCount !== null && (
-                  <div style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "6px 12px",
-                    background: isAvailable ? "#f0fdf4" : "#fef2f2",
-                    border: `1px solid ${isAvailable ? "#86efac" : "#fecaca"}`,
-                    borderRadius: 8
-                  }}>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "6px 12px",
+                      background: isAvailable ? "#f0fdf4" : "#fef2f2",
+                      border: `1px solid ${isAvailable ? "#86efac" : "#fecaca"}`,
+                      borderRadius: 8,
+                    }}
+                  >
                     {isAvailable ? (
                       <CheckCircleFilled style={{ color: "#16a34a", fontSize: 14 }} />
                     ) : (
                       <CloseCircleFilled style={{ color: "#dc2626", fontSize: 14 }} />
                     )}
-                    <Text style={{ 
-                      color: isAvailable ? "#15803d" : "#991b1b", 
-                      fontSize: 13, 
-                      fontWeight: 600, 
-                      margin: 0 
-                    }}>
-                      {isAvailable 
-                        ? `Còn ${availableCount} thiết bị` 
-                        : "Hết hàng"}
+                    <Text
+                      style={{
+                        color: isAvailable ? "#15803d" : "#991b1b",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        margin: 0,
+                      }}
+                    >
+                      {isAvailable ? `Còn ${availableCount} thiết bị` : "Hết hàng"}
                     </Text>
                   </div>
                 )}
@@ -444,11 +496,15 @@ export default function DeviceDetail() {
 
               {/* Rental Dates */}
               <div className="mb-5">
-                <Text strong className="block mb-2" style={{ 
-                  color: "#111", 
-                  fontWeight: 600,
-                  fontSize: 14
-                }}>
+                <Text
+                  strong
+                  className="block mb-2"
+                  style={{
+                    color: "#111",
+                    fontWeight: 600,
+                    fontSize: 14,
+                  }}
+                >
                   Thời gian thuê
                 </Text>
                 <Space direction="vertical" size={8} style={{ width: "100%" }}>
@@ -489,19 +545,17 @@ export default function DeviceDetail() {
                     />
                   </div>
                 </Space>
+
                 {checkingAvailability && (
-                  <Alert
-                    message="Đang kiểm tra tính khả dụng..."
-                    type="info"
-                    showIcon
-                    style={{ marginTop: 8 }}
-                  />
+                  <Alert message="Đang kiểm tra tính khả dụng..." type="info" showIcon style={{ marginTop: 8 }} />
                 )}
                 {availableCount !== null && !checkingAvailability && (
                   <Alert
-                    message={availableCount > 0 
-                      ? `Còn ${availableCount} thiết bị khả dụng trong khoảng thời gian này`
-                      : "Không còn thiết bị khả dụng trong khoảng thời gian này"}
+                    message={
+                      availableCount > 0
+                        ? `Còn ${availableCount} thiết bị khả dụng trong khoảng thời gian này`
+                        : "Không còn thiết bị khả dụng trong khoảng thời gian này"
+                    }
                     type={availableCount > 0 ? "success" : "warning"}
                     showIcon
                     style={{ marginTop: 8 }}
@@ -513,72 +567,83 @@ export default function DeviceDetail() {
 
               {/* Price */}
               <div className="mb-4">
-                <Text className="block mb-2" style={{ 
-                  color: "#666", 
-                  fontWeight: 500,
-                  fontSize: 13,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px"
-                }}>
+                <Text
+                  className="block mb-2"
+                  style={{
+                    color: "#666",
+                    fontWeight: 500,
+                    fontSize: 13,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
                   Giá thuê / ngày
                 </Text>
-                <Title level={3} style={{ 
-                  margin: 0, 
-                  fontFamily: "'Inter', sans-serif",
-                  color: "#111",
-                  fontWeight: 700,
-                  fontSize: 32
-                }}>
+                <Title
+                  level={3}
+                  style={{
+                    margin: 0,
+                    fontFamily: "'Inter', sans-serif",
+                    color: "#111",
+                    fontWeight: 700,
+                    fontSize: 32,
+                  }}
+                >
                   {fmtVND(item.pricePerDay)}
                 </Title>
               </div>
 
               {/* Deposit */}
               {depositAmount !== null && (
-                <div className="mb-5" style={{
-                  background: "#fffbeb",
-                  padding: "14px",
-                  borderRadius: 10,
-                  border: "1px solid #fde68a"
-                }}>
+                <div
+                  className="mb-5"
+                  style={{
+                    background: "#fffbeb",
+                    padding: "14px",
+                    borderRadius: 10,
+                    border: "1px solid #fde68a",
+                  }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <SafetyOutlined style={{ color: "#d97706", fontSize: 16 }} />
-                    <Text style={{ 
-                      color: "#92400e", 
-                      fontWeight: 600,
-                      fontSize: 13,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.3px"
-                    }}>
+                    <Text
+                      style={{
+                        color: "#92400e",
+                        fontWeight: 600,
+                        fontSize: 13,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.3px",
+                      }}
+                    >
                       Tiền cọc
                     </Text>
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                    <Title level={4} style={{ 
-                      margin: 0, 
-                      color: "#b45309",
-                      fontWeight: 700,
-                      fontSize: 22
-                    }}>
+                    <Title level={4} style={{ margin: 0, color: "#b45309", fontWeight: 700, fontSize: 22 }}>
                       {fmtVND(depositAmount)}
                     </Title>
-                    <Tag style={{ 
-                      fontWeight: 600, 
-                      fontSize: 12,
-                      background: "#fed7aa",
-                      border: "none",
-                      color: "#92400e"
-                    }}>
+                    <Tag
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 12,
+                        background: "#fed7aa",
+                        border: "none",
+                        color: "#92400e",
+                      }}
+                    >
                       {Math.round(depositPercent * 100)}%
                     </Tag>
                   </div>
                   {Number(item?.deviceValue || 0) > 0 && (
-                    <Text type="secondary" style={{ 
-                      display: "block", 
-                      marginTop: 6,
-                      fontSize: 12,
-                      color: "#78716c"
-                    }}>
+                    <Text
+                      type="secondary"
+                      style={{
+                        display: "block",
+                        marginTop: 6,
+                        fontSize: 12,
+                        color: "#78716c",
+                      }}
+                    >
                       Giá trị máy {fmtVND(item.deviceValue)} × {Math.round(depositPercent * 100)}%
                     </Text>
                   )}
@@ -587,11 +652,7 @@ export default function DeviceDetail() {
 
               {/* Quantity */}
               <div className="mb-5">
-                <Text strong className="block mb-2" style={{ 
-                  color: "#111", 
-                  fontWeight: 600,
-                  fontSize: 14
-                }}>
+                <Text strong className="block mb-2" style={{ color: "#111", fontWeight: 600, fontSize: 14 }}>
                   Số lượng
                 </Text>
                 <Space.Compact style={{ width: "100%" }}>
@@ -599,12 +660,12 @@ export default function DeviceDetail() {
                     size="middle"
                     onClick={() => setQty((q) => Math.max(1, q - 1))}
                     icon={<MinusOutlined />}
-                    style={{ 
-                      height: 40, 
-                      width: 40, 
+                    style={{
+                      height: 40,
+                      width: 40,
                       borderRadius: "8px 0 0 8px",
                       borderColor: "#d1d5db",
-                      transition: "all 0.2s"
+                      transition: "all 0.2s",
                     }}
                     className="qty-btn"
                     disabled={adding || !isAvailable}
@@ -615,20 +676,18 @@ export default function DeviceDetail() {
                     value={qty}
                     onChange={(v) => {
                       const max = availableCount ?? 0;
-                      if (max > 0) {
-                        setQty(Math.min(Math.max(1, v || 1), max));
-                      }
+                      if (max > 0) setQty(Math.min(Math.max(1, v || 1), max));
                     }}
-                    style={{ 
+                    style={{
                       flex: 1,
-                      height: 40, 
-                      textAlign: "center", 
+                      height: 40,
+                      textAlign: "center",
                       fontSize: 16,
                       fontWeight: 600,
                       borderRadius: 0,
                       borderColor: "#d1d5db",
                       borderLeft: "none",
-                      borderRight: "none"
+                      borderRight: "none",
                     }}
                     disabled={adding || !isAvailable}
                   />
@@ -639,24 +698,20 @@ export default function DeviceDetail() {
                       setQty((q) => Math.min(q + 1, max));
                     }}
                     icon={<PlusOutlined />}
-                    style={{ 
-                      height: 40, 
-                      width: 40, 
+                    style={{
+                      height: 40,
+                      width: 40,
                       borderRadius: "0 8px 8px 0",
                       borderColor: "#d1d5db",
-                      transition: "all 0.2s"
+                      transition: "all 0.2s",
                     }}
                     className="qty-btn"
                     disabled={adding || !isAvailable || qty >= (availableCount ?? 0)}
                   />
                 </Space.Compact>
+
                 {!isAvailable && (
-                  <Text type="danger" style={{ 
-                    display: "block", 
-                    marginTop: 8, 
-                    fontSize: 13,
-                    fontWeight: 500
-                  }}>
+                  <Text type="danger" style={{ display: "block", marginTop: 8, fontSize: 13, fontWeight: 500 }}>
                     ⚠️ Thiết bị đã hết hàng
                   </Text>
                 )}
@@ -670,35 +725,40 @@ export default function DeviceDetail() {
                 className="w-full add-to-cart-btn"
                 onClick={handleAddToCart}
                 loading={adding || checkingAvailability}
-                disabled={adding || checkingAvailability || !isAvailable || qty > (availableCount ?? 0) || !startDate || !endDate}
-                style={{ 
+                disabled={
+                  adding ||
+                  checkingAvailability ||
+                  !isAvailable ||
+                  qty > (availableCount ?? 0) ||
+                  !startDate ||
+                  !endDate
+                }
+                style={{
                   background: isAvailable && qty <= (availableCount ?? 0) ? "#111" : "#d1d5db",
-                  border: "none", 
-                  borderRadius: 10, 
-                  height: 44, 
-                  fontSize: 15, 
+                  border: "none",
+                  borderRadius: 10,
+                  height: 44,
+                  fontSize: 15,
                   fontWeight: 600,
-                  transition: "all 0.2s"
+                  transition: "all 0.2s",
                 }}
               >
                 {adding ? "Đang thêm..." : !isAvailable ? "Hết hàng" : "Thêm vào giỏ"}
               </Button>
 
               {/* Subtotal */}
-              <div style={{
-                marginTop: 16,
-                padding: "12px",
-                background: "#fafafa",
-                borderRadius: 8,
-                textAlign: "center",
-                border: "1px solid #e5e7eb"
-              }}>
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: "12px",
+                  background: "#fafafa",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
                 <Text style={{ color: "#666", fontSize: 14 }}>Tạm tính / ngày: </Text>
-                <Text strong style={{ 
-                  color: "#111", 
-                  fontSize: 16,
-                  fontWeight: 700
-                }}>
+                <Text strong style={{ color: "#111", fontSize: 16, fontWeight: 700 }}>
                   {fmtVND(perDaySubtotal)}
                 </Text>
               </div>
@@ -709,8 +769,8 @@ export default function DeviceDetail() {
         {/* Tabs */}
         <Row gutter={[24, 24]} className="mt-10">
           <Col xs={24} lg={14}>
-            <Card 
-              bordered={false} 
+            <Card
+              bordered={false}
               className="rounded-xl shadow-sm"
               bodyStyle={{ padding: 28, background: "#fff" }}
               style={{ border: "1px solid #e5e7eb" }}
@@ -723,13 +783,15 @@ export default function DeviceDetail() {
                     key: "desc",
                     label: <span style={{ fontSize: 15, fontWeight: 600 }}>Mô tả</span>,
                     children: (
-                      <Paragraph style={{ 
-                        marginBottom: 0, 
-                        whiteSpace: "pre-line", 
-                        fontSize: 15, 
-                        lineHeight: 1.7, 
-                        color: "#374151"
-                      }}>
+                      <Paragraph
+                        style={{
+                          marginBottom: 0,
+                          whiteSpace: "pre-line",
+                          fontSize: 15,
+                          lineHeight: 1.7,
+                          color: "#374151",
+                        }}
+                      >
                         {displayDesc || "Chưa có mô tả."}
                       </Paragraph>
                     ),
@@ -737,11 +799,7 @@ export default function DeviceDetail() {
                   {
                     key: "spec",
                     label: <span style={{ fontSize: 15, fontWeight: 600 }}>Thông số</span>,
-                    children: (
-                      <div style={{ marginBottom: 0 }}>
-                        {renderSpecsText(displaySpecs)}
-                      </div>
-                    ),
+                    children: <div style={{ marginBottom: 0 }}>{renderSpecsText(displaySpecs)}</div>,
                   },
                 ]}
                 tabBarStyle={{ marginBottom: 20 }}
@@ -791,14 +849,7 @@ export default function DeviceDetail() {
           background: #111;
           width: 24px;
         }
-        .carousel-item {
-          display: flex !important;
-          justify-content: center;
-          align-items: center;
-          height: 480px;
-          overflow: hidden;
-          background: #fafafa;
-        }
+
         .add-to-cart-btn:hover:not(:disabled) {
           background: #000 !important;
           transform: translateY(-1px);
@@ -812,6 +863,7 @@ export default function DeviceDetail() {
           color: #111 !important;
           background: #fafafa !important;
         }
+
         .ant-tabs-tab {
           padding: 10px 0;
           transition: all 0.2s;
@@ -831,6 +883,7 @@ export default function DeviceDetail() {
           background: #111 !important;
           height: 2px !important;
         }
+
         .product-card, .info-card {
           transition: all 0.2s;
         }
@@ -840,6 +893,7 @@ export default function DeviceDetail() {
         .info-card:hover {
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
         }
+
         .spec-item:hover {
           background: #f3f4f6 !important;
         }
@@ -863,6 +917,8 @@ export default function DeviceDetail() {
           position: relative;
           height: 100%;
         }
+
+        /* ✅ FIX CHÍNH: khung ảnh + ảnh luôn nằm giữa và không bị cắt */
         .media-carousel .carousel-item {
           height: clamp(320px, 45vw, 520px);
           display: flex !important;
@@ -871,13 +927,29 @@ export default function DeviceDetail() {
           background: #f9fafb;
           padding: clamp(12px, 3vw, 32px);
         }
-        .media-carousel .carousel-item img {
-          max-height: 100%;
-          width: auto;
+
+        /* wrapper của AntD Image */
+        .media-carousel .carousel-img {
+          width: auto !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
-        
+
+        /* ảnh thật bên trong AntD Image */
+        .media-carousel .carousel-img .ant-image-img {
+          width: auto !important;
+          height: auto !important;
+          max-width: 100% !important;
+          max-height: 100% !important;
+          object-fit: contain !important;
+          display: block;
+        }
+
         @media (max-width: 768px) {
-          .carousel-item {
+          .media-carousel .carousel-item {
             height: 260px;
           }
           .product-carousel .ant-carousel .slick-arrow {

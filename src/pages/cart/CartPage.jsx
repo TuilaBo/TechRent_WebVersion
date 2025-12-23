@@ -1001,7 +1001,7 @@ export default function CartPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <div>
                       <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                        Giờ bắt đầu thuê(Dự kiến)
+                        Giờ bắt đầu thuê (8:00 - 18:00)
                       </Text>
                       <TimePicker
                         value={startTime}
@@ -1011,19 +1011,21 @@ export default function CartPage() {
                         }}
                         format="HH:mm"
                         style={{ width: "100%" }}
+                        disabledTime={() => ({
+                          disabledHours: () => [0, 1, 2, 3, 4, 5, 6, 7, 19, 20, 21, 22, 23],
+                        })}
+                        hideDisabledOptions
                       />
                     </div>
                     <div>
                       <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                        Giờ kết thúc thuê(Dự kiến)
+                        Giờ kết thúc thuê (Dự kiến)
                       </Text>
                       <TimePicker
                         value={endTime}
-                        onChange={(t) => {
-                          setEndTime(t);
-                        }}
                         format="HH:mm"
                         style={{ width: "100%" }}
+                        disabled
                       />
                     </div>
                   </div>
