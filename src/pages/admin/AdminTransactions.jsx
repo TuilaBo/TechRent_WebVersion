@@ -32,6 +32,7 @@ const paymentMethodOptions = [
   { label: "Tất cả", value: "ALL" },
   { label: "VNPay", value: "VNPAY" },
   { label: "PayOS", value: "PAYOS" },
+  { label: "Chuyển khoản ngân hàng", value: "BANK_ACCOUNT" },
 ];
 
 const transactionTypeOptions = [
@@ -42,9 +43,9 @@ const transactionTypeOptions = [
 
 const invoiceStatusOptions = [
   { label: "Tất cả", value: "ALL" },
-  { label: "Succeeded", value: "SUCCEEDED" },
-  { label: "Pending", value: "PENDING" },
-  { label: "Failed", value: "FAILED" },
+  { label: "Thành công", value: "SUCCEEDED" },
+  { label: "Đang xử lý", value: "PENDING" },
+  { label: "Thất bại", value: "FAILED" },
 ];
 
 const transactionTypeColor = {
@@ -400,7 +401,7 @@ export default function AdminTransactions() {
         <Card title="Bộ lọc">
           <Row gutter={[16, 16]}>
             <Col xs={24} md={8} lg={6}>
-              <Text>Tìm kiếm (Transaction/Invoice/Order)</Text>
+              <Text>Tìm kiếm (Giao dịch/Hóa đơn/Đơn thuê)</Text>
               <Input
                 placeholder="Nhập mã giao dịch, hóa đơn hoặc đơn thuê..."
                 value={search}
