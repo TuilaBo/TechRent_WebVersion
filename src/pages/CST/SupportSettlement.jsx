@@ -808,13 +808,6 @@ export default function SupportSettlement() {
                 <>
                   <Divider />
                   <Space>
-                    <Button
-                      type="primary"
-                      icon={settlement ? <EditOutlined /> : <PlusOutlined />}
-                      onClick={() => setSettlementModalOpen(true)}
-                    >
-                      {settlement ? "Cập nhật Settlement" : "Tạo Settlement"}
-                    </Button>
                   </Space>
                 </>
               );

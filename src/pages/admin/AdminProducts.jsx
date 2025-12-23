@@ -206,6 +206,19 @@ export default function AdminProducts() {
     const [editing, setEditing] = useState(null);
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
+    const [filterName, setFilterName] = useState("");
+    const [filterStatus, setFilterStatus] = useState();
+
+    const filteredCategories = useMemo(() => {
+      return categories.filter((c) => {
+        const nameMatch = !filterName || 
+          (c.deviceCategoryName ?? c.name ?? "").toLowerCase().includes(filterName.toLowerCase());
+        const statusMatch = filterStatus === undefined || filterStatus === null ||
+          (filterStatus === true && !!c.active) ||
+          (filterStatus === false && !c.active);
+        return nameMatch && statusMatch;
+      });
+    }, [categories, filterName, filterStatus]);
 
     const cols = [
       {
@@ -213,11 +226,13 @@ export default function AdminProducts() {
         dataIndex: "deviceCategoryId",
         width: 90,
         render: (_, r) => r.deviceCategoryId ?? r.id,
+        sorter: (a, b) => (a.deviceCategoryId ?? a.id) - (b.deviceCategoryId ?? b.id),
       },
       {
         title: "Tên",
         dataIndex: "deviceCategoryName",
         render: (_, r) => r.deviceCategoryName ?? r.name,
+        sorter: (a, b) => (a.deviceCategoryName ?? a.name ?? "").localeCompare(b.deviceCategoryName ?? b.name ?? ""),
       },
       { title: "Mô tả", dataIndex: "description" },
       // NEW status
@@ -226,6 +241,8 @@ export default function AdminProducts() {
         dataIndex: "active",
         width: 150,
         render: (v) => <ActiveTag v={!!v} />,
+        filters: [{ text: "Đang hoạt động", value: true }, { text: "Ngưng", value: false }],
+        onFilter: (value, record) => !!record.active === value,
       },
       {
         title: "Thao tác",
@@ -316,7 +333,7 @@ export default function AdminProducts() {
     return (
       <>
         {contextHolder}
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12 }} wrap>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -328,11 +345,29 @@ export default function AdminProducts() {
           >
             Thêm loại thiết bị
           </Button>
+          <Input
+            placeholder="Tìm theo tên loại thiết bị..."
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+            allowClear
+            style={{ width: 220 }}
+          />
+          <Select
+            placeholder="Lọc theo trạng thái"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            allowClear
+            style={{ width: 180 }}
+            options={[
+              { label: "Đang hoạt động", value: true },
+              { label: "Ngưng", value: false },
+            ]}
+          />
         </Space>
         <Table
           rowKey={(r) => r.deviceCategoryId ?? r.id}
           columns={cols}
-          dataSource={categories}
+          dataSource={filteredCategories}
           loading={loading}
           pagination={{ pageSize: 8 }}
         />
@@ -374,6 +409,24 @@ export default function AdminProducts() {
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
     const [imageFile, setImageFile] = useState(null);
+    const [filterName, setFilterName] = useState("");
+    const [filterBrandId, setFilterBrandId] = useState();
+    const [filterCategoryId, setFilterCategoryId] = useState();
+    const [filterStatus, setFilterStatus] = useState();
+
+    const filteredModels = useMemo(() => {
+      return models.filter((m) => {
+        const nameMatch = !filterName || 
+          (m.deviceName ?? m.name ?? "").toLowerCase().includes(filterName.toLowerCase());
+        const brandMatch = !filterBrandId || 
+          (m.brandId ?? (brands.find((b) => (b.brandName ?? b.name) === m.brand)?.brandId)) === filterBrandId;
+        const categoryMatch = !filterCategoryId || m.deviceCategoryId === filterCategoryId;
+        const statusMatch = filterStatus === undefined || filterStatus === null ||
+          (filterStatus === true && !!m.active) ||
+          (filterStatus === false && !m.active);
+        return nameMatch && brandMatch && categoryMatch && statusMatch;
+      });
+    }, [models, filterName, filterBrandId, filterCategoryId, filterStatus, brands]);
 
     const cols = [
       {
@@ -381,6 +434,7 @@ export default function AdminProducts() {
         dataIndex: "deviceModelId",
         width: 90,
         render: (_, r) => r.deviceModelId ?? r.id,
+        sorter: (a, b) => (a.deviceModelId ?? a.id) - (b.deviceModelId ?? b.id),
       },
       {
         title: "Hình ảnh",
@@ -426,6 +480,7 @@ export default function AdminProducts() {
         title: "Tên mẫu",
         dataIndex: "deviceName",
         render: (_, r) => r.deviceName ?? r.name,
+        sorter: (a, b) => (a.deviceName ?? a.name ?? "").localeCompare(b.deviceName ?? b.name ?? ""),
       },
       {
         title: "Thương hiệu",
@@ -440,6 +495,8 @@ export default function AdminProducts() {
           // fallback nếu BE vẫn trả brand string cũ
           return r.brand ?? "-";
         },
+        filters: brands.map((b) => ({ text: b.brandName ?? b.name, value: b.brandId ?? b.id })),
+        onFilter: (value, record) => record.brandId === value,
       },
       {
         title: "Loại",
@@ -451,6 +508,8 @@ export default function AdminProducts() {
           );
           return c ? c.deviceCategoryName ?? c.name : id;
         },
+        filters: categories.map((c) => ({ text: c.deviceCategoryName ?? c.name, value: c.deviceCategoryId ?? c.id })),
+        onFilter: (value, record) => record.deviceCategoryId === value,
       },
       {
         title: "Thông số",
@@ -480,6 +539,8 @@ export default function AdminProducts() {
         dataIndex: "active",
         width: 150,
         render: (v) => <ActiveTag v={!!v} />,
+        filters: [{ text: "Đang hoạt động", value: true }, { text: "Ngưng", value: false }],
+        onFilter: (value, record) => !!record.active === value,
       },
       {
         title: "Thao tác",
@@ -600,7 +661,7 @@ export default function AdminProducts() {
     return (
       <>
         {contextHolder}
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12 }} wrap>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -613,11 +674,45 @@ export default function AdminProducts() {
           >
             Thêm mẫu thiết bị
           </Button>
+          <Input
+            placeholder="Tìm theo tên mẫu..."
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+            allowClear
+            style={{ width: 200 }}
+          />
+          <Select
+            placeholder="Lọc theo thương hiệu"
+            value={filterBrandId}
+            onChange={setFilterBrandId}
+            allowClear
+            style={{ width: 180 }}
+            options={brands.map((b) => ({ label: b.brandName ?? b.name, value: b.brandId ?? b.id }))}
+          />
+          <Select
+            placeholder="Lọc theo loại"
+            value={filterCategoryId}
+            onChange={setFilterCategoryId}
+            allowClear
+            style={{ width: 180 }}
+            options={categories.map((c) => ({ label: c.deviceCategoryName ?? c.name, value: c.deviceCategoryId ?? c.id }))}
+          />
+          <Select
+            placeholder="Lọc theo trạng thái"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            allowClear
+            style={{ width: 160 }}
+            options={[
+              { label: "Đang hoạt động", value: true },
+              { label: "Ngưng", value: false },
+            ]}
+          />
         </Space>
         <Table
           rowKey={(r) => r.deviceModelId ?? r.id}
           columns={cols}
-          dataSource={models}
+          dataSource={filteredModels}
           loading={loading}
           pagination={{ pageSize: 8 }}
         />
@@ -1337,12 +1432,25 @@ export default function AdminProducts() {
     const [editing, setEditing] = useState(null);
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
+    const [filterName, setFilterName] = useState("");
+    const [filterStatus, setFilterStatus] = useState();
+
+    const filteredBrands = useMemo(() => {
+      return brands.filter((b) => {
+        const nameMatch = !filterName || 
+          (b.brandName ?? b.name ?? "").toLowerCase().includes(filterName.toLowerCase());
+        const statusMatch = filterStatus === undefined || filterStatus === null ||
+          (filterStatus === true && !!b.active) ||
+          (filterStatus === false && !b.active);
+        return nameMatch && statusMatch;
+      });
+    }, [brands, filterName, filterStatus]);
 
     const cols = [
-      { title: "ID", dataIndex: "brandId", width: 90, render: (_, r) => r.brandId ?? r.id },
-      { title: "Tên thương hiệu", dataIndex: "brandName", render: (v, r) => v ?? r.name },
+      { title: "ID", dataIndex: "brandId", width: 90, render: (_, r) => r.brandId ?? r.id, sorter: (a, b) => (a.brandId ?? a.id) - (b.brandId ?? b.id) },
+      { title: "Tên thương hiệu", dataIndex: "brandName", render: (v, r) => v ?? r.name, sorter: (a, b) => (a.brandName ?? a.name ?? "").localeCompare(b.brandName ?? b.name ?? "") },
       { title: "Mô tả", dataIndex: "description", ellipsis: true },
-      { title: "Trạng thái", dataIndex: "active", width: 150, render: (v) => <ActiveTag v={!!v} /> },
+      { title: "Trạng thái", dataIndex: "active", width: 150, render: (v) => <ActiveTag v={!!v} />, filters: [{ text: "Đang hoạt động", value: true }, { text: "Ngưng", value: false }], onFilter: (value, record) => !!record.active === value },
       {
         title: "Thao tác",
         width: 170,
@@ -1415,7 +1523,7 @@ export default function AdminProducts() {
     return (
       <>
         {contextHolder}
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12 }} wrap>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -1427,11 +1535,29 @@ export default function AdminProducts() {
           >
             Thêm thương hiệu
           </Button>
+          <Input
+            placeholder="Tìm theo tên thương hiệu..."
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+            allowClear
+            style={{ width: 220 }}
+          />
+          <Select
+            placeholder="Lọc theo trạng thái"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            allowClear
+            style={{ width: 180 }}
+            options={[
+              { label: "Đang hoạt động", value: true },
+              { label: "Ngưng", value: false },
+            ]}
+          />
         </Space>
         <Table
           rowKey={(r) => r.brandId ?? r.id}
           columns={cols}
-          dataSource={brands}
+          dataSource={filteredBrands}
           loading={loading}
           pagination={{ pageSize: 8 }}
         />
