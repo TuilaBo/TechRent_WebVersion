@@ -1604,6 +1604,15 @@ export default function TechnicianHandover() {
                     ? serialNumbers.join(", ")
                     : normalizedModel.code || normalizedModel.sku || "";
 
+                // DEBUG: Log the itemCode being set
+                console.log(`📋 loadData - Setting item:`, {
+                  itemName: normalizedModel.name,
+                  itemCode,
+                  serialNumbersFromQC: matchingDevices.map(d => d.serialNumber),
+                  allocationsCount: od.allocations?.length || 0,
+                  serialNumbersFromAlloc: od.allocations?.map(a => a.device?.serialNumber || a.serialNumber),
+                });
+
                 return {
                   itemName:
                     normalizedModel.name || `Model #${od.deviceModelId}`,
@@ -2012,6 +2021,13 @@ export default function TechnicianHandover() {
   const handleSubmit = async () => {
     if (!task?.taskId && !task?.id) {
       toast.error("Không tìm thấy task");
+      return;
+    }
+
+    // Check if devicesMap is loaded - prevent race condition
+    if (Object.keys(devicesMap).length === 0 && items.length > 0) {
+      toast.error("Đang tải thông tin thiết bị, vui lòng đợi...");
+      console.warn("⚠️ devicesMap is empty but items exist - race condition detected");
       return;
     }
 
