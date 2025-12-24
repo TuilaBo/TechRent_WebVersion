@@ -56,6 +56,7 @@ import {
   getDeviceIncidents,
   getDeviceImportsByCategory,
   getDamages,
+  getRevenue,
 } from "../../lib/dashBoard";
 
 const { Title, Text } = Typography;
@@ -166,6 +167,7 @@ export default function AdminDashboard() {
   const [deviceIncidentsData, setDeviceIncidentsData] = useState(null);
   const [deviceImportsData, setDeviceImportsData] = useState(null);
   const [damagesData, setDamagesData] = useState(null);
+  const [revenueData, setRevenueData] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -215,12 +217,14 @@ export default function AdminDashboard() {
           deviceIncidents,
           deviceImports,
           damages,
+          revenue,
         ] = await Promise.all([
           getOrdersStatus(params).catch(() => null),
           getNewCustomers(params).catch(() => null),
           getDeviceIncidents(params).catch(() => null),
           getDeviceImportsByCategory(params).catch(() => null),
           getDamages(params).catch(() => null),
+          getRevenue(params).catch(() => null),
         ]);
         if (cancelled) return;
         setOrdersStatusData(ordersStatus);
@@ -228,6 +232,7 @@ export default function AdminDashboard() {
         setDeviceIncidentsData(deviceIncidents);
         setDeviceImportsData(deviceImports);
         setDamagesData(damages);
+        setRevenueData(revenue);
       } catch (err) {
         console.error("Error loading dashboard stats:", err);
       } finally {
@@ -581,6 +586,55 @@ export default function AdminDashboard() {
           </Row>
         </Card>
 
+        {/* Revenue Section from API - TOP PRIORITY */}
+        <Card 
+          title={`Doanh thu tháng ${dashboardMonth}/${dashboardYear}`}
+          extra={dashboardLoading ? <Spin size="small" /> : null}
+        >
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ background: "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Tổng doanh thu</Text>}
+                  value={revenueData?.data?.totalRevenue ?? revenueData?.totalRevenue ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 24 }}
+                  formatter={(value) => formatVND(value)}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Tiền thuê</Text>}
+                  value={revenueData?.data?.rentalRevenue ?? revenueData?.rentalRevenue ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 20 }}
+                  formatter={(value) => formatVND(value)}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Phí trả muộn</Text>}
+                  value={revenueData?.data?.lateFeeRevenue ?? revenueData?.lateFeeRevenue ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 20 }}
+                  formatter={(value) => formatVND(value)}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={6}>
+              <Card style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", borderRadius: 12 }}>
+                <Statistic
+                  title={<Text style={{ color: "#fff" }}>Bồi thường thiệt hại</Text>}
+                  value={revenueData?.data?.damageFeeRevenue ?? revenueData?.damageFeeRevenue ?? 0}
+                  valueStyle={{ color: "#fff", fontSize: 20 }}
+                  formatter={(value) => formatVND(value)}
+                />
+              </Card>
+            </Col>
+          </Row>
+        </Card>
+
         {/* New Dashboard Stats Cards */}
         <Spin spinning={dashboardLoading}>
           <Row gutter={[16, 16]}>
@@ -677,21 +731,7 @@ export default function AdminDashboard() {
           );
         })()}
 
-        <Divider />
-
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <DollarCircleOutlined style={{ fontSize: 24, color: "#52c41a" }} />
-                <Statistic
-                  title="Doanh thu"
-                  value={totalRevenue}
-                  valueRender={() => <Text strong>{formatVND(totalRevenue)}</Text>}
-                />
-              </Space>
-            </Card>
-          </Col>
           <Col xs={24} sm={12} md={6}>
             <Card>
               <Space>
