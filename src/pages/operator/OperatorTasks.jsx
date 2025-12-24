@@ -889,13 +889,7 @@ export default function OperatorTasks() {
       dataIndex: "status",
       key: "status",
       width: 140,
-      filters: [
-        { text: "Chờ thực hiện", value: "PENDING" },
-        { text: "Đang xử lý", value: "PROCESSING" },
-        { text: "Đang thực hiện", value: "IN_PROGRESS" },
-        { text: "Hoàn thành", value: "COMPLETED" },
-      ],
-      onFilter: (value, record) => record.status === value,
+      
       render: statusTag,
     },
     {
@@ -945,12 +939,21 @@ export default function OperatorTasks() {
   const fmtDate = (value) => (value ? dayjs(value).format("DD/MM/YYYY") : "—");
 
   const orderDays = useMemo(() => {
-    if (!orderViewing?.startDate || !orderViewing?.endDate) return 1;
-    const start = dayjs(orderViewing.startDate).startOf("day");
-    const end = dayjs(orderViewing.endDate).startOf("day");
+    // Prioritize actual dates, fallback to planned dates
+    const actualStart = orderViewing?.startDate;
+    const actualEnd = orderViewing?.endDate;
+    const planStart = orderViewing?.planStartDate;
+    const planEnd = orderViewing?.planEndDate;
+    
+    const startToUse = actualStart || planStart;
+    const endToUse = actualEnd || planEnd;
+    
+    if (!startToUse || !endToUse) return 1;
+    const start = dayjs(startToUse).startOf("day");
+    const end = dayjs(endToUse).startOf("day");
     const diff = end.diff(start, "day");
     return Math.max(1, diff || 1);
-  }, [orderViewing?.startDate, orderViewing?.endDate]);
+  }, [orderViewing?.startDate, orderViewing?.endDate, orderViewing?.planStartDate, orderViewing?.planEndDate]);
 
   const orderDetailRows = useMemo(() => {
     if (!orderViewing || !Array.isArray(orderViewing.orderDetails)) return [];
@@ -1602,9 +1605,28 @@ export default function OperatorTasks() {
                   <div style={{ color: "#4B5563" }}>Email: {orderCustomer?.email || orderViewing.customerEmail || "—"}</div>
                 </div>
               </Descriptions.Item>
-              <Descriptions.Item label="Ngày thuê">
-                {fmtDate(orderViewing.startDate)} → {fmtDate(orderViewing.endDate)}
-              </Descriptions.Item>
+              {orderViewing.startDate ? (
+                <Descriptions.Item label="Ngày bắt đầu thuê (Chính thức)">
+                  <Text strong style={{ color: "#52c41a" }}>
+                    {dayjs(orderViewing.startDate).format("DD/MM/YYYY HH:mm")}
+                  </Text>
+                </Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="Ngày bắt đầu thuê (Dự kiến)">
+                  {orderViewing.planStartDate ? dayjs(orderViewing.planStartDate).format("DD/MM/YYYY HH:mm") : "—"}
+                </Descriptions.Item>
+              )}
+              {orderViewing.endDate ? (
+                <Descriptions.Item label="Ngày kết thúc thuê (Chính thức)">
+                  <Text strong style={{ color: "#52c41a" }}>
+                    {dayjs(orderViewing.endDate).format("DD/MM/YYYY HH:mm")}
+                  </Text>
+                </Descriptions.Item>
+              ) : (
+                <Descriptions.Item label="Ngày kết thúc thuê (Dự kiến)">
+                  {orderViewing.planEndDate ? dayjs(orderViewing.planEndDate).format("DD/MM/YYYY HH:mm") : "—"}
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="Số ngày thuê">
                 {orderDays} ngày
               </Descriptions.Item>

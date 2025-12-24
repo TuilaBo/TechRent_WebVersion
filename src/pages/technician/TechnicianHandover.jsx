@@ -1348,9 +1348,8 @@ export default function TechnicianHandover() {
           };
         });
         setItems(hydratedItems);
-      } else {
-        setItems([]);
       }
+      // NOTE: Do NOT reset items to [] here - keep existing items if report has no items
 
       if (Array.isArray(report.evidenceUrls)) {
         setEvidenceUrls(report.evidenceUrls.map(String));
@@ -1363,7 +1362,13 @@ export default function TechnicianHandover() {
         Array.isArray(report.deviceConditions) &&
         report.deviceConditions.length > 0
       ) {
-        const mappedDeviceConditions = report.deviceConditions.map((dc) => {
+        // Debug: Log raw deviceConditions from report
+        console.log('DEBUG hydrateReportToForm - Raw deviceConditions:', JSON.stringify(report.deviceConditions, null, 2));
+        
+        const mappedDeviceConditions = report.deviceConditions.map((dc, idx) => {
+          // Debug: Log each raw dc
+          console.log(`DEBUG hydrateReportToForm - dc[${idx}]:`, dc);
+          
           const numericDeviceId = Number(dc.deviceId) || null;
           let serial =
             dc.deviceSerial || dc.device?.serialNumber || "";
@@ -1557,13 +1562,17 @@ export default function TechnicianHandover() {
 
                 const deviceModelId = Number(od.deviceModelId);
                 const quantity = Number(od.quantity || 1);
+                
+                // Try to get serial numbers from QC report devices first
+                let serialNumbers = [];
                 const matchingDevices = qcReportDevices.filter(
                   (d) =>
                     Number(
                       d.deviceModelId || d.modelId || d.device_model_id
                     ) === deviceModelId
                 );
-                const serialNumbers = matchingDevices
+                
+                serialNumbers = matchingDevices
                   .slice(0, quantity)
                   .map(
                     (d) =>
@@ -1575,11 +1584,33 @@ export default function TechnicianHandover() {
                   )
                   .filter(Boolean)
                   .map(String);
+                
+                // Fallback: Get serial numbers from orderDetail allocations if QC devices not available
+                if (serialNumbers.length === 0 && Array.isArray(od.allocations)) {
+                  serialNumbers = od.allocations
+                    .map((alloc) => 
+                      alloc.device?.serialNumber || 
+                      alloc.serialNumber || 
+                      alloc.deviceSerial || 
+                      ""
+                    )
+                    .filter(Boolean)
+                    .map(String);
+                }
 
                 const itemCode =
                   serialNumbers.length > 0
                     ? serialNumbers.join(", ")
                     : normalizedModel.code || normalizedModel.sku || "";
+
+                // DEBUG: Log the itemCode being set
+                console.log(`📋 loadData - Setting item:`, {
+                  itemName: normalizedModel.name,
+                  itemCode,
+                  serialNumbersFromQC: matchingDevices.map(d => d.serialNumber),
+                  allocationsCount: od.allocations?.length || 0,
+                  serialNumbersFromAlloc: od.allocations?.map(a => a.device?.serialNumber || a.serialNumber),
+                });
 
                 return {
                   itemName:
@@ -1592,13 +1623,17 @@ export default function TechnicianHandover() {
               } catch {
                 const deviceModelId = Number(od.deviceModelId);
                 const quantity = Number(od.quantity || 1);
+                
+                // Try to get serial numbers from QC report devices first
+                let serialNumbers = [];
                 const matchingDevices = qcReportDevices.filter(
                   (d) =>
                     Number(
                       d.deviceModelId || d.modelId || d.device_model_id
                     ) === deviceModelId
                 );
-                const serialNumbers = matchingDevices
+                
+                serialNumbers = matchingDevices
                   .slice(0, quantity)
                   .map(
                     (d) =>
@@ -1610,6 +1645,20 @@ export default function TechnicianHandover() {
                   )
                   .filter(Boolean)
                   .map(String);
+                
+                // Fallback: Get serial numbers from orderDetail allocations if QC devices not available
+                if (serialNumbers.length === 0 && Array.isArray(od.allocations)) {
+                  serialNumbers = od.allocations
+                    .map((alloc) => 
+                      alloc.device?.serialNumber || 
+                      alloc.serialNumber || 
+                      alloc.deviceSerial || 
+                      ""
+                    )
+                    .filter(Boolean)
+                    .map(String);
+                }
+                
                 const itemCode =
                   serialNumbers.length > 0 ? serialNumbers.join(", ") : "";
 
@@ -1786,7 +1835,8 @@ export default function TechnicianHandover() {
 
             if (device) {
               const deviceId = device.deviceId || device.id;
-              devicesMapNew[String(serial)] = Number(deviceId);
+              // Store key as uppercase to match the comparison
+              devicesMapNew[String(serial).toUpperCase()] = Number(deviceId);
             }
           });
         }
@@ -1801,6 +1851,82 @@ export default function TechnicianHandover() {
 
     loadDevicesMap();
   }, [items]);
+
+  // Retry loadDevicesMap if devicesMap is empty but items have serial numbers
+  useEffect(() => {
+    const retryLoadDevicesMap = async () => {
+      // Only retry if items exist but devicesMap is empty
+      if (items.length === 0 || Object.keys(devicesMap).length > 0) {
+        return;
+      }
+
+      const hasSerialNumbers = items.some((item) => {
+        const codes = (item.itemCode || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        return codes.length > 0;
+      });
+
+      if (!hasSerialNumbers) {
+        console.log("⏳ Waiting for items to have serial numbers...");
+        return;
+      }
+
+      console.log("🔄 Retrying loadDevicesMap...");
+      
+      try {
+        const serialNumbers = items
+          .map((item) => {
+            const codes = (item.itemCode || "")
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            return codes;
+          })
+          .flat();
+
+        if (serialNumbers.length === 0) {
+          return;
+        }
+
+        const allDevices = await listDevices();
+        const devicesMapNew = {};
+
+        if (Array.isArray(allDevices)) {
+          serialNumbers.forEach((serial) => {
+            const device = allDevices.find((d) => {
+              const deviceSerial = String(
+                d.serialNumber ||
+                  d.serial ||
+                  d.serialNo ||
+                  d.deviceId ||
+                  d.id ||
+                  ""
+              ).toUpperCase();
+              return deviceSerial === String(serial).toUpperCase();
+            });
+
+            if (device) {
+              const deviceId = device.deviceId || device.id;
+              devicesMapNew[String(serial).toUpperCase()] = Number(deviceId);
+            }
+          });
+        }
+
+        if (Object.keys(devicesMapNew).length > 0) {
+          setDevicesMap(devicesMapNew);
+          console.log("✅ Retry loaded devices map:", devicesMapNew);
+        }
+      } catch (e) {
+        console.error("Error retrying devices map:", e);
+      }
+    };
+
+    // Delay retry to allow items to fully populate
+    const timer = setTimeout(retryLoadDevicesMap, 500);
+    return () => clearTimeout(timer);
+  }, [items, devicesMap]);
 
   // Auto-load tình trạng hiện tại của thiết bị
   useEffect(() => {
@@ -1973,6 +2099,13 @@ export default function TechnicianHandover() {
       return;
     }
 
+    // Check if devicesMap is loaded - prevent race condition
+    if (Object.keys(devicesMap).length === 0 && items.length > 0) {
+      toast.error("Đang tải thông tin thiết bị, vui lòng đợi...");
+      console.warn("⚠️ devicesMap is empty but items exist - race condition detected");
+      return;
+    }
+
     if (!customerName.trim()) {
       toast.error("Vui lòng nhập tên khách hàng");
       return;
@@ -2009,28 +2142,126 @@ export default function TechnicianHandover() {
         .filter(Boolean)
         .join(" • ");
 
-      const itemsNew = [];
-      for (const item of items) {
-        const serialNumbers = (item.itemCode || "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
+      // DEBUG: Log items and devicesMap to understand the mapping
+      console.log("🔍 DEBUG - items:", JSON.stringify(items, null, 2));
+      console.log("🔍 DEBUG - devicesMap:", JSON.stringify(devicesMap, null, 2));
 
-        for (const serial of serialNumbers) {
-          const deviceId = devicesMap[serial];
-          if (deviceId) {
-            const existingItem = itemsNew.find((i) => i.deviceId === deviceId);
-            if (!existingItem) {
-              itemsNew.push({
-                deviceId,
-                evidenceUrls: [],
-              });
+      // Build fallback map from order allocations
+      const allocationDeviceIdMap = {};
+      if (order && Array.isArray(order.orderDetails)) {
+        order.orderDetails.forEach((od) => {
+          if (Array.isArray(od.allocations)) {
+            od.allocations.forEach((allocation) => {
+              const serial = (
+                allocation.device?.serialNumber ||
+                allocation.serialNumber ||
+                allocation.deviceSerial ||
+                ""
+              ).toUpperCase().trim();
+              const deviceId = allocation.device?.deviceId || allocation.deviceId;
+              if (serial && deviceId) {
+                allocationDeviceIdMap[serial] = Number(deviceId);
+              }
+            });
+          }
+        });
+      }
+      console.log("🔍 DEBUG - allocationDeviceIdMap:", JSON.stringify(allocationDeviceIdMap, null, 2));
+
+      // PRIORITY: Get ALL devices directly from order allocations first
+      // This ensures we always have all allocated devices, regardless of itemCode parsing
+      const itemsNew = [];
+      
+      if (order && Array.isArray(order.orderDetails)) {
+        console.log(`📊 DEBUG - Building items from order allocations first`);
+        
+        order.orderDetails.forEach((od, idx) => {
+          console.log(`📋 DEBUG - orderDetail[${idx}]:`, {
+            deviceModelId: od.deviceModelId,
+            quantity: od.quantity,
+            allocationsCount: od.allocations?.length || 0,
+            allocations: od.allocations?.map(a => ({
+              deviceId: a.device?.deviceId || a.deviceId,
+              serialNumber: a.device?.serialNumber || a.serialNumber,
+            })),
+          });
+          
+          if (Array.isArray(od.allocations)) {
+            od.allocations.forEach((allocation) => {
+              const deviceId = allocation.device?.deviceId || allocation.deviceId;
+              if (deviceId && !itemsNew.find((i) => i.deviceId === Number(deviceId))) {
+                itemsNew.push({
+                  deviceId: Number(deviceId),
+                  evidenceUrls: [],
+                });
+                console.log(`✅ Added device ${deviceId} from allocations`);
+              }
+            });
+          }
+        });
+
+        // Calculate totals for logging
+        const totalExpectedDevices = order.orderDetails.reduce((sum, od) => {
+          return sum + Number(od.quantity || 1);
+        }, 0);
+
+        const totalAllocatedDevices = order.orderDetails.reduce((sum, od) => {
+          return sum + (od.allocations?.length || 0);
+        }, 0);
+
+        console.log(`📊 DEBUG - Order summary:`, {
+          orderDetails: order.orderDetails.length,
+          totalExpectedDevices,
+          totalAllocatedDevices,
+          itemsNewCount: itemsNew.length,
+        });
+
+        // If still not enough items, warn user
+        if (itemsNew.length < totalExpectedDevices) {
+          console.error(`❌ CRITICAL: itemsNew has ${itemsNew.length} devices but order expects ${totalExpectedDevices}. Allocations may be missing.`);
+        }
+      }
+
+      // FALLBACK: If no allocations found, try to parse from itemCode + devicesMap
+      if (itemsNew.length === 0) {
+        console.log(`⚠️ No devices from allocations, falling back to itemCode parsing`);
+        
+        for (const item of items) {
+          const serialNumbers = (item.itemCode || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          console.log(`🔍 DEBUG - Processing item: ${item.itemName}, itemCode: "${item.itemCode}", serialNumbers:`, serialNumbers);
+
+          for (const serial of serialNumbers) {
+            // Use uppercase to match the stored keys
+            const serialUpper = serial.toUpperCase();
+            let deviceId = devicesMap[serialUpper];
+            
+            // Fallback: Try to get from allocation map
+            if (!deviceId && allocationDeviceIdMap[serialUpper]) {
+              deviceId = allocationDeviceIdMap[serialUpper];
+              console.log(`🔍 DEBUG - Fallback: Found deviceId ${deviceId} for serial "${serialUpper}" from allocations`);
             }
-          } else {
-            console.warn(`Could not find deviceId for serial: ${serial}`);
+            
+            console.log(`🔍 DEBUG - Looking up serial "${serialUpper}" in devicesMap, found deviceId: ${deviceId}`);
+            if (deviceId) {
+              const existingItem = itemsNew.find((i) => i.deviceId === deviceId);
+              if (!existingItem) {
+                itemsNew.push({
+                  deviceId,
+                  evidenceUrls: [],
+                });
+              }
+            } else {
+              console.warn(`Could not find deviceId for serial: ${serial}`);
+            }
           }
         }
       }
+      
+      console.log("🔍 DEBUG - itemsNew after processing:", JSON.stringify(itemsNew, null, 2));
 
       const deviceConditionsPayload = [];
       for (const condition of deviceConditions) {
@@ -2042,7 +2273,7 @@ export default function TechnicianHandover() {
           continue;
         }
 
-        const deviceId = devicesMap[String(condition.deviceId)];
+        const deviceId = devicesMap[String(condition.deviceId).toUpperCase()];
         if (deviceId) {
           deviceConditionsPayload.push({
             deviceId: Number(deviceId),
@@ -2487,18 +2718,7 @@ export default function TechnicianHandover() {
       dataIndex: "deliveredQuantity",
       key: "deliveredQuantity",
       width: 120,
-      render: (val, record, index) => (
-        <InputNumber
-          min={0}
-          max={record.orderedQuantity}
-          value={val}
-          onChange={(v) => {
-            const newItems = [...items];
-            newItems[index].deliveredQuantity = v || 0;
-            setItems(newItems);
-          }}
-        />
-      ),
+      render: (val) => val || 0,
     },
   ];
 
@@ -2737,30 +2957,53 @@ export default function TechnicianHandover() {
                   )
                 );
 
+                // Tìm deviceModelId từ order.orderDetails dựa trên serial
                 let deviceModelId = null;
                 if (
                   selectedSerial &&
                   order &&
                   Array.isArray(order.orderDetails)
                 ) {
+                  // Tìm trong allocations của các orderDetails
                   for (const od of order.orderDetails) {
-                    const allSerialsOfOd = (items
-                      .filter((i) =>
-                        (i.itemCode || "")
-                          .split(",")
-                          .map((s) => s.trim())
-                          .includes(selectedSerial)
-                      )
-                      .map((i) => i.itemCode)
-                      .join(",") || "")
-                      .split(",")
-                      .map((s) => s.trim());
-                    if (allSerialsOfOd.includes(selectedSerial)) {
-                      deviceModelId = Number(od.deviceModelId);
-                      break;
+                    if (Array.isArray(od.allocations)) {
+                      const matchingAllocation = od.allocations.find((alloc) => {
+                        const allocSerial = 
+                          alloc.device?.serialNumber || 
+                          alloc.serialNumber || 
+                          alloc.deviceSerial || 
+                          '';
+                        return allocSerial === selectedSerial;
+                      });
+                      if (matchingAllocation) {
+                        deviceModelId = Number(od.deviceModelId);
+                        break;
+                      }
+                    }
+                  }
+                  
+                  // Fallback: tìm từ items nếu không tìm thấy trong allocations
+                  if (!deviceModelId) {
+                    const matchingItem = items.find((item) =>
+                      (item.itemCode || '')
+                        .split(',')
+                        .map((s) => s.trim())
+                        .includes(selectedSerial)
+                    );
+                    if (matchingItem) {
+                      // Tìm orderDetail có itemName matching
+                      const matchingOd = order.orderDetails.find((od) => {
+                        const modelName = od.deviceModel?.name || od.deviceModelName || '';
+                        return modelName === matchingItem.itemName;
+                      });
+                      if (matchingOd) {
+                        deviceModelId = Number(matchingOd.deviceModelId);
+                      }
                     }
                   }
                 }
+
+                console.log('DEBUG: selectedSerial =', selectedSerial, 'deviceModelId =', deviceModelId, 'conditionDefinitions count =', conditionDefinitions.length);
 
                 const filteredConditions = deviceModelId
                   ? conditionDefinitions.filter(
@@ -2786,12 +3029,36 @@ export default function TechnicianHandover() {
                     finalConditions = [selectedCondition, ...filteredConditions];
                   }
                 }
+                
+                // Debug: Log condition info
+                console.log('DEBUG Condition #' + (index + 1) + ':', {
+                  conditionDefinitionId: condition.conditionDefinitionId,
+                  currentValue,
+                  severity: condition.severity,
+                  filteredConditionsCount: filteredConditions.length,
+                  finalConditionsCount: finalConditions.length,
+                  finalConditionIds: finalConditions.map(c => c.id)
+                });
+
+                // Lấy tên thiết bị từ serial đã chọn
+                let deviceModelName = '';
+                if (selectedSerial) {
+                  const matchingItem = items.find((item) =>
+                    (item.itemCode || '')
+                      .split(',')
+                      .map((s) => s.trim())
+                      .includes(selectedSerial)
+                  );
+                  if (matchingItem?.itemName) {
+                    deviceModelName = matchingItem.itemName;
+                  }
+                }
 
                 return (
                   <Card
                     key={index}
                     size="small"
-                    title={`Tình trạng #${index + 1}`}
+                    title={`Tình trạng #${index + 1}${deviceModelName ? ` - ${deviceModelName}` : ''}`}
                     extra={
                       <Button
                         type="link"

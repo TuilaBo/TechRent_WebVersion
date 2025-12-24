@@ -148,9 +148,16 @@ export async function confirmReturnRentalOrder(id) {
  * @returns {Promise<any>} Response data
  */
 export async function extendRentalOrder(rentalOrderId, extendedEndTime) {
+  // Backend expects LocalDateTime format: YYYY-MM-DDTHH:mm:ss (no timezone)
+  // Ensure we send exactly what user selected without timezone conversion
+  let formattedEndTime = extendedEndTime;
+  // Remove any existing timezone suffix if present
+  if (extendedEndTime) {
+    formattedEndTime = extendedEndTime.replace(/[Z+].*$/, '');
+  }
   const payload = {
     rentalOrderId: Number(rentalOrderId),
-    extendedEndTime: extendedEndTime,
+    extendedEndTime: formattedEndTime,
   };
   const { data } = await api.post("/api/rental-orders/extend", payload);
   return data?.data ?? data ?? null;

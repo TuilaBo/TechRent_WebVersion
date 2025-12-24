@@ -282,6 +282,34 @@ export default function MyOrderDetailDrawer({
                         />
                     </div>
                 )}
+                {/* Alert phụ lục gia hạn cần ký */}
+                {current && (() => {
+                    const pendingAnnexes = (orderAnnexes || []).filter(
+                        (a) => ["PENDING_CUSTOMER_SIGNATURE", "PENDING_SIGNATURE"].includes(String(a?.status || "").toUpperCase())
+                    );
+                    if (pendingAnnexes.length === 0) return null;
+                    return (
+                        <div
+                            style={{
+                                padding: "16px 24px",
+                                borderBottom: "1px solid #e8e8e8",
+                                background: "#fff",
+                            }}
+                        >
+                            <Alert
+                                type="warning"
+                                showIcon
+                                message={`Bạn có ${pendingAnnexes.length} phụ lục gia hạn cần ký`}
+                                description="Vui lòng ký phụ lục gia hạn trong tab Hợp đồng để hoàn tất thủ tục gia hạn."
+                                action={
+                                    <Button type="link" onClick={() => setDetailTab("contract")} style={{ padding: 0 }}>
+                                        Đi tới Hợp đồng
+                                    </Button>
+                                }
+                            />
+                        </div>
+                    );
+                })()}
                 {current && settlementInfo && (() => {
                     const settlementState = String(settlementInfo.state || "").toUpperCase();
                     const isAwaitingResponse = !["ISSUED", "REJECTED", "CANCELLED", "CLOSED"].includes(settlementState);
@@ -346,28 +374,42 @@ export default function MyOrderDetailDrawer({
                         />
                     </div>
                 )}
-                {current && isOrderInUse(current) && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (
-                    <div
-                        style={{
-                            padding: "16px 24px",
-                            borderBottom: "1px solid #e8e8e8",
-                            background: "#fffacd",
-                        }}
-                    >
-                        <Alert
-                            type="warning"
-                            showIcon
-                            message={`Đơn #${current.displayId ?? current.id} sắp đến hạn trả hàng`}
-                            description={
-                                "Còn 1 ngày nữa là đến hạn trả hàng. Bạn muốn gia hạn hay trả hàng?"
-                            }
-                            action={
-                                <Space>
-                                </Space>
-                            }
-                        />
-                    </div>
-                )}
+                {/* Alert 1 ngày còn lại - ẩn nếu đã có yêu cầu gia hạn đang chờ hoặc có phụ lục */}
+                {current && isOrderInUse(current) && isCloseToReturnDate(current) && !isReturnConfirmedSync(current) && (() => {
+                    // Kiểm tra có extension đang xử lý (DRAFT, PROCESSING, COMPLETED) không
+                    const blockingExtensionStatuses = ['DRAFT', 'PROCESSING', 'COMPLETED'];
+                    const hasPendingExtension = (orderExtensions || []).some(
+                        (ext) => blockingExtensionStatuses.includes(String(ext?.status || "").toUpperCase())
+                    );
+                    // Kiểm tra có bất kỳ phụ lục nào không
+                    const hasAnyAnnex = (orderAnnexes || []).length > 0;
+                    
+                    // Ẩn alert nếu có extension đang xử lý hoặc có phụ lục
+                    if (hasPendingExtension || hasAnyAnnex) return null;
+                    return (
+                        <div
+                            style={{
+                                padding: "16px 24px",
+                                borderBottom: "1px solid #e8e8e8",
+                                background: "#fffbe6",
+                            }}
+                        >
+                            <Alert
+                                type="warning"
+                                showIcon
+                                message={`Đơn #${current.displayId ?? current.id} còn 1 ngày nữa là đến hạn trả hàng`}
+                                description="Vui lòng chọn gia hạn đơn hàng hoặc xác nhận trả hàng để hoàn tất thủ tục."
+                                action={
+                                    <Space>
+                                        <Button type="link" onClick={() => setDetailTab("return")} style={{ padding: 0 }}>
+                                            Đi tới Trả hàng & Gia hạn
+                                        </Button>
+                                    </Space>
+                                }
+                            />
+                        </div>
+                    );
+                })()}
                 {current && (() => {
                     const days = Number(current?.days || 1);
                     const items = Array.isArray(current?.items) ? current.items : [];
@@ -404,7 +446,7 @@ export default function MyOrderDetailDrawer({
                                             {/* Ngày bắt đầu: ưu tiên hiển thị chính thức, nếu không có thì hiện dự kiến */}
                                             {current.startDate ? (
                                                 <Descriptions.Item label="Ngày bắt đầu thuê (Chính thức)">
-                                                    <Text strong style={{ color: "#52c41a" }}>
+                                                    <Text strong>
                                                         {formatDateTime(current.startDate)}
                                                     </Text>
                                                 </Descriptions.Item>
@@ -416,7 +458,7 @@ export default function MyOrderDetailDrawer({
                                             {/* Ngày kết thúc: ưu tiên hiển thị chính thức, nếu không có thì hiện dự kiến */}
                                             {current.endDate ? (
                                                 <Descriptions.Item label="Ngày kết thúc thuê (Chính thức)">
-                                                    <Text strong style={{ color: "#52c41a" }}>
+                                                    <Text strong>
                                                         {formatDateTime(current.endDate)}
                                                     </Text>
                                                 </Descriptions.Item>
@@ -650,6 +692,8 @@ export default function MyOrderDetailDrawer({
                                     setExtendModalOpen={setExtendModalOpen}
                                     diffDays={diffDays}
                                     formatDateTime={formatDateTime}
+                                    orderExtensions={orderExtensions}
+                                    orderAnnexes={orderAnnexes}
                                 />
                             ),
                         },
@@ -689,9 +733,19 @@ export default function MyOrderDetailDrawer({
 
                     // Only show dynamic tabs when ALL data is ready (prevents flickering)
                     const filteredTabs = allTabs.filter(tab => {
-                        // Always show overview and return tabs
-                        if (tab.key === "overview" || tab.key === "return") {
+                        // Always show overview tab
+                        if (tab.key === "overview") {
                             return true;
+                        }
+                        // Tab "Trả hàng và gia hạn" chỉ hiển thị khi:
+                        // 1. Đơn hàng ở trạng thái IN_USE
+                        // 2. VÀ còn <= 1 ngày
+                        if (tab.key === "return") {
+                            const orderStatus = String(current?.orderStatus || "").toUpperCase();
+                            const isInUse = orderStatus === "IN_USE" || orderStatus === "ACTIVE";
+                            const daysLeft = getDaysRemaining(current?.planEndDate);
+                            const isCloseToReturn = daysLeft !== null && daysLeft <= 1;
+                            return isInUse && isCloseToReturn;
                         }
                         // Hide all dynamic tabs until detailDataReady is true
                         if (!detailDataReady) {
@@ -1117,10 +1171,25 @@ export default function MyOrderDetailDrawer({
                                     <div>
                                         <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
                                             <li>Mã đơn: <Text strong>#{current.displayId ?? current.id}</Text></li>
-                                            <li>Ngày bắt đầu thuê(Dự kiến): <Text strong>{current.planStartDate ? formatDateTime(current.planStartDate) : "—"}</Text></li>
-                                            <li>Ngày kết thúc thuê(Dự kiến): <Text strong>{current.planEndDate ? formatDateTime(current.planEndDate) : "—"}</Text></li>
+                                            {/* Ngày bắt đầu: ưu tiên chính thức, fallback dự kiến */}
+                                            <li>
+                                                {current.startDate ? (
+                                                    <>Ngày bắt đầu thuê: <Text strong>{formatDateTime(current.startDate)}</Text></>
+                                                ) : (
+                                                    <>Ngày bắt đầu thuê (Dự kiến): <Text strong>{current.planStartDate ? formatDateTime(current.planStartDate) : "—"}</Text></>
+                                                )}
+                                            </li>
+                                            {/* Ngày kết thúc: ưu tiên chính thức, fallback dự kiến */}
+                                            <li>
+                                                {current.endDate ? (
+                                                    <>Ngày kết thúc thuê: <Text strong>{formatDateTime(current.endDate)}</Text></>
+                                                ) : (
+                                                    <>Ngày kết thúc thuê (Dự kiến): <Text strong>{current.planEndDate ? formatDateTime(current.planEndDate) : "—"}</Text></>
+                                                )}
+                                            </li>
                                             {(() => {
-                                                const days = getDaysRemaining(current.planEndDate);
+                                                const endDate = current.endDate || current.planEndDate;
+                                                const days = getDaysRemaining(endDate);
                                                 if (days === null) return null;
                                                 return (
                                                     <li>
@@ -1135,30 +1204,44 @@ export default function MyOrderDetailDrawer({
                             <Form.Item
                                 label="Ngày kết thúc mới"
                                 required
-                                help="Vui lòng chọn ngày kết thúc mới cho đơn hàng. Ngày này phải sau ngày kết thúc hiện tại."
+                                help="Chọn ngày kết thúc mới (tối thiểu 1 ngày sau ngày kết thúc dự kiến)."
                             >
-                                <DatePicker
-                                    style={{ width: "100%" }}
-                                    showTime
-                                    format="DD/MM/YYYY HH:mm"
-                                    placeholder="Chọn ngày kết thúc mới"
-                                    value={extendedEndTime ? dayjs(extendedEndTime) : null}
-                                    onChange={(date) => {
-                                        if (date) {
-                                            setExtendedEndTime(date.toISOString());
-                                        } else {
-                                            setExtendedEndTime(null);
-                                        }
-                                    }}
-                                    disabledDate={(currentDate) => {
-                                        if (!current?.endDate || !currentDate) return false;
-                                        const endDate = dayjs(current.endDate);
-                                        return currentDate.isBefore(endDate, "day") || currentDate.isSame(endDate, "day");
-                                    }}
-                                />
+                                {(() => {
+                                    // Tính ngày tối thiểu: 1 ngày sau planEndDate
+                                    const planEndDate = current?.planEndDate || current?.endDate;
+                                    const minDate = planEndDate ? dayjs(planEndDate).add(1, 'day').startOf('day') : dayjs().add(1, 'day');
+                                    // Lấy giờ gốc từ planEndDate để giữ lại
+                                    const originalTime = planEndDate ? dayjs(planEndDate) : dayjs().hour(9).minute(0);
+                                    
+                                    return (
+                                        <DatePicker
+                                            style={{ width: "100%" }}
+                                            format="DD/MM/YYYY HH:mm"
+                                            placeholder="Chọn ngày kết thúc mới"
+                                            value={extendedEndTime ? dayjs(extendedEndTime) : null}
+                                            onChange={(date) => {
+                                                if (date) {
+                                                    // Đặt ngày mới với giờ từ ngày kết thúc gốc
+                                                    const finalDate = date
+                                                        .hour(originalTime.hour())
+                                                        .minute(originalTime.minute())
+                                                        .second(originalTime.second());
+                                                    setExtendedEndTime(finalDate.format("YYYY-MM-DDTHH:mm:ss"));
+                                                } else {
+                                                    setExtendedEndTime(null);
+                                                }
+                                            }}
+                                            disabledDate={(currentDate) => {
+                                                if (!currentDate) return false;
+                                                // Ngày phải >= ngày của minDate
+                                                return currentDate.isBefore(minDate, "day");
+                                            }}
+                                        />
+                                    );
+                                })()}
                             </Form.Item>
-                            {extendedEndTime && current?.endDate && (() => {
-                                const currentEnd = new Date(current.endDate);
+                            {extendedEndTime && (current?.planEndDate || current?.endDate) && (() => {
+                                const currentEnd = new Date(current.planEndDate || current.endDate);
                                 const newEnd = new Date(extendedEndTime);
                                 const diffDaysVal = Math.ceil((newEnd - currentEnd) / (1000 * 60 * 60 * 24));
                                 return (
@@ -1227,7 +1310,7 @@ export default function MyOrderDetailDrawer({
                             >
                                 Tôi đồng ý với các{" "}
                                 <a
-                                    href="https://docs.google.com/document/d/1GtAaYcQcSuvX8f-al_v_Q0mYYOWZMj-To8zHAKa0OnA/edit?tab=t.0"
+                                    href="https://www.techrent.website/api/admin/policies/5/file"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     onClick={(e) => e.stopPropagation()}

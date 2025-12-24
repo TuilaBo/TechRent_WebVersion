@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, Table, Space, Button, Tag, Typography, Divider, Skeleton, Modal, Row, Col, Form, Input } from "antd";
+import { Card, Table, Space, Button, Tag, Typography, Divider, Skeleton, Modal, Row, Col, Form, Input, Alert } from "antd";
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -100,8 +100,18 @@ export default function MyOrderContractTab({
     return <Tag color={config.color}>{config.label}</Tag>;
   };
 
+  // Check for pending signatures
+  const pendingContracts = visibleContracts.filter(
+    (c) => String(c?.status || "").toUpperCase() === "PENDING_SIGNATURE"
+  );
+  const pendingAnnexes = orderAnnexes.filter(
+    (a) => ["PENDING_CUSTOMER_SIGNATURE", "PENDING_SIGNATURE"].includes(String(a?.status || "").toUpperCase())
+  );
+  const hasPendingSignatures = pendingContracts.length > 0 || pendingAnnexes.length > 0;
+
   return (
     <div style={{ padding: 24 }}>
+      {/* Alert khi có hợp đồng/phụ lục cần ký */}
       <Card
         style={{
           marginBottom: 24,

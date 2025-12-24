@@ -89,6 +89,7 @@ import {
     getHandoverReportByOrderIdAndTaskId,
     getHandoverReportsByOrderId
 } from "../../lib/handoverReportApi";
+import { getStaffCategoryStats } from "../../lib/staffManage";
 import { getActiveTaskRules } from "../../lib/taskRulesApi";
 import { getConditionDefinitions } from "../../lib/condition.js";
 import {
@@ -131,6 +132,1104 @@ dayjs.extend(isBetween);
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
+
+/** ----- Loại task & màu sắc ----- */
+// const TYPES = {
+//     QC: { color: "blue", label: "CHECK QC outbound" },
+//     HANDOVER_CHECK: { color: "geekblue", label: "CHECK BIÊN BẢN" },
+//     MAINTAIN: { color: "orange", label: "BẢO TRÌ THIẾT BỊ" },
+//     DELIVERY: { color: "green", label: "ĐI GIAO THIẾT BỊ" },
+// };
+
+// Map BE task to display fields used by the calendar UI
+// const taskToDisplay = (t) => ({
+//     id: t.taskId ?? t.id,
+//     type: t.type || "QC",
+//     title: t.description || t.type || t.taskCategoryName || "Task",
+//     description: t.description || "", // Keep description for pickup task detection
+//     date: t.plannedStart || t.createdAt || null,
+//     device: t.deviceName || t.taskCategoryName || "Thiết bị",
+//     location: t.location || "—",
+//     orderId: t.orderId ?? null,
+//     status: t.status ?? null,
+//     taskCategoryName: t.taskCategoryName || "",
+//     assignedStaffName: t.assignedStaffName || "",
+//     assignedStaffRole: t.assignedStaffRole || "",
+//     plannedStart: t.plannedStart || null,
+//     plannedEnd: t.plannedEnd || null,
+//     completedAt: t.completedAt || null,
+// });
+
+// const fmtStatus = (s) => {
+//     const v = String(s || "").toUpperCase();
+//     if (!v) return "";
+//     if (v.includes("PENDING")) return "Đang chờ thực hiện";
+//     if (v.includes("COMPLETED") || v.includes("DONE")) return "Đã hoàn thành";
+//     if (v.includes("IN_PROGRESS") || v.includes("INPROGRESS")) return "Đang thực hiện";
+//     if (v.includes("CANCELLED") || v.includes("CANCELED")) return "Đã hủy";
+//     if (v.includes("FAILED") || v.includes("FAIL")) return "Thất bại";
+//     if (v.includes("IN_USE") || v.includes("INUSE")) return "Đang sử dụng";
+//     return v;
+// };
+
+// Format thời gian nhất quán
+// const fmtDateTime = (date) => {
+//     if (!date) return "—";
+//     return dayjs(date).format("DD/MM/YYYY HH:mm");
+// };
+
+// Dịch status đơn hàng
+// const fmtOrderStatus = (s) => {
+//     if (!s) return "—";
+//     const v = String(s).toLowerCase().trim();
+
+//     // Exact matches first (from ORDER_STATUS_MAP in orderConstants.js)
+//     const statusMap = {
+//         'pending': 'Chờ xác nhận',
+//         'pending_kyc': 'Chờ xác thực thông tin',
+//         'confirmed': 'Đã xác nhận',
+//         'delivering': 'Đang giao',
+//         'active': 'Đang thuê',
+//         'in_use': 'Đang sử dụng',
+//         'returned': 'Đã trả',
+//         'cancelled': 'Đã hủy',
+//         'canceled': 'Đã hủy',
+//         'processing': 'Đang xử lý',
+//         'delivery_confirmed': 'Chuẩn bị giao hàng',
+//         'completed': 'Hoàn tất đơn hàng',
+//     };
+
+// Check exact match
+// if (statusMap[v]) return statusMap[v];
+
+// // Fallback to partial matches for backward compatibility
+// const upper = v.toUpperCase();
+// if (upper.includes('PENDING_KYC')) return 'Chờ xác thực thông tin';
+// if (upper.includes('DELIVERY_CONFIRMED')) return 'Chuẩn bị giao hàng';
+// if (upper.includes('IN_USE')) return 'Đang sử dụng';
+// if (upper.includes('DELIVERING')) return 'Đang giao';
+// if (upper.includes('CONFIRMED')) return 'Đã xác nhận';
+// if (upper.includes('ACTIVE')) return 'Đang thuê';
+// if (upper.includes('PENDING')) return 'Chờ xác nhận';
+// if (upper.includes('PROCESSING')) return 'Đang xử lý';
+// if (upper.includes('COMPLETED') || upper.includes('DONE')) return 'Hoàn tất đơn hàng';
+// if (upper.includes('CANCELLED') || upper.includes('CANCELED')) return 'Đã hủy';
+// if (upper.includes('RETURNED')) return 'Đã trả';
+
+// return s; // Return original if no match
+// };
+
+/** Kiểm tra xem task có phải là Pre rental QC không */
+// const isPreRentalQC = (task) => {
+//     if (!task) return false;
+//     const categoryName = String(task.taskCategoryName || "").toUpperCase();
+//     const type = String(task.type || "").toUpperCase();
+
+//     // Kiểm tra taskCategoryName: "Pre rental QC", "PRE_RENTAL_QC", etc.
+//     if (categoryName.includes("PRE") && categoryName.includes("RENTAL") && categoryName.includes("QC")) {
+//         return true;
+//     }
+
+//     // Kiểm tra type: "PRE_RENTAL_QC", "Pre rental QC", etc.
+//     if (type.includes("PRE_RENTAL_QC") || (type.includes("PRE") && type.includes("RENTAL") && type.includes("QC"))) {
+//         return true;
+//     }
+
+//     return false;
+// };
+
+/** Kiểm tra xem task có phải là Post rental QC không */
+// const isPostRentalQC = (task) => {
+//     if (!task) return false;
+//     const categoryName = String(task.taskCategoryName || task.categoryName || "").toUpperCase();
+//     const type = String(task.type || "").toUpperCase();
+//     const description = String(task.description || task.title || "").toUpperCase();
+
+//     // Kiểm tra taskCategoryName: "Post rental QC", "POST_RENTAL_QC", etc.
+//     if (categoryName.includes("POST") && categoryName.includes("RENTAL") && categoryName.includes("QC")) {
+//         return true;
+//     }
+
+//     // Kiểm tra type: "POST_RENTAL_QC", "Post rental QC", etc.
+//     if (type.includes("POST_RENTAL_QC") || (type.includes("POST") && type.includes("RENTAL") && type.includes("QC"))) {
+//         return true;
+//     }
+
+//     // Kiểm tra description: "Post rental QC", "QC sau thuê", etc.
+//     if (description.includes("POST") && description.includes("RENTAL") && description.includes("QC")) {
+//         return true;
+//     }
+//     if (description.includes("QC SAU THUÊ") || description.includes("QC SAU THUE")) {
+//         return true;
+//     }
+
+//     return false;
+// };
+
+// /** Kiểm tra xem task có phải là PickUp/Retrieval không */
+// const isPickupTask = (task) => {
+//     if (!task) return false;
+//     const categoryName = String(task.taskCategoryName || "").toUpperCase();
+//     const type = String(task.type || "").toUpperCase();
+//     const description = String(task.description || "").toUpperCase();
+
+//     // Kiểm tra type: "PICKUP", "PICK UP", "RETURN", "RETRIEVAL", etc.
+//     if (type.includes("PICKUP") || type.includes("PICK UP") || type.includes("RETURN") || type.includes("RETRIEVAL")) {
+//         return true;
+//     }
+
+//     // Kiểm tra categoryName: "PICK UP RENTAL ORDER", "PICKUP", etc.
+//     if (categoryName.includes("PICKUP") || categoryName.includes("PICK UP") || categoryName.includes("RETURN") || categoryName.includes("RETRIEVAL")) {
+//         return true;
+//     }
+
+//     // Kiểm tra description
+//     if (description.includes("THU HỒI") || description.includes("TRẢ HÀNG") || description.includes("PICKUP") || description.includes("PICK UP")) {
+//         return true;
+//     }
+
+//     return false;
+// };
+
+// // Helper để map maintenance status từ API sang Badge status
+// const getMaintenanceBadgeStatus = (schedule, isInactive = false) => {
+//     const status = String(schedule.status || "").toUpperCase();
+
+//     // COMPLETED hoặc FAILED luôn là success (dù active hay inactive)
+//     if (status === "COMPLETED" || status === "FAILED") {
+//         return "success";
+//     }
+
+//     // Inactive schedules (không phải COMPLETED/FAILED) là error
+//     if (isInactive || schedule.isInactive) {
+//         return "error";
+//     }
+
+//     // Active schedules mapping
+//     switch (status) {
+//         case "STARTED":
+//             return "warning";    // Cần xử lý
+//         case "DELAYED":
+//             return "processing"; // Đang thực hiện
+//         default:
+//             return "warning";    // Default cho active schedules
+//     }
+// };
+
+// PDF Helpers - Tham khảo từ TechnicianHandover.jsx
+// ĐÃ SCOPE STYLE VÀO .print-pdf-root ĐỂ KHÔNG ẢNH HƯỞNG UI BÊN NGOÀI
+const GLOBAL_PRINT_CSS = `
+  <style>
+    .print-pdf-root,
+    .print-pdf-root * {
+      font-family: Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif !important;
+      -webkit-font-smoothing: antialiased !important;
+      -moz-osx-font-smoothing: grayscale !important;
+      text-rendering: optimizeLegibility !important;
+    }
+
+    .print-pdf-root h1,
+    .print-pdf-root h2,
+    .print-pdf-root h3 {
+      margin: 8px 0 6px;
+      font-weight: 700;
+    }
+
+    .print-pdf-root h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    .print-pdf-root p {
+      margin: 6px 0;
+    }
+
+    .print-pdf-root ol,
+    .print-pdf-root ul {
+      margin: 6px 0 6px 18px;
+      padding: 0;
+    }
+
+    .print-pdf-root li {
+      margin: 3px 0;
+    }
+
+    .print-pdf-root .kv {
+      margin-bottom: 10px;
+    }
+
+    .print-pdf-root .kv div {
+      margin: 2px 0;
+    }
+
+    .print-pdf-root table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+    }
+
+    .print-pdf-root table th,
+    .print-pdf-root table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .print-pdf-root table th {
+      background-color: #f5f5f5;
+      font-weight: 600;
+    }
+
+    .print-pdf-root .equipment-item {
+      display: block;
+      margin: 4px 0;
+    }
+
+    .print-pdf-root .equipment-item::before {
+      content: "• ";
+    }
+  </style>
+`;
+
+const NATIONAL_HEADER_HTML = `
+  <div style="text-align:center; margin-bottom:12px">
+    <div style="font-weight:700; font-size:14px; letter-spacing:.3px; text-transform:uppercase">
+      CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+    </div>
+    <div style="font-size:13px; margin-top:2px">
+      Độc lập – Tự do – Hạnh phúc
+    </div>
+    <div style="width:220px; height:0; border-top:1px solid #111; margin:6px auto 0"></div>
+  </div>
+`;
+
+// function formatDateTime(iso) {
+//     if (!iso) return "—";
+//     try {
+//         return dayjs(iso).format("DD/MM/YYYY HH:mm");
+//     } catch {
+//         return iso;
+//     }
+// }
+
+// function parseInfoString(infoStr) {
+//     if (!infoStr) return { name: "", phone: "", email: "" };
+//     const parts = infoStr.split("•").map(s => s.trim()).filter(Boolean);
+//     return {
+//         name: parts[0] || "",
+//         phone: parts[1] || "",
+//         email: parts[2] || "",
+//     };
+// }
+
+// function translateRole(role) {
+//     const r = String(role || "").toUpperCase();
+//     if (r === "TECHNICIAN") return "Kỹ thuật viên";
+//     return role;
+// }
+
+// function translateHandoverStatus(status) {
+//     const s = String(status || "").toUpperCase();
+//     const map = {
+//         DRAFT: "Nháp",
+//         PENDING: "Chờ ký",
+//         PENDING_STAFF_SIGNATURE: "Chờ nhân viên ký",
+//         STAFF_SIGNED: "Nhân viên đã ký",
+//         CUSTOMER_SIGNED: "Đã ký khách hàng",
+//         BOTH_SIGNED: "2 bên đã ký",
+//         COMPLETED: "Hoàn thành",
+//         CANCELLED: "Đã hủy",
+//     };
+//     return map[s] || status;
+// }
+
+// function buildPrintableHandoverReportHtml(report, order = null, conditionDefinitions = []) {
+//     const customerInfo = parseInfoString(report.customerInfo);
+//     const technicianInfo = parseInfoString(report.technicianInfo || report.staffSignature);
+//     const customerName = customerInfo.name || "—";
+
+//     const technicianEntries = (() => {
+//         const raw = [];
+//         const pushTech = (tech) => {
+//             if (!tech) return;
+//             const name =
+//                 tech.fullName ||
+//                 tech.username ||
+//                 tech.staffName ||
+//                 tech.name ||
+//                 technicianInfo.name ||
+//                 "";
+//             const phone =
+//                 tech.phoneNumber ||
+//                 tech.phone ||
+//                 tech.contactNumber ||
+//                 tech.contact ||
+//                 "";
+//             const email = tech.email || "";
+
+//             if (!name && !phone && !email) return;
+//             raw.push({
+//                 staffId: tech.staffId || tech.id || null,
+//                 name,
+//                 phone,
+//                 email,
+//             });
+//         };
+
+//         if (Array.isArray(report.deliveryStaff)) {
+//             report.deliveryStaff.forEach(pushTech);
+//         }
+
+//         if (Array.isArray(report.technicians)) {
+//             report.technicians.forEach(pushTech);
+//         }
+
+//         if (!raw.length && (technicianInfo.name || technicianInfo.phone || technicianInfo.email)) {
+//             raw.push({
+//                 staffId: null,
+//                 name: technicianInfo.name || "—",
+//                 phone: technicianInfo.phone || "",
+//                 email: technicianInfo.email || "",
+//             });
+//         }
+
+//         const deduped = [];
+//         const seen = new Set();
+//         raw.forEach((tech, idx) => {
+//             const key = tech.staffId || tech.email || tech.phone || `${tech.name}-${idx}`;
+//             if (seen.has(key)) return;
+//             seen.add(key);
+//             deduped.push(tech);
+//         });
+
+//         return deduped;
+//     })();
+
+//     const technicianDisplayName =
+//         technicianEntries[0]?.name || technicianInfo.name || "—";
+
+//     // Map condition definitions by ID for quick lookup
+//     const conditionMap = {};
+//     conditionDefinitions.forEach(cd => {
+//         conditionMap[cd.id || cd.conditionDefinitionId] = cd;
+//     });
+
+//     // Build allocation map from order if available
+//     const allocationMap = {};
+//     if (order && Array.isArray(order.orderDetails)) {
+//         order.orderDetails.forEach(od => {
+//             if (od.allocations && Array.isArray(od.allocations)) {
+//                 od.allocations.forEach(allocation => {
+//                     if (allocation.allocationId) {
+//                         allocationMap[allocation.allocationId] = {
+//                             deviceModelName: od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—",
+//                             serialNumber: allocation.device?.serialNumber || allocation.serialNumber || "—",
+//                             deviceId: allocation.device?.deviceId || allocation.deviceId || null,
+//                             unit: "cái",
+//                             quantity: od.quantity || 1,
+//                         };
+//                     }
+//                 });
+//             }
+//         });
+//     }
+
+//     // Build device map from deviceConditions to supplement allocationMap
+//     const deviceConditionMap = {};
+//     if (Array.isArray(report.deviceConditions)) {
+//         report.deviceConditions.forEach(dc => {
+//             if (dc.allocationId && dc.deviceId) {
+//                 // Try to get serial number from baselineSnapshots or deviceSerial
+//                 let serialNumber = dc.deviceSerial || "—";
+//                 if (!serialNumber && dc.baselineSnapshots && Array.isArray(dc.baselineSnapshots)) {
+//                     // Try to find serial number in snapshots (if available)
+//                     const firstSnapshot = dc.baselineSnapshots[0];
+//                     if (firstSnapshot && firstSnapshot.deviceSerial) {
+//                         serialNumber = firstSnapshot.deviceSerial;
+//                     }
+//                 }
+
+//                 // If allocationId not in allocationMap, add it from deviceConditions
+//                 if (!allocationMap[dc.allocationId]) {
+//                     allocationMap[dc.allocationId] = {
+//                         deviceId: dc.deviceId,
+//                         serialNumber: serialNumber,
+//                         deviceModelName: "—", // Will try to get from order if available
+//                         unit: "cái",
+//                         quantity: 1,
+//                     };
+//                 } else {
+//                     // Update existing entry with deviceId and serialNumber if missing
+//                     if (!allocationMap[dc.allocationId].deviceId) {
+//                         allocationMap[dc.allocationId].deviceId = dc.deviceId;
+//                     }
+//                     if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
+//                         allocationMap[dc.allocationId].serialNumber = serialNumber;
+//                     }
+//                 }
+
+//                 // Also create a deviceId -> allocationId map for lookup
+//                 deviceConditionMap[dc.deviceId] = {
+//                     allocationId: dc.allocationId,
+//                     serialNumber: serialNumber,
+//                 };
+//             }
+//         });
+//     }
+
+//     // Try to enrich allocationMap with device info from order allocations by deviceId
+//     // First, create a deviceId -> device info map from order allocations
+//     const deviceInfoFromOrder = {};
+//     if (order && Array.isArray(order.orderDetails)) {
+//         order.orderDetails.forEach(od => {
+//             const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+//             if (od.allocations && Array.isArray(od.allocations)) {
+//                 od.allocations.forEach(allocation => {
+//                     const deviceId = allocation.device?.deviceId || allocation.deviceId;
+//                     const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
+//                     if (deviceId) {
+//                         deviceInfoFromOrder[deviceId] = {
+//                             serialNumber: serialNumber || "—",
+//                             deviceModelName: deviceModelName,
+//                             allocationId: allocation.allocationId,
+//                         };
+//                     }
+//                 });
+//             }
+//         });
+//     }
+
+//     // Now enrich allocationMap using deviceId from deviceConditions
+//     if (Array.isArray(report.deviceConditions)) {
+//         report.deviceConditions.forEach(dc => {
+//             if (dc.allocationId && dc.deviceId) {
+//                 const deviceInfo = deviceInfoFromOrder[dc.deviceId];
+//                 if (deviceInfo && allocationMap[dc.allocationId]) {
+//                     // Update with device info from order
+//                     if (!allocationMap[dc.allocationId].deviceModelName || allocationMap[dc.allocationId].deviceModelName === "—") {
+//                         allocationMap[dc.allocationId].deviceModelName = deviceInfo.deviceModelName;
+//                     }
+//                     if (!allocationMap[dc.allocationId].serialNumber || allocationMap[dc.allocationId].serialNumber === "—") {
+//                         allocationMap[dc.allocationId].serialNumber = deviceInfo.serialNumber;
+//                     }
+//                 }
+//             }
+//         });
+//     }
+
+//     // Also try to find device info for items that have allocationId but not in allocationMap yet
+//     if (Array.isArray(report.items)) {
+//         report.items.forEach(item => {
+//             if (item.allocationId && !allocationMap[item.allocationId]) {
+//                 // Try to find by allocationId in order
+//                 if (order && Array.isArray(order.orderDetails)) {
+//                     order.orderDetails.forEach(od => {
+//                         if (od.allocations && Array.isArray(od.allocations)) {
+//                             od.allocations.forEach(allocation => {
+//                                 if (allocation.allocationId === item.allocationId) {
+//                                     const deviceId = allocation.device?.deviceId || allocation.deviceId;
+//                                     const serialNumber = allocation.device?.serialNumber || allocation.serialNumber;
+//                                     const deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+
+//                                     allocationMap[item.allocationId] = {
+//                                         deviceId: deviceId,
+//                                         serialNumber: serialNumber || "—",
+//                                         deviceModelName: deviceModelName,
+//                                         unit: "cái",
+//                                         quantity: od.quantity || 1,
+//                                     };
+//                                 }
+//                             });
+//                         }
+//                     });
+//                 }
+//             }
+//         });
+//     }
+
+//     // Debug: Log allocationMap để kiểm tra
+//     const isDev =
+//         typeof globalThis !== "undefined" &&
+//         globalThis.process &&
+//         globalThis.process.env &&
+//         globalThis.process.env.NODE_ENV === "development";
+
+//     if (isDev) {
+//         console.log('🔍 AllocationMap:', allocationMap);
+//         console.log('🔍 Report items:', report.items);
+//         console.log('🔍 Order data:', order);
+//         console.log('🔍 DeviceConditions:', report.deviceConditions);
+//     }
+
+//     // Build deviceConditions map by deviceId for quick lookup
+//     const deviceConditionsByDeviceId = {};
+//     if (Array.isArray(report.deviceConditions)) {
+//         report.deviceConditions.forEach(dc => {
+//             if (dc.deviceId) {
+//                 if (!deviceConditionsByDeviceId[dc.deviceId]) {
+//                     deviceConditionsByDeviceId[dc.deviceId] = [];
+//                 }
+//                 deviceConditionsByDeviceId[dc.deviceId].push(dc);
+//             }
+//         });
+//     }
+
+//     // Helper function to get conditions and images for a device
+//     const getDeviceConditionsHtml = (deviceId) => {
+//         const deviceConditions = deviceConditionsByDeviceId[deviceId] || [];
+//         if (deviceConditions.length === 0) {
+//             return { conditions: "—", images: "—" };
+//         }
+
+//         // Use Set to track unique conditions and images to avoid duplicates
+//         const uniqueConditions = new Set();
+//         const uniqueImages = new Set();
+
+//         deviceConditions.forEach(dc => {
+//             const snapshots = dc.baselineSnapshots || dc.snapshots || [];
+//             if (snapshots.length === 0) return;
+
+//             // Prioritize HANDOVER_OUT snapshot, fallback to QC_BEFORE, then others
+//             const handoverOutSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "HANDOVER_OUT");
+//             const qcBeforeSnapshot = snapshots.find(s => String(s.source || "").toUpperCase() === "QC_BEFORE");
+//             const selectedSnapshot = handoverOutSnapshot || qcBeforeSnapshot || snapshots[0];
+
+//             // Collect conditions from selected snapshot
+//             const conditionDetails = selectedSnapshot.conditionDetails || [];
+//             conditionDetails.forEach(cd => {
+//                 // Use conditionDefinitionId + severity as unique key
+//                 const uniqueKey = `${cd.conditionDefinitionId}_${cd.severity}`;
+//                 if (!uniqueConditions.has(uniqueKey)) {
+//                     uniqueConditions.add(uniqueKey);
+//                 }
+//             });
+
+//             // Collect images from selected snapshot
+//             if (Array.isArray(selectedSnapshot.images)) {
+//                 selectedSnapshot.images.forEach(img => {
+//                     // Use image URL as unique key
+//                     const imgKey = img;
+//                     if (!uniqueImages.has(imgKey)) {
+//                         uniqueImages.add(imgKey);
+//                     }
+//                 });
+//             }
+//         });
+
+//         // Convert Set to Array and build HTML
+//         const conditionsArray = Array.from(uniqueConditions).map(key => {
+//             const [conditionDefId] = key.split("_");
+//             const conditionDef = conditionMap[conditionDefId];
+//             const conditionName = conditionDef?.name || `Điều kiện #${conditionDefId}`;
+//             return `${conditionName}`;
+//         });
+
+//         const conditionsHtml = conditionsArray.length > 0
+//             ? conditionsArray.map(c => `<div>${c}</div>`).join("")
+//             : "—";
+
+//         const imagesArray = Array.from(uniqueImages);
+//         const imagesHtml = imagesArray.length > 0
+//             ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
+//           ${imagesArray.map((img, imgIdx) => {
+//                 const imgSrc = img.startsWith("data:image") ? img : img;
+//                 return `
+//               <img 
+//                 src="${imgSrc}" 
+//                 alt="Ảnh ${imgIdx + 1}"
+//                 style="
+//                   max-width:80px;
+//                   max-height:80px;
+//                   border:1px solid #ddd;
+//                   border-radius:4px;
+//                   object-fit:contain;
+//                 "
+//                 onerror="this.style.display='none';"
+//               />
+//             `;
+//             }).join("")}
+//         </div>`
+//             : "—";
+
+//         return { conditions: conditionsHtml, images: imagesHtml };
+//     };
+
+//     // Build items rows - prioritize new format with deviceSerialNumber and deviceModelName
+//     const itemsRows = (report.items || []).map((item, idx) => {
+//         // Get device conditions and images by deviceId
+//         const deviceId = item.deviceId;
+//         const { conditions, images } = deviceId ? getDeviceConditionsHtml(deviceId) : { conditions: "—", images: "—" };
+
+//         // Newest format: use deviceSerialNumber and deviceModelName directly from items
+//         if (item.deviceSerialNumber && item.deviceModelName) {
+//             return `
+//         <tr>
+//           <td style="text-align:center">${idx + 1}</td>
+//           <td>${item.deviceModelName}</td>
+//           <td>${item.deviceSerialNumber}</td>
+//           <td style="text-align:center">cái</td>
+//           <td style="text-align:center">1</td>
+//           <td style="text-align:center">1</td>
+//           <td>${conditions}</td>
+//           <td>${images}</td>
+//         </tr>
+//       `;
+//         }
+
+//         // New format: use allocationId to get device info
+//         if (item.allocationId) {
+//             const deviceInfo = allocationMap[item.allocationId];
+//             if (deviceInfo) {
+//                 // Try to get deviceId from deviceInfo or find by allocationId
+//                 let lookupDeviceId = deviceInfo.deviceId;
+//                 if (!lookupDeviceId && Array.isArray(report.deviceConditions)) {
+//                     const dc = report.deviceConditions.find(d => d.allocationId === item.allocationId);
+//                     if (dc) lookupDeviceId = dc.deviceId;
+//                 }
+//                 const { conditions, images } = lookupDeviceId ? getDeviceConditionsHtml(lookupDeviceId) : { conditions: "—", images: "—" };
+
+//                 return `
+//           <tr>
+//             <td style="text-align:center">${idx + 1}</td>
+//             <td>${deviceInfo.deviceModelName}</td>
+//             <td>${deviceInfo.serialNumber}</td>
+//             <td style="text-align:center">${deviceInfo.unit}</td>
+//             <td style="text-align:center">${deviceInfo.quantity}</td>
+//             <td style="text-align:center">${deviceInfo.quantity}</td>
+//             <td>${conditions}</td>
+//             <td>${images}</td>
+//           </tr>
+//         `;
+//             } else {
+//                 // Nếu không tìm thấy trong allocationMap, thử lấy từ deviceConditions
+//                 if (Array.isArray(report.deviceConditions)) {
+//                     const deviceCondition = report.deviceConditions.find(dc => dc.allocationId === item.allocationId);
+//                     if (deviceCondition && deviceCondition.deviceId) {
+//                         // Thử tìm device model name từ order details
+//                         let deviceModelName = "—";
+//                         let serialNumber = deviceCondition.deviceSerial || "—";
+
+//                         if (order && Array.isArray(order.orderDetails)) {
+//                             for (const od of order.orderDetails) {
+//                                 if (od.allocations && Array.isArray(od.allocations)) {
+//                                     for (const allocation of od.allocations) {
+//                                         const deviceId = allocation.device?.deviceId || allocation.deviceId;
+//                                         if (deviceId === deviceCondition.deviceId) {
+//                                             deviceModelName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "—";
+//                                             if (!serialNumber || serialNumber === "—") {
+//                                                 serialNumber = allocation.device?.serialNumber || allocation.serialNumber || "—";
+//                                             }
+//                                             break;
+//                                         }
+//                                     }
+//                                     if (deviceModelName !== "—") break;
+//                                 }
+//                             }
+//                         }
+
+//                         const { conditions, images } = deviceCondition.deviceId ? getDeviceConditionsHtml(deviceCondition.deviceId) : { conditions: "—", images: "—" };
+
+//                         return `
+//               <tr>
+//                 <td style="text-align:center">${idx + 1}</td>
+//                 <td>${deviceModelName}</td>
+//                 <td>${serialNumber}</td>
+//                 <td style="text-align:center">cái</td>
+//                 <td style="text-align:center">1</td>
+//                 <td style="text-align:center">1</td>
+//                 <td>${conditions}</td>
+//                 <td>${images}</td>
+//               </tr>
+//             `;
+//                     }
+//                 }
+
+//                 // Fallback: hiển thị allocationId nếu không tìm thấy
+//                 return `
+//           <tr>
+//             <td style="text-align:center">${idx + 1}</td>
+//             <td>—</td>
+//             <td>— (allocationId: ${item.allocationId})</td>
+//             <td style="text-align:center">cái</td>
+//             <td style="text-align:center">1</td>
+//             <td style="text-align:center">1</td>
+//             <td>—</td>
+//             <td>—</td>
+//           </tr>
+//         `;
+//             }
+//         }
+//         // Old format: use itemName, itemCode
+//         return `
+//       <tr>
+//         <td style="text-align:center">${idx + 1}</td>
+//         <td>${item.itemName || "—"}</td>
+//         <td>${item.itemCode || "—"}</td>
+//         <td style="text-align:center">${item.unit || "—"}</td>
+//         <td style="text-align:center">${item.orderedQuantity || 0}</td>
+//         <td style="text-align:center">${item.deliveredQuantity || 0}</td>
+//         <td>—</td>
+//         <td>—</td>
+//       </tr>
+//     `;
+//     }).join("");
+
+//     const qualityRows = (report.deviceQualityInfos || []).map((q, idx) => `
+//     <tr>
+//       <td style="text-align:center">${idx + 1}</td>
+//       <td>${q.deviceModelName || "—"}</td>
+//       <td>${q.deviceSerialNumber || "—"}</td>
+//       <td>${q.qualityStatus === "GOOD" ? "Tốt" : q.qualityStatus === "FAIR" ? "Khá" : q.qualityStatus === "POOR" ? "Kém" : q.qualityStatus || "—"}</td>
+//       <td>${q.qualityDescription || "—"}</td>
+//     </tr>
+//   `).join("");
+
+//     return `
+//     ${GLOBAL_PRINT_CSS}
+//     <div class="print-pdf-root"
+//          style="padding:24px; font-size:12px; line-height:1.6; color:#000;">
+//       ${NATIONAL_HEADER_HTML}
+
+//       ${(() => {
+//             const handoverType = String(report.handoverType || "").toUpperCase();
+//             const isCheckin = handoverType === "CHECKIN";
+//             return isCheckin
+//                 ? `<h1 style="text-align:center; margin:16px 0">BIÊN BẢN THU HỒI THIẾT BỊ</h1>`
+//                 : `<h1 style="text-align:center; margin:16px 0">BIÊN BẢN BÀN GIAO THIẾT BỊ</h1>`;
+//         })()}
+
+//       <section class="kv">
+//         <div><b>Mã biên bản:</b> #${report.handoverReportId || report.id || "—"}</div>
+//         <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
+//         ${(() => {
+//             const handoverType = String(report.handoverType || "").toUpperCase();
+//             const isCheckin = handoverType === "CHECKIN";
+//             return isCheckin
+//                 ? `<div><b>Thời gian thu hồi:</b> ${formatDateTime(report.handoverDateTime)}</div>
+//                <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
+//                 : `<div><b>Thời gian bàn giao:</b> ${formatDateTime(report.handoverDateTime)}</div>
+//                <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>`;
+//         })()}
+//         <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
+//       </section>
+
+//       <h3>Thông tin khách hàng</h3>
+//       <section class="kv">
+//         <div><b>Họ và tên:</b> ${customerName}</div>
+//         ${customerInfo.phone ? `<div><b>Số điện thoại:</b> ${customerInfo.phone}</div>` : ""}
+//         ${customerInfo.email ? `<div><b>Email:</b> ${customerInfo.email}</div>` : ""}
+//       </section>
+
+//       <h3>Kỹ thuật viên tham gia</h3>
+//       <section class="kv">
+//         ${technicianEntries.length
+//             ? technicianEntries
+//                 .map(
+//                     (tech) => `
+//       <div style="margin-bottom:6px">
+//         <b>${tech.name || "—"}</b>
+//         ${tech.phone
+//                             ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
+//                             : ""
+//                         }
+//         ${tech.email
+//                             ? `<br/><span>Email: ${tech.email}</span>`
+//                             : ""
+//                         }
+//       </div>
+//     `
+//                 )
+//                 .join("")
+//             : `
+//       <div><b>Họ và tên:</b> ${technicianInfo.name || "—"}</div>
+//       ${technicianInfo.phone
+//                 ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>`
+//                 : ""
+//             }
+//       ${technicianInfo.email
+//                 ? `<div><b>Email:</b> ${technicianInfo.email}</div>`
+//                 : ""
+//             }
+//     `
+//         }
+//       </section>
+
+//       ${(() => {
+//             const handoverType = String(report.handoverType || "").toUpperCase();
+//             const isCheckin = handoverType === "CHECKIN";
+//             return isCheckin
+//                 ? `<h3>Danh sách thiết bị thu hồi</h3>`
+//                 : `<h3>Danh sách thiết bị bàn giao</h3>`;
+//         })()}
+//       <table>
+//         <thead>
+//           <tr>
+//             <th style="width:40px">STT</th>
+//             <th>Tên thiết bị</th>
+//             <th>Mã thiết bị (Serial Number)</th>
+//             <th style="width:80px">Đơn vị</th>
+//             <th style="width:80px;text-align:center">SL đặt</th>
+//             <th style="width:80px;text-align:center">SL giao</th>
+//             <th>${String(report.handoverType || "").toUpperCase() === "CHECKIN" ? "Tình trạng thiết bị khi bàn giao" : "Tình trạng thiết bị"}</th>
+//             <th>Ảnh bằng chứng</th>
+//           </tr>
+//         </thead>
+//         <tbody>
+//           ${itemsRows || "<tr><td colspan='8' style='text-align:center'>Không có thiết bị</td></tr>"}
+//         </tbody>
+//       </table>
+
+//       ${qualityRows ? `
+//       <h3>Thông tin chất lượng thiết bị</h3>
+//       <table>
+//         <thead>
+//           <tr>
+//             <th style="width:40px">STT</th>
+//             <th>Tên model</th>
+//             <th>Serial Number</th>
+//             <th>Trạng thái chất lượng</th>
+//             <th>Mô tả</th>
+//           </tr>
+//         </thead>
+//         <tbody>
+//           ${qualityRows}
+//         </tbody>
+//       </table>
+//       ` : ""}
+
+//       ${(() => {
+//             const handoverType = String(report.handoverType || "").toUpperCase();
+//             const isCheckin = handoverType === "CHECKIN";
+
+//             // For CHECKIN: show discrepancies
+//             if (isCheckin && (report.discrepancies || []).length > 0) {
+//                 // Group discrepancies by serialNumber + discrepancyType
+//                 const groupedDiscrepancies = {};
+
+//                 (report.discrepancies || []).forEach((disc) => {
+//                     // Get serial number
+//                     let deviceSerial = disc.serialNumber || disc.deviceSerialNumber || "—";
+//                     if ((deviceSerial === "—" || !deviceSerial) && disc.deviceId && order && Array.isArray(order.orderDetails)) {
+//                         for (const od of order.orderDetails) {
+//                             if (od.allocations && Array.isArray(od.allocations)) {
+//                                 for (const allocation of od.allocations) {
+//                                     const deviceId = allocation.device?.deviceId || allocation.deviceId;
+//                                     if (deviceId === disc.deviceId) {
+//                                         deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+//                                         break;
+//                                     }
+//                                 }
+//                                 if (deviceSerial && deviceSerial !== "—") break;
+//                             }
+//                         }
+//                     }
+
+//                     const discrepancyType = disc.discrepancyType || "OTHER";
+//                     const groupKey = `${deviceSerial}_${discrepancyType}`;
+
+//                     if (!groupedDiscrepancies[groupKey]) {
+//                         groupedDiscrepancies[groupKey] = {
+//                             deviceSerial,
+//                             discrepancyType,
+//                             items: [],
+//                             totalPenalty: 0,
+//                         };
+//                     }
+
+//                     // Add condition with its penalty
+//                     const conditionDef = conditionMap[disc.conditionDefinitionId];
+//                     const conditionName = conditionDef?.name || disc.conditionName || `Tình trạng thiết bị #${disc.conditionDefinitionId}`;
+//                     const penaltyAmount = Number(disc.penaltyAmount || 0);
+
+//                     groupedDiscrepancies[groupKey].items.push({
+//                         conditionName,
+//                         penaltyAmount,
+//                     });
+
+//                     groupedDiscrepancies[groupKey].totalPenalty += penaltyAmount;
+//                 });
+
+//                 const groupedArray = Object.values(groupedDiscrepancies);
+
+//                 return `
+//       <h3>Sự cố thiết bị khi thu hồi</h3>
+//       <table>
+//         <thead>
+//           <tr>
+//             <th style="width:40px">STT</th>
+//             <th>Loại sự cố</th>
+//             <th>Thiết bị (Serial Number)</th>
+//             <th>Tình trạng thiết bị</th>
+//             <th>Phí phạt</th>
+//           </tr>
+//         </thead>
+//         <tbody>
+//           ${groupedArray.map((group, idx) => {
+//                     const discrepancyTypeLabel = group.discrepancyType === "DAMAGE" ? "Hư hỏng" :
+//                         group.discrepancyType === "LOSS" ? "Mất mát" :
+//                             group.discrepancyType === "OTHER" ? "Khác" : group.discrepancyType || "—";
+
+//                     // Build conditions with individual penalties
+//                     const conditionsWithPenalty = group.items.map(item =>
+//                         `${item.conditionName}: ${item.penaltyAmount > 0 ? fmtVND(item.penaltyAmount) : "—"}`
+//                     ).join("<br/>");
+
+//                     // Show total if more than 1 item
+//                     const totalPenaltyText = group.items.length > 1 && group.totalPenalty > 0
+//                         ? `<br/><b style="border-top:1px solid #ddd;display:block;padding-top:4px;margin-top:4px">Tổng: ${fmtVND(group.totalPenalty)}</b>`
+//                         : "";
+
+//                     return `
+//               <tr>
+//                 <td style="text-align:center;vertical-align:top">${idx + 1}</td>
+//                 <td style="vertical-align:top">${discrepancyTypeLabel}</td>
+//                 <td style="vertical-align:top">${group.deviceSerial}</td>
+//                 <td style="vertical-align:top">${conditionsWithPenalty}${totalPenaltyText}</td>
+//                 <td style="text-align:right;vertical-align:top;font-weight:600">${group.totalPenalty > 0 ? fmtVND(group.totalPenalty) : "—"}</td>
+//               </tr>
+//             `;
+//                 }).join("") || "<tr><td colspan='5' style='text-align:center'>Không có sự cố nào</td></tr>"}
+//         </tbody>
+//       </table>
+//       `;
+//             }
+
+//             // For CHECKOUT: deviceConditions are now shown in the items table, so no separate section needed
+//             return "";
+//         })()}
+
+//       ${report.createdByStaff ? `
+//       <h3>Người tạo biên bản</h3>
+//       <section class="kv">
+//         <div><b>Họ và tên:</b> ${report.createdByStaff.fullName || report.createdByStaff.username || `Nhân viên #${report.createdByStaff.staffId}`}</div>
+//         ${report.createdByStaff.email ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>` : ""}
+//         ${report.createdByStaff.phoneNumber ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>` : ""}
+//         ${report.createdByStaff.role ? `<div><b>Vai trò:</b> ${translateRole(report.createdByStaff.role)}</div>` : ""}
+//       </section>
+//       ` : ""}
+
+//       ${(report.evidenceUrls || []).length > 0 ? `
+//       <h3>Ảnh bằng chứng</h3>
+//       <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
+//         ${report.evidenceUrls.map((url, idx) => {
+//             // Kiểm tra xem là base64 hay URL
+//             const isBase64 = url.startsWith("data:image");
+//             const imgSrc = isBase64 ? url : url;
+//             return `
+//           <div style="flex:0 0 auto;margin-bottom:8px">
+//             <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">Bằng chứng ${idx + 1}</div>
+//             <img 
+//               src="${imgSrc}" 
+//               alt="Bằng chứng ${idx + 1}"
+//               style="
+//                 max-width:200px;
+//                 max-height:200px;
+//                 border:1px solid #ddd;
+//                 border-radius:4px;
+//                 display:block;
+//                 object-fit:contain;
+//               "
+//               onerror="this.style.display='none';this.nextElementSibling.style.display='block';"
+//             />
+//             <div style="display:none;padding:8px;border:1px solid #ddd;border-radius:4px;background:#f5f5f5;max-width:200px;font-size:10px;color:#666">
+//               Không thể tải ảnh<br/>
+//               <a href="${url}" target="_blank" style="color:#1890ff">Xem link</a>
+//             </div>
+//           </div>
+//         `;
+//         }).join("")}
+//       </div>
+//       ` : ""}
+
+//       <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
+//         <div style="flex:1;text-align:center">
+//           <div><b>KHÁCH HÀNG</b></div>
+//           <div style="height:72px;display:flex;align-items:center;justify-content:center">
+//             ${report.customerSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
+//           </div>
+//           <div>
+//             ${report.customerSigned
+//             ? `<div style="color:#000;font-weight:600">${customerName}</div>`
+//             : "(Ký, ghi rõ họ tên)"}
+//           </div>
+//         </div>
+//         <div style="flex:1;text-align:center">
+//           <div><b>NHÂN VIÊN</b></div>
+//           <div style="height:72px;display:flex;align-items:center;justify-content:center">
+//             ${report.staffSigned ? '<div style="font-size:48px;color:#22c55e;line-height:1">✓</div>' : ""}
+//           </div>
+//           <div>
+//             ${report.staffSigned
+//             ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>`
+//             : "(Ký, ghi rõ họ tên)"}
+//           </div>
+//         </div>
+//       </section>
+//     </div>
+//   `;
+// }
+
+// async function elementToPdfBlob(el) {
+//     // Đợi font được load
+//     if (document.fonts && document.fonts.ready) {
+//         await document.fonts.ready;
+//     }
+//     await new Promise(resolve => setTimeout(resolve, 300));
+
+//     const canvas = await html2canvas(el, {
+//         scale: 2,
+//         useCORS: true,
+//         allowTaint: true,
+//         backgroundColor: "#ffffff",
+//         logging: false,
+//         letterRendering: true,
+//         onclone: (clonedDoc) => {
+//             // Đảm bảo font được áp dụng trong cloned document
+//             const clonedBody = clonedDoc.body;
+//             if (clonedBody) {
+//                 clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+//                 clonedBody.style.webkitFontSmoothing = "antialiased";
+//                 clonedBody.style.mozOsxFontSmoothing = "grayscale";
+//             }
+//             // Áp dụng font cho tất cả phần tử
+//             const allElements = clonedDoc.querySelectorAll('*');
+//             allElements.forEach(elem => {
+//                 if (elem.style) {
+//                     elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+//                 }
+//             });
+//         },
+//     });
+
+//     const pdf = new jsPDF("p", "pt", "a4");
+//     const pageWidth = pdf.internal.pageSize.getWidth();
+//     const pageHeight = pdf.internal.pageSize.getHeight();
+//     const ratio = pageWidth / canvas.width;
+
+//     const pageCanvas = document.createElement("canvas");
+//     const ctx = pageCanvas.getContext("2d");
+
+//     let renderedHeight = 0;
+//     while (renderedHeight < canvas.height) {
+//         const sliceHeight = Math.min(
+//             pageHeight / ratio,
+//             canvas.height - renderedHeight
+//         );
+//         pageCanvas.width = canvas.width;
+//         pageCanvas.height = sliceHeight;
+//         ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+//         ctx.drawImage(
+//             canvas,
+//             0, renderedHeight, canvas.width, sliceHeight,
+//             0, 0, canvas.width, sliceHeight
+//         );
+//         const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+//         if (renderedHeight > 0) pdf.addPage();
+//         pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
+//         renderedHeight += sliceHeight;
+//     }
+//     return pdf.output("blob");
+// }
 
 export default function TechnicianCalendar() {
 
@@ -395,53 +1494,83 @@ export default function TechnicianCalendar() {
             if (results[2].status === 'fulfilled') inactiveRes = results[2].value || { data: [] };
             else console.warn("Failed inactive maintenance:", results[2].reason);
 
-            // ========== BƯỚC 3: LOAD ACTIVE TASK RULES ==========
-            // Load giới hạn công việc từ API /admin/task-rules/active
+            // ========== BƯỚC 3: LOAD TASK RULES ==========
+            // Load giới hạn công việc cho từng category từ API task-rules
+            // Giống cách OperatorTasks lấy dữ liệu
             try {
                 console.log("DEBUG: Calling getActiveTaskRules API...");
 
                 // API: GET /api/admin/task-rules/active
-                // Trả về: [{ taskRuleId, taskCategoryId, maxTasksPerDay, name, ... }]
-                const activeRules = await getActiveTaskRules();
-                console.log("DEBUG: Active task rules from API:", activeRules);
+                // Trả về: Array of { taskRuleId, taskCategoryId, taskCategoryName, maxTasksPerDay, staffRole, ... }
+                const allRules = await getActiveTaskRules();
+                console.log("DEBUG: All active task rules:", allRules);
+
+                // Lấy rules áp dụng cho TECHNICIAN
+                // staffRole === null có nghĩa là áp dụng cho TẤT CẢ roles
+                // staffRole === 'TECHNICIAN' chỉ áp dụng cho TECHNICIAN
+                const applicableRules = Array.isArray(allRules)
+                    ? allRules.filter(r => r.staffRole === null || r.staffRole === 'TECHNICIAN')
+                    : [];
+                console.log("DEBUG: Applicable rules for TECHNICIAN:", applicableRules);
 
                 const rulesMap = {};
 
-                // Map rules theo taskCategoryId
-                // Nếu có nhiều rules cho cùng 1 category, lấy rule có effectiveFrom mới nhất
-                (activeRules || []).forEach(rule => {
-                    if (rule.taskCategoryId && rule.active) {
-                        const existingRule = rulesMap[rule.taskCategoryId];
-                        // Nếu chưa có rule cho category này hoặc rule mới có effectiveFrom mới hơn
-                        if (!existingRule ||
-                            (rule.effectiveFrom && existingRule.effectiveFrom &&
-                                new Date(rule.effectiveFrom) > new Date(existingRule.effectiveFrom))) {
-                            rulesMap[rule.taskCategoryId] = {
-                                maxTasksPerDay: rule.maxTasksPerDay,
-                                name: rule.name || `Category ${rule.taskCategoryId}`,
-                                effectiveFrom: rule.effectiveFrom
-                            };
-                        }
+                // Build map: categoryId -> { maxTasksPerDay, name }
+                applicableRules.forEach(rule => {
+                    const categoryId = rule.taskCategoryId;
+                    if (categoryId != null) {
+                        rulesMap[categoryId] = {
+                            maxTasksPerDay: rule.maxTasksPerDay || 0,
+                            name: rule.taskCategoryName || rule.name || `Category ${categoryId}`,
+                            taskRuleId: rule.taskRuleId || rule.id
+                        };
                     }
                 });
 
                 console.log("DEBUG: taskRulesMap built from getActiveTaskRules:", rulesMap);
                 setTaskRulesMap(rulesMap);
             } catch (e) {
-                console.warn("Failed to load active task rules:", e);
+                console.warn("Failed to load task rules:", e);
                 console.warn("Error status:", e?.response?.status);
                 console.warn("Error message:", e?.response?.data?.message || e?.message);
 
-                // Fallback: Use mock data for testing
-                console.log("DEBUG: Using fallback mock data for taskRulesMap");
-                const mockRulesMap = {
-                    1: { maxTasksPerDay: 6, name: "Pre rental QC" },
-                    2: { maxTasksPerDay: 5, name: "Post rental QC" },
-                    4: { maxTasksPerDay: 4, name: "Delivery" },
-                    6: { maxTasksPerDay: 4, name: "Pick up" },
-                    8: { maxTasksPerDay: 5, name: "Device Replacement" }
-                };
-                setTaskRulesMap(mockRulesMap);
+                // Fallback: Try getStaffCategoryStats as backup
+                console.log("DEBUG: Trying getStaffCategoryStats as fallback...");
+                try {
+                    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+                    const staffId = currentUser.staffId || currentUser.id;
+
+                    if (staffId) {
+                        const rulesMap = {};
+                        const categoryIds = [1, 2, 4, 6];
+
+                        await Promise.all(categoryIds.map(async (categoryId) => {
+                            try {
+                                const stats = await getStaffCategoryStats(staffId, categoryId);
+                                if (stats && stats.maxTasksPerDay !== undefined) {
+                                    rulesMap[categoryId] = {
+                                        maxTasksPerDay: stats.maxTasksPerDay,
+                                        name: stats.taskCategoryName || `Category ${categoryId}`,
+                                    };
+                                }
+                            } catch (err) {
+                                console.warn(`Failed to load stats for category ${categoryId}:`, err);
+                            }
+                        }));
+
+                        if (Object.keys(rulesMap).length > 0) {
+                            console.log("DEBUG: taskRulesMap from getStaffCategoryStats:", rulesMap);
+                            setTaskRulesMap(rulesMap);
+                            return;
+                        }
+                    }
+                } catch (innerE) {
+                    console.warn("getStaffCategoryStats fallback also failed:", innerE);
+                }
+
+                // Final fallback: No rules (show no limit cards)
+                console.log("DEBUG: No task rules available, showing empty");
+                setTaskRulesMap({});
             }
         } catch (err) {
             console.error("Error loading maintenance data:", err);
@@ -2760,46 +3889,54 @@ export default function TechnicianCalendar() {
                             const rule1 = taskRulesMap[1];
                             const rule2 = taskRulesMap[2];
 
+                            // Debug logging
+                            console.log("DEBUG Modal: taskRulesMap =", taskRulesMap);
+                            console.log("DEBUG Modal: rule1 =", rule1, "rule2 =", rule2);
+                            console.log("DEBUG Modal: cat1Tasks count =", cat1Tasks.length, "cat2Tasks count =", cat2Tasks.length);
+
+                            // Use rules if available, or show placeholder if not
+                            const showRule1 = rule1 || { maxTasksPerDay: '—', name: 'Pre rental QC' };
+                            const showRule2 = rule2 || { maxTasksPerDay: '—', name: 'Post rental QC' };
+                            const hasAnyRules = rule1 || rule2;
+
                             return (
                                 <>
-                                    {/* Category Summary Bars */}
+                                    {/* Category Summary Bars - Always show for debugging */}
                                     <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                                        {rule1 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat1Tasks.length >= rule1.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Pre rental QC</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat1Tasks.length} / {rule1.maxTasksPerDay}</strong>
-                                                    <Tag color={cat1Tasks.length >= rule1.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat1Tasks.length >= rule1.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        {/* Pre rental QC card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule1 && cat1Tasks.length >= rule1.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Pre rental QC</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat1Tasks.length} / {showRule1.maxTasksPerDay}</strong>
+                                                <Tag color={(rule1 && cat1Tasks.length >= rule1.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule1 && cat1Tasks.length >= rule1.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
-                                        {rule2 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat2Tasks.length >= rule2.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Post rental QC</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {rule2.maxTasksPerDay}</strong>
-                                                    <Tag color={cat2Tasks.length >= rule2.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat2Tasks.length >= rule2.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        </div>
+                                        {/* Post rental QC card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #722ed1 0%, #531dab 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>📋 Post rental QC</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {showRule2.maxTasksPerDay}</strong>
+                                                <Tag color={(rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
+                                        </div>
                                     </div>
                                     <Table
                                         dataSource={qcTasks}
@@ -2830,48 +3967,50 @@ export default function TechnicianCalendar() {
 
                             const rule4 = taskRulesMap[4];
                             const rule6 = taskRulesMap[6];
+
+                            // Fallback values for display
+                            const showRule4 = rule4 || { maxTasksPerDay: '—', name: 'Delivery' };
+                            const showRule6 = rule6 || { maxTasksPerDay: '—', name: 'Pick up' };
                             const rule8 = taskRulesMap[8];
 
                             return (
                                 <>
-                                    {/* Category Summary Bars */}
+                                    {/* Category Summary Bars - Always show */}
                                     <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-                                        {rule4 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat4Tasks.length >= rule4.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>🚚 Delivery</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat4Tasks.length} / {rule4.maxTasksPerDay}</strong>
-                                                    <Tag color={cat4Tasks.length >= rule4.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat4Tasks.length >= rule4.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        {/* Delivery card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule4 && cat4Tasks.length >= rule4.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>🚚 Delivery</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat4Tasks.length} / {showRule4.maxTasksPerDay}</strong>
+                                                <Tag color={(rule4 && cat4Tasks.length >= rule4.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule4 && cat4Tasks.length >= rule4.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
-                                        {rule6 && (
-                                            <div style={{
-                                                flex: 1,
-                                                minWidth: 200,
-                                                background: cat6Tasks.length >= rule6.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
-                                                borderRadius: 8,
-                                                padding: '10px 14px',
-                                                color: '#fff',
-                                            }}>
-                                                <div style={{ fontSize: 12, opacity: 0.9 }}>📦 Pick up</div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                                                    <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {rule6.maxTasksPerDay}</strong>
-                                                    <Tag color={cat6Tasks.length >= rule6.maxTasksPerDay ? 'red' : 'green'}>
-                                                        {cat6Tasks.length >= rule6.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
-                                                    </Tag>
-                                                </div>
+                                        </div>
+                                        {/* Pick up card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule6 && cat6Tasks.length >= rule6.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>📦 Pick up</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat6Tasks.length} / {showRule6.maxTasksPerDay}</strong>
+                                                <Tag color={(rule6 && cat6Tasks.length >= rule6.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule6 && cat6Tasks.length >= rule6.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
                                             </div>
-                                        )}
+                                        </div>
                                         {rule8 && (
                                             <div style={{
                                                 flex: 1,
@@ -3011,7 +4150,7 @@ export default function TechnicianCalendar() {
                         })()
                     }
                 ]} />
-            </Modal>
+            </Modal >
 
             <Drawer
                 title={detailTask ? detailTask.title : "Chi tiết công việc"}

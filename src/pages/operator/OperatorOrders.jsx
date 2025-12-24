@@ -15,16 +15,20 @@ import {
   DatePicker,
   Skeleton,
   Descriptions,
-  Divider,
-  Statistic,
   Popconfirm,
+  Image,
+  Divider,
+  Upload,
+  Steps,
+  List,
+  Badge,
+  Statistic,
   Card,
   Row,
   Col,
   Tabs,
   Avatar,
-  Image,
-  List,
+  Select,
 } from "antd";
 import {
   EyeOutlined,
@@ -488,8 +492,6 @@ const statusTag = (s) => {
       return <Tag color="red">Đã hủy</Tag>;
     case "COMPLETED":
       return <Tag color="blue">Hoàn tất đơn hàng</Tag>;
-    case "ACTIVE":
-      return <Tag color="green">Đang thuê</Tag>;
     case "IN_USE":
       return <Tag color="geekblue">Đang sử dụng</Tag>;
       case "DELIVERING":
@@ -1044,65 +1046,99 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         </tbody>
       </table>
 
-      ${
-        isCheckin && (report.discrepancies || []).length > 0
-          ? `
-      <h3>Sự cố/Chênh lệch (Discrepancies)</h3>
+      ${(() => {
+        if (!isCheckin || (report.discrepancies || []).length === 0) return "";
+        
+        // Group discrepancies by serialNumber + discrepancyType
+        const groupedDiscrepancies = {};
+        
+        (report.discrepancies || []).forEach((disc) => {
+          // Get serial number
+          let deviceSerial = "—";
+          if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
+            for (const od of order.orderDetails) {
+              if (od.allocations && Array.isArray(od.allocations)) {
+                for (const allocation of od.allocations) {
+                  const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                  if (deviceId === disc.deviceId) {
+                    deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                    break;
+                  }
+                }
+                if (deviceSerial && deviceSerial !== "—") break;
+              }
+            }
+          }
+          
+          const discrepancyType = disc.discrepancyType || "OTHER";
+          const groupKey = `${deviceSerial}_${discrepancyType}`;
+          
+          if (!groupedDiscrepancies[groupKey]) {
+            groupedDiscrepancies[groupKey] = {
+              deviceSerial,
+              discrepancyType,
+              items: [],
+              totalPenalty: 0,
+            };
+          }
+          
+          // Add condition with its penalty
+          const conditionDef = conditionMap[disc.conditionDefinitionId];
+          const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+          const penaltyAmount = Number(disc.penaltyAmount || 0);
+          
+          groupedDiscrepancies[groupKey].items.push({
+            conditionName,
+            penaltyAmount,
+          });
+          
+          groupedDiscrepancies[groupKey].totalPenalty += penaltyAmount;
+        });
+        
+        const groupedArray = Object.values(groupedDiscrepancies);
+        
+        return `
+      <h3>Sự cố thiết bị khi thu hồi</h3>
       <table>
         <thead>
           <tr>
             <th style="width:40px">STT</th>
             <th>Loại sự cố</th>
             <th>Thiết bị (Serial Number)</th>
-            <th>Điều kiện</th>
+            <th>Tình trạng thiết bị</th>
             <th>Phí phạt</th>
-            <th>Ghi chú nhân viên</th>
-            <th>Ghi chú khách hàng</th>
           </tr>
         </thead>
         <tbody>
-          ${(report.discrepancies || []).map((disc, idx) => {
-            // Try to get serial number from deviceId
-            let deviceSerial = "—";
-            if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
-              for (const od of order.orderDetails) {
-                if (od.allocations && Array.isArray(od.allocations)) {
-                  for (const allocation of od.allocations) {
-                    const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                    if (deviceId === disc.deviceId) {
-                      deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
-                      break;
-                    }
-                  }
-                  if (deviceSerial && deviceSerial !== "—") break;
-                }
-              }
-            }
+          ${groupedArray.map((group, idx) => {
+            const discrepancyTypeLabel = group.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
+                                   group.discrepancyType === "LOSS" ? "Mất mát" : 
+                                   group.discrepancyType === "OTHER" ? "Khác" : group.discrepancyType || "—";
             
-            const conditionDef = conditionMap[disc.conditionDefinitionId];
-            const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
-            const discrepancyType = disc.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
-                                   disc.discrepancyType === "LOSS" ? "Mất mát" : 
-                                   disc.discrepancyType === "OTHER" ? "Khác" : disc.discrepancyType || "—";
-            const penaltyAmount = disc.penaltyAmount != null ? fmtVND(disc.penaltyAmount) : "—";
+            // Build conditions with individual penalties
+            const conditionsWithPenalty = group.items.map(item => 
+              `${item.conditionName}: ${item.penaltyAmount > 0 ? fmtVND(item.penaltyAmount) : "—"}`
+            ).join("<br/>");
+            
+            // Show total if more than 1 item
+            const totalPenaltyText = group.items.length > 1 && group.totalPenalty > 0
+              ? `<br/><b style="border-top:1px solid #ddd;display:block;padding-top:4px;margin-top:4px">Tổng: ${fmtVND(group.totalPenalty)}</b>`
+              : "";
             
             return `
               <tr>
-                <td style="text-align:center">${idx + 1}</td>
-                <td>${discrepancyType}</td>
-                <td>${deviceSerial}</td>
-                <td>${conditionName}</td>
-                <td style="text-align:right;font-weight:600">${penaltyAmount}</td>
-                <td>${disc.staffNote || "—"}</td>
-                <td>${disc.customerNote || "—"}</td>
+                <td style="text-align:center;vertical-align:top">${idx + 1}</td>
+                <td style="vertical-align:top">${discrepancyTypeLabel}</td>
+                <td style="vertical-align:top">${group.deviceSerial}</td>
+                <td style="vertical-align:top">${conditionsWithPenalty}${totalPenaltyText}</td>
+                <td style="text-align:right;vertical-align:top;font-weight:600">${group.totalPenalty > 0 ? fmtVND(group.totalPenalty) : "—"}</td>
               </tr>
             `;
-          }).join("") || "<tr><td colspan='7' style='text-align:center'>Không có sự cố nào</td></tr>"}
+          }).join("") || "<tr><td colspan='5' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
-      `
-          : ""
-      }
+      `;
+      })()}
 
       ${
         report.createdByStaff
@@ -1193,6 +1229,7 @@ export default function OperatorOrders() {
   const [rows, setRows] = useState([]);
   const [kw, setKw] = useState("");
   const [range, setRange] = useState(null);
+  const [orderStatusFilter, setOrderStatusFilter] = useState(null); // Filter by order status
   
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -1300,8 +1337,9 @@ export default function OperatorOrders() {
    * @param {number} page - Số trang (1-indexed, mặc định 1)
    * @param {number} pageSize - Số đơn mỗi trang (mặc định 10)
    * @param {number} [orderId] - Mã đơn hàng để filter (optional)
+   * @param {string} [orderStatus] - Trạng thái đơn hàng để filter (optional)
    */
-  const fetchAll = async (page = 1, pageSize = 10, orderId = null) => {
+  const fetchAll = async (page = 1, pageSize = 10, orderId = null, orderStatus = null) => {
     // Đảm bảo giá trị page và pageSize là số nguyên hợp lệ
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
@@ -1310,15 +1348,26 @@ export default function OperatorOrders() {
       // Bật loading spinner cho Table
       setLoading(true);
       
-      // ========== GỌI API TÌM KIẾM ĐƠN HÀNG ==========
-      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z
+      // ========== GỌI API TÌM KIẾĂM ĐƠN HÀNG ==========
+      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z&orderStatus=STATUS
       // Trả về: { content: [], totalElements, totalPages, number, size }
-      const result = await searchRentalOrders({
+      const params = {
         page: safePage - 1, // API dùng 0-indexed (page 0 = trang 1)
         size: safeSize,
         sort: ["createdAt,desc"], // Sắp xếp mới nhất lên đầu
-        orderId: orderId != null ? Number(orderId) : undefined,
-      });
+      };
+      
+      // Thêm orderId nếu có
+      if (orderId != null) {
+        params.orderId = Number(orderId);
+      }
+      
+      // Thêm orderStatus nếu có
+      if (orderStatus) {
+        params.orderStatus = orderStatus;
+      }
+      
+      const result = await searchRentalOrders(params);
       
       // Lưu danh sách đơn vào state để hiển thị
       setRows(result.content);
@@ -2548,29 +2597,8 @@ export default function OperatorOrders() {
     {
       title: "Trạng thái đơn hàng",
       dataIndex: "orderStatus",
-      width: 140,
+      width: 160,
       render: statusTag,
-      filters: [
-        { text: "Đang chờ", value: "PENDING" },
-        { text: "Đã xác nhận", value: "CONFIRMED" },
-        { text: "Đang xử lý", value: "PROCESSING" },
-        { text: "Sẵn sàng giao hàng", value: "DELIVERY_C" },
-        { text: "Đang sử dụng", value: "IN_USE" },
-        { text: "Đã hủy", value: "CANCELLED" },
-        { text: "Hoàn tất", value: "COMPLETED" },
-      ],
-      onFilter: (val, r) => {
-        const orderStatus = String(r.orderStatus).toUpperCase();
-        const filterVal = String(val).toUpperCase();
-        if (filterVal === "DELIVERY_C") {
-          return (
-            orderStatus === "DELIVERY_C" ||
-            orderStatus === "DELIVERY_CONFIRMED" ||
-            orderStatus === "READY_FOR_DELIVERY"
-          );
-        }
-        return orderStatus === filterVal;
-      },
     },
     {
       title: "Thao tác",
@@ -2982,9 +3010,32 @@ export default function OperatorOrders() {
               fetchAll(1, pagination.pageSize);
             }
           }}
-          style={{ width: 300 }}
+          style={{ width: 200 }}
         />
         <RangePicker value={range} onChange={setRange} />
+        <Select
+          placeholder="Trạng thái đơn hàng"
+          allowClear
+          value={orderStatusFilter}
+          style={{ width: 180 }}
+          options={[
+            { label: "Đang chờ", value: "PENDING" },
+            { label: "Chờ KYC", value: "PENDING_KYC" },
+            { label: "Đã xác nhận", value: "CONFIRMED" },
+            { label: "Đang xử lý", value: "PROCESSING" },
+            { label: "Chuẩn bị giao hàng", value: "DELIVERY_CONFIRMED" },
+            { label: "Đang giao hàng", value: "DELIVERING" },
+            { label: "Đang sử dụng", value: "IN_USE" },
+            { label: "Hoàn tất đơn hàng", value: "COMPLETED" },
+           
+          ]}
+          onChange={(value) => {
+            // Lưu giá trị filter vào state
+            setOrderStatusFilter(value);
+            // Gọi API với orderStatus parameter
+            fetchAll(1, pagination.pageSize, null, value);
+          }}
+        />
       </Space>
 
       {loading ? (
@@ -3004,8 +3055,8 @@ export default function OperatorOrders() {
             showSizeChanger: true,
             pageSizeOptions: ['10', '20', '50', '100'],
             showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} đơn`,
-            onChange: (page, pageSize) => fetchAll(page, pageSize),
-            onShowSizeChange: (current, size) => fetchAll(1, size),
+            onChange: (page, pageSize) => fetchAll(page, pageSize, null, orderStatusFilter),
+            onShowSizeChange: (current, size) => fetchAll(1, size, null, orderStatusFilter),
           }}
           scroll={{ x: 1200 }}
         />

@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Luôn dùng HTTPS
-const BASE = "https://provinces.open-api.vn/api";
+const BASE = "https://provinces.open-api.vn/api/v1";
 
 // Fallback tối thiểu (mã quận chuẩn theo Tổng cục Thống kê)
 const HCM_DISTRICT_FALLBACK = [
@@ -41,13 +41,40 @@ export async function fetchDistrictsHCM() {
   }
 }
 
-/** Tải PHƯỜNG theo quận. Nếu API trả rỗng → trả mảng rỗng (UI sẽ cho nhập tay). */
+/** Tải PHƯỜNG theo quận với multi-API fallback. */
 export async function fetchWardsByDistrict(districtCode) {
+  // Try vapi.vn first (more reliable)
   try {
-    const { data } = await axios.get(`${BASE}/d/${districtCode}?depth=2`, { timeout: 8000 });
-    const wards = (data?.wards || []).map(w => ({ value: w.code, label: w.name }));
-    return wards; // có thể rỗng nếu API lỗi
-  } catch {
-    return []; // để UI hiển thị input free-text nếu cần
+    const { data } = await axios.get(
+      `https://vapi.vn/api/v1/district/${districtCode}`,
+      { timeout: 5000 }
+    );
+    if (data?.results?.length > 0) {
+      const wards = data.results.map(w => ({
+        value: w.ward_id || w.id,
+        label: w.ward_name || w.name
+      }));
+      return wards;
+    }
+  } catch (err) {
+    console.warn('vapi.vn failed, trying provinces.open-api.vn:', err.message);
   }
+
+  // Fallback to provinces.open-api.vn
+  try {
+    const { data } = await axios.get(
+      `${BASE}/d/${districtCode}?depth=2`,
+      { timeout: 5000 }
+    );
+    const wards = (data?.wards || []).map(w => ({
+      value: w.code,
+      label: w.name
+    }));
+    if (wards.length > 0) return wards;
+  } catch (err) {
+    console.warn('provinces.open-api.vn also failed:', err.message);
+  }
+
+  // Both APIs failed - return empty to allow manual input
+  return [];
 }

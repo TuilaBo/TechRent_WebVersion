@@ -32,6 +32,7 @@ const paymentMethodOptions = [
   { label: "Tất cả", value: "ALL" },
   { label: "VNPay", value: "VNPAY" },
   { label: "PayOS", value: "PAYOS" },
+  { label: "Chuyển khoản ngân hàng", value: "BANK_ACCOUNT" },
 ];
 
 const transactionTypeOptions = [
@@ -42,9 +43,9 @@ const transactionTypeOptions = [
 
 const invoiceStatusOptions = [
   { label: "Tất cả", value: "ALL" },
-  { label: "Succeeded", value: "SUCCEEDED" },
-  { label: "Pending", value: "PENDING" },
-  { label: "Failed", value: "FAILED" },
+  { label: "Thành công", value: "SUCCEEDED" },
+  { label: "Đang xử lý", value: "PENDING" },
+  { label: "Thất bại", value: "FAILED" },
 ];
 
 const transactionTypeColor = {
@@ -83,7 +84,7 @@ const translatePaymentMethod = (method) => {
   const map = {
     VNPAY: "VNPay",
     PAYOS: "PayOS",
-    BANK_ACCOUNT: "Chuyển khoản",
+    BANK_ACCOUNT: "Chuyển khoản ngân hàng",
     CASH: "Tiền mặt",
   };
   return map[method] || method;
@@ -224,8 +225,8 @@ export default function AdminTransactions() {
       title: "Phương thức",
       dataIndex: "paymentMethod",
       key: "paymentMethod",
-      render: (value) => (value ? value.toUpperCase() : "—"),
-      width: 120,
+      render: (value) => translatePaymentMethod(value),
+      width: 180,
     },
     {
       title: "Trạng thái hóa đơn",
@@ -400,7 +401,7 @@ export default function AdminTransactions() {
         <Card title="Bộ lọc">
           <Row gutter={[16, 16]}>
             <Col xs={24} md={8} lg={6}>
-              <Text>Tìm kiếm (Transaction/Invoice/Order)</Text>
+              <Text>Tìm kiếm (Giao dịch/Hóa đơn/Đơn thuê)</Text>
               <Input
                 placeholder="Nhập mã giao dịch, hóa đơn hoặc đơn thuê..."
                 value={search}

@@ -316,18 +316,6 @@ export default function LoginForm() {
             </span>
           </div>
 
-          <Button
-            block
-            className="login-btn login-btn-google"
-            onClick={() => alert("Implement Google OAuth")}
-            disabled={loading}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-              <FcGoogle size={22} />
-              <span style={{ fontWeight: 600 }}>Tiếp tục với Google</span>
-            </div>
-          </Button>
-
           <div style={{ marginTop: 24, textAlign: "center", fontSize: 15, color: "#6b7280" }}>
             Chưa có tài khoản?{" "}
             <Link to="/register" className="login-link">

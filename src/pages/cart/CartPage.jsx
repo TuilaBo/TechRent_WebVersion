@@ -18,6 +18,7 @@ import {
   Form,
   Input,
   Select,
+  AutoComplete,
   Modal,
   Alert,
   Popconfirm,
@@ -1000,7 +1001,7 @@ export default function CartPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <div>
                       <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                        Giờ bắt đầu thuê(Dự kiến)
+                        Giờ bắt đầu thuê (8:00 - 18:00)
                       </Text>
                       <TimePicker
                         value={startTime}
@@ -1010,19 +1011,21 @@ export default function CartPage() {
                         }}
                         format="HH:mm"
                         style={{ width: "100%" }}
+                        disabledTime={() => ({
+                          disabledHours: () => [0, 1, 2, 3, 4, 5, 6, 7, 19, 20, 21, 22, 23],
+                        })}
+                        hideDisabledOptions
                       />
                     </div>
                     <div>
                       <Text type="secondary" className="block" style={{ marginBottom: 4 }}>
-                        Giờ kết thúc thuê(Dự kiến)
+                        Giờ kết thúc thuê (Dự kiến)
                       </Text>
                       <TimePicker
                         value={endTime}
-                        onChange={(t) => {
-                          setEndTime(t);
-                        }}
                         format="HH:mm"
                         style={{ width: "100%" }}
+                        disabled
                       />
                     </div>
                   </div>
@@ -1349,16 +1352,23 @@ export default function CartPage() {
                 <Form.Item
                   label="Phường/Xã"
                   name="wardCode"
-                  rules={[{ required: true, message: "Vui lòng chọn phường/xã" }]}
+                  rules={[{ required: true, message: "Vui lòng chọn hoặc nhập phường/xã" }]}
                 >
-                  <Select
-                    placeholder="Chọn phường/xã"
-                    loading={modalWardsLoading}
+                  <AutoComplete
+                    placeholder={
+                      modalWardsLoading
+                        ? "Đang tải..."
+                        : modalWardOptions.length === 0 && modalDistrictCode
+                        ? "API lỗi - Nhập tay phường/xã"
+                        : "Chọn hoặc nhập phường/xã"
+                    }
                     options={modalWardOptions}
                     disabled={!modalDistrictCode}
-                    showSearch
-                    optionFilterProp="label"
+                    filterOption={(inputValue, option) =>
+                      option?.label?.toLowerCase().includes(inputValue.toLowerCase())
+                    }
                     allowClear
+                    notFoundContent={modalWardsLoading ? "Đang tải..." : "Không tìm thấy"}
                   />
                 </Form.Item>
                 <Form.Item

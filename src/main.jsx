@@ -16,7 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <ScrollToTop />
         <App />
         <Toaster
-          position="bottom-right"
+          position="top-center"
           toastOptions={{
             duration: 3500,
             style: {
@@ -26,7 +26,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(
               maxWidth: 420,
             },
           }}
-          containerStyle={{ top: 10, right: 10 }}
         />
       </BrowserRouter>
     </AuthProvider>
