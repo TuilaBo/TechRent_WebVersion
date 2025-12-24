@@ -69,6 +69,22 @@ export const getDamages = async (params = {}) => {
 };
 
 /**
+ * Get revenue statistics
+ * Tính doanh thu theo ngày/tháng/năm
+ * Bao gồm: tiền thuê, tiền phạt trả muộn, tiền bồi thường thiệt hại
+ * KHÔNG tính tiền cọc
+ * @param {Object} params - Query parameters
+ * @param {number} params.year - Year (required)
+ * @param {number} [params.month] - Month (optional)
+ * @param {number} [params.day] - Day (optional)
+ * @returns {Promise} Revenue statistics
+ */
+export const getRevenue = async (params = {}) => {
+  const response = await api.get(`${BASE_URL}/revenue`, { params });
+  return response.data;
+};
+
+/**
  * Get all dashboard statistics
  * Lấy tất cả thống kê dashboard trong một lần gọi
  * @param {Object} params - Query parameters

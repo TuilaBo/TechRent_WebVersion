@@ -865,16 +865,7 @@ export default function TechnicianQcDetail() {
       return;
     }
 
-    // ========== BƯỚC 2: VALIDATE FINDINGS VÀ ACCESSORY IMAGE ==========
-    if (!findings.trim()) {
-      message.error("Vui lòng nhập Ghi chú/Phát hiện");
-      return;
-    }
 
-    if (!accessorySnapshotFile && !accessorySnapshotPreview) {
-      message.error("Vui lòng tải lên ít nhất một ảnh bằng chứng phụ kiện");
-      return;
-    }
 
     try {
       // Cảnh báo nếu có POST_RENTAL discrepancy
@@ -964,9 +955,9 @@ export default function TechnicianQcDetail() {
         taskId: Number(actualTaskId),
         orderDetailSerialNumbers,
         result: String(result || "READY_FOR_SHIPPING").toUpperCase(),
-        findings: findings.trim(),
+        findings: "Không có ghi chú",
         deviceConditions: deviceConditionsPayload,
-        accessoryFile: accessorySnapshotFile || null,
+        accessoryFile: null,
       };
 
       const taskStatus = String(task?.status || "").toUpperCase();
@@ -1454,81 +1445,7 @@ export default function TechnicianQcDetail() {
             </Col>
           </Row>
 
-          <div>
-            <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Ghi chú/Phát hiện <Text type="danger">*</Text>
-            </Text>
-            <Input.TextArea
-              rows={4}
-              placeholder="Nhập ghi chú, phát hiện hoặc quan sát trong quá trình QC..."
-              value={findings}
-              onChange={(e) => setFindings(e.target.value)}
-              required
-            />
-          </div>
 
-          <div>
-            <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Ảnh chụp bằng chứng
-            </Text>
-            <Upload.Dragger
-              multiple={false}
-              accept=".jpg,.jpeg,.png,.webp"
-              beforeUpload={() => false}
-              showUploadList={false}
-              onChange={({ file }) => {
-                const f = file?.originFileObj || file;
-                if (f) {
-                  setAccessorySnapshotFile(f);
-                  const url =
-                    file.thumbUrl || file.url || (f ? URL.createObjectURL(f) : "");
-                  setAccessorySnapshotPreview(url);
-                } else {
-                  setAccessorySnapshotFile(null);
-                  setAccessorySnapshotPreview("");
-                }
-              }}
-            >
-              {accessorySnapshotPreview ? (
-                <div
-                  style={{
-                    height: 180,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <img
-                    src={accessorySnapshotPreview}
-                    alt="accessory"
-                    style={{ maxHeight: 170, maxWidth: "100%", borderRadius: 8 }}
-                  />
-                </div>
-              ) : (
-                <>
-                  <p className="ant-upload-drag-icon">
-                    <InboxOutlined />
-                  </p>
-                  <p>Thả hoặc bấm để chọn 1 ảnh phụ kiện</p>
-                  <p style={{ color: "#888", fontSize: 12 }}>
-                    Hỗ trợ: JPG, PNG, WEBP
-                  </p>
-                </>
-              )}
-            </Upload.Dragger>
-            {accessorySnapshotPreview && (
-              <div style={{ marginTop: 8 }}>
-                <Button
-                  onClick={() => {
-                    setAccessorySnapshotFile(null);
-                    setAccessorySnapshotPreview("");
-                  }}
-                >
-                  Chọn lại ảnh
-                </Button>
-              </div>
-            )}
-          </div>
 
           {/* Device Conditions Section */}
           <Divider />
