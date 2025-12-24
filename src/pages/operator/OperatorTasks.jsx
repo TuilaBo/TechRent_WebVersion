@@ -889,13 +889,7 @@ export default function OperatorTasks() {
       dataIndex: "status",
       key: "status",
       width: 140,
-      filters: [
-        { text: "Chờ thực hiện", value: "PENDING" },
-        { text: "Đang xử lý", value: "PROCESSING" },
-        { text: "Đang thực hiện", value: "IN_PROGRESS" },
-        { text: "Hoàn thành", value: "COMPLETED" },
-      ],
-      onFilter: (value, record) => record.status === value,
+      
       render: statusTag,
     },
     {
