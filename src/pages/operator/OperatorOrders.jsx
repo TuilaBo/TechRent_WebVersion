@@ -28,6 +28,7 @@ import {
   Col,
   Tabs,
   Avatar,
+  Select,
 } from "antd";
 import {
   EyeOutlined,
@@ -491,8 +492,6 @@ const statusTag = (s) => {
       return <Tag color="red">Đã hủy</Tag>;
     case "COMPLETED":
       return <Tag color="blue">Hoàn tất đơn hàng</Tag>;
-    case "ACTIVE":
-      return <Tag color="green">Đang thuê</Tag>;
     case "IN_USE":
       return <Tag color="geekblue">Đang sử dụng</Tag>;
       case "DELIVERING":
@@ -1230,6 +1229,7 @@ export default function OperatorOrders() {
   const [rows, setRows] = useState([]);
   const [kw, setKw] = useState("");
   const [range, setRange] = useState(null);
+  const [orderStatusFilter, setOrderStatusFilter] = useState(null); // Filter by order status
   
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -1337,8 +1337,9 @@ export default function OperatorOrders() {
    * @param {number} page - Số trang (1-indexed, mặc định 1)
    * @param {number} pageSize - Số đơn mỗi trang (mặc định 10)
    * @param {number} [orderId] - Mã đơn hàng để filter (optional)
+   * @param {string} [orderStatus] - Trạng thái đơn hàng để filter (optional)
    */
-  const fetchAll = async (page = 1, pageSize = 10, orderId = null) => {
+  const fetchAll = async (page = 1, pageSize = 10, orderId = null, orderStatus = null) => {
     // Đảm bảo giá trị page và pageSize là số nguyên hợp lệ
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
@@ -1347,15 +1348,26 @@ export default function OperatorOrders() {
       // Bật loading spinner cho Table
       setLoading(true);
       
-      // ========== GỌI API TÌM KIẾM ĐƠN HÀNG ==========
-      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z
+      // ========== GỌI API TÌM KIẾĂM ĐƠN HÀNG ==========
+      // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z&orderStatus=STATUS
       // Trả về: { content: [], totalElements, totalPages, number, size }
-      const result = await searchRentalOrders({
+      const params = {
         page: safePage - 1, // API dùng 0-indexed (page 0 = trang 1)
         size: safeSize,
         sort: ["createdAt,desc"], // Sắp xếp mới nhất lên đầu
-        orderId: orderId != null ? Number(orderId) : undefined,
-      });
+      };
+      
+      // Thêm orderId nếu có
+      if (orderId != null) {
+        params.orderId = Number(orderId);
+      }
+      
+      // Thêm orderStatus nếu có
+      if (orderStatus) {
+        params.orderStatus = orderStatus;
+      }
+      
+      const result = await searchRentalOrders(params);
       
       // Lưu danh sách đơn vào state để hiển thị
       setRows(result.content);
@@ -2585,29 +2597,8 @@ export default function OperatorOrders() {
     {
       title: "Trạng thái đơn hàng",
       dataIndex: "orderStatus",
-      width: 140,
+      width: 160,
       render: statusTag,
-      filters: [
-        { text: "Đang chờ", value: "PENDING" },
-        { text: "Đã xác nhận", value: "CONFIRMED" },
-        { text: "Đang xử lý", value: "PROCESSING" },
-        { text: "Sẵn sàng giao hàng", value: "DELIVERY_C" },
-        { text: "Đang sử dụng", value: "IN_USE" },
-        { text: "Đã hủy", value: "CANCELLED" },
-        { text: "Hoàn tất", value: "COMPLETED" },
-      ],
-      onFilter: (val, r) => {
-        const orderStatus = String(r.orderStatus).toUpperCase();
-        const filterVal = String(val).toUpperCase();
-        if (filterVal === "DELIVERY_C") {
-          return (
-            orderStatus === "DELIVERY_C" ||
-            orderStatus === "DELIVERY_CONFIRMED" ||
-            orderStatus === "READY_FOR_DELIVERY"
-          );
-        }
-        return orderStatus === filterVal;
-      },
     },
     {
       title: "Thao tác",
@@ -3019,9 +3010,32 @@ export default function OperatorOrders() {
               fetchAll(1, pagination.pageSize);
             }
           }}
-          style={{ width: 300 }}
+          style={{ width: 200 }}
         />
         <RangePicker value={range} onChange={setRange} />
+        <Select
+          placeholder="Trạng thái đơn hàng"
+          allowClear
+          value={orderStatusFilter}
+          style={{ width: 180 }}
+          options={[
+            { label: "Đang chờ", value: "PENDING" },
+            { label: "Chờ KYC", value: "PENDING_KYC" },
+            { label: "Đã xác nhận", value: "CONFIRMED" },
+            { label: "Đang xử lý", value: "PROCESSING" },
+            { label: "Chuẩn bị giao hàng", value: "DELIVERY_CONFIRMED" },
+            { label: "Đang giao hàng", value: "DELIVERING" },
+            { label: "Đang sử dụng", value: "IN_USE" },
+            { label: "Hoàn tất đơn hàng", value: "COMPLETED" },
+           
+          ]}
+          onChange={(value) => {
+            // Lưu giá trị filter vào state
+            setOrderStatusFilter(value);
+            // Gọi API với orderStatus parameter
+            fetchAll(1, pagination.pageSize, null, value);
+          }}
+        />
       </Space>
 
       {loading ? (
@@ -3041,8 +3055,8 @@ export default function OperatorOrders() {
             showSizeChanger: true,
             pageSizeOptions: ['10', '20', '50', '100'],
             showTotal: (total, range) => `${range[0]}-${range[1]} / ${total} đơn`,
-            onChange: (page, pageSize) => fetchAll(page, pageSize),
-            onShowSizeChange: (current, size) => fetchAll(1, size),
+            onChange: (page, pageSize) => fetchAll(page, pageSize, null, orderStatusFilter),
+            onShowSizeChange: (current, size) => fetchAll(1, size, null, orderStatusFilter),
           }}
           scroll={{ x: 1200 }}
         />

@@ -21,18 +21,28 @@ import {
   Drawer,
   Descriptions,
   Select,
+  DatePicker,
+  Tabs,
 } from "antd";
 import {
   ArrowUpOutlined,
-  DollarCircleOutlined,
-  ShoppingOutlined,
-  SecurityScanOutlined,
-  DatabaseOutlined,
+  ArrowDownOutlined,
+  DollarOutlined,
+  ShoppingCartOutlined,
+  UserOutlined,
+  ToolOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ExclamationCircleOutlined,
+  InboxOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
+  AreaChart,
+  Area,
   LineChart,
   Line,
   XAxis,
@@ -45,9 +55,10 @@ import {
   Legend,
   BarChart,
   Bar,
+  ComposedChart,
 } from "recharts";
 import { getTransactions } from "../../lib/Payment";
-import { listRentalOrders, getRentalOrderById } from "../../lib/rentalOrdersApi";
+import { listRentalOrders, getRentalOrderById, searchRentalOrders } from "../../lib/rentalOrdersApi";
 import { listAllKycs } from "../../lib/kycApi";
 import { listCustomers } from "../../lib/customerApi";
 import {
@@ -60,6 +71,21 @@ import {
 } from "../../lib/dashBoard";
 
 const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
+
+// Color palette - professional and consistent
+const COLORS = {
+  primary: "#1677ff",
+  success: "#52c41a",
+  warning: "#faad14",
+  danger: "#ff4d4f",
+  info: "#13c2c2",
+  purple: "#722ed1",
+  gray: "#8c8c8c",
+  lightGray: "#f5f5f5",
+};
+
+const CHART_COLORS = ["#1677ff", "#52c41a", "#faad14", "#ff4d4f", "#13c2c2", "#722ed1"];
 
 const SUCCESS_PAYMENT_STATUSES = new Set([
   "SUCCEEDED",
@@ -78,6 +104,7 @@ const ORDER_STATUS_LABELS = {
   in_use: "Đang sử dụng",
   delivery_confirmed: "Đã giao",
   active: "Đang thuê",
+  completed: "Hoàn tất đơn hàng",
   returned: "Đã trả",
   cancelled: "Đã hủy",
 };
@@ -95,24 +122,6 @@ const ORDER_STATUS_TAG = {
   cancelled: "red",
 };
 
-const KYC_PIE_COLORS = ["#22c55e", "#f97316", "#9ca3af"];
-
-const TRANSACTION_STATUS_TAG = {
-  SUCCEEDED: "green",
-  PAID: "green",
-  COMPLETED: "green",
-  SUCCESS: "green",
-  SUCCESSFUL: "green",
-  PENDING: "gold",
-  PROCESSING: "blue",
-  FAILED: "red",
-  CANCELLED: "red",
-  CANCELED: "red",
-  EXPIRED: "volcano",
-};
-
-const ATTENTION_STATUSES = new Set(["pending", "pending_kyc", "processing"]);
-
 function formatVND(value = 0) {
   try {
     return Number(value).toLocaleString("vi-VN", {
@@ -122,6 +131,13 @@ function formatVND(value = 0) {
   } catch {
     return `${value}đ`;
   }
+}
+
+function formatShortVND(value = 0) {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} tỷ`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} tr`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
+  return `${value}đ`;
 }
 
 function formatAxisCurrency(value = 0) {
@@ -146,8 +162,93 @@ function formatDateTime(value) {
   return dayjs(value).format("DD/MM/YYYY HH:mm");
 }
 
+// Stat Card Component - Clean design
+function StatCard({ title, value, suffix, icon, color = COLORS.primary, trend, trendValue, loading }) {
+  return (
+    <Card 
+      bordered={false}
+      style={{ 
+        borderRadius: 12,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <Text type="secondary" style={{ fontSize: 13 }}>{title}</Text>
+          <div style={{ marginTop: 8 }}>
+            {loading ? (
+              <Spin size="small" />
+            ) : (
+              <Text strong style={{ fontSize: 28, color }}>{value}</Text>
+            )}
+            {suffix && <Text type="secondary" style={{ marginLeft: 4, fontSize: 14 }}>{suffix}</Text>}
+          </div>
+          {trend && trendValue && (
+            <div style={{ marginTop: 4 }}>
+              {trend === "up" ? (
+                <Text style={{ color: COLORS.success, fontSize: 12 }}>
+                  <ArrowUpOutlined /> {trendValue}
+                </Text>
+              ) : (
+                <Text style={{ color: COLORS.danger, fontSize: 12 }}>
+                  <ArrowDownOutlined /> {trendValue}
+                </Text>
+              )}
+            </div>
+          )}
+        </div>
+        <div 
+          style={{ 
+            width: 48, 
+            height: 48, 
+            borderRadius: 12, 
+            backgroundColor: `${color}10`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {React.cloneElement(icon, { style: { fontSize: 24, color } })}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// Revenue Card - Highlight design
+function RevenueCard({ title, value, subtitle, icon, bgColor, loading }) {
+  return (
+    <Card 
+      bordered={false}
+      style={{ 
+        borderRadius: 12,
+        background: bgColor,
+        minHeight: 140,
+      }}
+    >
+      <div style={{ color: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 13 }}>{title}</Text>
+          {icon}
+        </div>
+        {loading ? (
+          <Spin size="small" style={{ marginTop: 16 }} />
+        ) : (
+          <div style={{ marginTop: 12 }}>
+            <Text strong style={{ fontSize: 26, color: "#fff" }}>{formatVND(value)}</Text>
+          </div>
+        )}
+        {subtitle && (
+          <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 8, display: "block" }}>
+            {subtitle}
+          </Text>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function AdminDashboard() {
-  const [orderFilter, setOrderFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -158,16 +259,65 @@ export default function AdminDashboard() {
   const [orderDetail, setOrderDetail] = useState(null);
   const [orderDetailLoading, setOrderDetailLoading] = useState(false);
 
-  // New dashboard API states
-  const [dashboardMonth, setDashboardMonth] = useState(dayjs().month() + 1);
-  const [dashboardYear, setDashboardYear] = useState(dayjs().year());
-  const [dashboardLoading, setDashboardLoading] = useState(false);
+  // ===== FILTER 1: Doanh thu (4 ô revenue + cơ cấu doanh thu) =====
+  const [revenueFilterType, setRevenueFilterType] = useState("month");
+  const [revenueSelectedDate, setRevenueSelectedDate] = useState(dayjs());
+  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [revenueData, setRevenueData] = useState(null);
+  
+  // ===== FILTER 2: Thống kê (các mục còn lại) =====
+  const [statsFilterType, setStatsFilterType] = useState("month");
+  const [statsSelectedDate, setStatsSelectedDate] = useState(dayjs());
+  const [statsLoading, setStatsLoading] = useState(false);
+  
+  // Dashboard API states
   const [ordersStatusData, setOrdersStatusData] = useState(null);
   const [newCustomersData, setNewCustomersData] = useState(null);
   const [deviceIncidentsData, setDeviceIncidentsData] = useState(null);
   const [deviceImportsData, setDeviceImportsData] = useState(null);
   const [damagesData, setDamagesData] = useState(null);
-  const [revenueData, setRevenueData] = useState(null);
+  const [last7DaysRevenue, setLast7DaysRevenue] = useState([]);
+  const [loading7Days, setLoading7Days] = useState(false);
+  
+  // ===== FILTER 3: Trạng thái đơn hàng (bảng đơn hàng gần đây) =====
+  const [orderStatusFilter, setOrderStatusFilter] = useState(null);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+
+  // Get filter params for Revenue
+  const getRevenueFilterParams = () => {
+    const params = { year: revenueSelectedDate.year() };
+    if (revenueFilterType === "month" || revenueFilterType === "day") {
+      params.month = revenueSelectedDate.month() + 1;
+    }
+    if (revenueFilterType === "day") {
+      params.day = revenueSelectedDate.date();
+    }
+    return params;
+  };
+
+  // Get filter params for Stats
+  const getStatsFilterParams = () => {
+    const params = { year: statsSelectedDate.year() };
+    if (statsFilterType === "month" || statsFilterType === "day") {
+      params.month = statsSelectedDate.month() + 1;
+    }
+    if (statsFilterType === "day") {
+      params.day = statsSelectedDate.date();
+    }
+    return params;
+  };
+
+  const revenueFilterLabel = useMemo(() => {
+    if (revenueFilterType === "day") return revenueSelectedDate.format("DD/MM/YYYY");
+    if (revenueFilterType === "month") return revenueSelectedDate.format("MM/YYYY");
+    return revenueSelectedDate.format("YYYY");
+  }, [revenueFilterType, revenueSelectedDate]);
+
+  const statsFilterLabel = useMemo(() => {
+    if (statsFilterType === "day") return statsSelectedDate.format("DD/MM/YYYY");
+    if (statsFilterType === "month") return statsSelectedDate.format("MM/YYYY");
+    return statsSelectedDate.format("YYYY");
+  }, [statsFilterType, statsSelectedDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,27 +354,75 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  // Load dashboard API data when month/year changes
+  // Fetch orders with orderStatus filter
+  const fetchOrdersByStatus = async (orderStatus = null) => {
+    try {
+      setOrdersLoading(true);
+      const params = {
+        page: 0,
+        size: 20,
+        sort: ["createdAt,desc"],
+      };
+      if (orderStatus) {
+        params.orderStatus = orderStatus;
+      }
+      const result = await searchRentalOrders(params);
+      setOrdersRaw(result.content || []);
+    } catch (err) {
+      console.error("Failed to fetch orders:", err);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  // Load orders when orderStatusFilter changes
+  useEffect(() => {
+    if (orderStatusFilter !== null) {
+      fetchOrdersByStatus(orderStatusFilter);
+    }
+  }, [orderStatusFilter]);
+
+  // Load Revenue data when revenue filter changes
   useEffect(() => {
     let cancelled = false;
-    async function loadDashboardStats() {
+    async function loadRevenueData() {
       try {
-        setDashboardLoading(true);
-        const params = { year: dashboardYear, month: dashboardMonth };
+        setRevenueLoading(true);
+        const params = getRevenueFilterParams();
+        const revenue = await getRevenue(params).catch(() => null);
+        if (cancelled) return;
+        setRevenueData(revenue);
+      } catch (err) {
+        console.error("Error loading revenue data:", err);
+      } finally {
+        if (!cancelled) setRevenueLoading(false);
+      }
+    }
+    loadRevenueData();
+    return () => {
+      cancelled = true;
+    };
+  }, [revenueFilterType, revenueSelectedDate]);
+
+  // Load Stats data when stats filter changes
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStatsData() {
+      try {
+        setStatsLoading(true);
+        const params = getStatsFilterParams();
         const [
           ordersStatus,
           newCustomers,
           deviceIncidents,
           deviceImports,
           damages,
-          revenue,
         ] = await Promise.all([
           getOrdersStatus(params).catch(() => null),
           getNewCustomers(params).catch(() => null),
           getDeviceIncidents(params).catch(() => null),
           getDeviceImportsByCategory(params).catch(() => null),
           getDamages(params).catch(() => null),
-          getRevenue(params).catch(() => null),
         ]);
         if (cancelled) return;
         setOrdersStatusData(ordersStatus);
@@ -232,18 +430,63 @@ export default function AdminDashboard() {
         setDeviceIncidentsData(deviceIncidents);
         setDeviceImportsData(deviceImports);
         setDamagesData(damages);
-        setRevenueData(revenue);
       } catch (err) {
-        console.error("Error loading dashboard stats:", err);
+        console.error("Error loading stats data:", err);
       } finally {
-        if (!cancelled) setDashboardLoading(false);
+        if (!cancelled) setStatsLoading(false);
       }
     }
-    loadDashboardStats();
+    loadStatsData();
     return () => {
       cancelled = true;
     };
-  }, [dashboardMonth, dashboardYear]);
+  }, [statsFilterType, statsSelectedDate]);
+
+  // Load revenue for last 7 days from Dashboard API
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLast7DaysRevenue() {
+      try {
+        setLoading7Days(true);
+        const today = dayjs();
+        const promises = [];
+        
+        for (let i = 6; i >= 0; i--) {
+          const date = today.subtract(i, "day");
+          const params = {
+            year: date.year(),
+            month: date.month() + 1,
+            day: date.date(),
+          };
+          promises.push(
+            getRevenue(params)
+              .then((res) => ({
+                label: date.format("DD/MM"),
+                date: date.format("YYYY-MM-DD"),
+                amount: res?.data?.totalRevenue ?? res?.totalRevenue ?? 0,
+              }))
+              .catch(() => ({
+                label: date.format("DD/MM"),
+                date: date.format("YYYY-MM-DD"),
+                amount: 0,
+              }))
+          );
+        }
+        
+        const results = await Promise.all(promises);
+        if (cancelled) return;
+        setLast7DaysRevenue(results);
+      } catch (err) {
+        console.error("Error loading 7 days revenue:", err);
+      } finally {
+        if (!cancelled) setLoading7Days(false);
+      }
+    }
+    loadLast7DaysRevenue();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const successfulTransactions = useMemo(
     () =>
@@ -255,32 +498,12 @@ export default function AdminDashboard() {
     [transactions]
   );
 
+  // Revenue data for chart - use Dashboard API data
   const revenueChartData = useMemo(() => {
-    if (!successfulTransactions.length) return [];
-    const today = dayjs().endOf("day");
-    const start = today.subtract(6, "day");
-    const buckets = new Map();
-    for (let i = 0; i < 7; i += 1) {
-      const date = start.add(i, "day");
-      const key = date.format("YYYY-MM-DD");
-      buckets.set(key, { label: date.format("DD/MM"), amount: 0 });
-    }
-    successfulTransactions.forEach((tx) => {
-      const dateKey = dayjs(tx.createdAt || tx.paymentDate).format("YYYY-MM-DD");
-      if (buckets.has(dateKey)) {
-        const current = buckets.get(dateKey);
-        current.amount += Number(tx.amount || 0);
-        buckets.set(dateKey, current);
-      }
-    });
-    return Array.from(buckets.values());
-  }, [successfulTransactions]);
+    return last7DaysRevenue;
+  }, [last7DaysRevenue]);
 
-  const totalRevenue = useMemo(
-    () => successfulTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
-    [successfulTransactions]
-  );
-
+  // Orders trend for chart
   const ordersTrendData = useMemo(() => {
     if (!ordersRaw.length) return [];
     const today = dayjs().endOf("day");
@@ -290,40 +513,62 @@ export default function AdminDashboard() {
       const date = start.add(i, "day");
       buckets.set(date.format("YYYY-MM-DD"), {
         label: date.format("DD/MM"),
-        count: 0,
+        orders: 0,
+        completed: 0,
+        cancelled: 0,
       });
     }
     ordersRaw.forEach((order) => {
       const key = dayjs(order?.createdAt).format("YYYY-MM-DD");
       if (buckets.has(key)) {
         const current = buckets.get(key);
-        current.count += 1;
+        current.orders += 1;
+        const status = String(order?.orderStatus || "").toLowerCase();
+        if (status === "returned" || status === "completed") current.completed += 1;
+        if (status === "cancelled") current.cancelled += 1;
         buckets.set(key, current);
       }
     });
     return Array.from(buckets.values());
   }, [ordersRaw]);
 
+  const totalRevenue = useMemo(
+    () => successfulTransactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0),
+    [successfulTransactions]
+  );
+
   const latestOrders = useMemo(() => {
+    // Create a map of customerId -> customer info for quick lookup
+    const customerMap = new Map();
+    customersRaw.forEach((c) => {
+      const id = c?.customerId ?? c?.id;
+      if (id) {
+        customerMap.set(Number(id), c);
+      }
+    });
+
     const sorted = [...ordersRaw].sort((a, b) => {
       const ta = new Date(a?.createdAt || 0).getTime();
       const tb = new Date(b?.createdAt || 0).getTime();
       return tb - ta;
     });
-    return sorted.slice(0, 10).map((order) => {
+    return sorted.slice(0, 8).map((order) => {
       const total =
         Number(order?.totalPrice ?? order?.total ?? 0) +
         Number(order?.depositAmount ?? order?.deposit ?? 0);
+      
+      // Try to get customer name from order first, then from customerMap
+      let customerName = order?.customerName || order?.customer?.fullName || order?.customer?.name;
+      if (!customerName && order?.customerId) {
+        const customer = customerMap.get(Number(order.customerId));
+        customerName = customer?.fullName || customer?.username || customer?.name || customer?.email;
+      }
+      
       return {
         key: order?.id ?? order?.orderId,
         id: normalizeOrderId(order),
-        customer:
-          order?.customerName ||
-          order?.customer?.fullName ||
-          order?.customer?.name ||
-          "—",
+        customer: customerName || `Khách #${order?.customerId || "—"}`,
         total,
-        days: order?.days ?? order?.rentalDays ?? "—",
         status: String(order?.orderStatus || "").toLowerCase(),
         createdAt: order?.createdAt
           ? dayjs(order.createdAt).format("DD/MM/YYYY HH:mm")
@@ -331,12 +576,7 @@ export default function AdminDashboard() {
         raw: order,
       };
     });
-  }, [ordersRaw]);
-
-  const filteredOrders = useMemo(() => {
-    if (orderFilter === "all") return latestOrders;
-    return latestOrders.filter((o) => o.status === orderFilter);
-  }, [latestOrders, orderFilter]);
+  }, [ordersRaw, customersRaw]);
 
   const newOrdersToday = useMemo(
     () =>
@@ -358,94 +598,31 @@ export default function AdminDashboard() {
     });
     const total = summary.passed + summary.failed + summary.pending;
     const passRate = total ? Math.round((summary.passed / total) * 100) : 0;
-    const pieData = [
-      { name: "Đã duyệt", value: summary.passed, color: KYC_PIE_COLORS[0] },
-      { name: "Từ chối", value: summary.failed, color: KYC_PIE_COLORS[1] },
-      { name: "Đang chờ", value: summary.pending, color: KYC_PIE_COLORS[2] },
-    ];
-    return { summary, passRate, total, pieData };
+    return { summary, passRate, total };
   }, [kycRecords]);
 
-  const orderStatusOptions = useMemo(() => {
-    const statuses = new Set(latestOrders.map((o) => o.status).filter(Boolean));
-    return [
-      { label: "Tất cả", value: "all" },
-      ...Array.from(statuses).map((status) => ({
-        label: ORDER_STATUS_LABELS[status] || status,
-        value: status,
-      })),
-    ];
-  }, [latestOrders]);
+  // Device imports chart data
+  const deviceImportsChartData = useMemo(() => {
+    const categories = deviceImportsData?.data?.categories ?? deviceImportsData?.categories;
+    if (!categories || !Array.isArray(categories)) return [];
+    return categories.map((item, index) => ({
+      name: item.categoryName || `Category ${index + 1}`,
+      value: item.deviceCount || item.count || 0,
+    }));
+  }, [deviceImportsData]);
 
-  const attentionOrders = useMemo(() => {
-    const items = ordersRaw
-      .filter((o) => ATTENTION_STATUSES.has(String(o?.orderStatus || "").toLowerCase()))
-      .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())
-      .slice(0, 6)
-      .map((order) => ({
-        id: normalizeOrderId(order),
-        status: String(order?.orderStatus || "").toLowerCase(),
-        customer:
-          order?.customerName ||
-          order?.customer?.fullName ||
-          order?.customer?.name ||
-          "—",
-        createdAt: formatDateTime(order?.createdAt),
-        link: `/orders?orderId=${order?.orderId ?? order?.id}`,
-      }));
-    return items;
-  }, [ordersRaw]);
-
-  const recentTransactions = useMemo(() => {
-    const sorted = [...transactions].sort(
-      (a, b) =>
-        new Date(b?.createdAt || b?.paymentDate || 0).getTime() -
-        new Date(a?.createdAt || a?.paymentDate || 0).getTime()
-    );
-    return sorted.slice(0, 6).map((tx) => {
-      const status = String(tx?.invoiceStatus || tx?.status || "").toUpperCase();
-      return {
-        id: tx?.invoiceId || tx?.transactionId || tx?.id,
-        amount: Number(tx?.amount || tx?.totalAmount || 0),
-        method: String(tx?.paymentMethod || tx?.method || "N/A").toUpperCase(),
-        status,
-        time: formatDateTime(tx?.paymentDate || tx?.createdAt),
-      };
-    });
-  }, [transactions]);
-
-  const pendingKycList = useMemo(() => {
-    const pendingStatuses = new Set(["PENDING", "SUBMITTED", "WAITING", "REVIEWING"]);
-    return kycRecords
-      .filter((record) =>
-        pendingStatuses.has(String(record?.kycStatus || record?.status || "").toUpperCase())
-      )
-      .sort(
-        (a, b) =>
-          new Date(b?.updatedAt || b?.createdAt || 0).getTime() -
-          new Date(a?.updatedAt || a?.createdAt || 0).getTime()
-      )
-      .slice(0, 6)
-      .map((record) => ({
-        id: record?.kycId || record?.id,
-        fullName: record?.fullName || record?.customerName || `Khách #${record?.customerId}`,
-        submittedAt: formatDateTime(record?.createdAt || record?.submittedAt),
-        customerId: record?.customerId,
-      }));
-  }, [kycRecords]);
-
-  // Calculate local stats from existing data (fallback when dashboard API returns 0)
+  // Calculate local stats from existing data (fallback)
   const localMonthlyStats = useMemo(() => {
-    const startOfMonth = dayjs().year(dashboardYear).month(dashboardMonth - 1).startOf("month");
+    const year = statsSelectedDate.year();
+    const month = statsSelectedDate.month();
+    const startOfMonth = dayjs().year(year).month(month).startOf("month");
     const endOfMonth = startOfMonth.endOf("month");
 
-    // Customers created this month
     const newCustomersCount = customersRaw.filter((c) => {
       const created = dayjs(c?.createdAt);
       return created.isValid() && created.isAfter(startOfMonth) && created.isBefore(endOfMonth);
     }).length;
 
-    // Orders by status this month
     const ordersThisMonth = ordersRaw.filter((o) => {
       const created = dayjs(o?.createdAt);
       return created.isValid() && created.isAfter(startOfMonth) && created.isBefore(endOfMonth);
@@ -467,41 +644,40 @@ export default function AdminDashboard() {
       cancelledCount,
       totalOrdersThisMonth: ordersThisMonth.length,
     };
-  }, [customersRaw, ordersRaw, dashboardMonth, dashboardYear]);
+  }, [customersRaw, ordersRaw, statsSelectedDate]);
 
   const orderColumns = [
     {
       title: "Mã đơn",
       dataIndex: "id",
-      sorter: (a, b) => a.id.localeCompare(b.id),
+      width: 120,
     },
-    { title: "Khách hàng", dataIndex: "customer" },
+    { 
+      title: "Khách hàng", 
+      dataIndex: "customer",
+      ellipsis: true,
+    },
     {
-      title: "Tổng thanh toán",
+      title: "Tổng tiền",
       dataIndex: "total",
       align: "right",
-      render: (value) => formatVND(value || 0),
-      sorter: (a, b) => (a.total || 0) - (b.total || 0),
+      width: 140,
+      render: (value) => <Text strong>{formatVND(value || 0)}</Text>,
     },
-    { title: "Số ngày", dataIndex: "days", align: "center" },
     {
       title: "Trạng thái",
       dataIndex: "status",
+      width: 130,
       render: (status) => (
         <Tag color={ORDER_STATUS_TAG[status] || "default"}>
           {ORDER_STATUS_LABELS[status] || status || "—"}
         </Tag>
       ),
     },
-    { title: "Ngày tạo", dataIndex: "createdAt" },
-    {
-      title: "",
-      key: "actions",
-      render: (_, record) => (
-        <Button type="link" onClick={() => handleOpenOrderDetail(record.raw)}>
-          Xem chi tiết
-        </Button>
-      ),
+    { 
+      title: "Ngày tạo", 
+      dataIndex: "createdAt",
+      width: 150,
     },
   ];
 
@@ -525,173 +701,208 @@ export default function AdminDashboard() {
     }
   };
 
+  // Get revenue values from API
+  const totalRevenueAPI = revenueData?.data?.totalRevenue ?? revenueData?.totalRevenue ?? 0;
+  const rentalRevenue = revenueData?.data?.rentalRevenue ?? revenueData?.rentalRevenue ?? 0;
+  const lateFeeRevenue = revenueData?.data?.lateFeeRevenue ?? revenueData?.lateFeeRevenue ?? 0;
+  const damageFeeRevenue = revenueData?.data?.damageFeeRevenue ?? revenueData?.damageFeeRevenue ?? 0;
+
+  // Revenue breakdown for pie chart
+  const revenueBreakdownData = useMemo(() => {
+    if (!rentalRevenue && !lateFeeRevenue && !damageFeeRevenue) return [];
+    return [
+      { name: "Tiền thuê", value: rentalRevenue, color: COLORS.primary },
+      { name: "Phí trả muộn", value: lateFeeRevenue, color: COLORS.warning },
+      { name: "Bồi thường", value: damageFeeRevenue, color: COLORS.danger },
+    ].filter(item => item.value > 0);
+  }, [rentalRevenue, lateFeeRevenue, damageFeeRevenue]);
+
   return (
     <>
-    <Spin spinning={loading}>
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        {error && (
-          <Alert
-            type="error"
-            showIcon
-            message="Không tải được dữ liệu"
-            description={error}
-          />
-        )}
+      <Spin spinning={loading}>
+        <Space direction="vertical" size={24} style={{ width: "100%" }}>
+          {error && (
+            <Alert
+              type="error"
+              showIcon
+              message="Không tải được dữ liệu"
+              description={error}
+            />
+          )}
 
-        {/* Month/Year Selector for Dashboard APIs */}
-        <Card>
-          <Row gutter={16} align="middle">
-            <Col>
-              <Text strong>Thống kê theo tháng:</Text>
-            </Col>
-            <Col>
-              <Select
-                value={dashboardMonth}
-                onChange={setDashboardMonth}
-                style={{ width: 120 }}
-                options={[
-                  { label: "Tháng 1", value: 1 },
-                  { label: "Tháng 2", value: 2 },
-                  { label: "Tháng 3", value: 3 },
-                  { label: "Tháng 4", value: 4 },
-                  { label: "Tháng 5", value: 5 },
-                  { label: "Tháng 6", value: 6 },
-                  { label: "Tháng 7", value: 7 },
-                  { label: "Tháng 8", value: 8 },
-                  { label: "Tháng 9", value: 9 },
-                  { label: "Tháng 10", value: 10 },
-                  { label: "Tháng 11", value: 11 },
-                  { label: "Tháng 12", value: 12 },
-                ]}
-              />
-            </Col>
-            <Col>
-              <Select
-                value={dashboardYear}
-                onChange={setDashboardYear}
-                style={{ width: 100 }}
-                options={[
-                  { label: "2023", value: 2023 },
-                  { label: "2024", value: 2024 },
-                  { label: "2025", value: 2025 },
-                  { label: "2026", value: 2026 },
-                ]}
-              />
-            </Col>
-            {dashboardLoading && (
-              <Col>
-                <Spin size="small" />
+          {/* Header */}
+          <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Title level={4} style={{ margin: 0 }}>
+              <CalendarOutlined style={{ marginRight: 8 }} />
+              Tổng quan Dashboard
+            </Title>
+          </Card>
+
+          {/* ===== SECTION 1: DOANH THU ===== */}
+          <Card 
+            bordered={false} 
+            style={{ borderRadius: 12 }}
+            title={
+              <Space>
+                <DollarOutlined style={{ color: COLORS.primary }} />
+                <span>Thống kê Doanh thu</span>
+              </Space>
+            }
+            extra={
+              <Space size={12}>
+                <Segmented
+                  value={revenueFilterType}
+                  onChange={setRevenueFilterType}
+                  options={[
+                    { label: "Theo ngày", value: "day" },
+                    { label: "Theo tháng", value: "month" },
+                    { label: "Theo năm", value: "year" },
+                  ]}
+                  size="small"
+                />
+                <DatePicker
+                  value={revenueSelectedDate}
+                  onChange={(date) => date && setRevenueSelectedDate(date)}
+                  picker={revenueFilterType === "day" ? "date" : revenueFilterType === "month" ? "month" : "year"}
+                  format={revenueFilterType === "day" ? "DD/MM/YYYY" : revenueFilterType === "month" ? "MM/YYYY" : "YYYY"}
+                  allowClear={false}
+                  size="small"
+                  style={{ width: revenueFilterType === "day" ? 130 : 100 }}
+                />
+                {revenueLoading && <Spin size="small" />}
+              </Space>
+            }
+          >
+            {/* Revenue Overview Cards */}
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12} lg={6}>
+                <RevenueCard
+                  title="Tổng doanh thu"
+                  value={totalRevenueAPI}
+                  subtitle={`Kỳ: ${revenueFilterLabel}`}
+                  icon={<DollarOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
+                  bgColor="linear-gradient(135deg, #1677ff 0%, #4096ff 100%)"
+                  loading={revenueLoading}
+                />
               </Col>
-            )}
-          </Row>
-        </Card>
+              <Col xs={24} sm={12} lg={6}>
+                <RevenueCard
+                  title="Tiền thuê"
+                  value={rentalRevenue}
+                  icon={<ShoppingCartOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
+                  bgColor="linear-gradient(135deg, #52c41a 0%, #73d13d 100%)"
+                  loading={revenueLoading}
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <RevenueCard
+                  title="Phí trả muộn"
+                  value={lateFeeRevenue}
+                  icon={<ExclamationCircleOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
+                  bgColor="linear-gradient(135deg, #faad14 0%, #ffc53d 100%)"
+                  loading={revenueLoading}
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <RevenueCard
+                  title="Bồi thường thiệt hại"
+                  value={damageFeeRevenue}
+                  icon={<ToolOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
+                  bgColor="linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)"
+                  loading={revenueLoading}
+                />
+              </Col>
+            </Row>
+          </Card>
 
-        {/* Revenue Section from API - TOP PRIORITY */}
-        <Card 
-          title={`Doanh thu tháng ${dashboardMonth}/${dashboardYear}`}
-          extra={dashboardLoading ? <Spin size="small" /> : null}
-        >
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12} md={6}>
-              <Card style={{ background: "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Tổng doanh thu</Text>}
-                  value={revenueData?.data?.totalRevenue ?? revenueData?.totalRevenue ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 24 }}
-                  formatter={(value) => formatVND(value)}
+          {/* ===== SECTION 2: THỐNG KÊ ===== */}
+          <Card 
+            bordered={false} 
+            style={{ borderRadius: 12 }}
+            title={
+              <Space>
+                <UserOutlined style={{ color: COLORS.purple }} />
+                <span>Thống kê hoạt động</span>
+              </Space>
+            }
+            extra={
+              <Space size={12}>
+                <Segmented
+                  value={statsFilterType}
+                  onChange={setStatsFilterType}
+                  options={[
+                    { label: "Theo tháng", value: "month" },
+                    { label: "Theo năm", value: "year" },
+                  ]}
+                  size="small"
                 />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Card style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Tiền thuê</Text>}
-                  value={revenueData?.data?.rentalRevenue ?? revenueData?.rentalRevenue ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 20 }}
-                  formatter={(value) => formatVND(value)}
+                <DatePicker
+                  value={statsSelectedDate}
+                  onChange={(date) => date && setStatsSelectedDate(date)}
+                  picker={statsFilterType === "day" ? "date" : statsFilterType === "month" ? "month" : "year"}
+                  format={statsFilterType === "day" ? "DD/MM/YYYY" : statsFilterType === "month" ? "MM/YYYY" : "YYYY"}
+                  allowClear={false}
+                  size="small"
+                  style={{ width: statsFilterType === "day" ? 130 : 100 }}
                 />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Card style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Phí trả muộn</Text>}
-                  value={revenueData?.data?.lateFeeRevenue ?? revenueData?.lateFeeRevenue ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 20 }}
-                  formatter={(value) => formatVND(value)}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Card style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Bồi thường thiệt hại</Text>}
-                  value={revenueData?.data?.damageFeeRevenue ?? revenueData?.damageFeeRevenue ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 20 }}
-                  formatter={(value) => formatVND(value)}
-                />
-              </Card>
-            </Col>
-          </Row>
-        </Card>
-
-        {/* New Dashboard Stats Cards */}
-        <Spin spinning={dashboardLoading}>
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Khách hàng mới</Text>}
+                {statsLoading && <Spin size="small" />}
+              </Space>
+            }
+          >
+            {/* Stats Cards Row */}
+            <Row gutter={[16, 16]}>
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard
+                  title="Khách hàng mới"
                   value={newCustomersData?.data?.newCustomerCount ?? newCustomersData?.newCustomerCount ?? localMonthlyStats.newCustomersCount ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 28 }}
-                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>người</Text>}
+                  suffix="người"
+                  icon={<UserOutlined />}
+                  color={COLORS.purple}
+                  loading={statsLoading}
                 />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Thiết bị sự cố</Text>}
-                  value={deviceIncidentsData?.data?.totalIncidents ?? deviceIncidentsData?.totalIncidents ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 28 }}
-                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>thiết bị</Text>}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Đơn hoàn thành</Text>}
+              </Col>
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard
+                  title="Đơn hoàn thành"
                   value={ordersStatusData?.data?.completedCount ?? ordersStatusData?.completedCount ?? localMonthlyStats.completedCount ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 28 }}
-                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>đơn</Text>}
+                  suffix="đơn"
+                  icon={<CheckCircleOutlined />}
+                  color={COLORS.success}
+                  loading={statsLoading}
                 />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#fff" }}>Đơn bị hủy</Text>}
+              </Col>
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard
+                  title="Đơn bị hủy"
                   value={ordersStatusData?.data?.cancelledCount ?? ordersStatusData?.cancelledCount ?? localMonthlyStats.cancelledCount ?? 0}
-                  valueStyle={{ color: "#fff", fontSize: 28 }}
-                  suffix={<Text style={{ color: "#fff", fontSize: 14 }}>đơn</Text>}
+                  suffix="đơn"
+                  icon={<CloseCircleOutlined />}
+                  color={COLORS.danger}
+                  loading={statsLoading}
                 />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card style={{ background: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#333" }}>Thiệt hại</Text>}
-                  value={damagesData?.data?.totalDamage ?? damagesData?.totalDamage ?? 0}
-                  valueStyle={{ color: "#333", fontSize: 20 }}
-                  formatter={(value) => formatVND(value)}
+              </Col>
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard
+                  title="Thiết bị sự cố"
+                  value={deviceIncidentsData?.data?.totalIncidents ?? deviceIncidentsData?.totalIncidents ?? 0}
+                  suffix="thiết bị"
+                  icon={<ToolOutlined />}
+                  color={COLORS.warning}
+                  loading={statsLoading}
                 />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={4}>
-              <Card style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", borderRadius: 12 }}>
-                <Statistic
-                  title={<Text style={{ color: "#333" }}>TB nhập kho</Text>}
+              </Col>
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard
+                  title="Thiệt hại"
+                  value={formatShortVND(damagesData?.data?.totalDamage ?? damagesData?.totalDamage ?? 0)}
+                  icon={<ExclamationCircleOutlined />}
+                  color={COLORS.danger}
+                  loading={statsLoading}
+                />
+              </Col>
+              <Col xs={12} sm={8} lg={4}>
+                <StatCard
+                  title="TB nhập kho"
                   value={(() => {
                     const categories = deviceImportsData?.data?.categories ?? deviceImportsData?.categories;
                     if (!categories) return 0;
@@ -700,388 +911,379 @@ export default function AdminDashboard() {
                     }
                     return 0;
                   })()}
-                  valueStyle={{ color: "#333", fontSize: 28 }}
-                  suffix={<Text style={{ color: "#333", fontSize: 14 }}>thiết bị</Text>}
+                  suffix="thiết bị"
+                  icon={<InboxOutlined />}
+                  color={COLORS.info}
+                  loading={statsLoading}
                 />
+              </Col>
+            </Row>
+          </Card>
+
+
+          {/* Charts Row */}
+          <Row gutter={[16, 16]}>
+            {/* Revenue Trend Chart */}
+            <Col xs={24} lg={16}>
+              <Card 
+                title="Doanh thu 7 ngày gần nhất" 
+                bordered={false}
+                style={{ borderRadius: 12 }}
+                extra={loading7Days ? <Spin size="small" /> : null}
+              >
+                {loading7Days ? (
+                  <div style={{ height: 320, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Spin tip="Đang tải dữ liệu..." />
+                  </div>
+                ) : revenueChartData.length ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <AreaChart data={revenueChartData}>
+                      <defs>
+                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="label" axisLine={false} tickLine={false} />
+                      <YAxis tickFormatter={formatAxisCurrency} axisLine={false} tickLine={false} />
+                      <ChartTooltip 
+                        formatter={(value) => formatVND(value)}
+                        contentStyle={{ borderRadius: 8, border: "1px solid #f0f0f0" }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="amount"
+                        stroke={COLORS.primary}
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#colorRevenue)"
+                        name="Doanh thu"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có dữ liệu doanh thu" style={{ padding: "60px 0" }} />
+                )}
+              </Card>
+            </Col>
+
+            {/* Revenue Breakdown Pie Chart */}
+            <Col xs={24} lg={8}>
+              <Card 
+                title="Cơ cấu doanh thu" 
+                bordered={false}
+                style={{ borderRadius: 12 }}
+              >
+                {revenueBreakdownData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <PieChart>
+                      <Pie
+                        data={revenueBreakdownData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                        {revenueBreakdownData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <ChartTooltip 
+                        formatter={(value) => formatVND(value)}
+                        contentStyle={{ borderRadius: 8, border: "1px solid #f0f0f0" }}
+                      />
+                      <Legend 
+                        verticalAlign="bottom"
+                        formatter={(value, entry) => (
+                          <span style={{ color: "#666" }}>{value}</span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có dữ liệu" style={{ padding: "60px 0" }} />
+                )}
               </Card>
             </Col>
           </Row>
-        </Spin>
 
-        {/* Device Imports by Category Chart */}
-        {(() => {
-          const categories = deviceImportsData?.data?.categories ?? deviceImportsData?.categories;
-          if (!categories || !Array.isArray(categories) || categories.length === 0) return null;
-          return (
-            <Card title={`Thiết bị nhập theo danh mục - Tháng ${dashboardMonth}/${dashboardYear}`}>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={categories}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="categoryName" angle={-45} textAnchor="end" height={80} />
-                  <YAxis allowDecimals={false} />
-                  <ChartTooltip />
-                  <Bar dataKey="deviceCount" fill="#8884d8" radius={[4, 4, 0, 0]}>
-                    {categories.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={["#667eea", "#764ba2", "#f093fb", "#f5576c", "#4facfe", "#00f2fe", "#43e97b", "#38f9d7"][index % 8]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
-          );
-        })()}
-
-        <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <ShoppingOutlined style={{ fontSize: 24, color: "#1677ff" }} />
-                <Statistic
-                  title="Đơn mới hôm nay"
-                  value={newOrdersToday}
-                  suffix={<Text type="secondary">đơn</Text>}
-                />
-              </Space>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <SecurityScanOutlined style={{ fontSize: 24, color: "#faad14" }} />
-                <Statistic
-                  title="Tỷ lệ KYC đậu"
-                  value={kycSummary.passRate}
-                  suffix="%"
-                />
-              </Space>
-              <Progress
-                percent={kycSummary.passRate}
-                size="small"
-                style={{ marginTop: 8 }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} md={6}>
-            <Card>
-              <Space>
-                <DatabaseOutlined style={{ fontSize: 24, color: "#eb2f96" }} />
-                <Statistic
-                  title="Hồ sơ KYC đang chờ"
-                  value={kycSummary.summary.pending}
-                  suffix={<Text type="secondary">hồ sơ</Text>}
-                />
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={16}>
-            <Card title="Doanh thu 7 ngày gần nhất">
-              {revenueChartData.length ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={revenueChartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" />
-                    <YAxis tickFormatter={formatAxisCurrency} />
-                    <ChartTooltip formatter={(value) => formatVND(value)} />
-                    <Line
-                      type="monotone"
-                      dataKey="amount"
-                      stroke="#1677ff"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <Empty description="Chưa có giao dịch" />
-              )}
-            </Card>
-          </Col>
-          <Col xs={24} lg={8}>
-            <Card title="Tỷ lệ KYC">
-              {kycSummary.summary.passed +
-              kycSummary.summary.failed +
-              kycSummary.summary.pending ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={kycSummary.pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={2}
-                      label={({ name, value }) => `${name}: ${value}`}
-                    >
-                      {kycSummary.pieData.map((entry, index) => (
-                        <Cell key={entry.name} fill={entry.color || KYC_PIE_COLORS[index]} />
-                      ))}
-                    </Pie>
-                    <ChartTooltip formatter={(value, name) => [`${value} hồ sơ`, name]} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <Empty description="Chưa có dữ liệu KYC" />
-              )}
-            </Card>
-          </Col>
-        </Row>
-
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={16}>
-            <Card title="Số đơn mới 7 ngày gần nhất">
-              {ordersTrendData.length ? (
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={ordersTrendData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="label" />
-                    <YAxis allowDecimals={false} />
-                    <ChartTooltip />
-                    <Bar dataKey="count" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <Empty description="Chưa có đơn nào" />
-              )}
-            </Card>
-          </Col>
-          {/* <Col xs={24} lg={8}>
-            <Card title="Giao dịch gần đây">
-              {recentTransactions.length ? (
-                <List
-                  itemLayout="horizontal"
-                  dataSource={recentTransactions}
-                  renderItem={(item) => (
-                    <List.Item>
-                      <List.Item.Meta
-                        title={
-                          <Space>
-                            <Text strong>{formatVND(item.amount)}</Text>
-                            <Tag color={TRANSACTION_STATUS_TAG[item.status] || "default"}>
-                              {item.status}
-                            </Tag>
-                          </Space>
-                        }
-                        description={
-                          <Space direction="vertical" size={0}>
-                            <Text type="secondary">Phương thức: {item.method}</Text>
-                            <Text type="secondary">{item.time}</Text>
-                          </Space>
-                        }
+          {/* Orders Trend and Device Imports Charts */}
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={12}>
+              <Card 
+                title="Xu hướng đơn hàng 7 ngày" 
+                bordered={false}
+                style={{ borderRadius: 12 }}
+              >
+                {ordersTrendData.length ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <ComposedChart data={ordersTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="label" axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
+                      <ChartTooltip 
+                        contentStyle={{ borderRadius: 8, border: "1px solid #f0f0f0" }}
                       />
-                    </List.Item>
-                  )}
-                />
-              ) : (
-                <Empty description="Chưa có giao dịch" />
-              )}
-            </Card>
-          </Col> */}
-        </Row>
-
-        {/* <Row gutter={[16, 16]}>
-          <Col xs={24} lg={12}>
-            <Card title="Đơn cần xử lý">
-              {attentionOrders.length ? (
-                <List
-                  itemLayout="horizontal"
-                  dataSource={attentionOrders}
-                  renderItem={(item) => (
-                    <List.Item actions={[<Link to={item.link}>Xem</Link>]}>
-                      <List.Item.Meta
-                        title={
-                          <Space>
-                            <Text strong>{item.id}</Text>
-                            <Tag color={ORDER_STATUS_TAG[item.status] || "default"}>
-                              {ORDER_STATUS_LABELS[item.status] || item.status || "—"}
-                            </Tag>
-                          </Space>
-                        }
-                        description={
-                          <Space direction="vertical" size={0}>
-                            <Text>{item.customer}</Text>
-                            <Text type="secondary">{item.createdAt}</Text>
-                          </Space>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
-              ) : (
-                <Empty description="Không có đơn cần xử lý" />
-              )}
-            </Card>
-          </Col>
-          <Col xs={24} lg={12}>
-            <Card title="KYC chờ duyệt">
-              {pendingKycList.length ? (
-                <List
-                  dataSource={pendingKycList}
-                  renderItem={(item) => (
-                    <List.Item
-                      actions={[
-                        item.customerId ? (
-                          <Link to={`/admin/customers/${item.customerId}`}>Hồ sơ</Link>
-                        ) : null,
-                      ]}
-                    >
-                      <List.Item.Meta
-                        avatar={<Avatar icon={<SecurityScanOutlined />} />}
-                        title={<Text strong>{item.fullName}</Text>}
-                        description={<Text type="secondary">{item.submittedAt}</Text>}
-                      />
-                    </List.Item>
-                  )}
-                />
-              ) : (
-                <Empty description="Không có hồ sơ chờ" />
-              )}
-            </Card>
-          </Col>
-        </Row> */}
-
-        {/* <Card
-          title={
-            <Space>
-              Đơn hàng gần đây
-              <Segmented
-                options={orderStatusOptions}
-                value={orderFilter}
-                onChange={setOrderFilter}
-              />
-            </Space>
-          }
-          extra={
-            <Button type="link">
-              <Link to="/orders">Xem tất cả</Link>
-            </Button>
-          }
-        >
-          <Table
-            rowKey="key"
-            columns={orderColumns}
-            dataSource={filteredOrders}
-            size="middle"
-            pagination={{ pageSize: 6 }}
-            locale={{
-              emptyText: loading ? "Đang tải..." : "Không có đơn nào",
-            }}
-          />
-        </Card> */}
-      </Space>
-    </Spin>
-
-    <Drawer
-      title={
-        orderDetail
-          ? `Đơn ${normalizeOrderId(orderDetail)}`
-          : "Chi tiết đơn"
-      }
-      width={800}
-      open={orderDetailOpen}
-      onClose={() => {
-        setOrderDetailOpen(false);
-        setOrderDetail(null);
-      }}
-      destroyOnClose
-    >
-      <Spin spinning={orderDetailLoading}>
-        {orderDetail ? (
-          <Space direction="vertical" style={{ width: "100%" }} size="large">
-            <Descriptions
-              bordered
-              column={2}
-              size="small"
-              items={[
-                { label: "Khách hàng", children: orderDetail.customerName || "—" },
-                {
-                  label: "Trạng thái",
-                  children: (
-                    <Tag color={ORDER_STATUS_TAG[String(orderDetail.orderStatus).toLowerCase()] || "default"}>
-                      {ORDER_STATUS_LABELS[String(orderDetail.orderStatus).toLowerCase()] ||
-                        orderDetail.orderStatus ||
-                        "—"}
-                    </Tag>
-                  ),
-                },
-                {
-                  label: "Ngày tạo",
-                  children: formatDateTime(orderDetail.createdAt),
-                },
-                {
-                  label: "Ngày bắt đầu",
-                  children: formatDateTime(orderDetail.startDate),
-                },
-                {
-                  label: "Ngày kết thúc",
-                  children: formatDateTime(orderDetail.endDate),
-                },
-                {
-                  label: "Tổng thanh toán",
-                  children: formatVND(
-                    Number(orderDetail.totalPrice || orderDetail.total || 0) +
-                      Number(orderDetail.depositAmount || orderDetail.deposit || 0)
-                  ),
-                },
-              ]}
-            />
-
-            <Card title="Sản phẩm">
-              {(orderDetail.orderDetails || orderDetail.items || []).length ? (
-                <Table
-                  rowKey={(item, idx) => `${item?.deviceModelId || item?.itemId || idx}`}
-                  dataSource={orderDetail.orderDetails || orderDetail.items}
-                  pagination={false}
-                  size="small"
-                  columns={[
-                    {
-                      title: "Thiết bị",
-                      dataIndex: "deviceName",
-                      render: (value, record) =>
-                        value ||
-                        record?.name ||
-                        `Model ${record?.deviceModelId || record?.deviceId || ""}`,
-                    },
-                    {
-                      title: "Số lượng",
-                      dataIndex: "quantity",
-                      align: "center",
-                      render: (value, record) => value ?? record?.qty ?? 1,
-                    },
-                    {
-                      title: "Giá / ngày",
-                      dataIndex: "pricePerDay",
-                      align: "right",
-                      render: (value) => formatVND(value || 0),
-                    },
-                    {
-                      title: "Tiền cọc",
-                      dataIndex: "depositAmountPerUnit",
-                      align: "right",
-                      render: (value, record) =>
-                        formatVND(value ?? record?.depositAmount ?? record?.depositAmountPerUnit ?? 0),
-                    },
-                  ]}
-                />
-              ) : (
-                <Empty description="Không có sản phẩm" />
-              )}
-            </Card>
-
-            {orderDetail.notes && (
-              <Card title="Ghi chú">
-                <Text>{orderDetail.notes}</Text>
+                      <Legend />
+                      <Bar dataKey="orders" fill={COLORS.primary} name="Tổng đơn" radius={[4, 4, 0, 0]} />
+                      <Line type="monotone" dataKey="completed" stroke={COLORS.success} strokeWidth={2} name="Hoàn thành" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có đơn hàng" style={{ padding: "60px 0" }} />
+                )}
               </Card>
-            )}
-          </Space>
-        ) : (
-          <Empty description="Không có dữ liệu đơn hàng" />
-        )}
+            </Col>
+
+            <Col xs={24} lg={12}>
+              <Card 
+                title={`Thiết bị nhập theo danh mục - Tháng ${statsSelectedDate.month() + 1}/${statsSelectedDate.year()}`}
+                bordered={false}
+                style={{ borderRadius: 12 }}
+              >
+                {deviceImportsChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={deviceImportsChartData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis type="number" axisLine={false} tickLine={false} />
+                      <YAxis 
+                        type="category" 
+                        dataKey="name" 
+                        width={120}
+                        axisLine={false} 
+                        tickLine={false}
+                        tick={{ fontSize: 12 }}
+                      />
+                      <ChartTooltip 
+                        contentStyle={{ borderRadius: 8, border: "1px solid #f0f0f0" }}
+                      />
+                      <Bar 
+                        dataKey="value" 
+                        fill={COLORS.info} 
+                        radius={[0, 4, 4, 0]}
+                        name="Số lượng"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Empty description="Chưa có dữ liệu" style={{ padding: "60px 0" }} />
+                )}
+              </Card>
+            </Col>
+          </Row>
+
+          {/* Quick Stats Row */}
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={8}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Space>
+                  <ShoppingCartOutlined style={{ fontSize: 24, color: COLORS.primary }} />
+                  <Statistic
+                    title="Đơn mới hôm nay"
+                    value={newOrdersToday}
+                    suffix={<Text type="secondary">đơn</Text>}
+                  />
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Space direction="vertical" style={{ width: "100%" }}>
+                  <Space>
+                    <UserOutlined style={{ fontSize: 24, color: COLORS.success }} />
+                    <Statistic
+                      title="Tỷ lệ KYC đậu"
+                      value={kycSummary.passRate}
+                      suffix="%"
+                    />
+                  </Space>
+                  <Progress
+                    percent={kycSummary.passRate}
+                    size="small"
+                    strokeColor={COLORS.success}
+                    showInfo={false}
+                  />
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Space>
+                  <ExclamationCircleOutlined style={{ fontSize: 24, color: COLORS.warning }} />
+                  <Statistic
+                    title="KYC đang chờ duyệt"
+                    value={kycSummary.summary.pending}
+                    suffix={<Text type="secondary">hồ sơ</Text>}
+                  />
+                </Space>
+              </Card>
+            </Col>
+          </Row>
+
+          {/* Recent Orders Table */}
+          <Card 
+            title="Đơn hàng gần đây" 
+            bordered={false}
+            style={{ borderRadius: 12 }}
+            extra={
+              <Space size={12}>
+                <Select
+                  placeholder="Trạng thái đơn hàng"
+                  allowClear
+                  value={orderStatusFilter}
+                  style={{ width: 180 }}
+                  options={[
+                    { label: "Đang chờ", value: "PENDING" },
+                    { label: "Chờ KYC", value: "PENDING_KYC" },
+                    { label: "Đã xác nhận", value: "CONFIRMED" },
+                    { label: "Đang xử lý", value: "PROCESSING" },
+                    { label: "Chuẩn bị giao hàng", value: "DELIVERY_CONFIRMED" },
+                    { label: "Đang giao hàng", value: "DELIVERING" },
+                    { label: "Đang sử dụng", value: "IN_USE" },
+                    { label: "Hoàn tất đơn hàng", value: "COMPLETED" },
+                  ]}
+                  onChange={(value) => {
+                    setOrderStatusFilter(value);
+                    if (!value) {
+                      // Reset - load lại tất cả đơn hàng
+                      fetchOrdersByStatus(null);
+                    }
+                  }}
+                />
+                <Link to="/admin/orders">Xem tất cả</Link>
+              </Space>
+            }
+          >
+            <Table
+              columns={orderColumns}
+              dataSource={latestOrders}
+              loading={ordersLoading}
+              pagination={false}
+              size="middle"
+              onRow={(record) => ({
+                onClick: () => handleOpenOrderDetail(record.raw),
+                style: { cursor: "pointer" },
+              })}
+            />
+          </Card>
+        </Space>
       </Spin>
-    </Drawer>
+
+      {/* Order Detail Drawer */}
+      <Drawer
+        title={`Chi tiết đơn hàng ${orderDetail ? normalizeOrderId(orderDetail) : ""}`}
+        open={orderDetailOpen}
+        onClose={() => setOrderDetailOpen(false)}
+        width={600}
+      >
+        <Spin spinning={orderDetailLoading}>
+          {orderDetail && (() => {
+            // Get customer info from customerMap
+            const customerMap = new Map();
+            customersRaw.forEach((c) => {
+              const id = c?.customerId ?? c?.id;
+              if (id) customerMap.set(Number(id), c);
+            });
+            const customer = orderDetail?.customerId 
+              ? customerMap.get(Number(orderDetail.customerId)) 
+              : null;
+            const customerName = orderDetail?.customerName || 
+              orderDetail?.customer?.fullName || 
+              orderDetail?.customer?.name || 
+              customer?.fullName || 
+              customer?.username || 
+              customer?.name;
+            
+            // Get KYC info
+            const customerKyc = kycRecords.find(
+              (k) => Number(k?.customerId) === Number(orderDetail?.customerId)
+            );
+            const kycStatus = customerKyc?.kycStatus || customerKyc?.status || "—";
+            const kycStatusColor = {
+              VERIFIED: "green",
+              APPROVED: "green", 
+              PENDING: "gold",
+              SUBMITTED: "blue",
+              REJECTED: "red",
+              DENIED: "red",
+            }[String(kycStatus).toUpperCase()] || "default";
+            const kycStatusLabel = {
+              VERIFIED: "Đã xác minh",
+              APPROVED: "Đã duyệt",
+              PENDING: "Đang chờ",
+              SUBMITTED: "Đã gửi",
+              REJECTED: "Từ chối",
+              DENIED: "Từ chối",
+            }[String(kycStatus).toUpperCase()] || kycStatus;
+
+            return (
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="Mã đơn">
+                  {normalizeOrderId(orderDetail)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Khách hàng">
+                  {customerName || `Khách #${orderDetail?.customerId || "—"}`}
+                </Descriptions.Item>
+                <Descriptions.Item label="Số điện thoại">
+                  {customer?.phoneNumber || customer?.phone || orderDetail?.customer?.phoneNumber || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Email">
+                  {customer?.email || orderDetail?.customer?.email || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Trạng thái KYC">
+                  <Tag color={kycStatusColor}>{kycStatusLabel}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Trạng thái đơn">
+                  <Tag color={ORDER_STATUS_TAG[String(orderDetail?.orderStatus || "").toLowerCase()] || "default"}>
+                    {ORDER_STATUS_LABELS[String(orderDetail?.orderStatus || "").toLowerCase()] || orderDetail?.orderStatus || "—"}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Ngày bắt đầu thuê">
+                  {orderDetail?.startDate || orderDetail?.planStartDate 
+                    ? dayjs(orderDetail?.startDate || orderDetail?.planStartDate).format("DD/MM/YYYY")
+                    : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Ngày kết thúc thuê">
+                  {orderDetail?.endDate || orderDetail?.planEndDate 
+                    ? dayjs(orderDetail?.endDate || orderDetail?.planEndDate).format("DD/MM/YYYY")
+                    : "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Số ngày thuê">
+                  {(() => {
+                    const start = orderDetail?.startDate || orderDetail?.planStartDate;
+                    const end = orderDetail?.endDate || orderDetail?.planEndDate;
+                    if (start && end) {
+                      const days = dayjs(end).diff(dayjs(start), "day") + 1;
+                      return `${days} ngày`;
+                    }
+                    return orderDetail?.days ?? orderDetail?.rentalDays ?? "—";
+                  })()}
+                </Descriptions.Item>
+                <Descriptions.Item label="Tổng thanh toán">
+                  <Text strong style={{ color: COLORS.primary }}>
+                    {formatVND(
+                      Number(orderDetail?.totalPrice ?? orderDetail?.total ?? 0) +
+                        Number(orderDetail?.depositAmount ?? orderDetail?.deposit ?? 0)
+                    )}
+                  </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="Tiền cọc">
+                  {formatVND(orderDetail?.depositAmount ?? orderDetail?.deposit ?? 0)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Ngày tạo đơn">
+                  {formatDateTime(orderDetail?.createdAt)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Địa chỉ giao hàng">
+                  {orderDetail?.shippingAddress || "—"}
+                </Descriptions.Item>
+              </Descriptions>
+            );
+          })()}
+        </Spin>
+      </Drawer>
     </>
   );
 }
