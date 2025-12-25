@@ -3184,6 +3184,8 @@ export default function TechnicianCalendar() {
                         const status = String(t.status || "").toUpperCase();
                         const hasQcReport = hasQcReportMap[taskId];
                         const isCompletedInner = status === "COMPLETED";
+                        const orderStatus = String(orderDetail?.status || orderDetail?.orderStatus || "").toUpperCase();
+                        const isProcessing = orderStatus === "PROCESSING";
 
                         // Nếu COMPLETED: chỉ hiển thị nút nếu đã có QC report (chỉ cho update)
                         // Nếu chưa COMPLETED: hiển thị nút tạo/cập nhật như bình thường
@@ -3192,15 +3194,18 @@ export default function TechnicianCalendar() {
                         }
 
                         return (
-                            <Button
-                                type="primary"
-                                icon={<FileTextOutlined />}
-                                onClick={() => {
-                                    navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
-                                }}
-                            >
-                                {hasQcReport ? "Cập nhật QC Report" : "Tạo QC Report"}
-                            </Button>
+                            <Tooltip title={!isProcessing ? "Chỉ có thể cập nhật QC khi đơn hàng ở trạng thái PROCESSING" : ""}>
+                                <Button
+                                    type="primary"
+                                    icon={<FileTextOutlined />}
+                                    disabled={!isProcessing}
+                                    onClick={() => {
+                                        navigate(`/technician/tasks/qc/${taskId}`, { state: { task: t } });
+                                    }}
+                                >
+                                    {hasQcReport ? "Cập nhật QC Report" : "Tạo QC Report"}
+                                </Button>
+                            </Tooltip>
                         );
                     })()}
                     {t.type === "DELIVERY" && (() => {
@@ -3244,19 +3249,24 @@ export default function TechnicianCalendar() {
                         const taskId = t.taskId || t.id;
                         const hasQcReport = hasQcReportMap[taskId];
                         const buttonLabel = hasQcReport ? "Cập nhật QC Report" : "Tạo QC Report";
+                        const orderStatus = String(orderDetail?.status || orderDetail?.orderStatus || "").toUpperCase();
+                        const isProcessing = orderStatus === "PROCESSING";
 
                         return (
                             <>
-                                {/* Hiển thị nút cho tất cả status, luôn enable */}
-                                <Button
-                                    type="primary"
-                                    icon={<FileTextOutlined />}
-                                    onClick={() => {
-                                        navigate(`/technician/tasks/post-rental-qc/${taskId}`, { state: { task: t } });
-                                    }}
-                                >
-                                    {buttonLabel}
-                                </Button>
+                                {/* Chỉ cho phép cập nhật QC khi đơn hàng ở trạng thái PROCESSING */}
+                                <Tooltip title={!isProcessing ? "Chỉ có thể cập nhật QC khi đơn hàng ở trạng thái PROCESSING" : ""}>
+                                    <Button
+                                        type="primary"
+                                        icon={<FileTextOutlined />}
+                                        disabled={!isProcessing}
+                                        onClick={() => {
+                                            navigate(`/technician/tasks/post-rental-qc/${taskId}`, { state: { task: t } });
+                                        }}
+                                    >
+                                        {buttonLabel}
+                                    </Button>
+                                </Tooltip>
                             </>
                         );
                     })()}

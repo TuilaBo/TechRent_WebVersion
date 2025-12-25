@@ -1273,6 +1273,7 @@ export default function TechnicianHandoverCheckin() {
       const effectiveOrder = options.orderData || orderRef.current;
 
       // ✅ MAPPING DISCREPANCIES: giữ deviceId dạng số + deviceSerial để hiển thị
+      // Gom các discrepancy có cùng deviceId + orderDetailId + discrepancyType thành 1 với mảng conditionDefinitionIds
       if (Array.isArray(report.discrepancies)) {
         const mapped = report.discrepancies.map((disc) => {
           const serialNumber =
@@ -1364,12 +1365,14 @@ export default function TechnicianHandoverCheckin() {
             }
           }
 
+          const conditionId =
+            disc.conditionDefinitionId ??
+            disc.conditionDefinition?.id ??
+            null;
+
           return {
             discrepancyType: disc.discrepancyType || "DAMAGE",
-            conditionDefinitionId:
-              disc.conditionDefinitionId ??
-              disc.conditionDefinition?.id ??
-              null,
+            conditionDefinitionId: conditionId,
             orderDetailId: orderDetailIdValue,
             orderDetailLabel,
             deviceId: serialNumber || (numericDeviceId ? String(numericDeviceId) : null),
@@ -1378,7 +1381,42 @@ export default function TechnicianHandoverCheckin() {
             staffNote: disc.staffNote || "",
           };
         });
-        setDiscrepancies(mapped);
+
+        // ✅ Gom các discrepancy có cùng deviceId + orderDetailId + discrepancyType thành 1
+        const groupedMap = new Map();
+        for (const disc of mapped) {
+          // Key để nhóm: deviceSerial + orderDetailId + discrepancyType
+          const groupKey = `${disc.deviceSerial || disc.numericDeviceId}_${disc.orderDetailId}_${disc.discrepancyType}`;
+          
+          if (groupedMap.has(groupKey)) {
+            // Đã có nhóm, thêm conditionDefinitionId vào mảng
+            const existing = groupedMap.get(groupKey);
+            if (disc.conditionDefinitionId && !existing.conditionDefinitionIds.includes(disc.conditionDefinitionId)) {
+              existing.conditionDefinitionIds.push(disc.conditionDefinitionId);
+            }
+            // Gộp staffNote nếu có
+            if (disc.staffNote && !existing.staffNote.includes(disc.staffNote)) {
+              existing.staffNote = existing.staffNote 
+                ? `${existing.staffNote}; ${disc.staffNote}` 
+                : disc.staffNote;
+            }
+          } else {
+            // Tạo nhóm mới với conditionDefinitionIds là mảng
+            groupedMap.set(groupKey, {
+              discrepancyType: disc.discrepancyType,
+              conditionDefinitionIds: disc.conditionDefinitionId ? [disc.conditionDefinitionId] : [],
+              orderDetailId: disc.orderDetailId,
+              orderDetailLabel: disc.orderDetailLabel,
+              deviceId: disc.deviceId,
+              numericDeviceId: disc.numericDeviceId,
+              deviceSerial: disc.deviceSerial,
+              staffNote: disc.staffNote || "",
+            });
+          }
+        }
+
+        const groupedDiscrepancies = Array.from(groupedMap.values());
+        setDiscrepancies(groupedDiscrepancies);
       } else {
         setDiscrepancies([]);
       }
@@ -1900,13 +1938,18 @@ export default function TechnicianHandoverCheckin() {
       }
 
       // ✅ Convert discrepancies: dùng thẳng deviceId + orderDetailId, fallback nhẹ từ deviceSerial
+      // Tách mỗi conditionDefinitionId trong mảng thành một discrepancy riêng
       const discrepanciesPayload = [];
       for (const d of discrepancies) {
         const discrepancyType = d.discrepancyType || "DAMAGE";
-        const conditionDefinitionId = d.conditionDefinitionId;
+        // Hỗ trợ cả mảng mới (conditionDefinitionIds) và giá trị đơn cũ (conditionDefinitionId)
+        const conditionIds = d.conditionDefinitionIds && d.conditionDefinitionIds.length > 0
+          ? d.conditionDefinitionIds
+          : (d.conditionDefinitionId ? [d.conditionDefinitionId] : []);
+        
         let orderDetailId = d.orderDetailId;
 
-        if (!discrepancyType || !conditionDefinitionId) {
+        if (!discrepancyType || conditionIds.length === 0) {
           console.warn("Skipping discrepancy (missing type/condition):", d);
           continue;
         }
@@ -1941,19 +1984,21 @@ export default function TechnicianHandoverCheckin() {
           continue;
         }
 
-        // Chỉ include các field được backend chấp nhận, loại bỏ customerNote
-        const cleanPayload = {
-          discrepancyType: String(discrepancyType),
-          conditionDefinitionId: Number(conditionDefinitionId),
-          orderDetailId: Number(orderDetailId),
-          deviceId: Number(deviceId),
-          staffNote: String(d.staffNote || ""),
-        };
-        
-        // Đảm bảo không có customerNote
-        delete cleanPayload.customerNote;
-        
-        discrepanciesPayload.push(cleanPayload);
+        // Tạo một discrepancy cho MỖI conditionDefinitionId trong mảng
+        for (const conditionDefinitionId of conditionIds) {
+          const cleanPayload = {
+            discrepancyType: String(discrepancyType),
+            conditionDefinitionId: Number(conditionDefinitionId),
+            orderDetailId: Number(orderDetailId),
+            deviceId: Number(deviceId),
+            staffNote: String(d.staffNote || ""),
+          };
+          
+          // Đảm bảo không có customerNote
+          delete cleanPayload.customerNote;
+          
+          discrepanciesPayload.push(cleanPayload);
+        }
       }
 
       const payload = {
@@ -2518,8 +2563,7 @@ export default function TechnicianHandoverCheckin() {
                     deviceId: null,
                     deviceSerial: "",
                     orderDetailId: null,
-                    conditionDefinitionId: null,
-                    staffNote: "",
+                    conditionDefinitionIds: [],
                   },
                 ]);
               }}
@@ -2561,12 +2605,120 @@ export default function TechnicianHandoverCheckin() {
                   };
                 });
                 
+                // ✅ Lọc bỏ các mẫu thiết bị đã được chọn ở sự cố khác
+                // Lấy list orderDetailId đã được sử dụng (bao gồm cả từ deviceSerial)
+                const usedOrderDetailIds = discrepancies
+                  .filter((d, i) => i !== index) // Loại bỏ sự cố hiện tại
+                  .map(d => {
+                    // Ưu tiên orderDetailId đã có
+                    if (d.orderDetailId) return d.orderDetailId;
+                    // Nếu không có, thử tìm từ deviceSerial
+                    if (d.deviceSerial) {
+                      // Tìm trong serialToOrderDetailMap
+                      const serialKey = String(d.deviceSerial).toUpperCase();
+                      if (serialToOrderDetailMap[serialKey]) {
+                        return serialToOrderDetailMap[serialKey];
+                      }
+                      // Tìm trong order.orderDetails.allocations
+                      if (order && Array.isArray(order.orderDetails)) {
+                        for (const od of order.orderDetails) {
+                          if (od.allocations && Array.isArray(od.allocations)) {
+                            const found = od.allocations.find(alloc => {
+                              const allocSerial = alloc.device?.serialNumber || alloc.serialNumber || "";
+                              return String(allocSerial).toUpperCase() === serialKey;
+                            });
+                            if (found) return od.orderDetailId || od.id;
+                          }
+                        }
+                      }
+                    }
+                    return null;
+                  })
+                  .filter(Boolean); // Chỉ lấy những cái có giá trị
+                
+                const filteredOrderDetailOptions = orderDetailOptions.filter(opt => 
+                  !usedOrderDetailIds.includes(opt.value)
+                );
+                let effectiveOrderDetailId = discrepancy.orderDetailId;
+                let effectiveOrderDetailLabel = discrepancy.orderDetailLabel || "";
+                
+                // Cách 1: Tìm từ order.orderDetails.allocations
+                if (!effectiveOrderDetailId && discrepancy.deviceSerial && order && Array.isArray(order.orderDetails)) {
+                  for (const od of order.orderDetails) {
+                    if (od.allocations && Array.isArray(od.allocations)) {
+                      const found = od.allocations.find(alloc => {
+                        const allocSerial = alloc.device?.serialNumber || alloc.serialNumber || "";
+                        return String(allocSerial).toUpperCase() === String(discrepancy.deviceSerial).toUpperCase();
+                      });
+                      if (found) {
+                        effectiveOrderDetailId = od.orderDetailId || od.id;
+                        effectiveOrderDetailLabel = od.deviceModel?.deviceName || 
+                                                   od.deviceModel?.name || 
+                                                   od.deviceName || 
+                                                   `Order Detail #${effectiveOrderDetailId}`;
+                        break;
+                      }
+                    }
+                  }
+                }
+                
+                // Cách 2 (FALLBACK): Dùng serialToOrderDetailMap
+                if (!effectiveOrderDetailId && discrepancy.deviceSerial) {
+                  const serialKey = String(discrepancy.deviceSerial).toUpperCase();
+                  const mappedOrderDetailId = serialToOrderDetailMap[serialKey];
+                  if (mappedOrderDetailId) {
+                    effectiveOrderDetailId = mappedOrderDetailId;
+                    // Tìm label từ orderDetailsArray
+                    const matchedOd = orderDetailsArray.find(od => 
+                      (od.orderDetailId || od.id) === mappedOrderDetailId
+                    );
+                    if (matchedOd && !effectiveOrderDetailLabel) {
+                      effectiveOrderDetailLabel = matchedOd.deviceModel?.deviceName || 
+                                                 matchedOd.deviceModel?.name || 
+                                                 matchedOd.deviceName || 
+                                                 `Order Detail #${effectiveOrderDetailId}`;
+                    }
+                  }
+                }
+                
+                // Cách 3 (FALLBACK): Tìm từ items table bằng serial
+                if (!effectiveOrderDetailLabel && discrepancy.deviceSerial && items && Array.isArray(items)) {
+                  const matchingItem = items.find(item => {
+                    const itemSerials = (item.itemCode || "").split(",").map(s => s.trim().toUpperCase());
+                    return itemSerials.includes(String(discrepancy.deviceSerial).toUpperCase());
+                  });
+                  if (matchingItem) {
+                    effectiveOrderDetailLabel = matchingItem.itemName || "";
+                    // Tìm orderDetailId từ orderDetailsArray nếu chưa có
+                    if (!effectiveOrderDetailId) {
+                      const matchedOd = orderDetailsArray.find(od => {
+                        const odName = od.deviceModel?.deviceName || od.deviceModel?.name || od.deviceName || "";
+                        return odName === matchingItem.itemName;
+                      });
+                      if (matchedOd) {
+                        effectiveOrderDetailId = matchedOd.orderDetailId || matchedOd.id;
+                      }
+                    }
+                  }
+                }
+                
+                // ✅ Thêm option hiện tại nếu không có trong danh sách (sử dụng effectiveOrderDetailId)
+                const currentOrderDetailIdStr = effectiveOrderDetailId ? String(effectiveOrderDetailId) : null;
+                const existsInOptions = orderDetailOptions.some(opt => String(opt.value) === currentOrderDetailIdStr);
+                
+                if (currentOrderDetailIdStr && !existsInOptions) {
+                  orderDetailOptions.unshift({
+                    label: effectiveOrderDetailLabel || `Order Detail #${effectiveOrderDetailId}`,
+                    value: effectiveOrderDetailId,
+                  });
+                }
+                
                 // ✅ Chọn orderDetail từ map trước, fallback sang order.orderDetails
                 const selectedOrderDetail =
-                  (discrepancy.orderDetailId && orderDetailsMap[discrepancy.orderDetailId]) ||
+                  (effectiveOrderDetailId && orderDetailsMap[effectiveOrderDetailId]) ||
                   (order && Array.isArray(order.orderDetails)
                     ? order.orderDetails.find(
-                        (od) => (od.orderDetailId || od.id) === discrepancy.orderDetailId
+                        (od) => (od.orderDetailId || od.id) === effectiveOrderDetailId
                       )
                     : null);
                 
@@ -2633,9 +2785,29 @@ export default function TechnicianHandoverCheckin() {
                   : null;
                 
                 // Filter conditions by deviceModelId
-                const filteredConditions = deviceModelId
+                let filteredConditions = deviceModelId
                   ? conditionDefinitions.filter(c => Number(c.deviceModelId) === deviceModelId)
                   : conditionDefinitions;
+                
+                // ✅ Lọc thêm theo loại sự cố (discrepancyType)
+                const discType = discrepancy.discrepancyType?.toUpperCase() || "";
+                if (discType === "DAMAGE") {
+                  // Hư hỏng: bỏ "Tốt" và "Thiết bị bị mất"
+                  filteredConditions = filteredConditions.filter(c => {
+                    const nameUpper = (c.name || "").toUpperCase();
+                    return nameUpper !== "TỐT" && 
+                           !nameUpper.includes("THIẾT BỊ BỊ MẤT") &&
+                           !nameUpper.includes("MẤT THIẾT BỊ");
+                  });
+                } else if (discType === "LOSS") {
+                  // Mất mát: chỉ hiện "Thiết bị bị mất"
+                  filteredConditions = filteredConditions.filter(c => {
+                    const nameUpper = (c.name || "").toUpperCase();
+                    return nameUpper.includes("THIẾT BỊ BỊ MẤT") || 
+                           nameUpper.includes("MẤT THIẾT BỊ") ||
+                           nameUpper.includes("MẤT MÁT");
+                  });
+                }
 
                 return (
                   <Card
@@ -2659,102 +2831,63 @@ export default function TechnicianHandoverCheckin() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Loại sự cố <Text type="danger">*</Text>
+                            Mẫu thiết bị<Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}
-                            placeholder="Chọn loại sự cố"
-                            value={discrepancy.discrepancyType}
+                            placeholder="Chọn mẫu thiết bị"
+                            value={effectiveOrderDetailId || discrepancy.orderDetailId}
                             onChange={(value) => {
                               const newDiscrepancies = [...discrepancies];
+                              
+                              // Find selected orderDetail
+                              const selectedOd = orderDetailsArray.find(
+                                (od) => (od.orderDetailId || od.id) === value
+                              );
+                              
+                              // Get model name from multiple sources
+                              let modelName = "";
+                              if (selectedOd?.deviceModel?.name) {
+                                modelName = selectedOd.deviceModel.name;
+                              } else if (selectedOd?.deviceModel?.deviceName) {
+                                modelName = selectedOd.deviceModel.deviceName;
+                              } else if (selectedOd?.deviceModelId && deviceModelMap[selectedOd.deviceModelId]) {
+                                modelName = deviceModelMap[selectedOd.deviceModelId].name || 
+                                           deviceModelMap[selectedOd.deviceModelId].deviceName || "";
+                              } else if (selectedOd?.deviceName) {
+                                modelName = selectedOd.deviceName;
+                              }
+                              
+                              const label = modelName || `Model #${selectedOd?.deviceModelId || value}`;
+                              
+                              // ✅ Auto-fill nếu orderDetail chỉ có 1 serial
+                              const serialsForOd = Object.entries(serialToOrderDetailMap)
+                                .filter(([, odId]) => odId === value)
+                                .map(([serial]) => serial);
+
+                              const defaultSerial =
+                                serialsForOd.length === 1 ? serialsForOd[0] : "";
+                              const defaultNumericDeviceId =
+                                defaultSerial && devicesMap[defaultSerial]
+                                  ? Number(devicesMap[defaultSerial])
+                                  : null;
+
                               newDiscrepancies[index] = {
                                 ...newDiscrepancies[index],
-                                discrepancyType: value,
+                                orderDetailId: value,
+                                orderDetailLabel: label,
+                                deviceId: defaultSerial || null,
+                                deviceSerial: defaultSerial || "",
+                                numericDeviceId:
+                                  defaultNumericDeviceId ??
+                                  newDiscrepancies[index].numericDeviceId,
+                                // Reset condition when changing device model
+                                conditionDefinitionId: null,
                               };
                               setDiscrepancies(newDiscrepancies);
                             }}
-                            options={[
-                              { label: "Hư hỏng", value: "DAMAGE" },
-                              { label: "Mất mát", value: "LOSS" },
-                              { label: "Khác", value: "OTHER" },
-                            ]}
+                            options={filteredOrderDetailOptions}
                           />
-                        </div>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <div style={{ marginBottom: 12 }}>
-                          <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Mẫu thiết bị<Text type="danger">*</Text>
-                          </Text>
-                          {(() => {
-                            // Get final label to display
-                            let finalLabel = orderDetailLabel;
-                            if (!finalLabel && selectedOrderDetail?.deviceModelId && deviceModelMap[selectedOrderDetail.deviceModelId]) {
-                              finalLabel = deviceModelMap[selectedOrderDetail.deviceModelId].name || 
-                                          deviceModelMap[selectedOrderDetail.deviceModelId].deviceName || 
-                                          `Model #${selectedOrderDetail.deviceModelId}`;
-                            } else if (!finalLabel && selectedOrderDetail?.deviceModelId) {
-                              finalLabel = `Model #${selectedOrderDetail.deviceModelId}`;
-                            }
-                            
-                            return finalLabel ? (
-                              <Input value={finalLabel} disabled />
-                            ) : (
-                            <Select
-                              style={{ width: "100%" }}
-                              placeholder="Chọn chi tiết đơn hàng"
-                              value={discrepancy.orderDetailId}
-                              onChange={(value) => {
-                                const newDiscrepancies = [...discrepancies];
-                                
-                                // Find selected orderDetail
-                                const selectedOd = orderDetailsArray.find(
-                                  (od) => (od.orderDetailId || od.id) === value
-                                );
-                                
-                                // Get model name from multiple sources
-                                let modelName = "";
-                                if (selectedOd?.deviceModel?.name) {
-                                  modelName = selectedOd.deviceModel.name;
-                                } else if (selectedOd?.deviceModel?.deviceName) {
-                                  modelName = selectedOd.deviceModel.deviceName;
-                                } else if (selectedOd?.deviceModelId && deviceModelMap[selectedOd.deviceModelId]) {
-                                  modelName = deviceModelMap[selectedOd.deviceModelId].name || 
-                                             deviceModelMap[selectedOd.deviceModelId].deviceName || "";
-                                } else if (selectedOd?.deviceName) {
-                                  modelName = selectedOd.deviceName;
-                                }
-                                
-                                const label = modelName || `Model #${selectedOd?.deviceModelId || value}`;
-                                
-                                // ✅ Auto-fill nếu orderDetail chỉ có 1 serial
-                                const serialsForOd = Object.entries(serialToOrderDetailMap)
-                                  .filter(([, odId]) => odId === value)
-                                  .map(([serial]) => serial);
-
-                                const defaultSerial =
-                                  serialsForOd.length === 1 ? serialsForOd[0] : "";
-                                const defaultNumericDeviceId =
-                                  defaultSerial && devicesMap[defaultSerial]
-                                    ? Number(devicesMap[defaultSerial])
-                                    : null;
-
-                                newDiscrepancies[index] = {
-                                  ...newDiscrepancies[index],
-                                  orderDetailId: value,
-                                  orderDetailLabel: label,
-                                  deviceId: defaultSerial || null,
-                                  deviceSerial: defaultSerial || "",
-                                  numericDeviceId:
-                                    defaultNumericDeviceId ??
-                                    newDiscrepancies[index].numericDeviceId,
-                                };
-                                setDiscrepancies(newDiscrepancies);
-                              }}
-                              options={orderDetailOptions}
-                            />
-                            );
-                          })()}
                         </div>
                       </Col>
                       <Col xs={24} md={12}>
@@ -2787,17 +2920,43 @@ export default function TechnicianHandoverCheckin() {
                       <Col xs={24} md={12}>
                         <div style={{ marginBottom: 12 }}>
                           <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Tình trạng thiết bị <Text type="danger">*</Text>
+                            Loại sự cố <Text type="danger">*</Text>
                           </Text>
                           <Select
                             style={{ width: "100%" }}
-                            placeholder="Chọn điều kiện"
-                            value={discrepancy.conditionDefinitionId}
+                            placeholder="Chọn loại sự cố"
+                            value={discrepancy.discrepancyType}
                             onChange={(value) => {
                               const newDiscrepancies = [...discrepancies];
                               newDiscrepancies[index] = {
                                 ...newDiscrepancies[index],
-                                conditionDefinitionId: value,
+                                discrepancyType: value,
+                              };
+                              setDiscrepancies(newDiscrepancies);
+                            }}
+                            options={[
+                              { label: "Hư hỏng", value: "DAMAGE" },
+                              { label: "Mất mát", value: "LOSS" },
+
+                            ]}
+                          />
+                        </div>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <div style={{ marginBottom: 12 }}>
+                          <Text strong style={{ display: "block", marginBottom: 4 }}>
+                            Tình trạng thiết bị <Text type="danger">*</Text>
+                          </Text>
+                          <Select
+                            mode="multiple"
+                            style={{ width: "100%" }}
+                            placeholder="Chọn tình trạng thiết bị"
+                            value={discrepancy.conditionDefinitionIds || []}
+                            onChange={(values) => {
+                              const newDiscrepancies = [...discrepancies];
+                              newDiscrepancies[index] = {
+                                ...newDiscrepancies[index],
+                                conditionDefinitionIds: values,
                               };
                               setDiscrepancies(newDiscrepancies);
                             }}
@@ -2807,26 +2966,6 @@ export default function TechnicianHandoverCheckin() {
                               label: `${c.name}${c.damage ? " (Gây hư hỏng)" : ""}`,
                               value: c.id,
                             }))}
-                          />
-                        </div>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <div style={{ marginBottom: 12 }}>
-                          <Text strong style={{ display: "block", marginBottom: 4 }}>
-                            Ghi chú của nhân viên
-                          </Text>
-                          <Input.TextArea
-                            rows={3}
-                            placeholder="Nhập ghi chú của nhân viên"
-                            value={discrepancy.staffNote}
-                            onChange={(e) => {
-                              const newDiscrepancies = [...discrepancies];
-                              newDiscrepancies[index] = {
-                                ...newDiscrepancies[index],
-                                staffNote: e.target.value,
-                              };
-                              setDiscrepancies(newDiscrepancies);
-                            }}
                           />
                         </div>
                       </Col>
