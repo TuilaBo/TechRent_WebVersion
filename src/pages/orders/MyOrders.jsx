@@ -382,22 +382,22 @@ export default function MyOrders() {
   useEffect(() => {
     // Extension statuses that should block (DRAFT, PROCESSING, COMPLETED)
     const blockingExtensionStatuses = ['DRAFT', 'PROCESSING', 'COMPLETED'];
-    
+
     // Check if order has blocking extension
     const hasPendingExtension = (order) => {
       const extensions = order?.extensions || [];
       if (!Array.isArray(extensions)) return false;
-      return extensions.some(ext => 
+      return extensions.some(ext =>
         blockingExtensionStatuses.includes(String(ext?.status || "").toUpperCase())
       );
     };
-    
+
     // Check if order has any annex (any status blocks)
     const hasAnyAnnex = (order) => {
       const annexes = order?.annexes || [];
       return Array.isArray(annexes) && annexes.length > 0;
     };
-    
+
     const checkCloseToReturn = () => {
       const closeOrders = orders.filter((order) =>
         isOrderInUse(order) &&
@@ -2137,7 +2137,6 @@ export default function MyOrders() {
         sendAnnexPin={sendAnnexPin}
         handleAnnexSign={handleAnnexSign}
         confirmExtensionPayment={confirmExtensionPayment}
-        customerProfile={customerProfile}
         annexSigningEmail={annexSigningEmail}
       />
 

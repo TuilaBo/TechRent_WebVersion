@@ -39,15 +39,17 @@ const DailyTasksModal = ({
             // Logic copied from original: 
             return ['QC', 'PRE_RENTAL_QC', 'HANDOVER_CHECK'].includes(type) ||
                 type.includes('QC') ||
-                t.taskCategoryId === 1 || t.taskCategoryId === 2 ||
-                t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC';
+                t.taskCategoryId === 1 || t.taskCategoryId === 2 || t.taskCategoryId === 9 ||
+                t.taskCategoryName === 'Pre rental QC' || t.taskCategoryName === 'Post rental QC' || t.taskCategoryName === 'Pre rental QC Replace';
         });
 
         const cat1Tasks = dayTasks.filter(t => t.taskCategoryId === 1 || t.taskCategoryName === 'Pre rental QC');
         const cat2Tasks = dayTasks.filter(t => t.taskCategoryId === 2 || t.taskCategoryName === 'Post rental QC');
+        const cat9Tasks = dayTasks.filter(t => t.taskCategoryId === 9 || t.taskCategoryName === 'Pre rental QC Replace');
 
         const rule1 = taskRulesMap[1];
         const rule2 = taskRulesMap[2];
+        const rule9 = taskRulesMap[9];
 
         return (
             <>
@@ -84,6 +86,24 @@ const DailyTasksModal = ({
                                 <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {rule2.maxTasksPerDay}</strong>
                                 <Tag color={cat2Tasks.length >= rule2.maxTasksPerDay ? 'red' : 'green'}>
                                     {cat2Tasks.length >= rule2.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
+                                </Tag>
+                            </div>
+                        </div>
+                    )}
+                    {rule9 && (
+                        <div style={{
+                            flex: 1,
+                            minWidth: 200,
+                            background: cat9Tasks.length >= rule9.maxTasksPerDay ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #eb2f96 0%, #c41d7f 100%)',
+                            borderRadius: 8,
+                            padding: '10px 14px',
+                            color: '#fff',
+                        }}>
+                            <div style={{ fontSize: 12, opacity: 0.9 }}>🔄 Pre rental QC Replace</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                <strong style={{ fontSize: 18 }}>{cat9Tasks.length} / {rule9.maxTasksPerDay}</strong>
+                                <Tag color={cat9Tasks.length >= rule9.maxTasksPerDay ? 'red' : 'green'}>
+                                    {cat9Tasks.length >= rule9.maxTasksPerDay ? 'Đạt giới hạn' : 'Còn slot'}
                                 </Tag>
                             </div>
                         </div>

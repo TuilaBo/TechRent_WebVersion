@@ -249,3 +249,37 @@ export async function updateComplaintFault(complaintId, {
   const { data } = await api.patch(`/api/staff/complaints/${complaintId}/fault`, payload);
   return data?.data ?? data ?? null;
 }
+
+/**
+ * Tìm complaint theo replacementTaskId (dùng cho QC Replace)
+ * Gọi API GET /api/staff/complaints?status=PROCESSING và tìm complaint có replacementTaskId khớp
+ * @param {number} taskId - Mã task cần tìm
+ * @returns {Promise<Object|null>} Complaint tìm được hoặc null
+ */
+export async function getComplaintByReplacementTaskId(taskId) {
+  try {
+    const complaints = await getStaffComplaints({ status: 'PROCESSING' });
+    const matched = complaints.find(c => Number(c.replacementTaskId) === Number(taskId));
+    return matched || null;
+  } catch (error) {
+    console.error('Error fetching complaint by replacement task ID:', error);
+    return null;
+  }
+}
+
+/**
+ * Tìm complaint theo replacementReportId (dùng cho Ký biên bản thay thế thiết bị)
+ * Gọi API GET /api/staff/complaints?status=PROCESSING và tìm complaint có replacementReportId khớp
+ * @param {number} replacementReportId - Mã biên bản thay thế thiết bị
+ * @returns {Promise<Object|null>} Complaint tìm được hoặc null
+ */
+export async function getComplaintByReplacementReportId(replacementReportId) {
+  try {
+    const complaints = await getStaffComplaints({ status: 'PROCESSING' });
+    const matched = complaints.find(c => Number(c.replacementReportId) === Number(replacementReportId));
+    return matched || null;
+  } catch (error) {
+    console.error('Error fetching complaint by replacement report ID:', error);
+    return null;
+  }
+}

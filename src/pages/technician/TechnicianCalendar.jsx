@@ -65,7 +65,7 @@ import {
 
 } from "../../lib/taskApi";
 
-import { getStaffComplaintById, updateComplaintFault } from "../../lib/complaints";
+import { getStaffComplaintById, updateComplaintFault, getComplaintByReplacementReportId } from "../../lib/complaints";
 
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
 
@@ -1278,6 +1278,7 @@ export default function TechnicianCalendar() {
     const [statusForm] = Form.useForm();
     const [uploadFileList, setUploadFileList] = useState([]);
     const [taskRulesMap, setTaskRulesMap] = useState({}); // { categoryId -> { maxTasksPerDay, name } }
+    const [replacementComplaint, setReplacementComplaint] = useState(null); // Complaint data for QC Replace (taskCategoryId === 9)
 
     // Device Replacement signing states
     const [signingReplacementReport, setSigningReplacementReport] = useState({}); // taskId -> loading
@@ -2109,6 +2110,21 @@ export default function TechnicianCalendar() {
                             // Không hiển thị lỗi vì có thể chưa có report
                         }
                     }
+
+                    // Load replacement complaint for QC Replace tasks (taskCategoryId === 9)
+                    const taskCategoryId = normalized.taskCategoryId || task.taskCategoryId;
+                    if (taskCategoryId === 9) {
+                        try {
+                            const complaint = await getComplaintByReplacementTaskId(taskIdToUse);
+                            setReplacementComplaint(complaint);
+                            console.log("DEBUG QC Replace: Loaded replacement complaint =", complaint);
+                        } catch (e) {
+                            console.warn("Could not load replacement complaint for QC Replace task:", e);
+                            setReplacementComplaint(null);
+                        }
+                    } else {
+                        setReplacementComplaint(null);
+                    }
                 }
             } else {
                 setDetailTask(task);
@@ -2219,9 +2235,19 @@ export default function TechnicianCalendar() {
                 // Still show modal for viewing
             }
 
-            // Parse complaint ID from task description for fault update
-            const taskDescription = task.description || detailTask?.description || "";
-            const complaintId = parseComplaintIdFromDescription(taskDescription);
+            // Fetch complaint ID using replacementReportId (more reliable since we have the report)
+            let complaintId = null;
+            try {
+                const complaint = await getComplaintByReplacementReportId(reportId);
+                if (complaint) {
+                    complaintId = complaint.complaintId || complaint.id;
+                    console.log("DEBUG: Found complaint via replacementReportId:", reportId, "=>", complaint);
+                } else {
+                    console.log("DEBUG: No complaint found for replacementReportId:", reportId);
+                }
+            } catch (complaintError) {
+                console.warn("Could not fetch complaint by replacementReportId:", complaintError);
+            }
 
             // Store info and open modal
             setReplacementPinTask(task);
@@ -2714,6 +2740,9 @@ export default function TechnicianCalendar() {
         const customerEmail = customerDetail?.email || "";
         const address = orderDetail.shippingAddress || t.address || "—";
 
+        // Check if this is a QC Replace task (taskCategoryId === 9)
+        const isQcReplaceTask = t.taskCategoryId === 9 || t.taskCategoryName === 'Pre rental QC Replace';
+
         return (
             <>
                 <Divider />
@@ -2743,42 +2772,82 @@ export default function TechnicianCalendar() {
                     </Descriptions.Item>
 
                 </Descriptions>
-                {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+
+                {/* QC Replace Task: Show replacement device from complaint */}
+                {isQcReplaceTask && replacementComplaint ? (
                     <>
                         <Divider />
-                        <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
-                        <List
-                            size="small"
-                            dataSource={orderDetail.orderDetails}
-                            renderItem={(d) => (
-                                <List.Item>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                        {d.deviceModel?.image ? (
-                                            <img
-                                                src={d.deviceModel.image}
-                                                alt={d.deviceModel.name}
-                                                style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
-                                            />
-                                        ) : null}
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontWeight: 600 }}>
-                                                {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
-                                            </div>
-                                            {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
-                                                <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
-                                                    {orderDetail.allocatedDevices
-                                                        .filter(ad => ad.deviceModelId === d.deviceModelId)
-                                                        .map((ad, idx) => (
-                                                            <div key={idx}>SN: {ad.serialNumber || "—"}</div>
-                                                        ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </List.Item>
-                            )}
-                        />
+                        <Title level={5} style={{ marginTop: 0 }}>
+                            <Tag color="magenta">🔄 Thiết bị thay thế (QC Replace)</Tag>
+                        </Title>
+                        <Descriptions bordered size="small" column={1}>
+                            <Descriptions.Item label="Mã thiết bị thay thế">
+                                #{replacementComplaint.replacementDeviceId || "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Serial Number">
+                                <Tag color="blue">{replacementComplaint.replacementDeviceSerialNumber || "—"}</Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Model gốc">
+                                {replacementComplaint.deviceModelName || "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Thiết bị gốc (hỏng)">
+                                #{replacementComplaint.deviceId || "—"} - SN: {replacementComplaint.deviceSerialNumber || "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Mã khiếu nại">
+                                #{replacementComplaint.complaintId || "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Mô tả khách hàng">
+                                {replacementComplaint.customerDescription || "—"}
+                            </Descriptions.Item>
+                        </Descriptions>
                     </>
+                ) : isQcReplaceTask && !replacementComplaint ? (
+                    <>
+                        <Divider />
+                        <Title level={5} style={{ marginTop: 0 }}>
+                            <Tag color="magenta">🔄 Thiết bị thay thế (QC Replace)</Tag>
+                        </Title>
+                        <Tag color="orange">Đang tải thông tin thiết bị thay thế...</Tag>
+                    </>
+                ) : (
+                    /* Regular tasks: Show order devices */
+                    Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
+                        <>
+                            <Divider />
+                            <Title level={5} style={{ marginTop: 0 }}>Thiết bị trong đơn</Title>
+                            <List
+                                size="small"
+                                dataSource={orderDetail.orderDetails}
+                                renderItem={(d) => (
+                                    <List.Item>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                            {d.deviceModel?.image ? (
+                                                <img
+                                                    src={d.deviceModel.image}
+                                                    alt={d.deviceModel.name}
+                                                    style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
+                                                />
+                                            ) : null}
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontWeight: 600 }}>
+                                                    {d.deviceModel?.name || `Model #${d.deviceModelId}`} × {d.quantity}
+                                                </div>
+                                                {Array.isArray(orderDetail.allocatedDevices) && orderDetail.allocatedDevices.length > 0 && (
+                                                    <div style={{ marginTop: 4, fontSize: 12, color: "#888" }}>
+                                                        {orderDetail.allocatedDevices
+                                                            .filter(ad => ad.deviceModelId === d.deviceModelId)
+                                                            .map((ad, idx) => (
+                                                                <div key={idx}>SN: {ad.serialNumber || "—"}</div>
+                                                            ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </List.Item>
+                                )}
+                            />
+                        </>
+                    )
                 )}
             </>
         );
@@ -3868,14 +3937,14 @@ export default function TechnicianCalendar() {
                         children: (() => {
                             const tasksData = getCalendarData(selectedDate).tasks;
                             const qcTasks = tasksData.filter(t => {
-                                // Check by taskCategoryId (Pre rental QC = 1, Post rental QC = 2)
-                                if (t.taskCategoryId === 1 || t.taskCategoryId === 2) {
+                                // Check by taskCategoryId (Pre rental QC = 1, Post rental QC = 2, Pre rental QC Replace = 9)
+                                if (t.taskCategoryId === 1 || t.taskCategoryId === 2 || t.taskCategoryId === 9) {
                                     return true;
                                 }
 
                                 // Check by taskCategoryName
                                 const categoryName = String(t.taskCategoryName || '');
-                                if (categoryName === 'Pre rental QC' || categoryName === 'Post rental QC') {
+                                if (categoryName === 'Pre rental QC' || categoryName === 'Post rental QC' || categoryName === 'Pre rental QC Replace') {
                                     return true;
                                 }
 
@@ -3885,19 +3954,22 @@ export default function TechnicianCalendar() {
                             // Count tasks by category
                             const cat1Tasks = tasksData.filter(t => t.taskCategoryId === 1 || t.taskCategoryName === 'Pre rental QC');
                             const cat2Tasks = tasksData.filter(t => t.taskCategoryId === 2 || t.taskCategoryName === 'Post rental QC');
+                            const cat9Tasks = tasksData.filter(t => t.taskCategoryId === 9 || t.taskCategoryName === 'Pre rental QC Replace');
 
                             const rule1 = taskRulesMap[1];
                             const rule2 = taskRulesMap[2];
+                            const rule9 = taskRulesMap[9];
 
                             // Debug logging
                             console.log("DEBUG Modal: taskRulesMap =", taskRulesMap);
-                            console.log("DEBUG Modal: rule1 =", rule1, "rule2 =", rule2);
-                            console.log("DEBUG Modal: cat1Tasks count =", cat1Tasks.length, "cat2Tasks count =", cat2Tasks.length);
+                            console.log("DEBUG Modal: rule1 =", rule1, "rule2 =", rule2, "rule9 =", rule9);
+                            console.log("DEBUG Modal: cat1Tasks count =", cat1Tasks.length, "cat2Tasks count =", cat2Tasks.length, "cat9Tasks count =", cat9Tasks.length);
 
                             // Use rules if available, or show placeholder if not
                             const showRule1 = rule1 || { maxTasksPerDay: '—', name: 'Pre rental QC' };
                             const showRule2 = rule2 || { maxTasksPerDay: '—', name: 'Post rental QC' };
-                            const hasAnyRules = rule1 || rule2;
+                            const showRule9 = rule9 || { maxTasksPerDay: '—', name: 'Pre rental QC Replace' };
+                            const hasAnyRules = rule1 || rule2 || rule9;
 
                             return (
                                 <>
@@ -3934,6 +4006,23 @@ export default function TechnicianCalendar() {
                                                 <strong style={{ fontSize: 18 }}>{cat2Tasks.length} / {showRule2.maxTasksPerDay}</strong>
                                                 <Tag color={(rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'red' : 'green'}>
                                                     {(rule2 && cat2Tasks.length >= rule2.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
+                                                </Tag>
+                                            </div>
+                                        </div>
+                                        {/* Pre rental QC Replace card - always show */}
+                                        <div style={{
+                                            flex: 1,
+                                            minWidth: 200,
+                                            background: (rule9 && cat9Tasks.length >= rule9.maxTasksPerDay) ? 'linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%)' : 'linear-gradient(135deg, #eb2f96 0%, #c41d7f 100%)',
+                                            borderRadius: 8,
+                                            padding: '10px 14px',
+                                            color: '#fff',
+                                        }}>
+                                            <div style={{ fontSize: 12, opacity: 0.9 }}>🔄 Pre rental QC Replace</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                                                <strong style={{ fontSize: 18 }}>{cat9Tasks.length} / {showRule9.maxTasksPerDay}</strong>
+                                                <Tag color={(rule9 && cat9Tasks.length >= rule9.maxTasksPerDay) ? 'red' : 'green'}>
+                                                    {(rule9 && cat9Tasks.length >= rule9.maxTasksPerDay) ? 'Đạt giới hạn' : 'Còn slot'}
                                                 </Tag>
                                             </div>
                                         </div>
