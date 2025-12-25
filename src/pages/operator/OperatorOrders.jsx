@@ -64,6 +64,7 @@ import { getConditionDefinitions } from "../../lib/condition";
 import { getHandoverReportsByOrderId } from "../../lib/handoverReportApi";
 import { getInvoiceByRentalOrderId } from "../../lib/Payment";
 import { getQcReportsByOrderId } from "../../lib/qcReportApi";
+import { getSettlementByOrderId } from "../../lib/settlementApi";
 import { createAnnexFromExtension, getAnnexesByContractId, normalizeAnnex } from "../../lib/annexes";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -1293,6 +1294,10 @@ export default function OperatorOrders() {
   const [annexPdfGenerating, setAnnexPdfGenerating] = useState(false);
   const annexPrintRef = useRef(null);
 
+  // Settlement state for order detail
+  const [settlement, setSettlement] = useState(null);
+  const [loadingSettlement, setLoadingSettlement] = useState(false);
+
   // Always load device model metadata for all order statuses
   const shouldLoadOrderItemMeta = useMemo(() => {
     return detail != null; // Load metadata whenever we have order details
@@ -1330,6 +1335,41 @@ export default function OperatorOrders() {
       cancelled = true;
     };
   }, [detail?.orderId]);
+
+  // Fetch settlement khi mở drawer chi tiết đơn hàng
+  useEffect(() => {
+    const orderId = detail?.orderId;
+    if (!orderId || !open) {
+      setSettlement(null);
+      setLoadingSettlement(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSettlement(true);
+    (async () => {
+      try {
+        const res = await getSettlementByOrderId(orderId);
+        const settlementData = res?.data ?? res ?? null;
+        if (!cancelled) {
+          setSettlement(settlementData);
+        }
+      } catch (e) {
+        console.warn("Failed to load settlement for order", orderId, e);
+        if (!cancelled) {
+          setSettlement(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSettlement(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.orderId, open]);
 
   /**
    * Hàm tải danh sách đơn hàng với phân trang
@@ -3072,6 +3112,7 @@ export default function OperatorOrders() {
           setKycInfo(null);
           setHandoverReports([]);
           setInvoiceInfo(null);
+          setSettlement(null);
         }}
         extra={detail && <Space></Space>}
       >
@@ -3434,6 +3475,175 @@ export default function OperatorOrders() {
                 <Divider />
                 <Title level={5} style={{ marginBottom: 8 }}>Biên bản thu hồi</Title>
                 {renderHandoverReportCards(checkinReports, true)}
+              </>
+            )}
+
+            {/* Settlement Section - Quyết toán */}
+            {loadingSettlement && (
+              <>
+                <Divider />
+                <Skeleton active paragraph={{ rows: 3 }} />
+              </>
+            )}
+            {!loadingSettlement && settlement && (
+              <>
+                <Divider />
+                <Title level={5} style={{ marginBottom: 8 }}>Quyết toán hiện có</Title>
+                {(() => {
+                  const totalDeposit = settlement.totalDeposit || 0;
+                  const damageFee = settlement.damageFee || 0;
+                  const lateFee = settlement.lateFee || 0;
+                  const accessoryFee = settlement.accessoryFee || 0;
+                  const finalReturnAmount = settlement.finalReturnAmount ?? settlement.finalAmount ?? 0;
+                  const refundAmount = finalReturnAmount > 0 ? finalReturnAmount : 0;
+                  const customerDueAmount = finalReturnAmount < 0 ? Math.abs(finalReturnAmount) : 0;
+
+                  return (
+                    <Descriptions bordered size="small" column={1}>
+                      <Descriptions.Item label="Tổng tiền cọc">
+                        {fmtVND(totalDeposit)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí hư hỏng">
+                        {fmtVND(damageFee)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí trễ">
+                        {fmtVND(lateFee)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí phụ kiện">
+                        {fmtVND(accessoryFee)}
+                      </Descriptions.Item>
+
+                      {refundAmount > 0 && (
+                        <Descriptions.Item label="Số tiền cần hoàn cho khách">
+                          <Text strong style={{ color: "#1d4ed8" }}>
+                            {fmtVND(refundAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      {customerDueAmount > 0 && (
+                        <Descriptions.Item label="Số tiền đền bù khách cần thanh toán thêm">
+                          <Text strong style={{ color: "#dc2626" }}>
+                            {fmtVND(customerDueAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      <Descriptions.Item label="Trạng thái">
+                        {(() => {
+                          const stateMap = {
+                            draft: { label: "Nháp", color: "default" },
+                            pending: { label: "Chờ xử lý", color: "gold" },
+                            approved: { label: "Đã duyệt", color: "cyan" },
+                            submitted: { label: "Đã gửi", color: "blue" },
+                            issued: { label: "Đã chấp nhận", color: "green" },
+                            closed: { label: "Đã tất toán", color: "geekblue" },
+                            rejected: { label: "Đã từ chối", color: "red" },
+                          };
+                          const key = String(settlement.state || "").toLowerCase();
+                          const info = stateMap[key] || {
+                            label: settlement.state || "—",
+                            color: "default",
+                          };
+                          return <Tag color={info.color}>{info.label}</Tag>;
+                        })()}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  );
+                })()}
+
+                {/* Damage Details Table */}
+                {settlement?.damageDetails && settlement.damageDetails.length > 0 && (
+                  <>
+                    <Divider />
+                    <Title level={5} style={{ marginBottom: 8 }}>Chi tiết thiết bị hư hỏng</Title>
+                    <Table
+                      size="small"
+                      dataSource={settlement.damageDetails}
+                      pagination={false}
+                      rowKey={(record) => record.discrepancyReportId || record.refId || Math.random()}
+                      columns={[
+                        {
+                          title: "Thiết bị",
+                          key: "device",
+                          render: (_, record) => (
+                            <div>
+                              <div style={{ fontWeight: 500 }}>{record.deviceModelName || "—"}</div>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                SN: {record.serialNumber || "—"}
+                              </Text>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: "Loại sự cố",
+                          dataIndex: "discrepancyType",
+                          key: "discrepancyType",
+                          width: 120,
+                          render: (type) => {
+                            const typeMap = {
+                              DAMAGE: { label: "Hư hỏng", color: "orange" },
+                              LOSS: { label: "Mất mát", color: "red" },
+                              OTHER: { label: "Khác", color: "default" },
+                            };
+                            const info = typeMap[type] || { label: type || "—", color: "default" };
+                            return <Tag color={info.color}>{info.label}</Tag>;
+                          },
+                        },
+                        {
+                          title: "Tình trạng",
+                          dataIndex: "conditionName",
+                          key: "conditionName",
+                          width: 180,
+                        },
+                        {
+                          title: "Phí phạt",
+                          dataIndex: "penaltyAmount",
+                          key: "penaltyAmount",
+                          width: 120,
+                          align: "right",
+                          render: (amount) => (
+                            <Text strong style={{ color: "#dc2626" }}>
+                              {fmtVND(amount || 0)}
+                            </Text>
+                          ),
+                        },
+                        {
+                          title: "Nguồn",
+                          dataIndex: "createdFrom",
+                          key: "createdFrom",
+                          width: 120,
+                          render: (source) => {
+                            const sourceMap = {
+                              HANDOVER_REPORT: { label: "Biên bản", color: "blue" },
+                              QC_REPORT: { label: "QC Report", color: "green" },
+                            };
+                            const info = sourceMap[source] || { label: source || "—", color: "default" };
+                            return <Tag color={info.color}>{info.label}</Tag>;
+                          },
+                        },
+                      ]}
+                      summary={(pageData) => {
+                        const total = pageData.reduce((sum, record) => sum + (record.penaltyAmount || 0), 0);
+                        return (
+                          <Table.Summary fixed>
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0} colSpan={3} align="right">
+                                <Text strong>Tổng phí hư hỏng:</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={1} align="right">
+                                <Text strong style={{ color: "#dc2626", fontSize: 14 }}>
+                                  {fmtVND(total)}
+                                </Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={2} />
+                            </Table.Summary.Row>
+                          </Table.Summary>
+                        );
+                      }}
+                    />
+                  </>
+                )}
               </>
             )}
 

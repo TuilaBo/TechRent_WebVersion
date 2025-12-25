@@ -282,9 +282,6 @@ export default function AdminShell() {
         >
           {/* Right side: Refresh button + Avatar dropdown */}
           <Space style={{ marginLeft: "auto" }} align="center" size={12}>
-            <Tooltip title="Làm mới">
-              <Button icon={<ReloadOutlined />} />
-            </Tooltip>
 
             {/* Avatar + dropdown menu */}
             <Dropdown menu={accountMenu} trigger={["click"]}>
