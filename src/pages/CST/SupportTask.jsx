@@ -461,10 +461,7 @@ export default function SupportTask() {
                     {address}
                   </Space>
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian thuê">
-                  {orderDetail.startDate ? fmtDateTime(orderDetail.startDate) : "—"} →{" "}
-                  {orderDetail.endDate ? fmtDateTime(orderDetail.endDate) : "—"}
-                </Descriptions.Item>
+
               </Descriptions>
               {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
                 <>
@@ -576,9 +573,7 @@ export default function SupportTask() {
                     orderDetail.customerId ?? "—"
                   )}
                 </Descriptions.Item>
-                <Descriptions.Item label="Thời gian">
-                  {orderDetail.startDate ? fmtDate(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDate(orderDetail.endDate) : "—"}
-                </Descriptions.Item>
+
                 <Descriptions.Item label="Địa chỉ">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
               </Descriptions>
               {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (
@@ -684,9 +679,7 @@ export default function SupportTask() {
                   orderDetail.customerId ?? "—"
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="Thời gian">
-                {orderDetail.startDate ? fmtDate(orderDetail.startDate) : "—"} → {orderDetail.endDate ? fmtDate(orderDetail.endDate) : "—"}
-              </Descriptions.Item>
+
               <Descriptions.Item label="Địa chỉ giao">{orderDetail.shippingAddress || "—"}</Descriptions.Item>
             </Descriptions>
             {Array.isArray(orderDetail.orderDetails) && orderDetail.orderDetails.length > 0 && (

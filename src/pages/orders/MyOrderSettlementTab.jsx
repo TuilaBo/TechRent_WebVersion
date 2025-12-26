@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, Descriptions, Tag, Typography, Alert, Space, Button } from "antd";
+import { Card, Descriptions, Tag, Typography, Alert, Space, Button, Table, Divider } from "antd";
 
 const { Title, Text } = Typography;
 
@@ -156,6 +156,99 @@ export default function MyOrderSettlementTab({
             </Text>
           )}
         </div>
+
+        {/* Damage Details Table */}
+        {settlementInfo?.damageDetails && settlementInfo.damageDetails.length > 0 && (
+          <>
+            <Divider />
+            <Title level={5} style={{ marginBottom: 8, marginTop: 0 }}>Chi tiết thiết bị hư hỏng</Title>
+            <Table
+              size="small"
+              dataSource={settlementInfo.damageDetails}
+              pagination={false}
+              rowKey={(record) => record.discrepancyReportId || record.refId || Math.random()}
+              columns={[
+                {
+                  title: "Thiết bị",
+                  key: "device",
+                  render: (_, record) => (
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{record.deviceModelName || "—"}</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        SN: {record.serialNumber || "—"}
+                      </Text>
+                    </div>
+                  ),
+                },
+                {
+                  title: "Loại sự cố",
+                  dataIndex: "discrepancyType",
+                  key: "discrepancyType",
+                  width: 120,
+                  render: (type) => {
+                    const typeMap = {
+                      DAMAGE: { label: "Hư hỏng", color: "orange" },
+                      LOSS: { label: "Mất mát", color: "red" },
+                      OTHER: { label: "Khác", color: "default" },
+                    };
+                    const info = typeMap[type] || { label: type || "—", color: "default" };
+                    return <Tag color={info.color}>{info.label}</Tag>;
+                  },
+                },
+                {
+                  title: "Tình trạng",
+                  dataIndex: "conditionName",
+                  key: "conditionName",
+                  width: 180,
+                },
+                {
+                  title: "Phí phạt",
+                  dataIndex: "penaltyAmount",
+                  key: "penaltyAmount",
+                  width: 120,
+                  align: "right",
+                  render: (amount) => (
+                    <Text strong style={{ color: "#dc2626" }}>
+                      {formatVND(amount || 0)}
+                    </Text>
+                  ),
+                },
+                {
+                  title: "Nguồn",
+                  dataIndex: "createdFrom",
+                  key: "createdFrom",
+                  width: 120,
+                  render: (source) => {
+                    const sourceMap = {
+                      HANDOVER_REPORT: { label: "Biên bản", color: "blue" },
+                      QC_REPORT: { label: "QC Report", color: "green" },
+                    };
+                    const info = sourceMap[source] || { label: source || "—", color: "default" };
+                    return <Tag color={info.color}>{info.label}</Tag>;
+                  },
+                },
+              ]}
+              summary={(pageData) => {
+                const total = pageData.reduce((sum, record) => sum + (record.penaltyAmount || 0), 0);
+                return (
+                  <Table.Summary fixed>
+                    <Table.Summary.Row>
+                      <Table.Summary.Cell index={0} colSpan={3} align="right">
+                        <Text strong>Tổng phí hư hỏng:</Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={1} align="right">
+                        <Text strong style={{ color: "#dc2626", fontSize: 14 }}>
+                          {formatVND(total)}
+                        </Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={2} />
+                    </Table.Summary.Row>
+                  </Table.Summary>
+                );
+              }}
+            />
+          </>
+        )}
       </Card>
 
       <Card

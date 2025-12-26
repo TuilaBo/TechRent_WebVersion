@@ -73,6 +73,11 @@ export async function listTasks(params = {}) {
     query.size = Number(params.size);
   }
 
+  // Sorting params
+  if (params.sortBy) {
+    query.sortBy = params.sortBy;
+  }
+
   const { data } = await api.get("/api/staff/tasks", { params: query });
   const payload = data?.data ?? data ?? [];
 
@@ -204,5 +209,86 @@ export async function confirmDelivery(taskId) {
  */
 export async function confirmRetrieval(taskId) {
   const { data } = await api.patch(`/api/staff/tasks/${Number(taskId)}/confirm-retrieval`);
+  return data?.data ?? data ?? null;
+}
+
+/** GET /api/staff/device-replacement-reports/task/{taskId} – Lấy biên bản thay thế thiết bị theo task
+ * @param {number} taskId - ID của task Device Replacement
+ * @returns {Promise<Array>} Danh sách biên bản thay thế thiết bị
+ */
+export async function getDeviceReplacementReportsByTaskId(taskId) {
+  const { data } = await api.get(`/api/staff/device-replacement-reports/task/${Number(taskId)}`);
+  return data?.data ?? data ?? [];
+}
+
+/** POST /api/staff/device-replacement-reports/{replacementReportId}/pin – Gửi PIN ký biên bản thay thế thiết bị
+ * Technician/support sends PIN to customer for signing device replacement report
+ * @param {number} replacementReportId - ID của biên bản thay thế thiết bị
+ * @returns {Promise<Object>} Response with PIN sending result
+ */
+export async function sendDeviceReplacementReportPin(replacementReportId) {
+  const { data } = await api.post(`/api/staff/device-replacement-reports/${Number(replacementReportId)}/pin`);
+  return data?.data ?? data ?? null;
+}
+
+/** PATCH /api/staff/device-replacement-reports/{replacementReportId}/signature – Ký biên bản thay thế thiết bị
+ * @param {number} replacementReportId - ID của biên bản thay thế thiết bị
+ * @param {Object} params - Thông tin ký
+ * @param {string} params.pin - Mã PIN xác nhận (được gửi qua email)
+ * @param {string} params.signature - Chữ ký của technician
+ * @returns {Promise<Object>} Response with signed report
+ */
+export async function signDeviceReplacementReport(replacementReportId, { pin, signature }) {
+  const { data } = await api.patch(`/api/staff/device-replacement-reports/${Number(replacementReportId)}/signature`, {
+    pin,
+    signature,
+  });
+  return data?.data ?? data ?? null;
+}
+
+/** GET /api/staff/device-replacement-reports/{replacementReportId} – Lấy chi tiết biên bản thay thế thiết bị
+ * @param {number} replacementReportId - ID của biên bản thay thế thiết bị
+ * @returns {Promise<Object>} Response with replacement report details
+ */
+export async function getDeviceReplacementReportById(replacementReportId) {
+  const { data } = await api.get(`/api/staff/device-replacement-reports/${Number(replacementReportId)}`);
+  return data?.data ?? data ?? null;
+}
+
+/** 
+ * Parse complaint ID from task description
+ * Example: "Thay thế thiết bị cho đơn hàng #1404. Khiếu nại #3: ..."
+ * @param {string} description - Task description
+ * @returns {number|null} Complaint ID or null if not found
+ */
+export function parseComplaintIdFromDescription(description) {
+  if (!description) return null;
+  // Match "Khiếu nại #<number>" pattern
+  const match = description.match(/Khiếu nại\s*#(\d+)/i);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** POST /api/staff/device-replacement-reports/{replacementReportId}/devices/{deviceId}/evidences
+ * Upload bằng chứng cho thiết bị trong biên bản thay thế thiết bị
+ * @param {number} replacementReportId - ID của biên bản thay thế
+ * @param {number} deviceId - ID của thiết bị
+ * @param {File[]} files - Danh sách file ảnh bằng chứng
+ * @returns {Promise<Object>} Response with uploaded evidence info
+ */
+export async function uploadDeviceReplacementEvidence(replacementReportId, deviceId, files) {
+  const formData = new FormData();
+  if (Array.isArray(files)) {
+    files.forEach((file) => {
+      formData.append("files", file, file.name || "evidence.jpg");
+    });
+  } else if (files) {
+    formData.append("files", files, files.name || "evidence.jpg");
+  }
+
+  const { data } = await api.post(
+    `/api/staff/device-replacement-reports/${Number(replacementReportId)}/devices/${Number(deviceId)}/evidences`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
   return data?.data ?? data ?? null;
 }

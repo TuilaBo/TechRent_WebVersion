@@ -80,6 +80,7 @@ export const fmtOrderStatus = (s) => {
         DELIVERING: "Đang giao",
         DELIVERED: "Đã giao",
         RENTING: "Đang thuê",
+        IN_USE: "Đang sử dụng",
         OVERDUE: "Quá hạn",
         RETURNING: "Đang trả",
         RETURNED: "Đã trả",

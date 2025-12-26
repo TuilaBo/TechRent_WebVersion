@@ -28,24 +28,32 @@ export function normalizeTechnicianTask(raw = {}) {
 
 /** Optional enum for status used by technician endpoints */
 export const TECH_TASK_STATUS = {
-  PENDING: "PENDING",
-  IN_PROGRESS: "IN_PROGRESS",
-  COMPLETED: "COMPLETED",
+  PENDING: { label: "Đang chờ thực hiện", color: "#faad14" },
+  IN_PROGRESS: { label: "Đang xử lý", color: "#1890ff" },
+  COMPLETED: { label: "Đã hoàn thành", color: "#52c41a" },
+  CANCELLED: { label: "Đã hủy", color: "#ff4d4f" },
+  FAILED: { label: "Thất bại", color: "#ff4d4f" },
 };
 
 // Màu cho trạng thái (dùng cho Tag/Badge ở UI)
 export const TECH_TASK_STATUS_COLOR = {
-  PENDING: { bg: "#000000", text: "#ffffff" },        // nền đen, chữ trắng
-  IN_PROGRESS: { bg: "#1677ff", text: "#ffffff" },   // xanh dương
-  COMPLETED: { bg: "#52c41a", text: "#ffffff" },     // xanh lá
-  CANCELLED: { bg: "#ff4d4f", text: "#ffffff" },     // đỏ
+  PENDING: { bg: "#fff7e6", text: "#d46b08" },
+  IN_PROGRESS: { bg: "#e6f7ff", text: "#0958d9" },
+  COMPLETED: { bg: "#f6ffed", text: "#389e0d" },
+  CANCELLED: { bg: "#fff1f0", text: "#cf1322" },
+  FAILED: { bg: "#fff1f0", text: "#cf1322" },
 };
 
 export function getTechnicianStatusColor(status) {
-  const key = String(status || "").toUpperCase();
-  return (
-    TECH_TASK_STATUS_COLOR[key] || { bg: "#000000", text: "#ffffff" }
-  );
+  const s = String(status || "").toUpperCase();
+  const colors = {
+    PENDING: { bg: "#fff7e6", text: "#d46b08" },
+    IN_PROGRESS: { bg: "#e6f7ff", text: "#0958d9" },
+    COMPLETED: { bg: "#f6ffed", text: "#389e0d" },
+    CANCELLED: { bg: "#fff1f0", text: "#cf1322" },
+    FAILED: { bg: "#fff1f0", text: "#cf1322" },
+  };
+  return colors[s] || { bg: "#fafafa", text: "#595959" };
 }
 
 // Map task status to Ant Design Badge status

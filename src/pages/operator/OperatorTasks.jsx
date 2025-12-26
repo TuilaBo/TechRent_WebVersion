@@ -106,6 +106,7 @@ export default function OperatorTasks() {
   const [filterStatus, setFilterStatus] = useState(null);
   const [filterOrderId, setFilterOrderId] = useState(null);
   const [filterOrderIdInput, setFilterOrderIdInput] = useState(null); // Input value for debounce
+  const [filterSortBy, setFilterSortBy] = useState(null); // Default sort by plannedEnd (when null)
 
   // Debounce filter Order ID - 3 seconds after user stops typing
   useEffect(() => {
@@ -270,6 +271,7 @@ export default function OperatorTasks() {
       const taskParams = {
         page: taskPage,
         size: taskPageSize,
+        sortBy: filterSortBy || 'plannedEnd',
       };
       // Thêm các filter nếu có
       if (filterCategoryId) taskParams.categoryId = filterCategoryId;
@@ -330,7 +332,7 @@ export default function OperatorTasks() {
     } finally {
       setLoading(false);
     }
-  }, [taskPage, taskPageSize, filterCategoryId, filterStatus, filterOrderId]);
+  }, [taskPage, taskPageSize, filterCategoryId, filterStatus, filterOrderId, filterSortBy]);
 
   useEffect(() => {
     loadData();
@@ -1307,12 +1309,31 @@ export default function OperatorTasks() {
                 </Space>
               </Col>
               <Col>
+                <Space>
+                  <span>Sắp xếp:</span>
+                  <Select
+                    style={{ width: 200 }}
+                    allowClear
+                    placeholder="Mặc định"
+                    value={filterSortBy}
+                    onChange={(value) => {
+                      setFilterSortBy(value);
+                      setTaskPage(0);
+                    }}
+                    options={[
+                      { label: "Theo thời gian tạo mới nhất", value: "createdAt" },
+                    ]}
+                  />
+                </Space>
+              </Col>
+              <Col>
                 <Button
                   onClick={() => {
                     setFilterCategoryId(null);
                     setFilterStatus(null);
                     setFilterOrderId(null);
                     setFilterOrderIdInput(null);
+                    setFilterSortBy(null);
                     setTaskPage(0);
                   }}
                 >
