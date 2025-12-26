@@ -1700,28 +1700,6 @@ export default function TechnicianQcDetail() {
               <Text strong style={{ fontSize: 16 }}>
                 Tình trạng của thiết bị
               </Text>
-              <Button
-                type="dashed"
-                onClick={() => {
-                  if (availableDevicesForConditions.length === 0) {
-                    message.warning(
-                      "Vui lòng chọn thiết bị trước khi thêm điều kiện"
-                    );
-                    return;
-                  }
-                  setDeviceConditions([
-                    ...deviceConditions,
-                    {
-                      deviceId: null,
-                      conditionDefinitionId: null,
-                      severity: "",
-                      images: [],
-                    },
-                  ]);
-                }}
-              >
-                + Thêm tình trạng thiết bị
-              </Button>
             </div>
 
             {deviceConditions.length === 0 ? (
@@ -1766,20 +1744,6 @@ export default function TechnicianQcDetail() {
                       key={index}
                       size="small"
                       title={cardTitle}
-                      extra={
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          onClick={() => {
-                            setDeviceConditions(
-                              deviceConditions.filter((_, i) => i !== index)
-                            );
-                          }}
-                        >
-                          Xóa
-                        </Button>
-                      }
                     >
                       <Row gutter={16}>
                         <Col xs={24} md={12}>
@@ -1959,7 +1923,7 @@ export default function TechnicianQcDetail() {
                                 setDeviceConditions(newConditions);
                               }}
                               loading={loadingConditions}
-                              disabled={!condition.deviceId || loadingConditions}
+                              disabled
                               options={filteredConditions.map((c) => ({
                                 label: c.name,
                                 value: c.id,

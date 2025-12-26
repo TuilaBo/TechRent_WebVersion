@@ -1401,7 +1401,10 @@ export default function TechnicianHandover() {
             if (snapshotWithSerial?.deviceSerial) {
               serial = snapshotWithSerial.deviceSerial;
             }
-
+          }
+          
+          // ALWAYS try to get conditionDefinitionId and severity from snapshots if not already set
+          if (snapshots.length > 0) {
             const snapshotWithCondition = snapshots.find(
               (snap) =>
                 Array.isArray(snap.conditionDetails) &&
@@ -1428,6 +1431,14 @@ export default function TechnicianHandover() {
               }
             }
           }
+          
+          // Debug: Log resolved values
+          console.log(`DEBUG hydrateReportToForm - Resolved dc[${idx}]:`, {
+            serial,
+            resolvedConditionDefinitionId,
+            resolvedSeverity,
+            resolvedImages: resolvedImages.length
+          });
           return {
             deviceId:
               serial?.trim() ||
@@ -1741,7 +1752,19 @@ export default function TechnicianHandover() {
         !Array.isArray(order.orderDetails) ||
         order.orderDetails.length === 0
       ) {
-        setConditionDefinitions([]);
+        // Still try to load all conditions even without order (for update mode)
+        try {
+          setLoadingConditions(true);
+          const allConditions = await getConditionDefinitions();
+          const normalized = (allConditions || []).map(normalizeConditionDef);
+          console.log("Loaded all condition definitions (no order):", normalized);
+          setConditionDefinitions(normalized);
+        } catch (e) {
+          console.error("Error loading all condition definitions:", e);
+          setConditionDefinitions([]);
+        } finally {
+          setLoadingConditions(false);
+        }
         return;
       }
 
@@ -1756,6 +1779,17 @@ export default function TechnicianHandover() {
         }
 
         const allConditions = [];
+        
+        // First, load all conditions without filter (to ensure we have conditions from existing reports)
+        try {
+          const globalConditions = await getConditionDefinitions();
+          const normalizedGlobal = (globalConditions || []).map(normalizeConditionDef);
+          allConditions.push(...normalizedGlobal);
+        } catch (e) {
+          console.warn("Failed to load all conditions:", e);
+        }
+        
+        // Then load per-model conditions
         for (const modelId of modelIds) {
           try {
             const conditions = await getConditionDefinitions({
@@ -2877,46 +2911,7 @@ export default function TechnicianHandover() {
       {/* Tình trạng thiết bị */}
       <Card title="Tình trạng thiết bị" className="mb-3">
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <Button
-              type="dashed"
-              onClick={() => {
-                const availableSerials = items
-                  .map((item) => {
-                    const codes = (item.itemCode || "")
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                    return codes;
-                  })
-                  .flat();
-                if (availableSerials.length === 0) {
-                  message.warning(
-                    "Vui lòng đợi thiết bị được load trước khi thêm điều kiện"
-                  );
-                  return;
-                }
-
-                setDeviceConditions([
-                  ...deviceConditions,
-                  {
-                    deviceId: null,
-                    conditionDefinitionId: null,
-                    severity: "",
-                    images: [],
-                  },
-                ]);
-              }}
-            >
-              + Thêm tình trạng thiết bị
-            </Button>
-          </div>
+          {/* Nút Thêm tình trạng thiết bị đã bị ẩn - tình trạng được tự động điền */}
 
           {deviceConditions.length === 0 ? (
             <Text
@@ -3059,20 +3054,6 @@ export default function TechnicianHandover() {
                     key={index}
                     size="small"
                     title={`Tình trạng #${index + 1}${deviceModelName ? ` - ${deviceModelName}` : ''}`}
-                    extra={
-                      <Button
-                        type="link"
-                        danger
-                        size="small"
-                        onClick={() => {
-                          setDeviceConditions(
-                            deviceConditions.filter((_, i) => i !== index)
-                          );
-                        }}
-                      >
-                        Xóa
-                      </Button>
-                    }
                   >
                     <Row gutter={16}>
                       <Col xs={24} md={12}>
@@ -3133,7 +3114,7 @@ export default function TechnicianHandover() {
                               setDeviceConditions(newConditions);
                             }}
                             loading={loadingConditions}
-                            disabled={!condition.deviceId || loadingConditions}
+                            disabled
                             options={finalConditions.map((c) => ({
                               label: c.name,
                               value: c.id,
@@ -3162,6 +3143,7 @@ export default function TechnicianHandover() {
                               };
                               setDeviceConditions(newConditions);
                             }}
+                            disabled
                             options={[
                               { label: "Không có", value: "INFO" },
                               { label: "Nhẹ", value: "LOW" },

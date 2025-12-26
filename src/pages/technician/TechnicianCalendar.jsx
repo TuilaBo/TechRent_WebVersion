@@ -1716,12 +1716,19 @@ export default function TechnicianCalendar() {
                             const taskId = r.taskId || r.id;
                             const hasQcReport = hasQcReportMap[taskId];
                             const status = String(r.status || "").toUpperCase();
+                            const orderStatus = String(r.orderStatus || "").toUpperCase();
+                            const isOrderProcessing = orderStatus === "PROCESSING" || orderStatus === "";
                             const buttonLabel =
                                 status === "COMPLETED"
                                     ? "Cập nhật QC Report"
                                     : hasQcReport
                                         ? "Cập nhật QC Report"
                                         : "Tạo QC Report";
+
+                            // Hide button if order is not PROCESSING
+                            if (!isOrderProcessing && orderStatus) {
+                                return null;
+                            }
 
                             return (
                                 <Button
@@ -2207,12 +2214,19 @@ export default function TechnicianCalendar() {
                             const taskId = t.taskId || t.id;
                             const hasQcReport = hasQcReportMap[taskId];
                             const status = String(t.status || "").toUpperCase();
+                            const orderStatus = String(orderDetail?.status || orderDetail?.orderStatus || "").toUpperCase();
+                            const isOrderProcessing = orderStatus === "PROCESSING" || orderStatus === "";
                             const buttonLabel =
                                 status === "COMPLETED"
                                     ? "Cập nhật QC Report"
                                     : hasQcReport
                                         ? "Cập nhật QC Report"
                                         : "Tạo QC Report";
+
+                            // Hide button if order is not PROCESSING (e.g. COMPLETED, CANCELLED)
+                            if (!isOrderProcessing && orderStatus) {
+                                return null;
+                            }
 
                             return (
                                 <Button
@@ -3367,6 +3381,11 @@ export default function TechnicianCalendar() {
                                 }
 
                                 return false;
+                            }).sort((a, b) => {
+                                // COMPLETED tasks go to the bottom, others stay on top
+                                const aCompleted = String(a.status || '').toUpperCase() === 'COMPLETED' ? 1 : 0;
+                                const bCompleted = String(b.status || '').toUpperCase() === 'COMPLETED' ? 1 : 0;
+                                return aCompleted - bCompleted;
                             });
 
                             // Count tasks by category
@@ -3498,7 +3517,14 @@ export default function TechnicianCalendar() {
                         label: 'Giao hàng / Thu hồi',
                         children: (() => {
                             const tasksData = getCalendarData(selectedDate).tasks;
-                            const deliveryTasks = tasksData.filter(t => ['DELIVERY', 'PICKUP'].includes(t.type) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order' || t.taskCategoryId === 8 || t.taskCategoryName === 'Device Replacement'));
+                            const deliveryTasks = tasksData
+                                .filter(t => ['DELIVERY', 'PICKUP'].includes(t.type) || (t.taskCategoryName || '').includes('Giao') || (t.taskCategoryName || '').includes('Thu') || (t.taskCategoryName === 'Delivery' || t.taskCategoryName === 'Pick up rental order' || t.taskCategoryId === 8 || t.taskCategoryName === 'Device Replacement'))
+                                .sort((a, b) => {
+                                    // COMPLETED tasks go to the bottom, others stay on top
+                                    const aCompleted = String(a.status || '').toUpperCase() === 'COMPLETED' ? 1 : 0;
+                                    const bCompleted = String(b.status || '').toUpperCase() === 'COMPLETED' ? 1 : 0;
+                                    return aCompleted - bCompleted;
+                                });
 
                             // Count tasks by category
                             const cat4Tasks = tasksData.filter(t => t.taskCategoryId === 4 || t.taskCategoryName === 'Delivery');

@@ -538,7 +538,7 @@ export default function AdminComplaints() {
                   <Divider style={{ margin: "16px 0" }} />
                   <div>
                     <Text strong style={{ display: "block", marginBottom: 12, fontSize: 14 }}>
-                      Báo cáo sự khác biệt ({selectedComplaint.discrepancies.length})
+                      Sự cố ({selectedComplaint.discrepancies.length})
                     </Text>
                     <Space direction="vertical" size={12} style={{ width: "100%" }}>
                       {selectedComplaint.discrepancies.map((disc, index) => (
