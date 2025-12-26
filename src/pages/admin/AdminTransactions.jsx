@@ -564,19 +564,42 @@ export default function AdminTransactions() {
             <Divider />
 
             <Descriptions bordered column={1} size="small">
-              <Descriptions.Item label="Tổng tiền">
-                <Text strong>{formatCurrency(selectedInvoice.subTotal || 0)}</Text>
-              </Descriptions.Item>
-              {selectedInvoice.depositApplied && (
-                <Descriptions.Item label="Cọc đã áp dụng">
-                  {formatCurrency(selectedInvoice.depositApplied)}
-                </Descriptions.Item>
+              {/* Hiển thị khác nhau tùy theo loại hóa đơn */}
+              {String(selectedInvoice.invoiceType || "").toUpperCase() === "DEPOSIT_REFUND" ? (
+                <>
+                  {/* Cho hóa đơn hoàn cọc */}
+                  <Descriptions.Item label="Tổng tiền cọc">
+                    {formatCurrency(selectedInvoice.depositApplied || 0)}
+                  </Descriptions.Item>
+                  {(selectedInvoice.subTotal > 0) && (
+                    <Descriptions.Item label="Phí khấu trừ (hư hỏng)">
+                      <Text type="danger">{formatCurrency(selectedInvoice.subTotal || 0)}</Text>
+                    </Descriptions.Item>
+                  )}
+                  <Descriptions.Item label="Số tiền đã hoàn cho khách">
+                    <Text strong style={{ fontSize: 18, color: "#1890ff" }}>
+                      {formatCurrency(selectedInvoice.totalAmount || 0)}
+                    </Text>
+                  </Descriptions.Item>
+                </>
+              ) : (
+                <>
+                  {/* Cho các loại hóa đơn khác */}
+                  <Descriptions.Item label="Tổng tiền">
+                    <Text strong>{formatCurrency(selectedInvoice.subTotal || 0)}</Text>
+                  </Descriptions.Item>
+                  {selectedInvoice.depositApplied && (
+                    <Descriptions.Item label="Cọc đã áp dụng">
+                      {formatCurrency(selectedInvoice.depositApplied)}
+                    </Descriptions.Item>
+                  )}
+                  <Descriptions.Item label="Tổng thanh toán">
+                    <Text strong style={{ fontSize: 18, color: "#1890ff" }}>
+                      {formatCurrency(selectedInvoice.totalAmount || 0)}
+                    </Text>
+                  </Descriptions.Item>
+                </>
               )}
-              <Descriptions.Item label="Tổng thanh toán">
-                <Text strong style={{ fontSize: 18, color: "#1890ff" }}>
-                  {formatCurrency(selectedInvoice.totalAmount || 0)}
-                </Text>
-              </Descriptions.Item>
             </Descriptions>
 
             {selectedInvoice.proofUrl && (
