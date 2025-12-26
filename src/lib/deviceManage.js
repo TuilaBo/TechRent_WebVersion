@@ -105,6 +105,17 @@ export async function deleteDeviceModel(id) {
 
 /* ------------------------- Devices ------------------------- */
 
+/**
+ * Lấy chi tiết thiết bị theo ID
+ * GET /api/devices/{deviceId}
+ * @param {number} deviceId - Mã thiết bị
+ * @returns {Promise<Object>} Chi tiết thiết bị bao gồm currentConditions
+ */
+export async function getDeviceById(deviceId) {
+  const { data } = await api.get(`/api/devices/${Number(deviceId)}`);
+  return data?.data ?? data ?? null;
+}
+
 export async function listDevices() {
   const { data } = await api.get("/api/devices");
   return data?.data ?? data ?? [];

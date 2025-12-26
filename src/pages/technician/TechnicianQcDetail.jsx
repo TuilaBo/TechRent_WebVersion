@@ -16,9 +16,10 @@ import {
   getPreRentalQcReportById,
   getPostRentalQcReportById,
 } from "../../lib/qcReportApi";
-import { getDevicesByModelId, getAvailableDevicesByModel, listDevices } from "../../lib/deviceManage";
+import { getDevicesByModelId, getAvailableDevicesByModel, listDevices, getDeviceById } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getConditionDefinitions, getDeviceConditions } from "../../lib/condition";
+import { getComplaintByTaskId } from "../../lib/complaints";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -135,6 +136,11 @@ export default function TechnicianQcDetail() {
   const [conditionDefinitions, setConditionDefinitions] = useState([]);
   const [loadingConditions, setLoadingConditions] = useState(false);
 
+  // QC Replace (taskCategoryId === 9) states
+  const [replacementComplaint, setReplacementComplaint] = useState(null);
+  const [isQcReplaceTask, setIsQcReplaceTask] = useState(false);
+  const [replacementDeviceData, setReplacementDeviceData] = useState(null); // Device data including currentConditions
+
   /**
    * useEffect: Tải dữ liệu chính (Task, Order, QC Reports)
    * Được gọi khi: Component mount hoặc taskId thay đổi
@@ -149,7 +155,7 @@ export default function TechnicianQcDetail() {
 
       try {
         setLoading(true);
-        
+
         // ========== BƯỚC 1: LẤY THÔNG TIN TASK ==========
         // API: GET /api/tasks/{taskId}
         // Trả về: { taskId, orderId, status, type, description... }
@@ -162,6 +168,63 @@ export default function TechnicianQcDetail() {
 
         const normalizedTask = normalizeTask(taskData);
         setTask(normalizedTask);
+
+        // ========== BƯỚC 1.5: KIỂM TRA QC REPLACE TASK ==========
+        // Nếu taskCategoryId === 9, load complaint để lấy replacement device info
+        const taskCategoryId = normalizedTask.taskCategoryId || taskData.taskCategoryId;
+        const taskCategoryName = normalizedTask.taskCategoryName || taskData.taskCategoryName;
+        const isQcReplace = taskCategoryId === 9 || taskCategoryName === 'Pre rental QC Replace';
+        setIsQcReplaceTask(isQcReplace);
+
+        if (isQcReplace) {
+          try {
+            const taskIdForComplaint = normalizedTask.taskId || normalizedTask.id || actualTaskId;
+            const complaint = await getComplaintByTaskId(taskIdForComplaint);
+            setReplacementComplaint(complaint);
+            console.log("🔄 [DEBUG] QC Replace: Loaded replacement complaint =", complaint);
+
+            // ========== FETCH REPLACEMENT DEVICE DETAILS FOR AUTO-FILL ==========
+            // API: GET /api/devices/{replacementDeviceId}
+            // Returns: { deviceId, serialNumber, currentConditions[], ... }
+            if (complaint?.replacementDeviceId) {
+              try {
+                const deviceData = await getDeviceById(complaint.replacementDeviceId);
+                setReplacementDeviceData(deviceData);
+                console.log("🔄 [DEBUG] QC Replace: Loaded replacement device data =", deviceData);
+
+                // Auto-fill deviceConditions from currentConditions
+                if (deviceData && Array.isArray(deviceData.currentConditions) && deviceData.currentConditions.length > 0) {
+                  const autoFilledConditions = deviceData.currentConditions.map((condition) => {
+                    // Map severity: nếu NONE thì đổi thành INFO
+                    let mappedSeverity = String(condition.severity || "INFO").toUpperCase();
+                    const validSeverities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"];
+                    if (mappedSeverity === "NONE") mappedSeverity = "INFO";
+                    if (!validSeverities.includes(mappedSeverity)) {
+                      mappedSeverity = "INFO";
+                    }
+
+                    return {
+                      deviceId: String(deviceData.serialNumber || complaint.replacementDeviceSerialNumber),
+                      conditionDefinitionId: condition.conditionDefinitionId,
+                      severity: mappedSeverity,
+                      images: Array.isArray(condition.images) ? condition.images : [],
+                    };
+                  });
+
+                  console.log("🔄 [DEBUG] QC Replace: Auto-filled device conditions =", autoFilledConditions);
+                  setDeviceConditions(autoFilledConditions);
+                  message.success(`Đã tự động điền tình trạng thiết bị thay thế từ hệ thống`);
+                }
+              } catch (deviceErr) {
+                console.warn("Could not load replacement device details:", deviceErr);
+                setReplacementDeviceData(null);
+              }
+            }
+          } catch (e) {
+            console.warn("Could not load replacement complaint for QC Replace task:", e);
+            setReplacementComplaint(null);
+          }
+        }
 
         // ========== BƯỚC 2: LẤY THÔNG TIN ĐƠN HÀNG ==========
         if (normalizedTask.orderId) {
@@ -196,10 +259,8 @@ export default function TechnicianQcDetail() {
                 );
               });
 
-              // Fallback: lấy PRE_RENTAL bất kỳ nếu không match taskId
-              if (!matchingReport) {
-                matchingReport = qcReports.find((r) => String(r.phase || "").toUpperCase() === "PRE_RENTAL");
-              }
+              // Không fallback sang report khác để tránh cập nhật nhầm report của task khác
+              // Nếu không tìm thấy report match taskId → matchingReport = null → sẽ tạo mới
 
               console.log("📋 [DEBUG] Existing QC Report:", matchingReport);
               console.log("📋 [DEBUG] QC Report devices:", matchingReport?.devices);
@@ -317,11 +378,11 @@ export default function TechnicianQcDetail() {
               ? start && end
                 ? devices // API đã filter rồi
                 : devices.filter((device) => {
-                    const status = String(
-                      device.status || device.deviceStatus || device.state || ""
-                    ).toUpperCase();
-                    return status === "AVAILABLE";
-                  })
+                  const status = String(
+                    device.status || device.deviceStatus || device.state || ""
+                  ).toUpperCase();
+                  return status === "AVAILABLE";
+                })
               : [];
 
             return { orderDetailId, devices: availableDevices, deviceModelId, name };
@@ -485,7 +546,7 @@ export default function TechnicianQcDetail() {
 
         if (allSerials.length > 0) {
           const ods = Array.isArray(order?.orderDetails) ? order.orderDetails : [];
-          
+
           // Track used serials to avoid duplicates - start empty
           const usedSerials = new Set();
 
@@ -559,11 +620,11 @@ export default function TechnicianQcDetail() {
           const modelId = Number(od.deviceModelId ?? NaN);
           const quantity = Number(od.quantity ?? 1);
           if (!odId || !modelId) return;
-          
+
           const pool = groupByModel[modelId] || [];
           // Filter out already used serials
           const availablePool = pool.filter(serial => !usedSerials.has(serial));
-          
+
           if (availablePool.length > 0) {
             const assignedSerials = availablePool.slice(0, Math.max(1, quantity));
             serialMap[String(odId)] = assignedSerials;
@@ -580,11 +641,79 @@ export default function TechnicianQcDetail() {
     }
   }, [existingQcReport, order]);
 
-  // Get order details from order
+  // Get order details from order - for QC Replace, filter to only show replacement device's model
   const orderDetails = useMemo(() => {
     if (!order || !Array.isArray(order.orderDetails)) return [];
+
+    // For QC Replace tasks, only show the orderDetail matching the replacement device's model
+    if (isQcReplaceTask && replacementDeviceData?.deviceModelId) {
+      const replacementModelId = Number(replacementDeviceData.deviceModelId);
+      const filtered = order.orderDetails.filter(od =>
+        Number(od.deviceModelId) === replacementModelId
+      );
+      console.log("🔄 [DEBUG] QC Replace: Filtered orderDetails to match replacement model", replacementModelId, "->", filtered);
+      return filtered.length > 0 ? filtered : order.orderDetails;
+    }
+
     return order.orderDetails;
-  }, [order]);
+  }, [order, isQcReplaceTask, replacementDeviceData]);
+
+  /**
+   * useEffect: Auto-fill selectedDevicesByOrderDetail for QC Replace tasks
+   * When we have replacementComplaint with replacementDeviceSerialNumber,
+   * automatically set up the device selection with the replacement serial number
+   */
+  useEffect(() => {
+    if (!isQcReplaceTask || !replacementComplaint || !orderDetails.length) {
+      return;
+    }
+
+    // Skip if we already have serial numbers selected from existing QC report
+    if (Object.keys(selectedDevicesByOrderDetail).length > 0) {
+      return;
+    }
+
+    const replacementSerial = replacementComplaint.replacementDeviceSerialNumber;
+    const replacementModelId = replacementDeviceData?.deviceModelId;
+
+    if (!replacementSerial) {
+      console.warn("🔄 [DEBUG] QC Replace: No replacement serial number found in complaint");
+      return;
+    }
+
+    console.log("🔄 [DEBUG] QC Replace: Auto-filling selectedDevicesByOrderDetail");
+    console.log("🔄 [DEBUG] QC Replace: Replacement serial:", replacementSerial);
+    console.log("🔄 [DEBUG] QC Replace: Replacement modelId:", replacementModelId);
+
+    // For QC Replace, find the orderDetail matching the replacement device's model
+    const newSelectedMap = {};
+
+    for (const od of orderDetails) {
+      const odId = String(od.orderDetailId || od.id);
+      const odModelId = Number(od.deviceModelId);
+
+      // If we have replacement model info, only fill the matching orderDetail
+      if (replacementModelId) {
+        if (odModelId === Number(replacementModelId)) {
+          newSelectedMap[odId] = [String(replacementSerial)];
+          console.log("🔄 [DEBUG] QC Replace: Matched orderDetail", odId, "with modelId", odModelId);
+          break; // Only need one for QC Replace
+        }
+      } else {
+        // Fallback: fill the first orderDetail if no model info available
+        if (Object.keys(newSelectedMap).length === 0) {
+          newSelectedMap[odId] = [String(replacementSerial)];
+          break;
+        }
+      }
+    }
+
+    if (Object.keys(newSelectedMap).length > 0) {
+      console.log("🔄 [DEBUG] QC Replace: Setting selectedDevicesByOrderDetail =", newSelectedMap);
+      setSelectedDevicesByOrderDetail(newSelectedMap);
+      message.info(`Đã tự động chọn thiết bị thay thế: ${replacementSerial}`);
+    }
+  }, [isQcReplaceTask, replacementComplaint, replacementDeviceData, orderDetails, selectedDevicesByOrderDetail]);
 
   /**
    * useEffect: Tải danh sách condition definitions khi devices được chọn
@@ -737,11 +866,11 @@ export default function TechnicianQcDetail() {
           try {
             const device = Array.isArray(allDevices)
               ? allDevices.find((d) => {
-                  const deviceSerial = String(
-                    d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
-                  ).toUpperCase();
-                  return deviceSerial === String(serial).toUpperCase();
-                })
+                const deviceSerial = String(
+                  d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
+                ).toUpperCase();
+                return deviceSerial === String(serial).toUpperCase();
+              })
               : null;
 
             if (!device) continue;
@@ -826,13 +955,24 @@ export default function TechnicianQcDetail() {
    * 4. Reload data sau khi thành công
    */
   const onSave = async () => {
-    if (saving) return;
+    console.log("🚀 [DEBUG] onSave() called");
+    console.log("🚀 [DEBUG] actualTaskId:", actualTaskId);
+    console.log("🚀 [DEBUG] existingQcReport:", existingQcReport);
+    console.log("🚀 [DEBUG] saving state:", saving);
+
+    if (saving) {
+      console.log("❌ [DEBUG] Blocked: saving is true");
+      return;
+    }
     if (!task || !actualTaskId) {
+      console.log("❌ [DEBUG] Blocked: no task or actualTaskId");
       message.error("Không có thông tin task");
       return;
     }
 
     // ========== BƯỚC 1: VALIDATE SỐ LƯỢNG THIẾT BỊ ==========
+    console.log("🚀 [DEBUG] isPickComplete():", isPickComplete());
+    console.log("🚀 [DEBUG] selectedDevicesByOrderDetail:", selectedDevicesByOrderDetail);
     if (!isPickComplete()) {
       const incompleteDetails = orderDetails.map((od) => {
         const orderDetailId = od.orderDetailId || od.id;
@@ -881,6 +1021,7 @@ export default function TechnicianQcDetail() {
       // Map mỗi orderDetailId → danh sách serial numbers đã chọn
       const orderDetailSerialNumbers = {};
 
+      // Sử dụng selectedDevicesByOrderDetail từ UI (cả QC Replace và normal QC)
       orderDetails.forEach((orderDetail) => {
         const orderDetailId = orderDetail.orderDetailId || orderDetail.id;
         const serialNumbers = selectedDevicesByOrderDetail[orderDetailId] || [];
@@ -903,11 +1044,11 @@ export default function TechnicianQcDetail() {
         // Tìm device thật dựa vào serialNumber
         const device = Array.isArray(allDevices)
           ? allDevices.find((d) => {
-              const deviceSerial = String(
-                d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
-              ).toUpperCase();
-              return deviceSerial === String(condition.deviceId).toUpperCase();
-            })
+            const deviceSerial = String(
+              d.serialNumber || d.serial || d.serialNo || d.deviceId || d.id || ""
+            ).toUpperCase();
+            return deviceSerial === String(condition.deviceId).toUpperCase();
+          })
           : null;
 
         if (device) {
@@ -964,8 +1105,13 @@ export default function TechnicianQcDetail() {
       const isCompleted = taskStatus === "COMPLETED";
       const qcReportId = existingQcReport?.qcReportId || existingQcReport?.id;
 
+      console.log("🚀 [DEBUG] taskStatus:", taskStatus);
+      console.log("🚀 [DEBUG] isCompleted:", isCompleted);
+      console.log("🚀 [DEBUG] qcReportId:", qcReportId);
+
       // Kiểm tra: task đã COMPLETED nhưng chưa có QC report → không cho tạo mới
       if (isCompleted && !qcReportId) {
+        console.log("❌ [DEBUG] Blocked: task COMPLETED but no qcReportId");
         message.error(
           "Task đã hoàn thành. Chỉ có thể cập nhật QC report đã tồn tại, không thể tạo mới."
         );
@@ -973,10 +1119,12 @@ export default function TechnicianQcDetail() {
       }
 
       // ========== BƯỚC 6A: CẬP NHẬT QC REPORT CŨ ==========
+      console.log("🚀 [DEBUG] Checking branch: existingQcReport=", !!existingQcReport, "qcReportId=", qcReportId);
       if (existingQcReport && qcReportId) {
+        console.log("🔄 [DEBUG] Going to UPDATE branch with qcReportId:", qcReportId);
         // Xây dựng finalOrderDetailSerialNumbers từ existing report (phức tạp vì nhiều format)
         let finalOrderDetailSerialNumbers = {};
-        
+
         // TH1: existingQcReport đã có orderDetailSerialNumbers
         if (
           existingQcReport.orderDetailSerialNumbers &&
@@ -990,7 +1138,7 @@ export default function TechnicianQcDetail() {
               }
             }
           );
-        } 
+        }
         // TH2: existingQcReport có devices[] → map về orderDetailId
         else if (
           Array.isArray(existingQcReport.devices) &&
@@ -1017,7 +1165,7 @@ export default function TechnicianQcDetail() {
                 .map(String);
             }
           });
-        } 
+        }
         // TH3: Fallback - dùng selectedDevicesByOrderDetail hiện tại
         else {
           orderDetails.forEach((orderDetail) => {
@@ -1050,9 +1198,10 @@ export default function TechnicianQcDetail() {
         // Body: { orderDetailSerialNumbers, result, findings, accessoryFile, deviceConditions }
         await updatePreRentalQcReport(qcReportId, updatePayload);
         toast.success("Đã cập nhật QC report thành công!");
-      } 
+      }
       // ========== BƯỚC 6B: TẠO MỚI QC REPORT ==========
       else {
+        console.log("✅ [DEBUG] Going to CREATE branch with basePayload:", basePayload);
         // API: POST /api/qc-reports/pre-rental
         // Body: { taskId, orderDetailSerialNumbers, result, findings, deviceConditions, accessoryFile }
         const createdReport = await createPreRentalQcReport(basePayload);
@@ -1157,9 +1306,9 @@ export default function TechnicianQcDetail() {
       console.error("Create QC report error:", e);
       toast.error(
         e?.response?.data?.message ||
-          e?.response?.data?.details ||
-          e?.message ||
-          "Không thể tạo QC report"
+        e?.response?.data?.details ||
+        e?.message ||
+        "Không thể tạo QC report"
       );
     } finally {
       setSaving(false);
@@ -1268,12 +1417,102 @@ export default function TechnicianQcDetail() {
         </Card>
       )}
 
+      {/* QC Replace: Hiển thị thông tin thiết bị thay thế từ complaint */}
+      {isQcReplaceTask && (
+        <Card
+          title={<><Tag color="magenta">🔄 QC Replace</Tag> Thiết bị thay thế</>}
+          className="mb-3"
+          style={{ borderColor: '#eb2f96' }}
+        >
+          {replacementComplaint ? (
+            <>
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label="Mã thiết bị thay thế">
+                  <Tag color="blue">#{replacementComplaint.replacementDeviceId || "—"}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Serial Number thay thế">
+                  <Tag color="green" style={{ fontWeight: 'bold' }}>
+                    {replacementComplaint.replacementDeviceSerialNumber || "—"}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Model gốc">
+                  {replacementComplaint.deviceModelName || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Mã khiếu nại">
+                  #{replacementComplaint.complaintId || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Thiết bị gốc (hỏng)" span={2}>
+                  #{replacementComplaint.deviceId || "—"} - SN: {replacementComplaint.deviceSerialNumber || "—"}
+                </Descriptions.Item>
+                <Descriptions.Item label="Mô tả khách hàng" span={2}>
+                  {replacementComplaint.customerDescription || "—"}
+                </Descriptions.Item>
+                {/* Display device status from replacementDeviceData */}
+                {replacementDeviceData && (
+                  <>
+                    <Descriptions.Item label="Trạng thái thiết bị thay thế">
+                      <Tag color={getStatusColor(replacementDeviceData.status)}>
+                        {translateStatus(replacementDeviceData.status) || replacementDeviceData.status || "—"}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Tình trạng hiện tại">
+                      {Array.isArray(replacementDeviceData.currentConditions) && replacementDeviceData.currentConditions.length > 0 ? (
+                        <Space direction="vertical" size={4}>
+                          {replacementDeviceData.currentConditions.map((cond, idx) => {
+                            const severityColor = {
+                              'INFO': 'green',
+                              'LOW': 'blue',
+                              'MEDIUM': 'orange',
+                              'HIGH': 'red',
+                              'CRITICAL': 'magenta',
+                            }[String(cond.severity || 'INFO').toUpperCase()] || 'default';
+                            return (
+                              <Tag key={idx} color={severityColor}>
+                                {cond.conditionDefinitionName || `Condition #${cond.conditionDefinitionId}`} ({cond.severity || 'INFO'})
+                              </Tag>
+                            );
+                          })}
+                        </Space>
+                      ) : (
+                        <Text type="secondary">Không có tình trạng</Text>
+                      )}
+                    </Descriptions.Item>
+                  </>
+                )}
+              </Descriptions>
+              {replacementDeviceData && Array.isArray(replacementDeviceData.currentConditions) && replacementDeviceData.currentConditions.length > 0 && (
+                <Alert
+                  type="success"
+                  message="Đã tự động điền tình trạng thiết bị"
+                  description="Tình trạng thiết bị thay thế đã được tự động lấy từ hệ thống và điền vào form QC."
+                  showIcon
+                  style={{ marginTop: 12 }}
+                />
+              )}
+            </>
+          ) : (
+            <Alert
+              type="warning"
+              message="Đang tải thông tin thiết bị thay thế..."
+              description="Vui lòng đợi hoặc kiểm tra lại nếu không tìm thấy complaint tương ứng."
+            />
+          )}
+        </Card>
+      )}
+
       {/* Chọn thiết bị từ kho theo từng order detail */}
       {orderDetails.length > 0 ? (
         <Card
           title={
             <Space>
-              Chọn thiết bị từ kho
+              {isQcReplaceTask ? (
+                <>
+                  <Tag color="magenta">🔄 QC Replace</Tag>
+                  Xác nhận thiết bị thay thế
+                </>
+              ) : (
+                "Chọn thiết bị từ kho"
+              )}
               {/* <Button onClick={autoPick}>Gợi ý đủ số lượng</Button> */}
             </Space>
           }
@@ -1300,7 +1539,7 @@ export default function TechnicianQcDetail() {
 
               const serialNumbersFromOrder =
                 orderDetail.serialNumbers || orderDetail.serialNumberList || [];
-              
+
               // Generate mock serial numbers if no real data available
               const mockSerialNumbers = Array.from({ length: Math.max(quantity, 5) }, (_, i) => `SN-${String(i + 1).padStart(3, '0')}`);
 
@@ -1308,8 +1547,8 @@ export default function TechnicianQcDetail() {
                 serialNumbersFromDevices.length > 0
                   ? serialNumbersFromDevices
                   : serialNumbersFromOrder.length > 0
-                  ? serialNumbersFromOrder
-                  : mockSerialNumbers;
+                    ? serialNumbersFromOrder
+                    : mockSerialNumbers;
 
               const serialOptions = availableSerialNumbers.map((serial) => ({
                 label: String(serial),
@@ -1507,18 +1746,18 @@ export default function TechnicianQcDetail() {
                     : null;
 
                   // Lấy tên model từ modelNameById hoặc từ deviceInfo
-                  const deviceModelName = deviceModelId 
+                  const deviceModelName = deviceModelId
                     ? (modelNameById[deviceModelId] || deviceInfo?.deviceModelName || null)
                     : null;
 
                   const filteredConditions = deviceModelId
                     ? conditionDefinitions.filter(
-                        (c) => Number(c.deviceModelId) === deviceModelId
-                      )
+                      (c) => Number(c.deviceModelId) === deviceModelId
+                    )
                     : conditionDefinitions;
 
                   // Tạo title với serial và tên model nếu có
-                  const cardTitle = deviceModelName 
+                  const cardTitle = deviceModelName
                     ? `Tình trạng #${index + 1} - ${deviceModelName}`
                     : `Tình trạng #${index + 1}`;
 
@@ -1573,19 +1812,19 @@ export default function TechnicianQcDetail() {
                                     const allDevices = await listDevices();
                                     const device = Array.isArray(allDevices)
                                       ? allDevices.find((d) => {
-                                          const deviceSerial = String(
-                                            d.serialNumber ||
-                                              d.serial ||
-                                              d.serialNo ||
-                                              d.deviceId ||
-                                              d.id ||
-                                              ""
-                                          ).toUpperCase();
-                                          return (
-                                            deviceSerial ===
-                                            String(value).toUpperCase()
-                                          );
-                                        })
+                                        const deviceSerial = String(
+                                          d.serialNumber ||
+                                          d.serial ||
+                                          d.serialNo ||
+                                          d.deviceId ||
+                                          d.id ||
+                                          ""
+                                        ).toUpperCase();
+                                        return (
+                                          deviceSerial ===
+                                          String(value).toUpperCase()
+                                        );
+                                      })
                                       : null;
 
                                     if (device) {
@@ -1612,13 +1851,13 @@ export default function TechnicianQcDetail() {
                                           .sort((a, b) => {
                                             const timeA = a.capturedAt
                                               ? new Date(
-                                                  a.capturedAt
-                                                ).getTime()
+                                                a.capturedAt
+                                              ).getTime()
                                               : 0;
                                             const timeB = b.capturedAt
                                               ? new Date(
-                                                  b.capturedAt
-                                                ).getTime()
+                                                b.capturedAt
+                                              ).getTime()
                                               : 0;
                                             return timeB - timeA;
                                           })[0];
@@ -1661,8 +1900,8 @@ export default function TechnicianQcDetail() {
                                               latestCondition.images
                                             )
                                               ? latestCondition.images.filter(
-                                                  Boolean
-                                                )
+                                                Boolean
+                                              )
                                               : [],
                                           };
                                           setDeviceConditions(updatedConditions);

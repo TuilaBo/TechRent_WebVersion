@@ -495,7 +495,7 @@ const statusTag = (s) => {
       return <Tag color="blue">Hoàn tất đơn hàng</Tag>;
     case "IN_USE":
       return <Tag color="geekblue">Đang sử dụng</Tag>;
-      case "DELIVERING":
+    case "DELIVERING":
       return <Tag color="cyan">Đang giao hàng</Tag>;
     default:
       return <Tag color="default">{status}</Tag>;
@@ -552,7 +552,7 @@ const paymentStatusTag = (paymentStatus, orderStatus, invoiceInfo = null) => {
   // Use invoice status if available, otherwise fallback to order paymentStatus
   const invoiceStatus = invoiceInfo?.invoiceStatus;
   const oStatus = String(orderStatus).toUpperCase();
-  
+
   // Determine payment status from invoice or derive from order status
   let displayPaymentStatus;
   if (invoiceStatus) {
@@ -868,19 +868,19 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
 
     const conditionsHtml = uniqueConditions.size
       ? Array.from(uniqueConditions)
-          .map((key) => {
-            const [conditionDefId] = key.split("_");
-            const conditionDef = conditionMap[conditionDefId];
-            return `<div>${conditionDef?.name || `Điều kiện #${conditionDefId}`}</div>`;
-          })
-          .join("")
+        .map((key) => {
+          const [conditionDefId] = key.split("_");
+          const conditionDef = conditionMap[conditionDefId];
+          return `<div>${conditionDef?.name || `Điều kiện #${conditionDefId}`}</div>`;
+        })
+        .join("")
       : "—";
 
     const imagesHtml = uniqueImages.size
       ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
           ${Array.from(uniqueImages)
-            .map(
-              (img, idx) => `
+        .map(
+          (img, idx) => `
               <img
                 src="${img}"
                 alt="Ảnh ${idx + 1}"
@@ -888,8 +888,8 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                 onerror="this.style.display='none';"
               />
             `
-            )
-            .join("")}
+        )
+        .join("")}
         </div>`
       : "—";
 
@@ -973,13 +973,12 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
       <section class="kv">
         <div><b>Mã đơn hàng:</b> #${report.orderId || "—"}</div>
         <div><b>Trạng thái:</b> ${translateHandoverStatus(report.status)}</div>
-        ${
-          isCheckin
-            ? `<div><b>Thời gian thu hồi:</b> ${formatHandoverDateTime(report.handoverDateTime)}</div>
+        ${isCheckin
+      ? `<div><b>Thời gian thu hồi:</b> ${formatHandoverDateTime(report.handoverDateTime)}</div>
                <div><b>Địa điểm thu hồi:</b> ${report.handoverLocation || "—"}</div>`
-            : `<div><b>Thời gian bàn giao:</b> ${formatHandoverDateTime(report.handoverDateTime)}</div>
+      : `<div><b>Thời gian bàn giao:</b> ${formatHandoverDateTime(report.handoverDateTime)}</div>
                <div><b>Địa điểm bàn giao:</b> ${report.handoverLocation || "—"}</div>`
-        }
+    }
       </section>
 
       <h3>Thông tin khách hàng</h3>
@@ -991,41 +990,36 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
 
       <h3>Kỹ thuật viên tham gia</h3>
       <section class="kv">
-        ${
-          technicianEntries.length
-            ? technicianEntries
-                .map(
-                  (tech) => `
+        ${technicianEntries.length
+      ? technicianEntries
+        .map(
+          (tech) => `
       <div style="margin-bottom:6px">
         <b>${tech.name || "—"}</b>
-        ${
-          tech.phone
-            ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
-            : ""
-        }
-        ${
-          tech.email
-            ? `<br/><span>Email: ${tech.email}</span>`
-            : ""
-        }
+        ${tech.phone
+              ? `<br/><span>Số điện thoại: ${tech.phone}</span>`
+              : ""
+            }
+        ${tech.email
+              ? `<br/><span>Email: ${tech.email}</span>`
+              : ""
+            }
       </div>
     `
-                )
-                .join("")
-            : `
+        )
+        .join("")
+      : `
       <div><b>Họ và tên:</b> ${technicianInfo.name || "—"}</div>
-      ${
-        technicianInfo.phone
-          ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>`
-          : ""
+      ${technicianInfo.phone
+        ? `<div><b>Số điện thoại:</b> ${technicianInfo.phone}</div>`
+        : ""
       }
-      ${
-        technicianInfo.email
-          ? `<div><b>Email:</b> ${technicianInfo.email}</div>`
-          : ""
+      ${technicianInfo.email
+        ? `<div><b>Email:</b> ${technicianInfo.email}</div>`
+        : ""
       }
     `
-        }
+    }
       </section>
 
       <h3>Danh sách thiết bị ${isCheckin ? "thu hồi" : "bàn giao"}</h3>
@@ -1048,57 +1042,57 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
       </table>
 
       ${(() => {
-        if (!isCheckin || (report.discrepancies || []).length === 0) return "";
-        
-        // Group discrepancies by serialNumber + discrepancyType
-        const groupedDiscrepancies = {};
-        
-        (report.discrepancies || []).forEach((disc) => {
-          // Get serial number
-          let deviceSerial = "—";
-          if (disc.deviceId && order && Array.isArray(order.orderDetails)) {
-            for (const od of order.orderDetails) {
-              if (od.allocations && Array.isArray(od.allocations)) {
-                for (const allocation of od.allocations) {
-                  const deviceId = allocation.device?.deviceId || allocation.deviceId;
-                  if (deviceId === disc.deviceId) {
-                    deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
-                    break;
-                  }
+      if (!isCheckin || (report.discrepancies || []).length === 0) return "";
+
+      // Group discrepancies by serialNumber + discrepancyType
+      const groupedDiscrepancies = {};
+
+      (report.discrepancies || []).forEach((disc) => {
+        // Get serial number - PRIORITY: disc.serialNumber > disc.deviceSerialNumber > order lookup
+        let deviceSerial = disc.serialNumber || disc.deviceSerialNumber || "—";
+        if ((deviceSerial === "—" || !deviceSerial) && disc.deviceId && order && Array.isArray(order.orderDetails)) {
+          for (const od of order.orderDetails) {
+            if (od.allocations && Array.isArray(od.allocations)) {
+              for (const allocation of od.allocations) {
+                const deviceId = allocation.device?.deviceId || allocation.deviceId;
+                if (deviceId === disc.deviceId) {
+                  deviceSerial = allocation.device?.serialNumber || allocation.serialNumber || "—";
+                  break;
                 }
-                if (deviceSerial && deviceSerial !== "—") break;
               }
+              if (deviceSerial && deviceSerial !== "—") break;
             }
           }
-          
-          const discrepancyType = disc.discrepancyType || "OTHER";
-          const groupKey = `${deviceSerial}_${discrepancyType}`;
-          
-          if (!groupedDiscrepancies[groupKey]) {
-            groupedDiscrepancies[groupKey] = {
-              deviceSerial,
-              discrepancyType,
-              items: [],
-              totalPenalty: 0,
-            };
-          }
-          
-          // Add condition with its penalty
-          const conditionDef = conditionMap[disc.conditionDefinitionId];
-          const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
-          const penaltyAmount = Number(disc.penaltyAmount || 0);
-          
-          groupedDiscrepancies[groupKey].items.push({
-            conditionName,
-            penaltyAmount,
-          });
-          
-          groupedDiscrepancies[groupKey].totalPenalty += penaltyAmount;
+        }
+
+        const discrepancyType = disc.discrepancyType || "OTHER";
+        const groupKey = `${deviceSerial}_${discrepancyType}`;
+
+        if (!groupedDiscrepancies[groupKey]) {
+          groupedDiscrepancies[groupKey] = {
+            deviceSerial,
+            discrepancyType,
+            items: [],
+            totalPenalty: 0,
+          };
+        }
+
+        // Add condition with its penalty
+        const conditionDef = conditionMap[disc.conditionDefinitionId];
+        const conditionName = conditionDef?.name || disc.conditionName || `Điều kiện #${disc.conditionDefinitionId}`;
+        const penaltyAmount = Number(disc.penaltyAmount || 0);
+
+        groupedDiscrepancies[groupKey].items.push({
+          conditionName,
+          penaltyAmount,
         });
-        
-        const groupedArray = Object.values(groupedDiscrepancies);
-        
-        return `
+
+        groupedDiscrepancies[groupKey].totalPenalty += penaltyAmount;
+      });
+
+      const groupedArray = Object.values(groupedDiscrepancies);
+
+      return `
       <h3>Sự cố thiết bị khi thu hồi</h3>
       <table>
         <thead>
@@ -1112,21 +1106,21 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
         </thead>
         <tbody>
           ${groupedArray.map((group, idx) => {
-            const discrepancyTypeLabel = group.discrepancyType === "DAMAGE" ? "Hư hỏng" : 
-                                   group.discrepancyType === "LOSS" ? "Mất mát" : 
-                                   group.discrepancyType === "OTHER" ? "Khác" : group.discrepancyType || "—";
-            
-            // Build conditions with individual penalties
-            const conditionsWithPenalty = group.items.map(item => 
-              `${item.conditionName}: ${item.penaltyAmount > 0 ? fmtVND(item.penaltyAmount) : "—"}`
-            ).join("<br/>");
-            
-            // Show total if more than 1 item
-            const totalPenaltyText = group.items.length > 1 && group.totalPenalty > 0
-              ? `<br/><b style="border-top:1px solid #ddd;display:block;padding-top:4px;margin-top:4px">Tổng: ${fmtVND(group.totalPenalty)}</b>`
-              : "";
-            
-            return `
+        const discrepancyTypeLabel = group.discrepancyType === "DAMAGE" ? "Hư hỏng" :
+          group.discrepancyType === "LOSS" ? "Mất mát" :
+            group.discrepancyType === "OTHER" ? "Khác" : group.discrepancyType || "—";
+
+        // Build conditions with individual penalties
+        const conditionsWithPenalty = group.items.map(item =>
+          `${item.conditionName}: ${item.penaltyAmount > 0 ? fmtVND(item.penaltyAmount) : "—"}`
+        ).join("<br/>");
+
+        // Show total if more than 1 item
+        const totalPenaltyText = group.items.length > 1 && group.totalPenalty > 0
+          ? `<br/><b style="border-top:1px solid #ddd;display:block;padding-top:4px;margin-top:4px">Tổng: ${fmtVND(group.totalPenalty)}</b>`
+          : "";
+
+        return `
               <tr>
                 <td style="text-align:center;vertical-align:top">${idx + 1}</td>
                 <td style="vertical-align:top">${discrepancyTypeLabel}</td>
@@ -1135,49 +1129,43 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
                 <td style="text-align:right;vertical-align:top;font-weight:600">${group.totalPenalty > 0 ? fmtVND(group.totalPenalty) : "—"}</td>
               </tr>
             `;
-          }).join("") || "<tr><td colspan='5' style='text-align:center'>Không có sự cố nào</td></tr>"}
+      }).join("") || "<tr><td colspan='5' style='text-align:center'>Không có sự cố nào</td></tr>"}
         </tbody>
       </table>
       `;
-      })()}
+    })()}
 
-      ${
-        report.createdByStaff
-          ? `
+      ${report.createdByStaff
+      ? `
       <h3>Người tạo biên bản</h3>
       <section class="kv">
-        <div><b>Họ và tên:</b> ${
-          report.createdByStaff.fullName ||
-          report.createdByStaff.username ||
-          `Nhân viên #${report.createdByStaff.staffId}`
-        }</div>
-        ${
-          report.createdByStaff.email
-            ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>`
-            : ""
-        }
-        ${
-          report.createdByStaff.phoneNumber
-            ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>`
-            : ""
-        }
-        ${
-          report.createdByStaff.role
-            ? `<div><b>Vai trò:</b> ${translateStaffRole(report.createdByStaff.role)}</div>`
-            : ""
-        }
-      </section>`
-          : ""
+        <div><b>Họ và tên:</b> ${report.createdByStaff.fullName ||
+      report.createdByStaff.username ||
+      `Nhân viên #${report.createdByStaff.staffId}`
+      }</div>
+        ${report.createdByStaff.email
+        ? `<div><b>Email:</b> ${report.createdByStaff.email}</div>`
+        : ""
       }
+        ${report.createdByStaff.phoneNumber
+        ? `<div><b>Số điện thoại:</b> ${report.createdByStaff.phoneNumber}</div>`
+        : ""
+      }
+        ${report.createdByStaff.role
+        ? `<div><b>Vai trò:</b> ${translateStaffRole(report.createdByStaff.role)}</div>`
+        : ""
+      }
+      </section>`
+      : ""
+    }
 
-      ${
-        (report.evidenceUrls || []).length
-          ? `
+      ${(report.evidenceUrls || []).length
+      ? `
       <h3>Ảnh bằng chứng</h3>
       <div style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">
         ${report.evidenceUrls
-          .map(
-            (url, idx) => `
+        .map(
+          (url, idx) => `
             <div style="flex:0 0 auto;margin-bottom:8px">
               <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:#333">
                 Bằng chứng ${idx + 1}
@@ -1190,12 +1178,12 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
               />
             </div>
           `
-          )
-          .join("")}
+        )
+        .join("")}
       </div>
       `
-          : ""
-      }
+      : ""
+    }
       
       <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
         <div style="flex:1;text-align:center">
@@ -1204,9 +1192,9 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             ${report.customerSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
           </div>
           <div>
-            ${report.customerSigned 
-              ? `<div style="color:#000;font-weight:600">${customerName}</div>` 
-              : "(Ký, ghi rõ họ tên)"}
+            ${report.customerSigned
+      ? `<div style="color:#000;font-weight:600">${customerName}</div>`
+      : "(Ký, ghi rõ họ tên)"}
           </div>
         </div>
         <div style="flex:1;text-align:center">
@@ -1215,9 +1203,9 @@ function buildPrintableHandoverReportHtml(report, order = null, conditionDefinit
             ${report.staffSigned ? '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>' : ""}
           </div>
           <div>
-            ${report.staffSigned 
-              ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>` 
-              : "(Ký, ghi rõ họ tên)"}
+            ${report.staffSigned
+      ? `<div style="color:#000;font-weight:600">${technicianDisplayName}</div>`
+      : "(Ký, ghi rõ họ tên)"}
           </div>
         </div>
       </section>
@@ -1231,7 +1219,7 @@ export default function OperatorOrders() {
   const [kw, setKw] = useState("");
   const [range, setRange] = useState(null);
   const [orderStatusFilter, setOrderStatusFilter] = useState(null); // Filter by order status
-  
+
   // Pagination state
   const [pagination, setPagination] = useState({
     current: 1,
@@ -1383,11 +1371,11 @@ export default function OperatorOrders() {
     // Đảm bảo giá trị page và pageSize là số nguyên hợp lệ
     const safePage = Math.max(1, parseInt(page, 10) || 1);
     const safeSize = Math.max(1, parseInt(pageSize, 10) || 10);
-    
+
     try {
       // Bật loading spinner cho Table
       setLoading(true);
-      
+
       // ========== GỌI API TÌM KIẾĂM ĐƠN HÀNG ==========
       // API: GET /api/rental-orders/search?page=X&size=Y&sort=createdAt,desc&orderId=Z&orderStatus=STATUS
       // Trả về: { content: [], totalElements, totalPages, number, size }
@@ -1396,22 +1384,22 @@ export default function OperatorOrders() {
         size: safeSize,
         sort: ["createdAt,desc"], // Sắp xếp mới nhất lên đầu
       };
-      
+
       // Thêm orderId nếu có
       if (orderId != null) {
         params.orderId = Number(orderId);
       }
-      
+
       // Thêm orderStatus nếu có
       if (orderStatus) {
         params.orderStatus = orderStatus;
       }
-      
+
       const result = await searchRentalOrders(params);
-      
+
       // Lưu danh sách đơn vào state để hiển thị
       setRows(result.content);
-      
+
       // Cập nhật thông tin phân trang cho Table
       setPagination({
         current: safePage,
@@ -1507,7 +1495,7 @@ export default function OperatorOrders() {
   }, [detail, shouldLoadOrderItemMeta]);
 
   // ====== ACTIONS (CÁC HÀNH ĐỘNG CHÍNH) ======
-  
+
   /**
    * Hàm xóa/hủy đơn hàng
    * Được gọi khi operator click nút "Xóa" trong cột Thao tác
@@ -1519,12 +1507,12 @@ export default function OperatorOrders() {
       // API: DELETE /api/rental-orders/{orderId}
       // Trả về: success message hoặc lỗi
       await deleteRentalOrder(r.orderId);
-      
+
       message.success(`Đã huỷ đơn #${r.orderId}`);
-      
+
       // Xóa đơn khỏi danh sách local (không cần fetch lại)
       setRows((prev) => prev.filter((x) => x.orderId !== r.orderId));
-      
+
       // Nếu đang xem chi tiết đơn này → đóng Drawer
       if (detail?.orderId === r.orderId) {
         setOpen(false);
@@ -1546,8 +1534,7 @@ export default function OperatorOrders() {
     const orderStatus = String(r.orderStatus || r.order?.orderStatus || "").toUpperCase();
     if (orderStatus !== "PROCESSING") {
       message.error(
-        `Chỉ có thể tạo hợp đồng khi đơn hàng ở trạng thái "Đang xử lý" (PROCESSING). Trạng thái hiện tại: ${
-          r.orderStatus || "—"
+        `Chỉ có thể tạo hợp đồng khi đơn hàng ở trạng thái "Đang xử lý" (PROCESSING). Trạng thái hiện tại: ${r.orderStatus || "—"
         }`
       );
       return;
@@ -1586,7 +1573,7 @@ export default function OperatorOrders() {
       message.success(
         `Đã tạo hợp đồng #${contract?.contractId || contract?.id} từ đơn #${r.orderId}`
       );
-      
+
       // Reload danh sách hợp đồng để hiển thị hợp đồng mới
       if (detail?.orderId) {
         fetchOrderContracts(detail.orderId, detail?.customerId);
@@ -1609,14 +1596,14 @@ export default function OperatorOrders() {
       setLoadingDetail(true);
       // Reset invoice cũ để tránh hiển thị dữ liệu cũ
       setInvoiceInfo(null);
-      
+
       // ========== BƯỚC 2: LẤY CHI TIẾT ĐƠN HÀNG ==========
       // API: GET /api/rental-orders/{orderId}
       // Trả về: orderId, orderStatus, startDate, endDate, orderDetails[], customerId...
       const d = await getRentalOrderById(orderId);
       // Lưu vào state để hiển thị trong Drawer
       setDetail(d || null);
-      
+
       // ========== BƯỚC 3: LẤY THÔNG TIN HÓA ĐƠN/THANH TOÁN ==========
       // API: GET /api/invoices/rental-order/{orderId}
       // Trả về: invoiceId, invoiceStatus (PENDING/SUCCEEDED/FAILED), amount...
@@ -1629,7 +1616,7 @@ export default function OperatorOrders() {
         console.log("No invoice found for order:", orderId);
         setInvoiceInfo(null);
       }
-      
+
       // ========== BƯỚC 4: LẤY THÔNG TIN KHÁCH HÀNG ==========
       // Chỉ load nếu đơn có liên kết với khách hàng
       if (d?.customerId) {
@@ -1638,7 +1625,7 @@ export default function OperatorOrders() {
           // Trả về: fullName, email, phoneNumber, address...
           const c = await fetchCustomerById(d.customerId);
           setCustomer(c || null);
-          
+
           // ========== BƯỚC 5: LẤY THÔNG TIN KYC ==========
           try {
             // API: GET /api/kyc/customer/{customerId}
@@ -1652,7 +1639,7 @@ export default function OperatorOrders() {
             console.log("Back URL:", normalized.backUrl);
             console.log("Selfie URL:", normalized.selfieUrl);
             setKycInfo(normalized);
-            
+
             // Kiểm tra nếu khách vừa submit KYC → tự động mở modal duyệt
             const st = String(normalized?.kycStatus || normalized?.status || "").toUpperCase();
             if (st === "DOCUMENTS_SUBMITTED" || st === "SUBMITTED") {
@@ -1673,17 +1660,17 @@ export default function OperatorOrders() {
         setCustomer(null);
         setKycInfo(null);
       }
-      
+
       // ========== BƯỚC 6: LẤY DANH SÁCH HỢP ĐỒNG ==========
       // Gọi hàm riêng để load contracts của đơn này
       // API: GET /api/contracts/order/{orderId}
       await fetchOrderContracts(orderId, d?.customerId);
-      
+
       // ========== BƯỚC 7: LẤY BIÊN BẢN BÀN GIAO ==========
       // Gọi hàm riêng để load handover reports
       // API: GET /api/handover-reports/order/{orderId}
       await fetchHandoverReports(orderId);
-      
+
     } catch (e) {
       // Lỗi chính (load đơn thất bại) → hiển thị thông báo
       message.error(e?.response?.data?.message || e?.message || "Không tải chi tiết đơn.");
@@ -1703,7 +1690,7 @@ export default function OperatorOrders() {
     try {
       setContractsLoading(true);
       let contracts = [];
-      
+
       try {
         // ========== CÁCH 1: LẤY HỢP ĐỒNG THEO ĐƠN HÀNG ==========
         // API: GET /api/contracts/order/{orderId}
@@ -1725,7 +1712,7 @@ export default function OperatorOrders() {
           contracts = normalized.filter((contract) => contract.orderId === orderId);
         }
       }
-      
+
       // Lưu vào state để hiển thị trong tab Hợp đồng
       setOrderContracts(contracts);
     } catch (e) {
@@ -1749,12 +1736,12 @@ export default function OperatorOrders() {
     }
     try {
       setHandoverLoading(true);
-      
+
       // ========== GỌI API LẤY BIÊN BẢN BÀN GIAO ==========
       // API: GET /api/handover-reports/order/{orderId}
       // Trả về: danh sách handover reports (có thể bao gồm CHECKOUT và CHECKIN)
       const reports = await getHandoverReportsByOrderId(orderId);
-      
+
       // Lưu vào state để hiển thị trong tab Biên bản
       setHandoverReports(Array.isArray(reports) ? reports : []);
     } catch (e) {
@@ -1783,19 +1770,19 @@ export default function OperatorOrders() {
       const status = String(c.status || "").toUpperCase();
       return status === "ACTIVE" || status === "SIGNED";
     });
-    
+
     if (!activeContract) {
       message.warning("Không tìm thấy hợp đồng đang hoạt động để tạo phụ lục. Vui lòng đảm bảo hợp đồng đã được ký.");
       return;
     }
-    
+
     const contractId = activeContract.id || activeContract.contractId;
-    
+
     try {
       setCreatingAnnex(true);
       const annex = await createAnnexFromExtension(contractId, extensionId);
       message.success(`Đã tạo phụ lục gia hạn #${annex?.annexId || annex?.id} thành công!`);
-      
+
       // Reload contracts list
       if (detail?.orderId && detail?.customerId) {
         try {
@@ -1806,7 +1793,7 @@ export default function OperatorOrders() {
           console.error("Failed to reload contracts:", e);
         }
       }
-      
+
       // Reload annexes list
       await fetchOrderAnnexes(contractId);
     } catch (e) {
@@ -1878,7 +1865,7 @@ export default function OperatorOrders() {
     const customerPhone = customer?.phoneNumber || "";
     const identificationCode = kyc?.identificationCode || "";
     let contentHtml = sanitizeContractHtml(detail.contentHtml || "");
-    
+
     const termsBlock = detail.terms
       ? `<pre style="white-space:pre-wrap;margin:0">${detail.terms}</pre>`
       : "";
@@ -1904,18 +1891,18 @@ export default function OperatorOrders() {
           ${customerEmail ? `<div><b>Email:</b> ${customerEmail}</div>` : ""}
           ${customerPhone ? `<div><b>Điện thoại:</b> ${customerPhone}</div>` : ""}
           ${(() => {
-            const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
-            if (bankInfo.length > 0) {
-              return bankInfo.map((bank, idx) => {
-                const bankName = bank?.bankName || "";
-                const bankHolder = bank?.bankHolder || "";
-                const cardNumber = bank?.cardNumber || "";
-                if (!bankName && !bankHolder && !cardNumber) return "";
-                return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
-              }).filter(Boolean).join("");
-            }
-            return "";
-          })()}
+        const bankInfo = customer?.bankInformationDtos || customer?.bankInformations || [];
+        if (bankInfo.length > 0) {
+          return bankInfo.map((bank, idx) => {
+            const bankName = bank?.bankName || "";
+            const bankHolder = bank?.bankHolder || "";
+            const cardNumber = bank?.cardNumber || "";
+            if (!bankName && !bankHolder && !cardNumber) return "";
+            return `<div><b>Tài khoản ngân hàng${bankInfo.length > 1 ? ` ${idx + 1}` : ""}:</b> ${bankName ? `${bankName}` : ""}${bankHolder ? ` - Chủ tài khoản: ${bankHolder}` : ""}${cardNumber ? ` - Số tài khoản: ${cardNumber}` : ""}</div>`;
+          }).filter(Boolean).join("");
+        }
+        return "";
+      })()}
         </section>
 
         <section style="page-break-inside:avoid;margin:10px 0 16px">${contentHtml}</section>
@@ -1931,42 +1918,42 @@ export default function OperatorOrders() {
             <div><b>ĐẠI DIỆN BÊN B</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "ACTIVE") {
+          return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
+        }
+        return "";
+      })()}
             </div>
             <div>
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "ACTIVE") {
-                  return `<div style="color:#000;font-weight:600">${customerName}</div>`;
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "ACTIVE") {
+          return `<div style="color:#000;font-weight:600">${customerName}</div>`;
+        }
+        return "(Ký, ghi rõ họ tên)";
+      })()}
             </div>
           </div>
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN A</b></div>
             <div style="height:72px;display:flex;align-items:center;justify-content:center">
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
-                }
-                return "";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+          return '<div style="font-size:48px;color:#16a34a;line-height:1">✓</div>';
+        }
+        return "";
+      })()}
             </div>
             <div>
               ${(() => {
-                const status = String(detail.status || "").toUpperCase();
-                if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
-                  return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
-                }
-                return "(Ký, ghi rõ họ tên)";
-              })()}
+        const status = String(detail.status || "").toUpperCase();
+        if (status === "PENDING_SIGNATURE" || status === "ACTIVE") {
+          return '<div style="color:#000;font-weight:600">CÔNG TY TECHRENT</div>';
+        }
+        return "(Ký, ghi rõ họ tên)";
+      })()}
             </div>
           </div>
         </section>
@@ -2080,15 +2067,15 @@ export default function OperatorOrders() {
    */
   function formatAnnexContent(content) {
     if (!content) return "";
-    
+
     let formatted = content;
-    
+
     // Format ISO datetime strings (e.g., 2025-12-15T22:44:33.727913 -> 15/12/2025 22:44)
     formatted = formatted.replace(
       /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(:\d{2}(\.\d+)?)?/g,
       (match, year, month, day, hour, minute) => `${day}/${month}/${year} ${hour}:${minute}`
     );
-    
+
     // Format money values (e.g., 250000.00 VND -> 250.000 VNĐ)
     formatted = formatted.replace(
       /(\d+)(\.\d{2})?\s*VND/g,
@@ -2097,7 +2084,7 @@ export default function OperatorOrders() {
         return num.toLocaleString("vi-VN") + " VNĐ";
       }
     );
-    
+
     return formatted;
   }
 
@@ -2106,20 +2093,20 @@ export default function OperatorOrders() {
    */
   function buildPrintableAnnexHtml(annex, customer = null) {
     if (!annex) return "<div>Không có dữ liệu phụ lục</div>";
-    
+
     const title = annex.title || "PHỤ LỤC GIA HẠN HỢP ĐỒNG THUÊ THIẾT BỊ";
     const annexNumber = annex.annexNumber || "";
     const contractNumber = annex.contractNumber || "";
     const customerName = customer?.fullName || customer?.name || `Khách hàng #${annex.originalOrderId || ""}`;
-    
+
     // Format dates
     const fmtDate = (d) => d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—";
     const fmtMoney = (v) => fmtVND(v || 0);
-    
+
     // Signature sections
     const adminSigned = !!annex.adminSignedAt;
     const customerSigned = !!annex.customerSignedAt;
-    
+
     return `
       <div style="
         width:794px;margin:0 auto;background:#fff;color:#111;
@@ -2216,13 +2203,13 @@ export default function OperatorOrders() {
 
       // Try to get customer data if available
       let customerData = customer;
-      
+
       // Create temporary visible element for html2canvas
       const tempContainer = document.createElement("div");
       tempContainer.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;";
       tempContainer.innerHTML = buildPrintableAnnexHtml(annex, customerData);
       document.body.appendChild(tempContainer);
-      
+
       try {
         const blob = await elementToPdfBlob(tempContainer);
         const url = URL.createObjectURL(blob);
@@ -2493,7 +2480,7 @@ export default function OperatorOrders() {
 
       // Set report detail
       setHandoverReportDetail(report);
-      
+
       // Nếu report có URL từ BE, set vào preview URL
       if (report?.reportUrl || report?.pdfUrl || report?.url) {
         setHandoverReportPdfPreviewUrl(report.reportUrl || report.pdfUrl || report.url);
@@ -2523,7 +2510,7 @@ export default function OperatorOrders() {
   const doSendForSignature = async (contractId) => {
     try {
       setSendingForSignature(true);
-      
+
       // ========== BƯỚC 1: GỬI YÊU CẦU KÝ HĐ ==========
       // API: POST /api/contracts/{contractId}/send-for-signature
       // Gửi email/notification cho khách hàng để ký
@@ -2555,10 +2542,10 @@ export default function OperatorOrders() {
   // nên chỉ cần filter frontend cho các trường hợp khác (date range)
   const filtered = useMemo(() => {
     let ds = rows;
-    
+
     // Nếu kw là số (orderId), API đã filter rồi -> không filter frontend theo kw
     const isOrderIdSearch = kw.trim() && !isNaN(Number(kw.trim()));
-    
+
     if (!isOrderIdSearch && kw.trim()) {
       // Filter theo text (customerId) nếu không phải search orderId
       const k = kw.trim().toLowerCase();
@@ -2568,7 +2555,7 @@ export default function OperatorOrders() {
           String(r.customerId ?? "").toLowerCase().includes(k)
       );
     }
-    
+
     // Filter theo date range (frontend)
     if (range?.length === 2) {
       const [s, e] = range;
@@ -2827,7 +2814,7 @@ export default function OperatorOrders() {
   }, [detailDays]);
 
   // ========== KYC APPROVAL/REJECTION ==========
-  
+
   /**
    * Hàm duyệt KYC của khách hàng
    * Được gọi khi operator click nút "Duyệt" trong modal KYC Review
@@ -2836,7 +2823,7 @@ export default function OperatorOrders() {
     if (!detail?.customerId) return;
     try {
       setKycUpdating(true);
-      
+
       // ========== GỌI API CẬP NHẬT KYC STATUS ==========
       // API: PUT /api/kyc/customer/{customerId}/status
       // Body: { status: "VERIFIED", verifiedAt, verifiedBy }
@@ -2847,7 +2834,7 @@ export default function OperatorOrders() {
       });
       message.success("Đã duyệt KYC");
       setKycReviewOpen(false);
-      
+
       // Reload KYC info để cập nhật UI
       // API: GET /api/kyc/customer/{customerId}
       const kyc = await getKycByCustomerId(detail.customerId);
@@ -2873,7 +2860,7 @@ export default function OperatorOrders() {
         return message.warning("Vui lòng nhập lý do từ chối");
       }
       setKycUpdating(true);
-      
+
       // ========== GỌI API CẬP NHẬT KYC STATUS ==========
       // API: PUT /api/kyc/customer/{customerId}/status
       // Body: { status: "REJECTED", rejectionReason, verifiedAt, verifiedBy }
@@ -2886,7 +2873,7 @@ export default function OperatorOrders() {
       message.success("Đã từ chối KYC");
       setKycReviewOpen(false);
       setKycRejectReason(""); // Clear lý do sau khi xong
-      
+
       // Reload KYC info để cập nhật UI
       // API: GET /api/kyc/customer/{customerId}
       const kyc = await getKycByCustomerId(detail.customerId);
@@ -2926,10 +2913,10 @@ export default function OperatorOrders() {
             status === "STAFF_SIGNED" || status === "BOTH_SIGNED"
               ? "green"
               : status === "CUSTOMER_SIGNED"
-              ? "blue"
-              : status === "PENDING_STAFF_SIGNATURE"
-              ? "orange"
-              : "orange";
+                ? "blue"
+                : status === "PENDING_STAFF_SIGNATURE"
+                  ? "orange"
+                  : "orange";
           return (
             <Tag color={color}>{translateHandoverStatus(status)}</Tag>
           );
@@ -2960,7 +2947,7 @@ export default function OperatorOrders() {
               selectedHandoverReport?.id === record.id ||
               handoverReportDetail?.handoverReportId === record.handoverReportId ||
               handoverReportDetail?.id === record.id);
-          
+
           return (
             <Space size="small">
               <Button
@@ -3067,7 +3054,7 @@ export default function OperatorOrders() {
             { label: "Đang giao hàng", value: "DELIVERING" },
             { label: "Đang sử dụng", value: "IN_USE" },
             { label: "Hoàn tất đơn hàng", value: "COMPLETED" },
-           
+
           ]}
           onChange={(value) => {
             // Lưu giá trị filter vào state
@@ -3198,7 +3185,7 @@ export default function OperatorOrders() {
                 valueStyle={{ color: "#1890ff", fontWeight: "bold" }}
               />
               <Statistic title="Cọc đã hoàn lại" value={fmtVND(detail.depositAmountRefunded)} />
-              
+
             </Space>
 
             <Divider />
@@ -3290,11 +3277,11 @@ export default function OperatorOrders() {
                         const annexExists = orderAnnexes.some(
                           (a) => a.extensionId === record.extensionId
                         );
-                        
+
                         if (annexExists) {
                           return <Tag color="green">Đã tạo phụ lục</Tag>;
                         }
-                        
+
                         return (
                           <Tooltip title="Tạo phụ lục gia hạn hợp đồng từ gia hạn này">
                             <Button
@@ -3425,7 +3412,7 @@ export default function OperatorOrders() {
                     render: (_, record) =>
                       fmtVND(
                         Number(record.totalAmount || 0) +
-                          Number(record.depositAmount || 0)
+                        Number(record.depositAmount || 0)
                       ),
                   },
                   {
@@ -3697,16 +3684,16 @@ export default function OperatorOrders() {
             Đóng
           </Button>,
           contractDetail &&
-            contractDetail.status === "DRAFT" && (
-              <Button
-                key="send"
-                type="primary"
-                loading={sendingForSignature}
-                onClick={() => doSendForSignature(contractDetail.id)}
-              >
-                Gửi để ký
-              </Button>
-            ),
+          contractDetail.status === "DRAFT" && (
+            <Button
+              key="send"
+              type="primary"
+              loading={sendingForSignature}
+              onClick={() => doSendForSignature(contractDetail.id)}
+            >
+              Gửi để ký
+            </Button>
+          ),
         ]}
         width={900}
         style={{ top: 20 }}
@@ -3868,7 +3855,7 @@ export default function OperatorOrders() {
                 Tạo lại PDF
               </Button>
             </Space>
-            
+
 
             {/* PDF Preview */}
             <div
@@ -3921,12 +3908,11 @@ export default function OperatorOrders() {
       </Modal>
 
       <Modal
-        title={`Biên bản ${
-          selectedHandoverReport &&
-          String(selectedHandoverReport.handoverType || "").toUpperCase() === "CHECKIN"
+        title={`Biên bản ${selectedHandoverReport &&
+            String(selectedHandoverReport.handoverType || "").toUpperCase() === "CHECKIN"
             ? "thu hồi"
             : "bàn giao"
-        } #${selectedHandoverReport?.handoverReportId || selectedHandoverReport?.id || ""}`}
+          } #${selectedHandoverReport?.handoverReportId || selectedHandoverReport?.id || ""}`}
         open={handoverPdfModalOpen}
         onCancel={() => {
           setHandoverPdfModalOpen(false);
@@ -3973,12 +3959,11 @@ export default function OperatorOrders() {
 
       {/* Handover Report Detail Modal - tương tự Contract Detail Modal */}
       <Modal
-        title={`Chi tiết biên bản ${
-          handoverReportDetail &&
-          String(handoverReportDetail.handoverType || "").toUpperCase() === "CHECKIN"
+        title={`Chi tiết biên bản ${handoverReportDetail &&
+            String(handoverReportDetail.handoverType || "").toUpperCase() === "CHECKIN"
             ? "thu hồi"
             : "bàn giao"
-        } #${handoverReportDetail?.handoverReportId || handoverReportDetail?.id || ""}`}
+          } #${handoverReportDetail?.handoverReportId || handoverReportDetail?.id || ""}`}
         open={handoverReportDetailOpen}
         onCancel={() => {
           setHandoverReportDetailOpen(false);
