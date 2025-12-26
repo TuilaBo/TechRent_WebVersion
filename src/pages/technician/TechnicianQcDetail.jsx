@@ -646,13 +646,22 @@ export default function TechnicianQcDetail() {
     if (!order || !Array.isArray(order.orderDetails)) return [];
 
     // For QC Replace tasks, only show the orderDetail matching the replacement device's model
+    // AND override quantity to 1 (since device replacement is 1-to-1, not based on original order quantity)
     if (isQcReplaceTask && replacementDeviceData?.deviceModelId) {
       const replacementModelId = Number(replacementDeviceData.deviceModelId);
       const filtered = order.orderDetails.filter(od =>
         Number(od.deviceModelId) === replacementModelId
       );
       console.log("🔄 [DEBUG] QC Replace: Filtered orderDetails to match replacement model", replacementModelId, "->", filtered);
-      return filtered.length > 0 ? filtered : order.orderDetails;
+
+      // For QC Replace: Override quantity to 1 (only the replacement device needs QC)
+      if (filtered.length > 0) {
+        return filtered.map(od => ({
+          ...od,
+          quantity: 1, // Device replacement is 1-to-1
+        }));
+      }
+      return order.orderDetails;
     }
 
     return order.orderDetails;

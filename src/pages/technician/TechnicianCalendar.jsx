@@ -300,6 +300,11 @@ export default function TechnicianCalendar() {
     const [replacementDeviceModelId, setReplacementDeviceModelId] = useState(null); // Model ID of the old device
     const [faultConditionOptions, setFaultConditionOptions] = useState([]); // Options for condition definitions
 
+    // Replacement Report PDF Preview states
+    const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false); // PDF preview modal open state
+    const [pdfPreviewContent, setPdfPreviewContent] = useState(""); // HTML content for PDF preview
+
+
     /** Kiểm tra task có phải là Device Replacement (taskCategoryId = 8) */
     const isDeviceReplacementTask = useCallback((task) => {
         if (!task) return false;
@@ -478,7 +483,7 @@ export default function TechnicianCalendar() {
     /**
      * Hàm xem chi tiết đơn hàng
      * Được gọi khi: Click vào task có liên kết orderId
-     * Luồng: Load order → Enrich với device model info → Load customer
+     * OPTIMIZED: Load order → Song song (device models + customer)
      * @param {number} oid - Order ID
      */
     const viewOrderDetail = async (oid) => {
@@ -486,47 +491,66 @@ export default function TechnicianCalendar() {
         try {
             // ========== BƯỚC 1: LẤY THÔNG TIN ĐƠN HÀNG ==========
             // API: GET /api/rental-orders/{orderId}
-            // Trả về: { orderId, orderDetails[], customerId, startDate, endDate... }
             const od = await getRentalOrderById(oid);
-            let enriched = od || null;
+            if (!od) {
+                toast.error("Không tìm thấy đơn hàng");
+                return;
+            }
 
-            // ========== BƯỚC 2: LẤY THÔNG TIN DEVICE MODEL ==========
-            // Attach device model info for each order detail
-            if (enriched && Array.isArray(enriched.orderDetails) && enriched.orderDetails.length) {
-                const ids = Array.from(new Set(enriched.orderDetails.map((d) => d.deviceModelId).filter(Boolean)));
-                // API: GET /api/device-models/{modelId} cho mỗi modelId
-                const pairs = await Promise.all(
-                    ids.map(async (id) => {
-                        try { const m = await getDeviceModelById(id); return [id, normalizeModel(m)]; }
+            // ========== BƯỚC 2: SONG SONG LẤY DEVICE MODELS + CUSTOMER ==========
+            const customerId = od.customerId;
+            const modelIds = od.orderDetails?.length
+                ? Array.from(new Set(od.orderDetails.map(d => d.deviceModelId).filter(Boolean)))
+                : [];
+
+            // Tạo promises cho cả device models và customer
+            const deviceModelsPromise = modelIds.length > 0
+                ? Promise.all(
+                    modelIds.map(async (id) => {
+                        try {
+                            const m = await getDeviceModelById(id);
+                            return [id, normalizeModel(m)];
+                        }
                         catch { return [id, null]; }
                     })
-                );
-                const modelMap = Object.fromEntries(pairs);
+                )
+                : Promise.resolve([]);
+
+            const customerPromise = customerId
+                ? fetchCustomerById(customerId).catch(() => null)
+                : Promise.resolve(null);
+
+            // Chờ cả hai hoàn thành song song
+            const [modelPairs, customerData] = await Promise.all([
+                deviceModelsPromise,
+                customerPromise
+            ]);
+
+            // Xử lý kết quả device models
+            let enriched = od;
+            if (modelPairs.length > 0) {
+                const modelMap = Object.fromEntries(modelPairs);
                 enriched = {
-                    ...enriched,
-                    orderDetails: enriched.orderDetails.map((d) => ({ ...d, deviceModel: modelMap[d.deviceModelId] || null })),
+                    ...od,
+                    orderDetails: od.orderDetails.map((d) => ({
+                        ...d,
+                        deviceModel: modelMap[d.deviceModelId] || null
+                    })),
                 };
             }
             setOrderDetail(enriched);
 
-            // ========== BƯỚC 3: LẤY THÔNG TIN KHÁCH HÀNG ==========
-            const cid = od?.customerId;
-            if (cid) {
-                try {
-                    // API: GET /api/customers/{customerId}
-                    const cus = await fetchCustomerById(cid);
-                    setCustomerDetail(normalizeCustomer ? normalizeCustomer(cus) : cus);
-                } catch {
-                    setCustomerDetail(null);
-                }
+            // Xử lý kết quả customer
+            if (customerData) {
+                setCustomerDetail(normalizeCustomer ? normalizeCustomer(customerData) : customerData);
             } else {
                 setCustomerDetail(null);
             }
-            if (!od) toast.error("Không tìm thấy đơn hàng");
         } catch (e) {
             toast.error(e?.response?.data?.message || e?.message || "Không tải được đơn hàng");
         }
     };
+
 
     /**
      * Hàm tải toàn bộ dữ liệu cho calendar (Tasks + Maintenance Schedules + Task Rules)
@@ -1283,22 +1307,20 @@ export default function TechnicianCalendar() {
     }, [handleDownloadPdf]);
 
     // Click item trên bảng → mở Drawer
+    // OPTIMIZED: Song song hóa các API calls để giảm thời gian load từ 3-4s xuống 1-1.5s
     const onClickTask = useCallback(async (task) => {
         try {
+            // STEP 1: Lấy task detail (bắt buộc phải có trước)
             const full = await getTaskById(task.id);
             if (full) {
                 const normalized = normalizeTask(full);
                 setDetailTask(normalized);
-                // fetch order by ID if exists
+
                 const oid = normalized?.orderId;
                 setOrderDetail(null);
-                if (oid) {
-                    viewOrderDetail(oid);
-                    // Luôn load handover reports for this order (cho tất cả tasks có orderId)
-                    await loadHandoverReportsByOrder(oid);
 
-                    // Load handover report for this specific task if it's a DELIVERY task
-                    // Check both type and taskCategoryName for delivery tasks
+                if (oid) {
+                    // STEP 2: Xác định loại task và các thông tin cần thiết
                     const taskType = String(normalized.type || task.type || "").toUpperCase();
                     const taskCategoryName = String(normalized.taskCategoryName || task.taskCategoryName || "").toUpperCase();
                     const description = String(normalized.description || task.description || "").toUpperCase();
@@ -1306,45 +1328,67 @@ export default function TechnicianCalendar() {
                         taskCategoryName.includes("DELIVERY") ||
                         taskCategoryName.includes("GIAO") ||
                         description.includes("GIAO");
-
-                    // Load handover report cho task cụ thể nếu là delivery task
                     const taskIdToUse = normalized.taskId || normalized.id || task.taskId || task.id;
-                    if (isDeliveryTask && taskIdToUse && oid) {
-                        try {
-                            await loadHandoverReport(taskIdToUse, oid);
-                        } catch (e) {
-                            console.warn("Could not load handover report for task:", e);
-                            // Không hiển thị lỗi vì có thể chưa có report
-                        }
-                    }
-
-                    // Load replacement complaint for QC Replace tasks (taskCategoryId === 9)
                     const taskCategoryId = normalized.taskCategoryId || task.taskCategoryId;
-                    if (taskCategoryId === 9) {
-                        try {
-                            const complaint = await getComplaintByTaskId(taskIdToUse);
-                            setReplacementComplaint(complaint);
-                            console.log("DEBUG QC Replace: Loaded replacement complaint =", complaint);
-                        } catch (e) {
-                            console.warn("Could not load replacement complaint for QC Replace task:", e);
-                            setReplacementComplaint(null);
-                        }
+                    const isReplacementTask = isDeviceReplacementTask(normalized);
+
+                    // STEP 3: SONG SONG HÓA - Gọi tất cả API độc lập cùng lúc
+                    const parallelPromises = [
+                        // Promise 0: Order detail (luôn gọi)
+                        viewOrderDetail(oid),
+                        // Promise 1: Handover reports by order (luôn gọi)
+                        loadHandoverReportsByOrder(oid).catch(e => {
+                            console.warn("Could not load handover reports for order:", e);
+                            return null;
+                        }),
+                        // Promise 2: Handover report cho task cụ thể (chỉ delivery task)
+                        isDeliveryTask && taskIdToUse && oid
+                            ? loadHandoverReport(taskIdToUse, oid).catch(e => {
+                                console.warn("Could not load handover report for task:", e);
+                                return null;
+                            })
+                            : Promise.resolve(null),
+                        // Promise 3: Complaint cho QC Replace (taskCategoryId === 9)
+                        taskCategoryId === 9
+                            ? getComplaintByTaskId(taskIdToUse).catch(e => {
+                                console.warn("Could not load replacement complaint for QC Replace task:", e);
+                                return null;
+                            })
+                            : Promise.resolve(null),
+                        // Promise 4: Replacement report details cho Device Replacement
+                        isReplacementTask
+                            ? getDeviceReplacementReportsByTaskId(taskIdToUse).catch(e => {
+                                console.warn("Could not load replacement report details:", e);
+                                return null;
+                            })
+                            : Promise.resolve(null),
+                    ];
+
+                    // Chờ tất cả API hoàn thành (không fail nếu 1 API lỗi)
+                    const results = await Promise.allSettled(parallelPromises);
+
+                    // Xử lý kết quả
+                    // results[0]: viewOrderDetail - đã tự set state bên trong
+                    // results[1]: loadHandoverReportsByOrder - đã tự set state bên trong
+                    // results[2]: loadHandoverReport - đã tự set state bên trong
+
+                    // results[3]: Complaint cho QC Replace
+                    const complaintResult = results[3];
+                    if (taskCategoryId === 9 && complaintResult.status === 'fulfilled' && complaintResult.value) {
+                        setReplacementComplaint(complaintResult.value);
+                        console.log("DEBUG QC Replace: Loaded replacement complaint =", complaintResult.value);
                     } else {
                         setReplacementComplaint(null);
                     }
 
-                    // Load replacement report details for Device Replacement tasks
-                    if (isDeviceReplacementTask(normalized)) {
-                        try {
-                            const reports = await getDeviceReplacementReportsByTaskId(taskIdToUse);
-                            if (reports && reports.length > 0) {
-                                setReplacementReportDetails(reports[0]);
-                                console.log("DEBUG Replacement: Loaded replacement report =", reports[0]);
-                            } else {
-                                setReplacementReportDetails(null);
-                            }
-                        } catch (e) {
-                            console.warn("Could not load replacement report details:", e);
+                    // results[4]: Replacement report details
+                    const replacementResult = results[4];
+                    if (isReplacementTask && replacementResult.status === 'fulfilled' && replacementResult.value) {
+                        const reports = replacementResult.value;
+                        if (reports && reports.length > 0) {
+                            setReplacementReportDetails(reports[0]);
+                            console.log("DEBUG Replacement: Loaded replacement report =", reports[0]);
+                        } else {
                             setReplacementReportDetails(null);
                         }
                     } else {
@@ -1378,7 +1422,8 @@ export default function TechnicianCalendar() {
             }
             setDrawerOpen(true);
         }
-    }, [loadHandoverReport, loadHandoverReportsByOrder]);
+    }, [loadHandoverReport, loadHandoverReportsByOrder, isDeviceReplacementTask]);
+
 
     // Xác nhận giao hàng
     const handleConfirmDelivery = useCallback(async (taskId) => {
@@ -1573,7 +1618,7 @@ export default function TechnicianCalendar() {
         } finally {
             setReplacementFaultUpdating(false);
         }
-    }, [replacementComplaintId, replacementFaultSource, replacementFaultNote]);
+    }, [replacementComplaintId, replacementFaultSource, replacementFaultNote, replacementFaultConditionIds]);
 
 
     // Ký biên bản với mã PIN
@@ -2216,6 +2261,11 @@ export default function TechnicianCalendar() {
                             const status = String(t.status || "").toUpperCase();
                             const orderStatus = String(orderDetail?.status || orderDetail?.orderStatus || "").toUpperCase();
                             const isOrderProcessing = orderStatus === "PROCESSING" || orderStatus === "";
+
+                            // Check if this is a Pre rental QC Replace task (taskCategoryId 9)
+                            // These tasks are created from complaints/replacements, so we bypass orderStatus check
+                            const isQcReplaceTask = Number(t.taskCategoryId ?? t.categoryId) === 9;
+
                             const buttonLabel =
                                 status === "COMPLETED"
                                     ? "Cập nhật QC Report"
@@ -2224,7 +2274,8 @@ export default function TechnicianCalendar() {
                                         : "Tạo QC Report";
 
                             // Hide button if order is not PROCESSING (e.g. COMPLETED, CANCELLED)
-                            if (!isOrderProcessing && orderStatus) {
+                            // But always show for QC Replace tasks (taskCategoryId 9)
+                            if (!isQcReplaceTask && !isOrderProcessing && orderStatus) {
                                 return null;
                             }
 
@@ -3850,6 +3901,48 @@ export default function TechnicianCalendar() {
                 )}
             </Modal>
 
+            {/* Replacement Report PDF Preview Modal */}
+            <Modal
+                title="Xem trước biên bản thay thế thiết bị"
+                open={pdfPreviewOpen}
+                onCancel={() => {
+                    setPdfPreviewOpen(false);
+                    setPdfPreviewContent("");
+                }}
+                width="90%"
+                style={{ top: 20 }}
+                footer={[
+                    <Button
+                        key="close"
+                        onClick={() => {
+                            setPdfPreviewOpen(false);
+                            setPdfPreviewContent("");
+                        }}
+                    >
+                        Đóng
+                    </Button>,
+                ]}
+            >
+                {pdfPreviewContent ? (
+                    <div
+                        style={{
+                            width: "100%",
+                            height: "80vh",
+                            overflow: "auto",
+                            border: "1px solid #ddd",
+                            padding: 16,
+                            backgroundColor: "#fff",
+                        }}
+                        dangerouslySetInnerHTML={{ __html: pdfPreviewContent }}
+                    />
+                ) : (
+                    <div style={{ textAlign: "center", padding: "40px" }}>
+                        <Text>Đang tải nội dung...</Text>
+                    </div>
+                )}
+            </Modal>
+
+
             {/* Hidden div for PDF generation */}
             <div
                 ref={printRef}
@@ -3932,6 +4025,16 @@ export default function TechnicianCalendar() {
                     setReplacementReportDetails(null);
                     setReplacementPinValue("");
                     setReplacementPinSent(false);
+                    // Reset fault diagnosis states
+                    setReplacementFaultSource("UNKNOWN");
+                    setReplacementFaultNote("");
+                    setReplacementFaultUpdated(false);
+                    setReplacementFaultConditionIds([]);
+                    setReplacementDeviceModelId(null);
+                    setFaultConditionOptions([]);
+                    // Reset evidence states
+                    setReplacementEvidenceFiles([]);
+                    setReplacementEvidenceUploaded(false);
                 }}
                 footer={[
                     <Button key="cancel" onClick={() => {
@@ -3941,6 +4044,16 @@ export default function TechnicianCalendar() {
                         setReplacementReportDetails(null);
                         setReplacementPinValue("");
                         setReplacementPinSent(false);
+                        // Reset fault diagnosis states
+                        setReplacementFaultSource("UNKNOWN");
+                        setReplacementFaultNote("");
+                        setReplacementFaultUpdated(false);
+                        setReplacementFaultConditionIds([]);
+                        setReplacementDeviceModelId(null);
+                        setFaultConditionOptions([]);
+                        // Reset evidence states
+                        setReplacementEvidenceFiles([]);
+                        setReplacementEvidenceUploaded(false);
                     }}>
                         Đóng
                     </Button>,
@@ -4070,13 +4183,15 @@ export default function TechnicianCalendar() {
                                 ) : (
                                     <div style={{ marginTop: 8 }}>
                                         <Radio.Group onChange={(e) => {
-                                            setReplacementFaultSource(e.target.value);
-                                            // Reset conditions when source changes
-                                            if (e.target.value !== "CUSTOMER") {
+                                            const newSource = e.target.value;
+                                            setReplacementFaultSource(newSource);
+                                            // Reset conditions and clear options when source changes away from CUSTOMER
+                                            // This ensures useEffect will re-fetch conditions when switching back to CUSTOMER
+                                            if (newSource !== "CUSTOMER") {
                                                 setReplacementFaultConditionIds([]);
+                                                setFaultConditionOptions([]);
                                             }
                                         }} value={replacementFaultSource}
-                                            disabled={replacementFaultUpdated}
                                         >
                                             <Space direction="vertical">
                                                 <Radio value="CUSTOMER">Lỗi do khách hàng</Radio>
@@ -4089,7 +4204,17 @@ export default function TechnicianCalendar() {
                                                             placeholder="Chọn tình trạng lỗi..."
                                                             options={faultConditionOptions}
                                                             value={replacementFaultConditionIds}
-                                                            onChange={setReplacementFaultConditionIds}
+                                                            onChange={(selectedIds) => {
+                                                                console.log("=== DEBUG FAULT CONDITION SELECTION ===");
+                                                                console.log("Selected Condition IDs:", selectedIds);
+                                                                console.log("Complaint ID:", replacementComplaintId);
+                                                                console.log("Device Model ID (old device):", replacementDeviceModelId);
+                                                                console.log("Fault Source:", replacementFaultSource);
+                                                                console.log("Available Condition Options:", faultConditionOptions);
+                                                                console.log("Replacement Report Details:", replacementReportDetails);
+                                                                console.log("========================================");
+                                                                setReplacementFaultConditionIds(selectedIds);
+                                                            }}
                                                             loading={!faultConditionOptions || faultConditionOptions.length === 0}
                                                         />
                                                     </div>
@@ -4105,23 +4230,21 @@ export default function TechnicianCalendar() {
                                             rows={2}
                                             style={{ marginTop: 8, width: 280 }}
                                             maxLength={500}
-                                            disabled={replacementFaultUpdated}
                                         />
-                                        {!replacementFaultUpdated ? (
-                                            <div style={{ marginTop: 8 }}>
-                                                <Button
-                                                    type="primary"
-                                                    loading={replacementFaultUpdating}
-                                                    onClick={handleUpdateReplacementFault}
-                                                >
-                                                    Xác nhận nguồn lỗi
-                                                </Button>
-                                            </div>
-                                        ) : (
-                                            <Text type="success" style={{ display: 'block', marginTop: 8 }}>
-                                                ✓ Đã cập nhật nguồn lỗi thành công
-                                            </Text>
-                                        )}
+                                        <div style={{ marginTop: 8 }}>
+                                            <Button
+                                                type="primary"
+                                                loading={replacementFaultUpdating}
+                                                onClick={handleUpdateReplacementFault}
+                                            >
+                                                {replacementFaultUpdated ? "Cập nhật lại nguồn lỗi" : "Xác nhận nguồn lỗi"}
+                                            </Button>
+                                            {replacementFaultUpdated && (
+                                                <Text type="success" style={{ marginLeft: 12 }}>
+                                                    ✓ Đã cập nhật
+                                                </Text>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                             </div>

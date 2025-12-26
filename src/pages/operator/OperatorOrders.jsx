@@ -3488,9 +3488,6 @@ export default function OperatorOrders() {
                       <Descriptions.Item label="Phí trễ">
                         {fmtVND(lateFee)}
                       </Descriptions.Item>
-                      <Descriptions.Item label="Phí phụ kiện">
-                        {fmtVND(accessoryFee)}
-                      </Descriptions.Item>
 
                       {refundAmount > 0 && (
                         <Descriptions.Item label="Số tiền cần hoàn cho khách">

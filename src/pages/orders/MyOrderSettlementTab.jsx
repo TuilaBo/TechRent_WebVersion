@@ -87,9 +87,6 @@ export default function MyOrderSettlementTab({
           <Descriptions.Item label="Phí trễ hạn">
             {formatVND(lateFee)}
           </Descriptions.Item>
-          <Descriptions.Item label="Phí phụ kiện">
-            {formatVND(accessoryFee)}
-          </Descriptions.Item>
           <Descriptions.Item label="Cọc đã dùng">
             {formatVND(depositUsed)}
           </Descriptions.Item>
@@ -272,13 +269,6 @@ export default function MyOrderSettlementTab({
                 onClick={() => handleRespondSettlement(true)}
               >
                 Chấp nhận quyết toán
-              </Button>
-              <Button
-                danger
-                loading={settlementActionLoading}
-                onClick={() => handleRespondSettlement(false)}
-              >
-                Từ chối
               </Button>
             </Space>
           </Space>
