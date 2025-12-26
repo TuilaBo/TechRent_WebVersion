@@ -43,6 +43,7 @@ import {
   MoneyCollectOutlined,
   FileTextOutlined,
   ToolOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
@@ -114,6 +115,7 @@ export default function AdminShell() {
     if (location.pathname.startsWith("/admin/conditions")) return "conditions";
     if (location.pathname.startsWith("/admin/device-terms")) return "device-terms";
     if (location.pathname.startsWith("/admin/policies")) return "policies";
+    if (location.pathname.startsWith("/admin/complaints")) return "complaints";
     if (location.pathname.startsWith("/admin/settings")) return "settings";
     return "dashboard";
   }, [location.pathname]);
@@ -263,6 +265,11 @@ export default function AdminShell() {
               key: "policies",
               icon: <FileTextOutlined />,
               label: <Link to="/admin/policies">Policy</Link>,
+            },
+            {
+              key: "complaints",
+              icon: <ExclamationCircleOutlined />,
+              label: <Link to="/admin/complaints">Khiếu nại</Link>,
             },
           ]}
         />
