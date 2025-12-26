@@ -25,13 +25,9 @@ const ADMIN_SIGN_EMAIL = "admin123@yopmail.com";
 const { RangePicker } = DatePicker;
 
 const CONTRACT_STATUS_MAP = {
-  draft: { label: "Nháp", color: "default" },
   pending_signature: { label: "Chờ khách hàng ký", color: "gold" },
   pending_admin_signature: { label: "Chờ ký (admin)", color: "orange" },
-  signed: { label: "Đã ký", color: "green" },
   active: { label: "2 bên đã ký", color: "green" },
-  expired: { label: "Hết hạn", color: "red" },
-  cancelled: { label: "Đã hủy", color: "red" },
 };
 
 /* =========================

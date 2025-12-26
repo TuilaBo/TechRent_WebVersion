@@ -37,6 +37,7 @@ import AdminContract from "./pages/admin/AdminContract.jsx";
 import AdminCondition from "./pages/admin/AdminCondition.jsx";
 import AdminTerm from "./pages/admin/AdminTerm.jsx";
 import AdminPolicy from "./pages/admin/AdminPolicy.jsx";
+import AdminComplaints from "./pages/admin/AdminComplaints.jsx";
 
 import OperatorShell from "./pages/operator/OperatorShell.jsx";
 import OperatorDashboard from "./pages/operator/OperatorDashboard.jsx";
@@ -158,6 +159,7 @@ export default function App() {
             <Route path="conditions" element={<AdminCondition />} />
             <Route path="device-terms" element={<AdminTerm />} />
             <Route path="policies" element={<AdminPolicy />} />
+            <Route path="complaints" element={<AdminComplaints />} />
           </Route>
 
           <Route
