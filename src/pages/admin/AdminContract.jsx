@@ -705,7 +705,7 @@ function revokeBlob(url) {
           <h3 style="font-size:14px;margin:12px 0 8px;text-transform:uppercase">Điều khoản phụ lục</h3>
           <div style="background:#fafafa;padding:12px;border-radius:6px;white-space:pre-wrap;font-size:12px;line-height:1.7">${formatAnnexContent(annex.annexContent)}</div>
         </section>` : ""}
-        ${annex.legalReference ? `<div style="margin-top:12px;font-size:11px;color:#666;font-style:italic">${annex.legalReference}</div>` : ""}
+
         <section style="display:flex;justify-content:space-between;gap:24px;margin-top:28px">
           <div style="flex:1;text-align:center">
             <div><b>ĐẠI DIỆN BÊN B</b></div>

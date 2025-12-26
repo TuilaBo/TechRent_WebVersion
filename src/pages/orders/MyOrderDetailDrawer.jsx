@@ -764,10 +764,11 @@ export default function MyOrderDetailDrawer({
                         if (tab.key === "settlement") {
                             return settlementInfo !== null;
                         }
-                        // Tab khiếu nại chỉ hiển thị khi đơn đang sử dụng (IN_USE)
+                        // Tab khiếu nại chỉ hiển thị khi đơn đang sử dụng (IN_USE) và CHƯA xác nhận trả hàng
                         if (tab.key === "complaints") {
                             const orderStatus = String(current?.orderStatus || "").toUpperCase();
-                            return orderStatus === "IN_USE";
+                            const isReturned = isReturnConfirmedSync(current);
+                            return orderStatus === "IN_USE" && !isReturned;
                         }
                         return true;
                     });
