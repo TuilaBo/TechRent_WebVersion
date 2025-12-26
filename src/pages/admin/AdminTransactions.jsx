@@ -646,9 +646,6 @@ export default function AdminTransactions() {
                       <Descriptions.Item label="Phí trễ">
                         {formatCurrency(lateFee)}
                       </Descriptions.Item>
-                      <Descriptions.Item label="Phí phụ kiện">
-                        {formatCurrency(accessoryFee)}
-                      </Descriptions.Item>
 
                       {refundAmount > 0 && (
                         <Descriptions.Item label="Số tiền cần hoàn cho khách">

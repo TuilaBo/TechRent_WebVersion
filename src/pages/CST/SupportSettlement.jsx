@@ -742,9 +742,6 @@ export default function SupportSettlement() {
                       <Descriptions.Item label="Phí trễ">
                         {formatCurrency(settlement.lateFee || 0)}
                       </Descriptions.Item>
-                      <Descriptions.Item label="Phí phụ kiện">
-                        {formatCurrency(settlement.accessoryFee || 0)}
-                      </Descriptions.Item>
 
                       {refundAmount > 0 && (
                         <Descriptions.Item label="Số tiền cần hoàn cho khách">
