@@ -127,6 +127,7 @@ import {
     elementToPdfBlob,
 } from "./TechnicianCalendarComponents/PDFGenerator";
 import ReplacementResolveButton from "./TechnicianCalendarComponents/ReplacementResolveButton";
+import TechnicianComplaint from "./TechnicianComplaint";
 
 
 dayjs.extend(isBetween);
@@ -3626,6 +3627,11 @@ export default function TechnicianCalendar() {
                                 />
                             );
                         })()
+                    },
+                    {
+                        key: '4',
+                        label: 'Khiếu nại',
+                        children: <TechnicianComplaint />
                     }
                 ]} />
             </Modal >
