@@ -24,6 +24,7 @@ import { ReloadOutlined, EyeOutlined, FileTextOutlined, DownloadOutlined } from 
 import dayjs from "dayjs";
 import toast from "react-hot-toast";
 import { getTransactions, getInvoiceByRentalOrderId } from "../../lib/Payment";
+import { getSettlementByOrderId } from "../../lib/settlementApi";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -104,6 +105,7 @@ export default function AdminTransactions() {
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [settlement, setSettlement] = useState(null);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -329,6 +331,20 @@ export default function AdminTransactions() {
         setSelectedInvoice(invoicesArray[0]);
       } else {
         toast.warning("Không tìm thấy hóa đơn cho đơn hàng này.");
+      }
+
+      // Fetch settlement if this is an outgoing transaction (TRANSACTION_OUT)
+      if (String(transaction.transactionType || "").toUpperCase() === "TRANSACTION_OUT" && transaction.rentalOrderId) {
+        try {
+          const settlementResponse = await getSettlementByOrderId(transaction.rentalOrderId);
+          const settlementData = settlementResponse?.data ?? settlementResponse ?? null;
+          setSettlement(settlementData);
+        } catch (error) {
+          console.warn("Could not load settlement:", error);
+          setSettlement(null);
+        }
+      } else {
+        setSettlement(null);
       }
     } catch (error) {
       console.error("Error loading invoice:", error);
@@ -579,6 +595,169 @@ export default function AdminTransactions() {
                     }}
                   />
                 </div>
+              </>
+            )}
+
+            {/* Hiển thị thông tin quyết toán cho giao dịch TIỀN RA */}
+            {settlement && (
+              <>
+                <Divider />
+                <Title level={5}>Quyết toán hiện có</Title>
+                {(() => {
+                  const totalDeposit = settlement.totalDeposit || 0;
+                  const damageFee = settlement.damageFee || 0;
+                  const lateFee = settlement.lateFee || 0;
+                  const accessoryFee = settlement.accessoryFee || 0;
+                  const finalReturnAmount = settlement.finalReturnAmount ?? settlement.finalAmount ?? 0;
+                  const refundAmount = finalReturnAmount > 0 ? finalReturnAmount : 0;
+                  const customerDueAmount = finalReturnAmount < 0 ? Math.abs(finalReturnAmount) : 0;
+
+                  return (
+                    <Descriptions bordered size="small" column={1}>
+                      <Descriptions.Item label="Tổng tiền cọc">
+                        {formatCurrency(totalDeposit)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí hư hỏng">
+                        {formatCurrency(damageFee)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí trễ">
+                        {formatCurrency(lateFee)}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Phí phụ kiện">
+                        {formatCurrency(accessoryFee)}
+                      </Descriptions.Item>
+
+                      {refundAmount > 0 && (
+                        <Descriptions.Item label="Số tiền cần hoàn cho khách">
+                          <Text strong style={{ color: "#1d4ed8" }}>
+                            {formatCurrency(refundAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      {customerDueAmount > 0 && (
+                        <Descriptions.Item label="Số tiền đền bù khách cần thanh toán thêm">
+                          <Text strong style={{ color: "#dc2626" }}>
+                            {formatCurrency(customerDueAmount)}
+                          </Text>
+                        </Descriptions.Item>
+                      )}
+
+                      <Descriptions.Item label="Trạng thái">
+                        {(() => {
+                          const stateMap = {
+                            draft: { label: "Nháp", color: "default" },
+                            pending: { label: "Chờ xử lý", color: "gold" },
+                            approved: { label: "Đã duyệt", color: "cyan" },
+                            submitted: { label: "Đã gửi", color: "blue" },
+                            issued: { label: "Đã chấp nhận", color: "green" },
+                            closed: { label: "Đã tất toán", color: "geekblue" },
+                            rejected: { label: "Đã từ chối", color: "red" },
+                          };
+                          const key = String(settlement.state || "").toLowerCase();
+                          const info = stateMap[key] || {
+                            label: settlement.state || "—",
+                            color: "default",
+                          };
+                          return <Tag color={info.color}>{info.label}</Tag>;
+                        })()}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  );
+                })()}
+
+                {/* Hiển thị chi tiết thiết bị hư hỏng */}
+                {settlement?.damageDetails && settlement.damageDetails.length > 0 && (
+                  <>
+                    <Divider />
+                    <Title level={5}>Chi tiết thiết bị hư hỏng</Title>
+                    <Table
+                      size="small"
+                      dataSource={settlement.damageDetails}
+                      pagination={false}
+                      rowKey={(record) => record.discrepancyReportId || record.refId}
+                      columns={[
+                        {
+                          title: "Thiết bị",
+                          key: "device",
+                          render: (_, record) => (
+                            <div>
+                              <div style={{ fontWeight: 500 }}>{record.deviceModelName || "—"}</div>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                SN: {record.serialNumber || "—"}
+                              </Text>
+                            </div>
+                          ),
+                        },
+                        {
+                          title: "Loại sự cố",
+                          dataIndex: "discrepancyType",
+                          key: "discrepancyType",
+                          width: 120,
+                          render: (type) => {
+                            const typeMap = {
+                              DAMAGE: { label: "Hư hỏng", color: "orange" },
+                              LOSS: { label: "Mất mát", color: "red" },
+                              OTHER: { label: "Khác", color: "default" },
+                            };
+                            const info = typeMap[type] || { label: type || "—", color: "default" };
+                            return <Tag color={info.color}>{info.label}</Tag>;
+                          },
+                        },
+                        {
+                          title: "Tình trạng",
+                          dataIndex: "conditionName",
+                          key: "conditionName",
+                          width: 180,
+                        },
+                        {
+                          title: "Phí phạt",
+                          dataIndex: "penaltyAmount",
+                          key: "penaltyAmount",
+                          width: 120,
+                          align: "right",
+                          render: (amount) => (
+                            <Text strong style={{ color: "#dc2626" }}>
+                              {formatCurrency(amount || 0)}
+                            </Text>
+                          ),
+                        },
+                        {
+                          title: "Nguồn",
+                          dataIndex: "createdFrom",
+                          key: "createdFrom",
+                          width: 120,
+                          render: (source) => {
+                            const sourceMap = {
+                              HANDOVER_REPORT: { label: "Biên bản", color: "blue" },
+                              QC_REPORT: { label: "QC Report", color: "green" },
+                            };
+                            const info = sourceMap[source] || { label: source || "—", color: "default" };
+                            return <Tag color={info.color}>{info.label}</Tag>;
+                          },
+                        },
+                      ]}
+                      summary={(pageData) => {
+                        const total = pageData.reduce((sum, record) => sum + (record.penaltyAmount || 0), 0);
+                        return (
+                          <Table.Summary fixed>
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0} colSpan={3} align="right">
+                                <Text strong>Tổng phí hư hỏng:</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={1} align="right">
+                                <Text strong style={{ color: "#dc2626", fontSize: 14 }}>
+                                  {formatCurrency(total)}
+                                </Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={2} />
+                            </Table.Summary.Row>
+                          </Table.Summary>
+                        );
+                      }}
+                    />
+                  </>
+                )}
               </>
             )}
           </div>

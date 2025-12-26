@@ -706,6 +706,8 @@ export default function AdminDashboard() {
   const rentalRevenue = revenueData?.data?.rentalRevenue ?? revenueData?.rentalRevenue ?? 0;
   const lateFeeRevenue = revenueData?.data?.lateFeeRevenue ?? revenueData?.lateFeeRevenue ?? 0;
   const damageFeeRevenue = revenueData?.data?.damageFeeRevenue ?? revenueData?.damageFeeRevenue ?? 0;
+  const depositInbound = revenueData?.data?.depositInbound ?? revenueData?.depositInbound ?? 0;
+  const depositOutbound = revenueData?.data?.depositOutbound ?? revenueData?.depositOutbound ?? 0;
 
   // Revenue breakdown for pie chart
   const revenueBreakdownData = useMemo(() => {
@@ -809,6 +811,24 @@ export default function AdminDashboard() {
                   value={damageFeeRevenue}
                   icon={<ToolOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
                   bgColor="linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%)"
+                  loading={revenueLoading}
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <RevenueCard
+                  title="Cọc nhận vào"
+                  value={depositInbound}
+                  icon={<InboxOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
+                  bgColor="linear-gradient(135deg, #13c2c2 0%, #36cfc9 100%)"
+                  loading={revenueLoading}
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <RevenueCard
+                  title="Cọc hoàn trả"
+                  value={depositOutbound}
+                  icon={<CheckCircleOutlined style={{ fontSize: 20, color: "rgba(255,255,255,0.8)" }} />}
+                  bgColor="linear-gradient(135deg, #722ed1 0%, #9254de 100%)"
                   loading={revenueLoading}
                 />
               </Col>
