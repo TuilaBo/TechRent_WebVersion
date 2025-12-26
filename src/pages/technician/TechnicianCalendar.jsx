@@ -123,9 +123,11 @@ import {
     translateHandoverStatus,
 } from "./TechnicianCalendarComponents/TechnicianCalendarUtils";
 import {
-    buildPrintableHandoverReportHtml,
     elementToPdfBlob,
 } from "./TechnicianCalendarComponents/PDFGenerator";
+import {
+    buildPrintableHandoverReportHtml,
+} from "../../lib/handoverReportPrintUtils";
 import ReplacementResolveButton from "./TechnicianCalendarComponents/ReplacementResolveButton";
 import TechnicianComplaint from "./TechnicianComplaint";
 
@@ -1646,7 +1648,25 @@ export default function TechnicianCalendar() {
                 title: "Loại",
                 dataIndex: "taskCategoryName",
                 key: "category",
-                render: (_, r) => r.taskCategoryName || TYPES[r.type]?.label || r.type,
+                render: (_, r) => {
+                    // Ưu tiên: taskCategoryName > title mapping > type mapping > type raw
+                    if (r.taskCategoryName) return r.taskCategoryName;
+
+                    // Nếu không có taskCategoryName, thử map từ taskCategoryId
+                    const categoryId = r.taskCategoryId ?? r.categoryId;
+                    const categoryMap = {
+                        1: "Pre rental QC",
+                        2: "Post rental QC",
+                        4: "Delivery",
+                        6: "Pick up Rental Order",
+                        8: "Device Replacement",
+                        9: "Pre rental QC Replace",
+                    };
+                    if (categoryId && categoryMap[categoryId]) return categoryMap[categoryId];
+
+                    // Fallback: dùng TYPES mapping hoặc type raw
+                    return TYPES[r.type]?.label || r.type || "—";
+                },
             },
             {
                 title: "Mô tả",
