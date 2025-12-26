@@ -2172,6 +2172,14 @@ export default function TechnicianCalendar() {
                     <Descriptions bordered size="small" column={1}>
                         <Descriptions.Item label="Mã nhiệm vụ">{t.taskId || t.id || "—"}</Descriptions.Item>
                         <Descriptions.Item label="Mã đơn hàng">{t.orderId || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="Trạng thái">
+                            {t.status ? (() => {
+                                const { bg, text } = getTechnicianStatusColor(t.status);
+                                return (
+                                    <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(t.status)}</Tag>
+                                );
+                            })() : "—"}
+                        </Descriptions.Item>
                         <Descriptions.Item label="Hạn chót">
                             {fmtDateTime(t.deadline || t.plannedEnd)}
                         </Descriptions.Item>
@@ -3442,8 +3450,41 @@ export default function TechnicianCalendar() {
                                         rowKey={(r) => r.id || r.taskId}
                                         columns={[
                                             { title: 'Công việc', dataIndex: 'title' },
-                                            { title: 'Loại', dataIndex: 'type', render: (t, r) => <Tag color={TYPES[t]?.color || 'blue'}>{r.taskCategoryName || TYPES[t]?.label || t}</Tag> },
-                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            {
+                                                title: 'Loại',
+                                                dataIndex: 'taskCategoryName',
+                                                key: 'category',
+                                                render: (_, r) => {
+                                                    // Ưu tiên: taskCategoryName > categoryId mapping > type mapping > type raw
+                                                    if (r.taskCategoryName) return r.taskCategoryName;
+                                                    const categoryId = r.taskCategoryId ?? r.categoryId;
+                                                    const categoryMap = {
+                                                        1: 'Pre rental QC',
+                                                        2: 'Post rental QC',
+                                                        4: 'Delivery',
+                                                        6: 'Pick up Rental Order',
+                                                        8: 'Device Replacement',
+                                                        9: 'Pre rental QC Replace',
+                                                    };
+                                                    if (categoryId && categoryMap[categoryId]) return categoryMap[categoryId];
+                                                    return TYPES[r.type]?.label || r.type || '—';
+                                                },
+                                            },
+                                            {
+                                                title: 'Trạng thái',
+                                                dataIndex: 'status',
+                                                key: 'status',
+                                                width: 140,
+                                                render: (s) => {
+                                                    const { bg, text } = getTechnicianStatusColor(s);
+                                                    return <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(s)}</Tag>;
+                                                },
+                                                filters: [
+                                                    { text: 'Đang chờ thực hiện', value: 'PENDING' },
+                                                    { text: 'Đã hoàn thành', value: 'COMPLETED' },
+                                                ],
+                                                onFilter: (value, record) => String(record.status).toUpperCase() === String(value).toUpperCase(),
+                                            },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
                                         pagination={false}
@@ -3534,9 +3575,40 @@ export default function TechnicianCalendar() {
                                         rowKey={(r) => r.id || r.taskId}
                                         columns={[
                                             { title: 'Công việc', dataIndex: 'title' },
-                                            { title: 'Loại', dataIndex: 'device' },
-
-                                            { title: 'Trạng thái', dataIndex: 'status', render: (s) => <Tag color={getTaskBadgeStatus(s)}>{fmtStatus(s)}</Tag> },
+                                            {
+                                                title: 'Loại',
+                                                dataIndex: 'taskCategoryName',
+                                                key: 'category',
+                                                render: (_, r) => {
+                                                    if (r.taskCategoryName) return r.taskCategoryName;
+                                                    const categoryId = r.taskCategoryId ?? r.categoryId;
+                                                    const categoryMap = {
+                                                        1: 'Pre rental QC',
+                                                        2: 'Post rental QC',
+                                                        4: 'Delivery',
+                                                        6: 'Pick up Rental Order',
+                                                        8: 'Device Replacement',
+                                                        9: 'Pre rental QC Replace',
+                                                    };
+                                                    if (categoryId && categoryMap[categoryId]) return categoryMap[categoryId];
+                                                    return TYPES[r.type]?.label || r.type || '—';
+                                                },
+                                            },
+                                            {
+                                                title: 'Trạng thái',
+                                                dataIndex: 'status',
+                                                key: 'status',
+                                                width: 140,
+                                                render: (s) => {
+                                                    const { bg, text } = getTechnicianStatusColor(s);
+                                                    return <Tag style={{ backgroundColor: bg, color: text, border: 'none' }}>{fmtStatus(s)}</Tag>;
+                                                },
+                                                filters: [
+                                                    { text: 'Đang chờ thực hiện', value: 'PENDING' },
+                                                    { text: 'Đã hoàn thành', value: 'COMPLETED' },
+                                                ],
+                                                onFilter: (value, record) => String(record.status).toUpperCase() === String(value).toUpperCase(),
+                                            },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
                                         pagination={false}
