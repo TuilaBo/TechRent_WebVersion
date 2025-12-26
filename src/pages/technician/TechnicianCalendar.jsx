@@ -3487,7 +3487,7 @@ export default function TechnicianCalendar() {
                                             },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
-                                        pagination={false}
+                                        pagination={{ pageSize: 5 }}
                                     />
                                 </>
                             );
@@ -3611,7 +3611,7 @@ export default function TechnicianCalendar() {
                                             },
                                             { title: '', render: (r) => <Button onClick={() => onClickTask(r)}>Chi tiết</Button> }
                                         ]}
-                                        pagination={false}
+                                        pagination={{ pageSize: 5 }}
                                     />
                                 </>
                             );

@@ -73,6 +73,11 @@ export async function listTasks(params = {}) {
     query.size = Number(params.size);
   }
 
+  // Sorting params
+  if (params.sortBy) {
+    query.sortBy = params.sortBy;
+  }
+
   const { data } = await api.get("/api/staff/tasks", { params: query });
   const payload = data?.data ?? data ?? [];
 
