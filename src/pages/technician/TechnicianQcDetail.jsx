@@ -19,7 +19,7 @@ import {
 import { getDevicesByModelId, getAvailableDevicesByModel, listDevices, getDeviceById } from "../../lib/deviceManage";
 import { getDeviceModelById } from "../../lib/deviceModelsApi";
 import { getConditionDefinitions, getDeviceConditions } from "../../lib/condition";
-import { getComplaintByReplacementTaskId } from "../../lib/complaints";
+import { getComplaintByTaskId } from "../../lib/complaints";
 import dayjs from "dayjs";
 
 const { Title, Text } = Typography;
@@ -179,7 +179,7 @@ export default function TechnicianQcDetail() {
         if (isQcReplace) {
           try {
             const taskIdForComplaint = normalizedTask.taskId || normalizedTask.id || actualTaskId;
-            const complaint = await getComplaintByReplacementTaskId(taskIdForComplaint);
+            const complaint = await getComplaintByTaskId(taskIdForComplaint);
             setReplacementComplaint(complaint);
             console.log("🔄 [DEBUG] QC Replace: Loaded replacement complaint =", complaint);
 

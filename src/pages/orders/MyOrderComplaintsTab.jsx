@@ -42,6 +42,10 @@ import {
   sendCustomerReplacementPin,
   signCustomerReplacementReport,
 } from "../../lib/complaints";
+import {
+  buildPrintableReplacementReportHtml,
+  elementToPdfBlobReplacement,
+} from "../../lib/replacementReportPrintUtils";
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -81,6 +85,8 @@ export default function MyOrderComplaintsTab({
   const [replacementReportModalOpen, setReplacementReportModalOpen] = useState(false);
   const [currentReplacementReport, setCurrentReplacementReport] = useState(null);
   const [loadingReplacementReport, setLoadingReplacementReport] = useState(false);
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewContent, setPdfPreviewContent] = useState("");
 
   // Signing flow states
   const [signingStep, setSigningStep] = useState(0); // 0: View, 1: Send PIN, 2: Enter PIN
@@ -261,6 +267,57 @@ export default function MyOrderComplaintsTab({
       setSigning(false);
     }
   }, [currentReplacementReport, pinValue, onRefreshComplaints]);
+
+  // --- PDF Handlers for Replacement Reports (Customer View) ---
+  const handleFetchAndPreviewReplacementPdf = useCallback(async () => {
+    if (!currentReplacementReport) return;
+    try {
+      const html = buildPrintableReplacementReportHtml(currentReplacementReport);
+      setPdfPreviewContent(html);
+      setPdfPreviewOpen(true);
+    } catch (error) {
+      console.error("Error generating replacement report PDF preview:", error);
+      message.error("Không thể tạo bản xem trước PDF");
+    }
+  }, [currentReplacementReport]);
+
+  const handleFetchAndDownloadReplacementPdf = useCallback(async () => {
+    if (!currentReplacementReport) return;
+    try {
+      message.loading({ content: "Đang tạo PDF...", key: "pdf_gen" });
+      const html = buildPrintableReplacementReportHtml(currentReplacementReport);
+
+      // Create a temporary container
+      const container = document.createElement("div");
+      container.innerHTML = html;
+      container.style.position = "absolute";
+      container.style.left = "-9999px";
+      container.style.top = "0";
+      container.style.width = "800px"; // Fixed width for A4-like
+      document.body.appendChild(container);
+
+      const blob = await elementToPdfBlobReplacement(container);
+      document.body.removeChild(container);
+
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `BienBanThayThe_${currentReplacementReport.replacementReportId}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        message.success({ content: "Tải PDF thành công!", key: "pdf_gen" });
+      } else {
+        message.error({ content: "Lỗi tạo PDF blob", key: "pdf_gen" });
+      }
+    } catch (error) {
+      console.error("Error downloading replacement PDF:", error);
+      message.error({ content: "Lỗi tải PDF biên bản thay thế", key: "pdf_gen" });
+    }
+  }, [currentReplacementReport]);
+
 
   // Check if customer can sign the report
   const canCustomerSign = (report) => {
@@ -478,6 +535,12 @@ export default function MyOrderComplaintsTab({
           currentReplacementReport && canCustomerSign(currentReplacementReport) ? (
             <Space>
               <Button onClick={handleCloseReplacementModal}>Đóng</Button>
+              <Button icon={<FileTextOutlined />} onClick={handleFetchAndPreviewReplacementPdf}>
+                Xem PDF
+              </Button>
+              <Button icon={<SwapOutlined />} onClick={handleFetchAndDownloadReplacementPdf}>
+                Tải PDF
+              </Button>
               {signingStep === 0 && (
                 <Button type="primary" icon={<EditOutlined />} onClick={() => setSigningStep(1)}>
                   Ký biên bản
@@ -495,7 +558,15 @@ export default function MyOrderComplaintsTab({
               )}
             </Space>
           ) : (
-            <Button onClick={handleCloseReplacementModal}>Đóng</Button>
+            <Space>
+              <Button onClick={handleCloseReplacementModal}>Đóng</Button>
+              <Button icon={<FileTextOutlined />} onClick={handleFetchAndPreviewReplacementPdf}>
+                Xem PDF
+              </Button>
+              <Button icon={<SwapOutlined />} onClick={handleFetchAndDownloadReplacementPdf}>
+                Tải PDF
+              </Button>
+            </Space>
           )
         }
         destroyOnClose
@@ -673,6 +744,39 @@ export default function MyOrderComplaintsTab({
             <div style={{ marginTop: 8 }}>Đang tải...</div>
           </div>
         )}
+      </Modal>
+
+      {/* PDF Preview Modal */}
+      <Modal
+        title="Xem trước biên bản thay thế (PDF)"
+        open={pdfPreviewOpen}
+        onCancel={() => setPdfPreviewOpen(false)}
+        width={850}
+        footer={[
+          <Button key="close" onClick={() => setPdfPreviewOpen(false)}>
+            Đóng
+          </Button>,
+          <Button
+            key="download"
+            type="primary"
+            icon={<SwapOutlined />}
+            onClick={handleFetchAndDownloadReplacementPdf}
+          >
+            Tải về
+          </Button>,
+        ]}
+      >
+        <div
+          style={{
+            width: "100%",
+            height: "70vh",
+            overflow: "auto",
+            border: "1px solid #ddd",
+            padding: 16,
+            backgroundColor: "#fff",
+          }}
+          dangerouslySetInnerHTML={{ __html: pdfPreviewContent }}
+        />
       </Modal>
     </div>
   );

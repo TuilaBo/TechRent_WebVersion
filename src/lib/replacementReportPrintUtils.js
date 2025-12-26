@@ -9,13 +9,13 @@ export { formatVND, formatDateTime, parseInfoString, translateRole };
  * Translate replacement report status to Vietnamese
  */
 export function translateReplacementStatus(status) {
-    const s = String(status || "").toUpperCase();
-    if (s === "STAFF_SIGNED") return "Nhân viên đã ký";
-    if (s === "CUSTOMER_SIGNED") return "Khách hàng đã ký";
-    if (s === "BOTH_SIGNED") return "Hai bên đã ký";
-    if (s === "PENDING") return "Chờ ký";
-    if (s === "COMPLETED") return "Hoàn thành";
-    return status || "—";
+  const s = String(status || "").toUpperCase();
+  if (s === "STAFF_SIGNED") return "Nhân viên đã ký";
+  if (s === "CUSTOMER_SIGNED") return "Khách hàng đã ký";
+  if (s === "BOTH_SIGNED") return "Hai bên đã ký";
+  if (s === "PENDING") return "Chờ ký";
+  if (s === "COMPLETED") return "Hoàn thành";
+  return status || "—";
 }
 
 /**
@@ -24,26 +24,26 @@ export function translateReplacementStatus(status) {
  * @returns {string} HTML string for PDF generation
  */
 export function buildPrintableReplacementReportHtml(report) {
-    if (!report) return "<div>Không có dữ liệu biên bản</div>";
+  if (!report) return "<div>Không có dữ liệu biên bản</div>";
 
-    // Parse customer info (format: "name - phone - email")
-    const customerInfoParts = (report.customerInfo || "").split(" - ").filter(Boolean);
-    const customerName = customerInfoParts[0] || "—";
-    const customerPhone = customerInfoParts[1] || "—";
-    const customerEmail = customerInfoParts[2] || "—";
+  // Parse customer info (format: "name - phone - email")
+  const customerInfoParts = (report.customerInfo || "").split(" - ").filter(Boolean);
+  const customerName = customerInfoParts[0] || "—";
+  const customerPhone = customerInfoParts[1] || "—";
+  const customerEmail = customerInfoParts[2] || "—";
 
-    // Parse technician info (format: "name - email")
-    const technicianInfoParts = (report.technicianInfo || "").split(" - ").filter(Boolean);
-    const technicianName = technicianInfoParts[0] || "—";
-    const technicianEmail = technicianInfoParts[1] || "—";
+  // Parse technician info (format: "name - email")
+  const technicianInfoParts = (report.technicianInfo || "").split(" - ").filter(Boolean);
+  const technicianName = technicianInfoParts[0] || "—";
+  const technicianEmail = technicianInfoParts[1] || "—";
 
-    // Separate items into old device (thu hồi) and new device (giao mới)
-    const oldDevices = (report.items || []).filter(item => item.isOldDevice);
-    const newDevices = (report.items || []).filter(item => !item.isOldDevice);
+  // Separate items into old device (thu hồi) and new device (giao mới)
+  const oldDevices = (report.items || []).filter(item => item.isOldDevice);
+  const newDevices = (report.items || []).filter(item => !item.isOldDevice);
 
-    // Build old device rows
-    const oldDeviceRows = oldDevices.length > 0
-        ? oldDevices.map((item, idx) => `
+  // Build old device rows
+  const oldDeviceRows = oldDevices.length > 0
+    ? oldDevices.map((item, idx) => `
       <tr>
         <td style="text-align:center">${idx + 1}</td>
         <td>${item.deviceModelName || "—"}</td>
@@ -51,7 +51,7 @@ export function buildPrintableReplacementReportHtml(report) {
         <td style="text-align:center">1</td>
         <td>
           ${item.evidenceUrls && item.evidenceUrls.length > 0
-                ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
+        ? `<div style="display:flex;flex-wrap:wrap;gap:4px">
                 ${item.evidenceUrls.map((url, imgIdx) => `
                   <img 
                     src="${url}" 
@@ -61,16 +61,16 @@ export function buildPrintableReplacementReportHtml(report) {
                   />
                 `).join("")}
               </div>`
-                : "—"
-            }
+        : "—"
+      }
         </td>
       </tr>
     `).join("")
-        : `<tr><td colspan="5" style="text-align:center">Không có thiết bị thu hồi</td></tr>`;
+    : `<tr><td colspan="5" style="text-align:center">Không có thiết bị thu hồi</td></tr>`;
 
-    // Build new device rows
-    const newDeviceRows = newDevices.length > 0
-        ? newDevices.map((item, idx) => `
+  // Build new device rows
+  const newDeviceRows = newDevices.length > 0
+    ? newDevices.map((item, idx) => `
       <tr>
         <td style="text-align:center">${idx + 1}</td>
         <td>${item.deviceModelName || "—"}</td>
@@ -78,9 +78,9 @@ export function buildPrintableReplacementReportHtml(report) {
         <td style="text-align:center">1</td>
       </tr>
     `).join("")
-        : `<tr><td colspan="4" style="text-align:center">Không có thiết bị thay thế</td></tr>`;
+    : `<tr><td colspan="4" style="text-align:center">Không có thiết bị thay thế</td></tr>`;
 
-    return `
+  return `
     <style>
       .print-pdf-root,
       .print-pdf-root * {
@@ -151,6 +151,34 @@ export function buildPrintableReplacementReportHtml(report) {
           ${oldDeviceRows}
         </tbody>
       </table>
+
+      ${(report.discrepancies && report.discrepancies.length > 0) ? `
+      <h3>Sự cố / Hư hại (Discrepancies)</h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">STT</th>
+            <th>Thiết bị</th>
+            <th>Serial Number</th>
+            <th>Tên lỗi</th>
+            <th>Ghi chú</th>
+            <th style="text-align:right">Phí phạt</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${report.discrepancies.map((d, idx) => `
+            <tr>
+                <td style="text-align:center">${idx + 1}</td>
+                <td>${d.deviceModelName || "—"}</td>
+                <td>${d.serialNumber || d.deviceSerialNumber || "—"}</td>
+                <td>${d.conditionName || "—"}</td>
+                <td>${d.staffNote || "—"}</td>
+                <td style="text-align:right">${formatVND(d.penaltyAmount || 0)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      ` : ""}
       
       <h3>Thiết bị thay thế (mới)</h3>
       <table>
@@ -175,8 +203,8 @@ export function buildPrintableReplacementReportHtml(report) {
           </div>
           <div>
             ${report.customerSigned
-            ? `<div style="color:#000;font-weight:600">${customerName}</div>`
-            : "(Ký, ghi rõ họ tên)"}
+      ? `<div style="color:#000;font-weight:600">${customerName}</div>`
+      : "(Ký, ghi rõ họ tên)"}
           </div>
           ${report.customerSignedAt ? `<div style="font-size:10px;color:#666">Ký lúc: ${formatDateTime(report.customerSignedAt)}</div>` : ""}
         </div>
@@ -187,8 +215,8 @@ export function buildPrintableReplacementReportHtml(report) {
           </div>
           <div>
             ${report.staffSigned
-            ? `<div style="color:#000;font-weight:600">${report.staffSignature || technicianName}</div>`
-            : "(Ký, ghi rõ họ tên)"}
+      ? `<div style="color:#000;font-weight:600">${report.staffSignature || technicianName}</div>`
+      : "(Ký, ghi rõ họ tên)"}
           </div>
           ${report.staffSignedAt ? `<div style="font-size:10px;color:#666">Ký lúc: ${formatDateTime(report.staffSignedAt)}</div>` : ""}
         </div>
@@ -202,60 +230,60 @@ export function buildPrintableReplacementReportHtml(report) {
  * (Uses same approach as handover reports)
  */
 export async function elementToPdfBlobReplacement(el) {
-    if (document.fonts && document.fonts.ready) {
-        await document.fonts.ready;
-    }
-    await new Promise(resolve => setTimeout(resolve, 500));
+  if (document.fonts && document.fonts.ready) {
+    await document.fonts.ready;
+  }
+  await new Promise(resolve => setTimeout(resolve, 500));
 
-    const html2canvas = (await import("html2canvas")).default;
-    const jsPDF = (await import("jspdf")).default;
+  const html2canvas = (await import("html2canvas")).default;
+  const jsPDF = (await import("jspdf")).default;
 
-    const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        letterRendering: true,
-        onclone: (clonedDoc) => {
-            const clonedBody = clonedDoc.body;
-            if (clonedBody) {
-                clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-                clonedBody.style.webkitFontSmoothing = "antialiased";
-                clonedBody.style.mozOsxFontSmoothing = "grayscale";
-            }
-            const allElements = clonedDoc.querySelectorAll('*');
-            allElements.forEach(elem => {
-                if (elem.style) {
-                    elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
-                }
-            });
-        },
-    });
+  const canvas = await html2canvas(el, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+    letterRendering: true,
+    onclone: (clonedDoc) => {
+      const clonedBody = clonedDoc.body;
+      if (clonedBody) {
+        clonedBody.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        clonedBody.style.webkitFontSmoothing = "antialiased";
+        clonedBody.style.mozOsxFontSmoothing = "grayscale";
+      }
+      const allElements = clonedDoc.querySelectorAll('*');
+      allElements.forEach(elem => {
+        if (elem.style) {
+          elem.style.fontFamily = "Arial, Helvetica, 'Times New Roman', 'DejaVu Sans', sans-serif";
+        }
+      });
+    },
+  });
 
-    const pdf = new jsPDF("p", "pt", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const ratio = pageWidth / canvas.width;
+  const pdf = new jsPDF("p", "pt", "a4");
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const ratio = pageWidth / canvas.width;
 
-    const pageCanvas = document.createElement("canvas");
-    const ctx = pageCanvas.getContext("2d");
+  const pageCanvas = document.createElement("canvas");
+  const ctx = pageCanvas.getContext("2d");
 
-    let renderedHeight = 0;
-    while (renderedHeight < canvas.height) {
-        const sliceHeight = Math.min(pageHeight / ratio, canvas.height - renderedHeight);
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeight;
-        ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
-        ctx.drawImage(
-            canvas,
-            0, renderedHeight, canvas.width, sliceHeight,
-            0, 0, canvas.width, sliceHeight
-        );
-        const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
-        if (renderedHeight > 0) pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
-        renderedHeight += sliceHeight;
-    }
-    return pdf.output("blob");
+  let renderedHeight = 0;
+  while (renderedHeight < canvas.height) {
+    const sliceHeight = Math.min(pageHeight / ratio, canvas.height - renderedHeight);
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeight;
+    ctx.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+    ctx.drawImage(
+      canvas,
+      0, renderedHeight, canvas.width, sliceHeight,
+      0, 0, canvas.width, sliceHeight
+    );
+    const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+    if (renderedHeight > 0) pdf.addPage();
+    pdf.addImage(imgData, "JPEG", 0, 0, pageWidth, sliceHeight * ratio);
+    renderedHeight += sliceHeight;
+  }
+  return pdf.output("blob");
 }

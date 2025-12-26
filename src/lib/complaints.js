@@ -251,12 +251,34 @@ export async function updateComplaintFault(complaintId, {
 }
 
 /**
+ * Lấy complaint trực tiếp theo taskId (dùng cho Pre QC Replace và Device Replacement)
+ * Gọi API GET /api/staff/complaints/task/{taskId}
+ * @param {number} taskId - Mã task cần tìm
+ * @returns {Promise<Object|null>} Complaint tìm được hoặc null
+ */
+export async function getComplaintByTaskId(taskId) {
+  try {
+    const { data } = await api.get(`/api/staff/complaints/task/${taskId}`);
+    return data?.data ?? data ?? null;
+  } catch (error) {
+    console.error('Error fetching complaint by task ID:', error);
+    return null;
+  }
+}
+
+/**
+ * @deprecated Use getComplaintByTaskId instead
  * Tìm complaint theo replacementTaskId (dùng cho QC Replace)
  * Gọi API GET /api/staff/complaints?status=PROCESSING và tìm complaint có replacementTaskId khớp
  * @param {number} taskId - Mã task cần tìm
  * @returns {Promise<Object|null>} Complaint tìm được hoặc null
  */
 export async function getComplaintByReplacementTaskId(taskId) {
+  // Ưu tiên sử dụng API mới
+  const result = await getComplaintByTaskId(taskId);
+  if (result) return result;
+
+  // Fallback sang logic cũ nếu API mới không trả về kết quả
   try {
     const complaints = await getStaffComplaints({ status: 'PROCESSING' });
     const matched = complaints.find(c => Number(c.replacementTaskId) === Number(taskId));
