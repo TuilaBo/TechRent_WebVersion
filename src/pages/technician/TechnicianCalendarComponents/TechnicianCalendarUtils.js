@@ -77,6 +77,7 @@ export const fmtOrderStatus = (s) => {
         DEPOSIT_PENDING: "Chờ cọc",
         PAID: "Đã thanh toán",
         PREPARING: "Đang chuẩn bị",
+        PROCESSING: "Đang xử lý",
         DELIVERING: "Đang giao",
         DELIVERED: "Đã giao",
         RENTING: "Đang thuê",
